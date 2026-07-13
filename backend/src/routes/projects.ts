@@ -5,7 +5,8 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
-import { PROJECT_NAME_RE } from "../paths.js";
+import { branchOf, git } from "../git.js";
+import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 
 const exec = promisify(execFile);
@@ -13,21 +14,33 @@ const exec = promisify(execFile);
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
 const REPO_SHORTHAND_RE = /^[\w.-]+\/[\w.-]+$/;
 
-async function git(repoDir: string, args: string[]): Promise<string> {
-  const { stdout } = await exec("git", ["-C", repoDir, ...args]);
-  return stdout.trim();
+/**
+ * Main-repo name if `dir` is a linked git worktree under REPOS_DIR, else null.
+ * A worktree's .git is a file: "gitdir: <main>/.git/worktrees/<id>".
+ */
+async function worktreeParent(dir: string): Promise<string | null> {
+  try {
+    const st = await fs.lstat(path.join(dir, ".git"));
+    if (!st.isFile()) return null;
+    const gitfile = await fs.readFile(path.join(dir, ".git"), "utf8");
+    const m = /^gitdir: (.+)\/\.git\/worktrees\//.exec(gitfile.trim());
+    return m ? path.basename(m[1]!) : null;
+  } catch {
+    return null;
+  }
 }
 
-async function branchOf(repoDir: string): Promise<string> {
+/** Absolute paths of the linked worktrees attached to the repo at `dir`. */
+async function linkedWorktrees(dir: string): Promise<string[]> {
   try {
-    // symbolic-ref also works on a fresh repo with no commits.
-    return await git(repoDir, ["symbolic-ref", "--short", "HEAD"]);
+    const out = await git(dir, ["worktree", "list", "--porcelain"]);
+    return out
+      .split("\n")
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => l.slice("worktree ".length))
+      .filter((p) => p !== dir);
   } catch {
-    try {
-      return await git(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]);
-    } catch {
-      return "?";
-    }
+    return [];
   }
 }
 
@@ -60,6 +73,7 @@ export default async function projectRoutes(app: FastifyInstance) {
         done: own.filter((s) => s.status === "done").length,
         agents: [...new Set(runningSessions.map((s) => s.agent))],
         lastSessionAt: own[0]?.createdAt ?? null,
+        worktreeOf: await worktreeParent(dir),
       });
     }
     return projects.sort((a, b) => a.name.localeCompare(b.name));
@@ -124,4 +138,106 @@ export default async function projectRoutes(app: FastifyInstance) {
       return reply.code(201).send({ name });
     },
   );
+
+  // Creates a linked git worktree for a branch as a sibling project
+  // ("<repo>--<branch>"). The branch is created from HEAD if it doesn't exist
+  // (locally or on a unique remote). Sessions run in it like any project.
+  app.post<{ Params: { name: string }; Body: { branch: string } }>(
+    "/api/projects/:name/worktrees",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["branch"],
+          additionalProperties: false,
+          properties: { branch: { type: "string", minLength: 1, maxLength: 100 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      const branch = req.body.branch.trim();
+      try {
+        await exec("git", ["check-ref-format", "--branch", branch]);
+      } catch {
+        return reply.code(400).send({ error: "invalid branch name" });
+      }
+      const wtName = `${req.params.name}--${branch.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+      if (!PROJECT_NAME_RE.test(wtName) || wtName.length > 150) {
+        return reply.code(400).send({ error: "invalid branch name" });
+      }
+      const dest = path.join(env.REPOS_DIR, wtName);
+      try {
+        await fs.access(dest);
+        return reply.code(409).send({ error: "worktree already exists" });
+      } catch {
+        // dest is free
+      }
+      try {
+        // Existing branch (local, or unique remote match via git's DWIM).
+        await exec("git", ["-C", repoDir, "worktree", "add", dest, branch], { timeout: 60_000 });
+      } catch (err) {
+        const stderr = String((err as { stderr?: string }).stderr ?? "");
+        if (stderr.includes("already checked out") || stderr.includes("already used by worktree")) {
+          return reply.code(409).send({ error: "branch is already checked out in another worktree" });
+        }
+        try {
+          // New branch from HEAD.
+          await exec("git", ["-C", repoDir, "worktree", "add", "-b", branch, dest], {
+            timeout: 60_000,
+          });
+        } catch (err2) {
+          req.log.error(err2, "worktree add failed");
+          return reply
+            .code(502)
+            .send({ error: "could not create worktree (does the repo have a commit?)" });
+        }
+      }
+      return reply.code(201).send({ name: wtName, branch });
+    },
+  );
+
+  // Deletes the repo directory on the pod and all session metadata for the
+  // project (killing any live tmux sessions first). Never touches a remote.
+  // Worktrees are unregistered from their main repo; deleting a main repo
+  // deletes its linked worktrees too (they cannot outlive its .git).
+  app.delete<{ Params: { name: string } }>("/api/projects/:name", async (req, reply) => {
+    let dir: string;
+    try {
+      dir = resolveInsideRepos(req.params.name);
+    } catch {
+      return reply.code(404).send({ error: "not found" });
+    }
+    const parent = await worktreeParent(dir);
+    if (!parent) {
+      for (const wt of await linkedWorktrees(dir)) {
+        // Only touch worktrees that live directly under REPOS_DIR as projects.
+        const wtName = path.basename(wt);
+        try {
+          const real = resolveInsideRepos(wtName);
+          if (real !== wt) continue;
+          await store.deleteProjectSessions(wtName);
+          await fs.rm(real, { recursive: true, force: true });
+        } catch {
+          // gone already, or not a project dir — leave it alone
+        }
+      }
+    }
+    await store.deleteProjectSessions(req.params.name);
+    await fs.rm(dir, { recursive: true, force: true });
+    if (parent) {
+      // Drop the stale worktree registration in the main repo, if it remains.
+      try {
+        await exec("git", ["-C", resolveInsideRepos(parent), "worktree", "prune"]);
+      } catch {
+        // main repo gone or broken — nothing to prune
+      }
+    }
+    return { name: req.params.name };
+  });
 }

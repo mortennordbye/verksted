@@ -16,7 +16,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { name: string }; Body: { agent: AgentName; title?: string } }>(
+  app.post<{
+    Params: { name: string };
+    Body: { agent: AgentName; title?: string; resume?: boolean };
+  }>(
     "/api/projects/:name/sessions",
     {
       schema: {
@@ -27,6 +30,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
           properties: {
             agent: { enum: Object.keys(store.AGENT_COMMANDS) },
             title: { type: "string", maxLength: 120 },
+            resume: { type: "boolean" },
           },
         },
       },
@@ -43,6 +47,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
         projectDir,
         req.body.agent,
         req.body.title,
+        req.body.resume,
       );
       return reply.code(201).send(session);
     },
@@ -54,9 +59,19 @@ export default async function sessionRoutes(app: FastifyInstance) {
     return session;
   });
 
-  app.delete<{ Params: { id: string } }>("/api/sessions/:id", async (req, reply) => {
-    const session = await store.endSession(req.params.id);
-    if (!session) return reply.code(404).send({ error: "not found" });
-    return session;
-  });
+  // Default: end the session but keep it in history. purge=1 also removes it
+  // from history (metadata file).
+  app.delete<{ Params: { id: string }; Querystring: { purge?: string } }>(
+    "/api/sessions/:id",
+    async (req, reply) => {
+      if (req.query.purge === "1") {
+        const ok = await store.deleteSession(req.params.id);
+        if (!ok) return reply.code(404).send({ error: "not found" });
+        return { id: req.params.id };
+      }
+      const session = await store.endSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      return session;
+    },
+  );
 }

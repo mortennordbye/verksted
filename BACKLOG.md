@@ -25,6 +25,41 @@ what unblocks it / where the code lives.
   persists in `$HOME` on the PVC.
 - **Where:** `.env.example`, `Dockerfile` (runtime stage)
 
+## Resume support for codex and antigravity sessions
+
+- **What:** The "resume the previous conversation" toggle only maps to a command
+  for claude (`claude --continue`). Codex reportedly has `codex resume --last`
+  and antigravity may have an equivalent; neither flag is verified.
+- **Why deferred:** Can't verify the flags without running those CLIs
+  authenticated in the pod.
+- **Unblocked by:** Testing the resume flag of each CLI in a pod terminal, then
+  adding it to `RESUME_COMMANDS`.
+- **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`),
+  `frontend/src/screens/Project.tsx` (picker label)
+
+## Source-control panel: commit from the UI
+
+- **What:** The session git tab shows branch + changed files (VS Code style)
+  but has no commit message box / commit button like the reference screenshot.
+- **Why deferred:** Commits are made by the agents in the terminal today;
+  a commit UI needs staging semantics (stage all vs per-file) worth designing
+  deliberately.
+- **Unblocked by:** Deciding staging behavior; then a POST endpoint wrapping
+  `git add`/`git commit` via execFile.
+- **Where:** `frontend/src/components/GitPanel.tsx`,
+  `backend/src/routes/files.ts` (`/git` endpoint)
+
+## Search panel: replace support
+
+- **What:** The session search tab searches (ripgrep) but has no Replace input
+  like the reference screenshot.
+- **Why deferred:** Write-path across many files needs confirmation UX and
+  atomicity thinking; search alone covers the common need.
+- **Unblocked by:** Designing preview/confirm flow; backend endpoint doing the
+  rewrite under `resolveInsideRepos`.
+- **Where:** `frontend/src/components/SearchPanel.tsx`,
+  `backend/src/routes/files.ts` (`/search` endpoint)
+
 ## Milestone 4 (per SPEC.md, not started)
 
 - **What:** Status hooks ("waiting" badge via Claude Code Notification/Stop

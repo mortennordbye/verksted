@@ -2,12 +2,19 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentName, Session } from "../../shared/api.js";
 import { env } from "./env.js";
+import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
 
 export const AGENT_COMMANDS: Record<AgentName, string> = {
   claude: "claude",
   antigravity: "agy",
   codex: "codex",
+};
+
+// Agents with a verified "pick up the previous conversation" flag. Conversation
+// state lives in $HOME on the PVC, so this survives pod restarts.
+export const RESUME_COMMANDS: Partial<Record<AgentName, string>> = {
+  claude: "claude --continue",
 };
 
 export const SESSION_ID_RE = /^vk-[A-Za-z0-9._-]+-\d+$/;
@@ -57,6 +64,10 @@ export async function listSessions(project?: string): Promise<Session[]> {
       m.endedAt = new Date().toISOString();
       await writeMeta(m);
     }
+    // A shell companion must not outlive its agent session.
+    if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
+      await tmux.killSession(`${m.id}-shell`);
+    }
     out.push(toSession(m, live.has(m.id)));
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -78,6 +89,7 @@ export async function createSession(
   projectDir: string,
   agent: AgentName,
   title?: string,
+  resume = false,
 ): Promise<Session> {
   const metas = await readAll();
   const seq =
@@ -92,15 +104,29 @@ export async function createSession(
     createdAt: new Date().toISOString(),
     endedAt: null,
   };
-  await tmux.newSession(meta.id, projectDir, AGENT_COMMANDS[agent]);
+  const command = (resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent];
+  await tmux.newSession(meta.id, projectDir, command, await agentEnv());
   await writeMeta(meta);
   return toSession(meta, true);
+}
+
+/** Kill any live tmux sessions for a project and remove all its metadata files. */
+export async function deleteProjectSessions(project: string): Promise<void> {
+  const live = new Set(await tmux.listSessions());
+  const metas = (await readAll()).filter((m) => m.project === project);
+  for (const m of metas) {
+    if (live.has(m.id)) await tmux.killSession(m.id);
+    if (live.has(`${m.id}-shell`)) await tmux.killSession(`${m.id}-shell`);
+    await fs.rm(metaPath(m.id), { force: true });
+  }
 }
 
 export async function endSession(id: string): Promise<Session | null> {
   const session = await getSession(id);
   if (!session) return null;
   if (session.status === "running") await tmux.killSession(id);
+  const live = new Set(await tmux.listSessions());
+  if (live.has(`${id}-shell`)) await tmux.killSession(`${id}-shell`);
   const meta: Meta = { ...session, endedAt: session.endedAt ?? new Date().toISOString() };
   await writeMeta({
     id: meta.id,
@@ -111,4 +137,15 @@ export async function endSession(id: string): Promise<Session | null> {
     endedAt: meta.endedAt,
   });
   return { ...meta, status: "done" };
+}
+
+/** End the session (tmux + shell companion) and remove it from history. */
+export async function deleteSession(id: string): Promise<boolean> {
+  const session = await getSession(id);
+  if (!session) return false;
+  if (session.status === "running") await tmux.killSession(id);
+  const live = new Set(await tmux.listSessions());
+  if (live.has(`${id}-shell`)) await tmux.killSession(`${id}-shell`);
+  await fs.rm(metaPath(id), { force: true });
+  return true;
 }

@@ -3,8 +3,12 @@
 # ---------- base: tmux + gh + agent CLIs + toolchains (shared by dev and runtime) ----------
 # python3/make/g++ also compile node-pty (no prebuilds).
 FROM node:22-slim AS base
+# Without a UTF-8 locale tmux renders every multibyte glyph as "_" (TUI borders,
+# spinners, the Claude logo). C.UTF-8 ships with the base image.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      tmux git curl wget ca-certificates openssh-client procps ripgrep less jq \
+      tmux git curl wget ca-certificates openssh-client procps ripgrep less jq vim \
       python3 python3-pip python3-venv make g++ unzip \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
@@ -29,6 +33,19 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
 
 # tmux draws no status bar; the web UI has its own.
 RUN printf 'set -g status off\n' > /etc/tmux.conf
+
+# Colored prompt (user, cwd, git branch, ❯) + color ls/grep for the shell panes.
+# System-wide so it applies regardless of what $HOME on the volume contains.
+RUN cat >> /etc/bash.bashrc <<'EOF'
+
+# verksted shell profile
+if [ -n "$PS1" ]; then
+  . /usr/lib/git-core/git-sh-prompt 2>/dev/null || true
+  PS1='\[\e[38;5;179m\]\u\[\e[0m\] \[\e[38;5;110m\]\w\[\e[38;5;245m\]$(__git_ps1 " ⎇ %s" 2>/dev/null)\[\e[0m\]\n\[\e[38;5;114m\]❯\[\e[0m\] '
+  alias ls='ls --color=auto'
+  alias grep='grep --color=auto'
+fi
+EOF
 
 # ---------- dev: compose services run this with source bind-mounted ----------
 FROM base AS dev

@@ -6,6 +6,7 @@ import { env } from "./env.js";
 import projectRoutes from "./routes/projects.js";
 import sessionRoutes from "./routes/sessions.js";
 import fileRoutes from "./routes/files.js";
+import settingsRoutes from "./routes/settings.js";
 import attachRoutes from "./ws/attach.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
@@ -15,6 +16,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(projectRoutes);
   await app.register(sessionRoutes);
   await app.register(fileRoutes);
+  await app.register(settingsRoutes);
   await app.register(attachRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));

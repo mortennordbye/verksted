@@ -28,7 +28,14 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
           ))}
         </div>
       )}
-      <span className="ml-auto flex flex-none items-center gap-1.5 rounded-full border border-run/30 bg-run/5 px-2.5 py-1 font-mono text-[11px] tracking-wider text-run">
+      <Link
+        to="/settings"
+        title="settings"
+        className="ml-auto flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+      >
+        ⚙
+      </Link>
+      <span className="flex flex-none items-center gap-1.5 rounded-full border border-run/30 bg-run/5 px-2.5 py-1 font-mono text-[11px] tracking-wider text-run">
         <span className="h-1.5 w-1.5 rounded-full bg-run" />
         wg0
       </span>

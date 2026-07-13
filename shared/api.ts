@@ -10,6 +10,8 @@ export interface Project {
   done: number;
   agents: AgentName[];
   lastSessionAt: string | null;
+  /** Name of the main repo this project is a linked git worktree of, if any. */
+  worktreeOf: string | null;
 }
 
 export interface Session {
@@ -33,6 +35,35 @@ export interface TreeNode {
 export interface FileContent {
   path: string;
   content: string;
+}
+
+export interface GitFileStatus {
+  path: string;
+  /** One-letter code, VS Code style: M, U (untracked), A, D, R, … */
+  status: string;
+}
+
+export interface GitStatus {
+  branch: string;
+  files: GitFileStatus[];
+}
+
+export interface SearchHit {
+  path: string;
+  line: number;
+  text: string;
+}
+
+export interface SettingVar {
+  key: string;
+  /** Where the variable is defined; values are write-only and never returned. */
+  source: "env" | "settings" | "unset";
+}
+
+export interface Settings {
+  /** Server config from the deployment (read-only, non-secret). */
+  server: Record<string, string>;
+  vars: SettingVar[];
 }
 
 export type WsClientMsg =
