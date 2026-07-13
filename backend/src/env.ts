@@ -17,4 +17,6 @@ export const env = {
   SESSIONS_DIR: process.env.SESSIONS_DIR ?? "/data/sessions",
   // Absolute path to the built frontend; empty in dev, where Vite serves it.
   STATIC_DIR: process.env.STATIC_DIR ?? "",
+  // Agent env vars set via the settings page persist here (on the PVC).
+  SETTINGS_FILE: process.env.SETTINGS_FILE ?? "/data/settings.json",
 };

@@ -73,9 +73,17 @@ export default function Hub() {
             >
               <div className="flex items-center gap-2.5">
                 <StatusDot running={p.running > 0} />
-                <span className="font-mono text-[15px] font-semibold">
+                <span className="min-w-0 truncate font-mono text-[15px] font-semibold">
                   <span className="font-normal text-faint">~/</span>
-                  {p.name}
+                  {p.worktreeOf ? (
+                    <>
+                      <span className="text-muted">{p.worktreeOf}</span>
+                      <span className="text-faint"> ⎇ </span>
+                      {p.name.slice(p.worktreeOf.length + 2)}
+                    </>
+                  ) : (
+                    p.name
+                  )}
                 </span>
                 <span className="ml-auto">
                   {p.running > 0 ? (

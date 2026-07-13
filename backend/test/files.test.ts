@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,15 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(root, "demo", "bin.dat"), Buffer.from([1, 2, 0, 3]));
   fs.mkdirSync(path.join(root, "other"));
   fs.writeFileSync(path.join(root, "other", "secret.txt"), "s");
+
+  // demo becomes a git repo on main with one modified + one untracked file.
+  const demo = path.join(root, "demo");
+  const git = (...args: string[]) => execFileSync("git", ["-C", demo, ...args]);
+  git("init", "-b", "main");
+  git("add", "-A");
+  git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init");
+  fs.writeFileSync(path.join(demo, "sub", "b.txt"), "world changed");
+  fs.writeFileSync(path.join(demo, "new.txt"), "untracked");
 
   // env.ts snapshots process.env at first import, so set these before the app
   // module graph loads (each vitest file has its own module registry).
@@ -78,5 +88,43 @@ describe("GET /api/projects/:name/file", () => {
   it("rejects binary files", async () => {
     const res = await app.inject({ url: "/api/projects/demo/file?path=bin.dat" });
     expect(res.statusCode).toBe(415);
+  });
+});
+
+describe("GET /api/projects/:name/git", () => {
+  it("returns branch and per-file statuses", async () => {
+    const res = await app.inject({ url: "/api/projects/demo/git" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.branch).toBe("main");
+    const byPath = Object.fromEntries(
+      body.files.map((f: { path: string; status: string }) => [f.path, f.status]),
+    );
+    expect(byPath["sub/b.txt"]).toBe("M");
+    expect(byPath["new.txt"]).toBe("U");
+  });
+
+  it("404s an unknown project", async () => {
+    const res = await app.inject({ url: "/api/projects/ghost/git" });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:name/search", () => {
+  it("finds matches with path and line number", async () => {
+    const res = await app.inject({ url: "/api/projects/demo/search?q=hello" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toContainEqual({ path: "a.txt", line: 1, text: "hello" });
+  });
+
+  it("returns [] when nothing matches", async () => {
+    const res = await app.inject({ url: "/api/projects/demo/search?q=zzz-not-there" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("404s an unknown project", async () => {
+    const res = await app.inject({ url: "/api/projects/ghost/search?q=x" });
+    expect(res.statusCode).toBe(404);
   });
 });

@@ -3,7 +3,8 @@ import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import type { TreeNode } from "../../../shared/api.js";
+import type { GitFileStatus, GitStatus, SearchHit, TreeNode } from "../../../shared/api.js";
+import { branchOf } from "../git.js";
 import { resolveInsideRepos } from "../paths.js";
 
 const exec = promisify(execFile);
@@ -109,6 +110,86 @@ export default async function fileRoutes(app: FastifyInstance) {
         return reply.code(415).send({ error: "binary file" });
       }
       return { path: req.query.path, content: buf.toString("utf8") };
+    },
+  );
+
+  app.get<{ Params: { name: string } }>(
+    "/api/projects/:name/git",
+    async (req, reply): Promise<GitStatus | void> => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      let files: GitFileStatus[] = [];
+      try {
+        const { stdout } = await exec("git", ["-C", repoDir, "status", "--porcelain=v1", "-uall"]);
+        files = stdout
+          .split("\n")
+          .filter(Boolean)
+          .map((line) => {
+            const [x, y] = [line[0]!, line[1]!];
+            let p = line.slice(3);
+            const arrow = p.indexOf(" -> ");
+            if (arrow !== -1) p = p.slice(arrow + 4);
+            p = p.replace(/^"(.*)"$/, "$1");
+            return { path: p, status: x === "?" ? "U" : y !== " " ? y : x };
+          });
+      } catch {
+        // broken git: report branch "?" and no files rather than failing
+      }
+      return { branch: await branchOf(repoDir), files };
+    },
+  );
+
+  app.get<{ Params: { name: string }; Querystring: { q: string } }>(
+    "/api/projects/:name/search",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["q"],
+          additionalProperties: false,
+          properties: { q: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      try {
+        // Literal search; rg skips .git, binaries and .gitignore'd files itself.
+        const { stdout } = await exec(
+          "rg",
+          ["--line-number", "--no-heading", "--smart-case", "--fixed-strings",
+           "--max-count", "20", "--max-columns", "250", "--max-filesize", "1M",
+           // explicit path: without it rg would read from our stdin pipe
+           "--", req.query.q, "."],
+          { cwd: repoDir, timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
+        );
+        const hits: SearchHit[] = [];
+        for (const line of stdout.split("\n")) {
+          if (hits.length >= 300) break;
+          const m = /^(.+?):(\d+):(.*)$/.exec(line);
+          if (m) {
+            hits.push({
+              path: m[1]!.replace(/^\.\//, ""),
+              line: Number(m[2]),
+              text: m[3]!.trim().slice(0, 200),
+            });
+          }
+        }
+        return hits;
+      } catch (err) {
+        if ((err as { code?: number }).code === 1) return []; // rg: no matches
+        req.log.error(err, "search failed");
+        return reply.code(500).send({ error: "search failed" });
+      }
     },
   );
 }
