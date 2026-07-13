@@ -1,0 +1,44 @@
+# Dev only. Source is bind-mounted; node_modules live in named volumes so the
+# Linux-built node-pty is never shadowed by host (macOS) modules.
+services:
+  backend:
+    build:
+      context: .
+      target: dev
+    command: npm run dev --workspace backend
+    environment:
+      # Same as prod: agent logins/configs land on the data volume and persist.
+      HOME: /data/home
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      # Host ports overridable when 8080/5173 are taken by something else.
+      - "${VK_BACKEND_PORT:-8080}:8080"
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_backend:/app/backend/node_modules
+      - node_modules_frontend:/app/frontend/node_modules
+      - data:/data
+
+  frontend:
+    build:
+      context: .
+      target: dev
+    command: npm run dev --workspace frontend
+    ports:
+      - "${VK_FRONTEND_PORT:-5173}:5173"
+    volumes:
+      - .:/app
+      - node_modules_root:/app/node_modules
+      - node_modules_backend:/app/backend/node_modules
+      - node_modules_frontend:/app/frontend/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  node_modules_root:
+  node_modules_backend:
+  node_modules_frontend:
+  data:

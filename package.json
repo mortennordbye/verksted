@@ -1,0 +1,13 @@
+{
+  "name": "verksted",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "lint": "npm run lint --workspaces",
+    "test": "npm test --workspace backend",
+    "build": "npm run build --workspaces"
+  }
+}
