@@ -64,14 +64,15 @@ export default async function projectRoutes(app: FastifyInstance) {
         // leave dirty=false; branch shows "?" below on the same kind of breakage
       }
       const own = sessions.filter((s) => s.project === e.name);
-      const runningSessions = own.filter((s) => s.status === "running");
+      const liveSessions = own.filter((s) => s.status !== "done");
       projects.push({
         name: e.name,
         branch: await branchOf(dir),
         dirty,
-        running: runningSessions.length,
+        running: own.filter((s) => s.status === "running").length,
+        waiting: own.filter((s) => s.status === "waiting").length,
         done: own.filter((s) => s.status === "done").length,
-        agents: [...new Set(runningSessions.map((s) => s.agent))],
+        agents: [...new Set(liveSessions.map((s) => s.agent))],
         lastSessionAt: own[0]?.createdAt ?? null,
         worktreeOf: await worktreeParent(dir),
       });

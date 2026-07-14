@@ -28,6 +28,9 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(reposDir, "other"));
   fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.json"), meta("vk-demo-1", "demo"));
   fs.writeFileSync(path.join(sessionsDir, "vk-other-1.json"), meta("vk-other-1", "other"));
+  // Non-metadata files living in the sessions dir must not break listing.
+  fs.writeFileSync(path.join(sessionsDir, "claude-hooks.json"), "{}");
+  fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.state"), "waiting");
 
   // env.ts snapshots process.env at first import, so set these before the app
   // module graph loads (each vitest file has its own module registry).

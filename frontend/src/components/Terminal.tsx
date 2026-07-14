@@ -3,6 +3,23 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
+/** Special keys for touch screens, where the on-screen keyboard lacks them. */
+const KEYS: { label: string; seq: string }[] = [
+  { label: "esc", seq: "\x1b" },
+  { label: "/", seq: "/" },
+  // shift+tab: claude's permission-mode toggle
+  { label: "mode", seq: "\x1b[Z" },
+  { label: "tab", seq: "\t" },
+  { label: "^C", seq: "\x03" },
+  { label: "↑", seq: "\x1b[A" },
+  { label: "↓", seq: "\x1b[B" },
+  { label: "←", seq: "\x1b[D" },
+  { label: "→", seq: "\x1b[C" },
+  // tmux scrollback (claude's own hint: "scroll with PgUp/PgDn")
+  { label: "⇞", seq: "\x1b[5~" },
+  { label: "⇟", seq: "\x1b[6~" },
+];
+
 export default function Terminal({
   sessionId,
   shell = false,
@@ -12,8 +29,17 @@ export default function Terminal({
   shell?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  // Sticky Ctrl: the next typed letter is sent as its control code.
+  const ctrlArmed = useRef(false);
+  const [ctrl, setCtrl] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
+
+  function sendInput(data: string) {
+    const ws = wsRef.current;
+    if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
+  }
 
   useEffect(() => {
     const el = ref.current!;
@@ -55,6 +81,7 @@ export default function Terminal({
       `${proto}://${location.host}/api/sessions/${sessionId}/attach?cols=${term.cols}&rows=${term.rows}${shell ? "&shell=1" : ""}`,
     );
     ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
     let unmounted = false;
 
     ws.onopen = () => setDisconnected(false);
@@ -65,6 +92,11 @@ export default function Terminal({
     };
 
     const input = term.onData((data) => {
+      if (ctrlArmed.current && /^[a-zA-Z]$/.test(data)) {
+        ctrlArmed.current = false;
+        setCtrl(false);
+        data = String.fromCharCode(data.toUpperCase().charCodeAt(0) - 64);
+      }
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
     });
 
@@ -107,16 +139,45 @@ export default function Terminal({
   }, [disconnected, attempt]);
 
   return (
-    <div className="relative min-h-0 flex-1">
-      <div ref={ref} className="absolute inset-0 p-2" />
-      {disconnected && (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="relative min-h-0 flex-1">
+        <div ref={ref} className="absolute inset-0 p-2" />
+        {disconnected && (
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 font-mono text-[13px] text-muted"
+          >
+            disconnected — tap to reconnect
+          </button>
+        )}
+      </div>
+      <div className="hidden flex-none gap-1 overflow-x-auto border-t border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
         <button
-          onClick={() => setAttempt((a) => a + 1)}
-          className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 font-mono text-[13px] text-muted"
+          // pointerdown + preventDefault so the on-screen keyboard stays up
+          onPointerDown={(e) => {
+            e.preventDefault();
+            ctrlArmed.current = !ctrlArmed.current;
+            setCtrl(ctrlArmed.current);
+          }}
+          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] ${
+            ctrl ? "border-accent bg-surface-2 text-accent" : "border-line text-muted"
+          }`}
         >
-          disconnected — tap to reconnect
+          ctrl
         </button>
-      )}
+        {KEYS.map((k) => (
+          <button
+            key={k.label}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              sendInput(k.seq);
+            }}
+            className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
