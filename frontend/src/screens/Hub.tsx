@@ -1,7 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import type { Project } from "../../../shared/api";
+import type { PodFacts, Project } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+
+function gb(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(1)}G`;
+}
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet from "../components/Sheet";
@@ -9,12 +13,14 @@ import Sheet from "../components/Sheet";
 export default function Hub() {
   const navigate = useNavigate();
   const { data: projects, refresh } = usePoll<Project[]>("/api/projects");
+  const { data: facts } = usePoll<PodFacts>("/api/facts", 30_000);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const running = projects?.reduce((n, p) => n + p.running, 0) ?? 0;
+  const waiting = projects?.reduce((n, p) => n + p.waiting, 0) ?? 0;
 
   async function addProject() {
     const value = input.trim();
@@ -53,7 +59,14 @@ export default function Hub() {
               {projects ? `${projects.length} repo${projects.length === 1 ? "" : "s"}` : "…"}
             </h1>
             <div className="text-sm text-muted">
-              {running > 0 ? `${running} session${running === 1 ? "" : "s"} running` : "all quiet"}
+              {running + waiting > 0
+                ? [
+                    running > 0 && `${running} session${running === 1 ? "" : "s"} running`,
+                    waiting > 0 && `${waiting} waiting for input`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")
+                : "all quiet"}
             </div>
           </div>
           <button
@@ -72,7 +85,7 @@ export default function Hub() {
               className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-faint"
             >
               <div className="flex items-center gap-2.5">
-                <StatusDot running={p.running > 0} />
+                <StatusDot running={p.running + p.waiting > 0} />
                 <span className="min-w-0 truncate font-mono text-[15px] font-semibold">
                   <span className="font-normal text-faint">~/</span>
                   {p.worktreeOf ? (
@@ -86,7 +99,9 @@ export default function Hub() {
                   )}
                 </span>
                 <span className="ml-auto">
-                  {p.running > 0 ? (
+                  {p.waiting > 0 ? (
+                    <StatusChip kind="wait" label={`${p.waiting} waiting`} />
+                  ) : p.running > 0 ? (
                     <StatusChip kind="run" label={`${p.running} running`} />
                   ) : (
                     <StatusChip kind="idle" label="idle" />
@@ -98,7 +113,9 @@ export default function Hub() {
                 {p.agents.map((a) => (
                   <AgentTag key={a} agent={a} />
                 ))}
-                {p.running === 0 && <span>last session {agoLabel(p.lastSessionAt)}</span>}
+                {p.running + p.waiting === 0 && (
+                  <span>last session {agoLabel(p.lastSessionAt)}</span>
+                )}
               </div>
             </button>
           ))}
@@ -114,6 +131,23 @@ export default function Hub() {
           <span>single pod</span>
           <span>{projects?.length ?? 0} projects</span>
           <span>{running} running</span>
+          {facts && (
+            <>
+              <span>
+                data {gb(facts.diskTotal - facts.diskFree)}/{gb(facts.diskTotal)}
+              </span>
+              <span>
+                mem {gb(facts.memUsed)}/{gb(facts.memTotal)}
+              </span>
+              <span>{facts.browsers} browser{facts.browsers === 1 ? "" : "s"}</span>
+              {facts.docker?.map((d) => (
+                <span key={d.type}>
+                  docker {d.type.toLowerCase()} {d.size}
+                  {d.reclaimable.startsWith("0B") ? "" : ` (${d.reclaimable.split(" ")[0]} reclaimable)`}
+                </span>
+              ))}
+            </>
+          )}
         </div>
       </main>
 

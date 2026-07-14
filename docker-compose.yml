@@ -6,9 +6,17 @@ services:
       context: .
       target: dev
     command: npm run dev --workspace backend
+    # Reaps the zombies chromium leaves behind (session browser panes).
+    init: true
     environment:
       # Same as prod: agent logins/configs land on the data volume and persist.
       HOME: /data/home
+      # Sessions inherit this from the backend process: docker commands run
+      # against the dind service. Ports published there are reachable from
+      # sessions (and the browser pane) at dind:<port>.
+      DOCKER_HOST: tcp://dind:2375
+    depends_on:
+      - dind
     env_file:
       - path: .env
         required: false
@@ -37,8 +45,20 @@ services:
     depends_on:
       - backend
 
+  # Docker daemon for the sessions (agents building/running containers).
+  # Privileged is inherent to dind; in prod this becomes a pod sidecar.
+  dind:
+    image: docker:28-dind
+    privileged: true
+    environment:
+      # Plain tcp on 2375, pod/compose-network only — no TLS cert dance.
+      DOCKER_TLS_CERTDIR: ""
+    volumes:
+      - dind_data:/var/lib/docker
+
 volumes:
   node_modules_root:
   node_modules_backend:
   node_modules_frontend:
   data:
+  dind_data:

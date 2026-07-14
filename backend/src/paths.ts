@@ -38,3 +38,19 @@ export function resolveInsideRepos(
   }
   return real;
 }
+
+/**
+ * Validate a client-supplied repo-relative path for use as a git pathspec.
+ * Unlike resolveInsideRepos it must accept paths that no longer exist on disk
+ * (staged deletions), so the check is lexical: relative and no ".." escape.
+ * Callers must run git with GIT_LITERAL_PATHSPECS=1 so pathspec magic (":/…")
+ * cannot reinterpret the value.
+ */
+export function repoRelPath(relPath: string): string {
+  if (!relPath || relPath.includes("\0") || path.isAbsolute(relPath)) {
+    throw new PathDeniedError();
+  }
+  const norm = path.normalize(relPath);
+  if (norm === ".." || norm.startsWith(".." + path.sep)) throw new PathDeniedError();
+  return norm;
+}

@@ -21,13 +21,13 @@ function SessionRow({
   onClick: () => void;
   onDelete: () => void;
 }) {
-  const running = session.status === "running";
+  const live = session.status !== "done";
   return (
     <div
       onClick={onClick}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${running ? "" : "opacity-60"}`}
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${live ? "" : "opacity-60"}`}
     >
-      <StatusDot running={running} />
+      <StatusDot running={live} />
       <div className="min-w-0 flex-1">
         <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
           {session.title}
@@ -35,10 +35,13 @@ function SessionRow({
         <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
           <AgentTag agent={session.agent} />
           <span>tmux: {session.id}</span>
-          <span>{agoLabel(running ? session.createdAt : session.endedAt)}</span>
+          <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
         </div>
       </div>
-      <StatusChip kind={running ? "run" : "idle"} label={running ? "running" : "done"} />
+      <StatusChip
+        kind={session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"}
+        label={session.status}
+      />
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -70,7 +73,7 @@ export default function Project() {
   const [branchBusy, setBranchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const active = sessions?.filter((s) => s.status === "running") ?? [];
+  const active = sessions?.filter((s) => s.status !== "done") ?? [];
   const recent = sessions?.filter((s) => s.status === "done") ?? [];
 
   async function newWorktree() {
@@ -96,7 +99,7 @@ export default function Project() {
 
   async function deleteSession(s: Session) {
     const msg =
-      s.status === "running"
+      s.status !== "done"
         ? `Kill and delete ${s.title}? The tmux session and the agent inside it end.`
         : `Delete ${s.title} from history?`;
     if (!confirm(msg)) return;

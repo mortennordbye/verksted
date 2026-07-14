@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Settings as SettingsInfo, SettingVar } from "../../../shared/api";
+import type { Settings as SettingsInfo, SettingVar, SshKey } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
@@ -141,7 +141,150 @@ export default function Settings() {
           Settings-page values persist on the data volume and take precedence over
           deployment env vars. Changes apply to sessions started afterwards.
         </div>
+
+        <SshKeys />
       </main>
+    </>
+  );
+}
+
+function SshKeys() {
+  const { data: keys, refresh } = usePoll<SshKey[]>("/api/ssh-keys", 30_000);
+  const [name, setName] = useState("id_ed25519");
+  const [material, setMaterial] = useState("");
+  const [shown, setShown] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<unknown>) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const add = () =>
+    run(async () => {
+      const key = await api<SshKey>("/api/ssh-keys", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim(), privateKey: material }),
+      });
+      setMaterial("");
+      setShown(key.name);
+    });
+
+  const generate = () =>
+    run(async () => {
+      const key = await api<SshKey>("/api/ssh-keys/generate", {
+        method: "POST",
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      setShown(key.name);
+    });
+
+  const remove = (key: SshKey) =>
+    confirm(`Delete SSH key ${key.name}? Anything authenticating with it stops working.`) &&
+    run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        SSH keys · ~/.ssh on the data volume
+      </div>
+      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      <div className="flex flex-col gap-2">
+        {(keys ?? []).map((k) => (
+          <div key={k.name} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="font-mono text-[12.5px]">{k.name}</span>
+              <span className="min-w-0 truncate font-mono text-[11px] text-faint">
+                {k.fingerprint}
+              </span>
+              <span className="ml-auto flex gap-2">
+                <button
+                  onClick={() => setShown(shown === k.name ? null : k.name)}
+                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+                >
+                  {shown === k.name ? "hide" : "public key"}
+                </button>
+                <button
+                  onClick={() => remove(k)}
+                  disabled={busy}
+                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                >
+                  delete
+                </button>
+              </span>
+            </div>
+            {shown === k.name && (
+              <div className="mt-2 flex items-start gap-2">
+                <pre className="min-w-0 flex-1 overflow-x-auto rounded-[7px] border border-line bg-surface-2 px-2.5 py-2 font-mono text-[11px] whitespace-pre-wrap break-all text-muted">
+                  {k.publicKey}
+                </pre>
+                <button
+                  onClick={() => navigator.clipboard.writeText(k.publicKey)}
+                  title="copy public key"
+                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+                >
+                  copy
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+        {keys?.length === 0 && (
+          <div className="font-mono text-[12.5px] text-faint">no keys installed</div>
+        )}
+
+        <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="key name"
+              className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+            />
+            <button
+              onClick={generate}
+              disabled={busy || !name.trim()}
+              title="generate an ed25519 keypair in the pod — the private key never leaves it"
+              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            >
+              generate in pod
+            </button>
+            <span className="text-[12px] text-faint">or paste a private key:</span>
+          </div>
+          <textarea
+            value={material}
+            onChange={(e) => setMaterial(e.target.value)}
+            placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            rows={3}
+            spellCheck={false}
+            className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] outline-none placeholder:text-faint focus:border-accent"
+          />
+          {material.trim() && (
+            <button
+              onClick={add}
+              disabled={busy || !name.trim()}
+              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            >
+              add key
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="mt-5 text-[13px] text-muted">
+        Keys are write-only: only the public half is ever shown. Sessions pick them up
+        automatically (git over ssh, plain ssh). Paste the public key into GitHub →
+        Settings → SSH keys to push over ssh.
+      </div>
     </>
   );
 }

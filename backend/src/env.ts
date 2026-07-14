@@ -11,6 +11,16 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   fail(`PORT must be a port number, got "${process.env.PORT}"`);
 }
 
+const ntfyUrl = process.env.NTFY_URL ?? "";
+if (ntfyUrl && !/^https?:\/\//.test(ntfyUrl)) {
+  fail(`NTFY_URL must be an http(s) topic URL, got "${ntfyUrl}"`);
+}
+
+const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
+if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
+  fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
+}
+
 export const env = {
   PORT: port,
   REPOS_DIR: process.env.REPOS_DIR ?? "/data/repos",
@@ -19,4 +29,10 @@ export const env = {
   STATIC_DIR: process.env.STATIC_DIR ?? "",
   // Agent env vars set via the settings page persist here (on the PVC).
   SETTINGS_FILE: process.env.SETTINGS_FILE ?? "/data/settings.json",
+  // SSH keys managed via the settings page; $HOME so ssh/git find them natively.
+  SSH_DIR: process.env.SSH_DIR ?? `${process.env.HOME ?? "/data/home"}/.ssh`,
+  // ntfy topic URL for session pushes; empty disables the notifier.
+  NTFY_URL: ntfyUrl,
+  // Where the app is reachable (over the VPN); used for ntfy click-through links.
+  PUBLIC_URL: publicUrl,
 };

@@ -37,36 +37,85 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`),
   `frontend/src/screens/Project.tsx` (picker label)
 
-## Source-control panel: commit from the UI
+## Browser pane: follow agent-created browser contexts
 
-- **What:** The session git tab shows branch + changed files (VS Code style)
-  but has no commit message box / commit button like the reference screenshot.
-- **Why deferred:** Commits are made by the agents in the terminal today;
-  a commit UI needs staging semantics (stage all vs per-file) worth designing
-  deliberately.
-- **Unblocked by:** Deciding staging behavior; then a POST endpoint wrapping
-  `git add`/`git commit` via execFile.
-- **Where:** `frontend/src/components/GitPanel.tsx`,
-  `backend/src/routes/files.ts` (`/git` endpoint)
+- **What:** The pane follows pages in the default Chromium context (covers
+  playwright `connectOverCDP` default-context use and the playwright MCP's
+  `--cdp-endpoint`). If an agent creates a new context (`browser.newContext()`),
+  its pages are not streamed.
+- **Why deferred:** Needs browser-level target discovery (CDP
+  Target.setDiscoverTargets) instead of per-context page events; the common
+  agent flows don't create contexts.
+- **Unblocked by:** Hitting the limitation in practice; then switch page
+  tracking to target events.
+- **Where:** `backend/src/browser.ts` (`launch`, `setCurrent`)
 
-## Search panel: replace support
+## Session browser for antigravity/codex agents
 
-- **What:** The session search tab searches (ripgrep) but has no Replace input
-  like the reference screenshot.
-- **Why deferred:** Write-path across many files needs confirmation UX and
-  atomicity thinking; search alone covers the common need.
-- **Unblocked by:** Designing preview/confirm flow; backend endpoint doing the
-  rewrite under `resolveInsideRepos`.
-- **Where:** `frontend/src/components/SearchPanel.tsx`,
-  `backend/src/routes/files.ts` (`/search` endpoint)
+- **What:** claude gets the session browser automatically (playwright MCP via
+  `--mcp-config`, see `claude-hooks.ts`). agy and codex only get the raw env
+  contract: connect playwright to `$VK_BROWSER_CDP`; if refused, first
+  `curl -X POST http://127.0.0.1:8080/api/sessions/$VK_SESSION_ID/browser/start`.
+  Their MCP config mechanisms are unverified.
+- **Why deferred:** Same reason as their status hooks — each CLI's config
+  mechanism needs verifying in the pod first.
+- **Unblocked by:** Confirming agy/codex MCP config formats, then generating
+  the equivalent of claude-mcp.json for them.
+- **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
+  `backend/src/sessions-store.ts` (`createSession`)
 
-## Milestone 4 (per SPEC.md, not started)
+## Docker-in-pod: dind sidecar in the Homelab manifests
 
-- **What:** Status hooks ("waiting" badge via Claude Code Notification/Stop
-  hooks), ntfy pushes, PWA manifest/service worker, real WireGuard state in the
-  top bar, hub footer pod facts (PVC usage, per-agent auth, MCP count).
-- **Why deferred:** Out of scope for this pass by agreement (milestones 1-3).
-- **Unblocked by:** Milestones 1-3 deployed and used; hook mechanism design.
-- **Where:** `backend/src/sessions-store.ts` (status derivation),
-  `frontend/src/components/TopBar.tsx` (wg chip), `frontend/src/screens/Hub.tsx`
-  (footer)
+- **What:** Sessions have the docker CLI + compose and expect a daemon at
+  DOCKER_HOST. Dev compose provides it (service `dind`); the k8s pod does not
+  yet. Needed: a `docker:28-dind` sidecar (privileged — accepted tradeoff,
+  single-user pod behind the VPN), its own PVC for /var/lib/docker, and
+  `DOCKER_HOST=tcp://127.0.0.1:2375` on the main container. Pruning is already
+  handled backend-side (`maintenance.ts`, daily). Sidecar shares the pod netns,
+  so agent-published ports appear on localhost — the session browser pane can
+  preview them directly.
+- **Why deferred:** Manifests live in the Homelab repo (milestone-1 cluster
+  work), not here.
+- **Unblocked by:** Milestone-1 deployment pass in the Homelab repo.
+- **Where:** Homelab repo `k8s/talos/apps/`; this repo `docker-compose.yml`
+  (`dind` service is the reference), `Dockerfile` (CLI install)
+
+## Milestone 4 remainder (per SPEC.md)
+
+- **What:** Real WireGuard state in the top bar (the chip is static), and
+  per-agent auth status + MCP server count in the hub footer. PWA, status
+  hooks, ntfy pushes, and the pod-facts footer (disk/mem/browsers/docker) have
+  shipped.
+- **Why deferred:** Needs the pod deployed (wg state and auth are cluster
+  facts).
+- **Unblocked by:** Milestone-1 deployment.
+- **Where:** `frontend/src/components/TopBar.tsx` (wg chip),
+  `backend/src/routes/facts.ts` (extend)
+
+## Verify claude status hooks and ntfy pushes end to end
+
+- **What:** Claude sessions launch with `--settings <hooks file>` whose hooks
+  write the per-session state file; the backend derives the "waiting" badge and
+  posts to NTFY_URL on transitions. Wiring is verified (state file → waiting
+  badge → project counts, `--settings` accepted by the CLI), but nothing has
+  confirmed claude actually fires the hooks in a real authenticated session, or
+  that ntfy receives the pushes.
+- **Why deferred:** Needs an authenticated claude session (past the trust
+  prompt) and a real ntfy topic.
+- **Unblocked by:** One authenticated session in dev or the pod: check the
+  `.state` file flips waiting/running across a turn, and set NTFY_URL to a
+  test topic and watch for the push.
+- **Where:** `backend/src/claude-hooks.ts`, `backend/src/notifier.ts`,
+  `backend/src/sessions-store.ts`
+
+## Status hooks for antigravity and codex sessions
+
+- **What:** The waiting/running state file is only written by Claude Code
+  hooks; antigravity and codex sessions never show "waiting". Agreed to ship
+  claude-only first since their hook equivalents are unverified.
+- **Why deferred:** agy/codex hook mechanisms need verifying in the pod before
+  wiring anything.
+- **Unblocked by:** Confirming each CLI's hook/notification mechanism, then
+  writing the same state file (`VK_STATE_FILE` is already the contract).
+- **Where:** `backend/src/sessions-store.ts` (`createSession`),
+  `backend/src/claude-hooks.ts` (pattern to copy)

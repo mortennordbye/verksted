@@ -22,7 +22,7 @@ export default async function attachRoutes(app: FastifyInstance) {
     async (socket, req) => {
       const { id } = req.params;
       const session = await store.getSession(id);
-      if (!session || session.status !== "running") {
+      if (!session || session.status === "done") {
         socket.close(4404, "no such session");
         return;
       }

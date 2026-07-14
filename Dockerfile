@@ -24,6 +24,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # whose install script drops it under the invoking user's home — move it to
 # /usr/local/bin because HOME is a volume mount at runtime.
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
+
+# Headless Chromium for the per-session browser pane (backend/src/browser.ts)
+# and for agents' own playwright use. Fixed path because HOME is a volume at
+# runtime; the version must match playwright-core in backend/package.json.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN npx --yes playwright@1.61.1 install --with-deps chromium
+
+# Node as PID 1 never reaps chromium's orphans (zombie build-up); tini does.
+# Separate layer so it doesn't bust the chromium download cache above.
+RUN apt-get update && apt-get install -y --no-install-recommends tini \
+    && rm -rf /var/lib/apt/lists/*
+
+# Playwright MCP server: wired to each session's browser via claude --mcp-config
+# (see backend/src/claude-hooks.ts). Connects over CDP; never launches browsers.
+RUN npm install -g @playwright/mcp@0.0.78
+
+# Docker CLI + compose for the sessions. No daemon in this image: DOCKER_HOST
+# points at a docker:dind sibling (dev: compose service "dind"; prod: a
+# privileged sidecar in the pod — see BACKLOG).
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+       > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+       docker-ce-cli docker-compose-plugin docker-buildx-plugin \
+    && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && AGY="$(command -v agy || find /root -name agy -type f 2>/dev/null | head -1)" \
     && test -n "$AGY" \
@@ -85,4 +112,5 @@ COPY --from=build /app/backend/node_modules ./backend/node_modules
 COPY --from=build /app/backend/dist ./backend/dist
 COPY --from=build /app/frontend/dist ./frontend/dist
 EXPOSE 8080
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "backend/dist/backend/src/index.js"]
