@@ -14,6 +14,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      # The backend file-search/replace routes shell out to ripgrep; the tests
+      # exercise the real binary. The runtime image installs it, so the CI runner
+      # needs it too (ubuntu-latest does not ship rg).
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: npm ci
       - run: npm run lint
       - run: npm test
