@@ -51,7 +51,7 @@ function findAuthUrl(term: Xterm): string | null {
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
   // carriage return — submits the claude prompt / a pasted sign-in code
-  { label: "⏎", seq: "\r" },
+  { label: "enter", seq: "\r" },
   { label: "/", seq: "/" },
   // shift+tab: claude's permission-mode toggle
   { label: "mode", seq: "\x1b[Z" },
