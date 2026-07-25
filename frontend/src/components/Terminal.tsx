@@ -8,37 +8,38 @@ import "@xterm/xterm/css/xterm.css";
 const AUTH_URL_RE = /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
 
 /**
- * Most recent auth URL visible in the terminal, reassembled across the wrapped
- * rows xterm splits a long URL into, or null. Only the last ~400 rows are
- * scanned — the sign-in URL is always the freshest thing on screen.
+ * Most recent auth URL visible in the terminal, or null. Only the last ~400
+ * rows are scanned — the sign-in URL is always the freshest thing on screen.
+ *
+ * A long URL is split across rows either by xterm's own wrapping or by the
+ * agent TUI hard-wrapping to the terminal width. Both cases share one tell:
+ * the row before a continuation is completely full (reaches the last column).
+ * So we join a row to the previous one whenever that previous row was full,
+ * and only insert a boundary after a row that ended short — which reassembles
+ * the URL regardless of who wrapped it. URLs contain no spaces, so the join
+ * never merges an auth URL with adjacent prose.
  */
 function findAuthUrl(term: Xterm): string | null {
   const buf = term.buffer.active;
+  const cols = term.cols;
   const start = Math.max(0, buf.length - 400);
-  const lines: string[] = [];
-  let logical = "";
+  let text = "";
   for (let i = start; i < buf.length; i++) {
     const line = buf.getLine(i);
     if (!line) continue;
-    // translateToString(false) keeps a wrapped row full-width (no gap at the
-    // wrap point) and pads the final row, so the URL ends at the first space.
-    if (line.isWrapped) logical += line.translateToString(false);
-    else {
-      lines.push(logical);
-      logical = line.translateToString(false);
-    }
+    const row = line.translateToString(true); // right-trimmed
+    text += row;
+    if (row.length < cols) text += "\n"; // row ended short — not a wrap point
   }
-  lines.push(logical);
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const m = lines[i].match(AUTH_URL_RE);
-    if (m) return m[0];
-  }
-  return null;
+  const matches = text.match(new RegExp(AUTH_URL_RE.source, "gi"));
+  return matches ? matches[matches.length - 1] : null;
 }
 
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
+  // carriage return — submits the claude prompt / a pasted sign-in code
+  { label: "⏎", seq: "\r" },
   { label: "/", seq: "/" },
   // shift+tab: claude's permission-mode toggle
   { label: "mode", seq: "\x1b[Z" },
