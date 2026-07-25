@@ -3,6 +3,39 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
+// Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
+// and copying these off a phone terminal is painful; we surface a tap target.
+const AUTH_URL_RE = /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
+
+/**
+ * Most recent auth URL visible in the terminal, reassembled across the wrapped
+ * rows xterm splits a long URL into, or null. Only the last ~400 rows are
+ * scanned — the sign-in URL is always the freshest thing on screen.
+ */
+function findAuthUrl(term: Xterm): string | null {
+  const buf = term.buffer.active;
+  const start = Math.max(0, buf.length - 400);
+  const lines: string[] = [];
+  let logical = "";
+  for (let i = start; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    if (!line) continue;
+    // translateToString(false) keeps a wrapped row full-width (no gap at the
+    // wrap point) and pads the final row, so the URL ends at the first space.
+    if (line.isWrapped) logical += line.translateToString(false);
+    else {
+      lines.push(logical);
+      logical = line.translateToString(false);
+    }
+  }
+  lines.push(logical);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = lines[i].match(AUTH_URL_RE);
+    if (m) return m[0];
+  }
+  return null;
+}
+
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
@@ -35,10 +68,46 @@ export default function Terminal({
   const [ctrl, setCtrl] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState("");
 
   function sendInput(data: string) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
+  }
+
+  // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
+  // the on-screen keyboard); send the clipboard straight in instead.
+  async function pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) sendInput(text);
+    } catch {
+      // clipboard read denied — nothing we can do without the OS prompt
+    }
+  }
+
+  async function copyAuthUrl() {
+    if (!authUrl) return;
+    try {
+      await navigator.clipboard.writeText(authUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard blocked (rare over https) — the open link still works
+    }
+  }
+
+  // Send the auth code the sign-in redirect handed back, plus Enter. A native
+  // input field is where a phone can actually paste; the terminal can't.
+  function sendCode() {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    sendInput(trimmed + "\r");
+    setCode("");
+    setAuthUrl(null);
+    setCopied(false);
   }
 
   useEffect(() => {
@@ -84,9 +153,17 @@ export default function Terminal({
     wsRef.current = ws;
     let unmounted = false;
 
+    let scanTimer: number | undefined;
     ws.onopen = () => setDisconnected(false);
-    ws.onmessage = (e) =>
+    ws.onmessage = (e) => {
       term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
+      // Debounced so we scan settled output, not every partial frame.
+      clearTimeout(scanTimer);
+      scanTimer = window.setTimeout(() => {
+        const url = findAuthUrl(term);
+        if (url) setAuthUrl(url);
+      }, 400);
+    };
     ws.onclose = () => {
       if (!unmounted) setDisconnected(true);
     };
@@ -115,6 +192,7 @@ export default function Terminal({
     return () => {
       unmounted = true;
       clearTimeout(debounce);
+      clearTimeout(scanTimer);
       ro.disconnect();
       input.dispose();
       ws.close();
@@ -151,6 +229,67 @@ export default function Terminal({
           </button>
         )}
       </div>
+      {authUrl && (
+        <div className="flex flex-none flex-col gap-1.5 border-t border-line bg-surface px-2 py-1.5 font-mono text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="flex-none text-muted">sign-in link</span>
+            <span className="min-w-0 flex-1 truncate text-muted/60">{authUrl}</span>
+            <a
+              href={authUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-none rounded-md border border-accent px-2 py-0.5 text-accent active:bg-surface-2"
+            >
+              open ↗
+            </a>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                copyAuthUrl();
+              }}
+              className="flex-none rounded-md border border-line px-2 py-0.5 text-muted active:bg-surface-2"
+            >
+              {copied ? "copied" : "copy"}
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setAuthUrl(null);
+                setCopied(false);
+              }}
+              className="flex-none rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
+              aria-label="dismiss sign-in link"
+            >
+              ✕
+            </button>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendCode();
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="paste the code here, then Send"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="send"
+              className="min-w-0 flex-1 rounded-md border border-line bg-term px-2 py-1 text-text placeholder:text-muted/50 focus:border-accent focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="flex-none rounded-md border border-accent px-3 py-1 text-accent active:bg-surface-2"
+            >
+              send
+            </button>
+          </form>
+        </div>
+      )}
       <div className="hidden flex-none gap-1 overflow-x-auto border-t border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
         <button
           // pointerdown + preventDefault so the on-screen keyboard stays up
@@ -164,6 +303,15 @@ export default function Terminal({
           }`}
         >
           ctrl
+        </button>
+        <button
+          onPointerDown={(e) => {
+            e.preventDefault();
+            pasteFromClipboard();
+          }}
+          className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
+        >
+          paste
         </button>
         {KEYS.map((k) => (
           <button
