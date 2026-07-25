@@ -76,6 +76,7 @@ export default function Terminal({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const termRef = useRef<Xterm | null>(null);
   // Sticky Ctrl: the next typed letter is sent as its control code.
   const ctrlArmed = useRef(false);
   const [ctrl, setCtrl] = useState(false);
@@ -88,6 +89,14 @@ export default function Terminal({
   function sendInput(data: string) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
+  }
+
+  // Touch-toolbar taps run on click — the dependable tap event on iOS, where
+  // onPointerDown+preventDefault can silently swallow the tap — then refocus
+  // the terminal (in the same gesture) so the on-screen keyboard stays up.
+  function tapKey(run: () => void) {
+    run();
+    termRef.current?.focus();
   }
 
   // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
@@ -157,6 +166,7 @@ export default function Terminal({
     term.loadAddon(fit);
     term.open(el);
     fit.fit();
+    termRef.current = term;
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(
@@ -210,6 +220,7 @@ export default function Terminal({
       input.dispose();
       ws.close();
       term.dispose();
+      termRef.current = null;
     };
   }, [sessionId, shell, attempt]);
 
@@ -256,17 +267,13 @@ export default function Terminal({
               open ↗
             </a>
             <button
-              onPointerDown={(e) => {
-                e.preventDefault();
-                copyAuthUrl();
-              }}
+              onClick={copyAuthUrl}
               className="flex-none rounded-md border border-line px-2 py-0.5 text-muted active:bg-surface-2"
             >
               {copied ? "copied" : "copy"}
             </button>
             <button
-              onPointerDown={(e) => {
-                e.preventDefault();
+              onClick={() => {
                 setAuthUrl(null);
                 setCopied(false);
               }}
@@ -305,12 +312,12 @@ export default function Terminal({
       )}
       <div className="hidden flex-none gap-1 overflow-x-auto border-t border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
         <button
-          // pointerdown + preventDefault so the on-screen keyboard stays up
-          onPointerDown={(e) => {
-            e.preventDefault();
-            ctrlArmed.current = !ctrlArmed.current;
-            setCtrl(ctrlArmed.current);
-          }}
+          onClick={() =>
+            tapKey(() => {
+              ctrlArmed.current = !ctrlArmed.current;
+              setCtrl(ctrlArmed.current);
+            })
+          }
           className={`rounded-md border px-2.5 py-1 font-mono text-[12px] ${
             ctrl ? "border-accent bg-surface-2 text-accent" : "border-line text-muted"
           }`}
@@ -318,10 +325,7 @@ export default function Terminal({
           ctrl
         </button>
         <button
-          onPointerDown={(e) => {
-            e.preventDefault();
-            pasteFromClipboard();
-          }}
+          onClick={() => tapKey(pasteFromClipboard)}
           className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
         >
           paste
@@ -329,10 +333,7 @@ export default function Terminal({
         {KEYS.map((k) => (
           <button
             key={k.label}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              sendInput(k.seq);
-            }}
+            onClick={() => tapKey(() => sendInput(k.seq))}
             className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
           >
             {k.label}
