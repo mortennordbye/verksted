@@ -70,6 +70,7 @@ export default function Terminal({
   const [attempt, setAttempt] = useState(0);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [code, setCode] = useState("");
 
   function sendInput(data: string) {
     const ws = wsRef.current;
@@ -96,6 +97,17 @@ export default function Terminal({
     } catch {
       // clipboard blocked (rare over https) — the open link still works
     }
+  }
+
+  // Send the auth code the sign-in redirect handed back, plus Enter. A native
+  // input field is where a phone can actually paste; the terminal can't.
+  function sendCode() {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    sendInput(trimmed + "\r");
+    setCode("");
+    setAuthUrl(null);
+    setCopied(false);
   }
 
   useEffect(() => {
@@ -218,37 +230,64 @@ export default function Terminal({
         )}
       </div>
       {authUrl && (
-        <div className="flex flex-none items-center gap-2 border-t border-line bg-surface px-2 py-1.5 font-mono text-[12px]">
-          <span className="flex-none text-muted">sign-in link</span>
-          <span className="min-w-0 flex-1 truncate text-muted/60">{authUrl}</span>
-          <a
-            href={authUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-none rounded-md border border-accent px-2 py-0.5 text-accent active:bg-surface-2"
-          >
-            open ↗
-          </a>
-          <button
-            onPointerDown={(e) => {
+        <div className="flex flex-none flex-col gap-1.5 border-t border-line bg-surface px-2 py-1.5 font-mono text-[12px]">
+          <div className="flex items-center gap-2">
+            <span className="flex-none text-muted">sign-in link</span>
+            <span className="min-w-0 flex-1 truncate text-muted/60">{authUrl}</span>
+            <a
+              href={authUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-none rounded-md border border-accent px-2 py-0.5 text-accent active:bg-surface-2"
+            >
+              open ↗
+            </a>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                copyAuthUrl();
+              }}
+              className="flex-none rounded-md border border-line px-2 py-0.5 text-muted active:bg-surface-2"
+            >
+              {copied ? "copied" : "copy"}
+            </button>
+            <button
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setAuthUrl(null);
+                setCopied(false);
+              }}
+              className="flex-none rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
+              aria-label="dismiss sign-in link"
+            >
+              ✕
+            </button>
+          </div>
+          <form
+            onSubmit={(e) => {
               e.preventDefault();
-              copyAuthUrl();
+              sendCode();
             }}
-            className="flex-none rounded-md border border-line px-2 py-0.5 text-muted active:bg-surface-2"
+            className="flex items-center gap-2"
           >
-            {copied ? "copied" : "copy"}
-          </button>
-          <button
-            onPointerDown={(e) => {
-              e.preventDefault();
-              setAuthUrl(null);
-              setCopied(false);
-            }}
-            className="flex-none rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
-            aria-label="dismiss sign-in link"
-          >
-            ✕
-          </button>
+            <input
+              type="text"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="paste the code here, then Send"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="send"
+              className="min-w-0 flex-1 rounded-md border border-line bg-term px-2 py-1 text-text placeholder:text-muted/50 focus:border-accent focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="flex-none rounded-md border border-accent px-3 py-1 text-accent active:bg-surface-2"
+            >
+              send
+            </button>
+          </form>
         </div>
       )}
       <div className="hidden flex-none gap-1 overflow-x-auto border-t border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
