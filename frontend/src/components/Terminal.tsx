@@ -7,32 +7,44 @@ import "@xterm/xterm/css/xterm.css";
 // and copying these off a phone terminal is painful; we surface a tap target.
 const AUTH_URL_RE = /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
 
+// A wrapped URL continuation row is one unbroken run of URL characters — no
+// spaces, since that's the only thing wrapping split. This is the reconnection
+// signal, and unlike "row is full" it never depends on the wrap width matching
+// the terminal's current cols (which a keyboard-driven resize can desync).
+const URL_CHARS_RE = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
+
 /**
  * Most recent auth URL visible in the terminal, or null. Only the last ~400
  * rows are scanned — the sign-in URL is always the freshest thing on screen.
  *
- * A long URL is split across rows either by xterm's own wrapping or by the
- * agent TUI hard-wrapping to the terminal width. Both cases share one tell:
- * the row before a continuation is completely full (reaches the last column).
- * So we join a row to the previous one whenever that previous row was full,
- * and only insert a boundary after a row that ended short — which reassembles
- * the URL regardless of who wrapped it. URLs contain no spaces, so the join
- * never merges an auth URL with adjacent prose.
+ * A long URL is split across rows by xterm's wrapping or by the agent TUI
+ * hard-wrapping. We find the row the URL starts on, then — only if it ran to
+ * that row's end — keep appending following rows while each is a pure run of
+ * URL characters. The first row that isn't (a blank line, prose, a prompt)
+ * ends it. No reference to cols, so a resize between render and scan can't
+ * truncate the result.
  */
 function findAuthUrl(term: Xterm): string | null {
   const buf = term.buffer.active;
-  const cols = term.cols;
   const start = Math.max(0, buf.length - 400);
-  let text = "";
+  const rows: string[] = [];
   for (let i = start; i < buf.length; i++) {
     const line = buf.getLine(i);
-    if (!line) continue;
-    const row = line.translateToString(true); // right-trimmed
-    text += row;
-    if (row.length < cols) text += "\n"; // row ended short — not a wrap point
+    rows.push(line ? line.translateToString(true) : ""); // right-trimmed
   }
-  const matches = text.match(new RegExp(AUTH_URL_RE.source, "gi"));
-  return matches ? matches[matches.length - 1] : null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const m = rows[i].match(AUTH_URL_RE);
+    if (!m) continue;
+    let url = m[0];
+    // Continuation rows exist only if the URL reached this row's end.
+    if (rows[i].indexOf(m[0]) + m[0].length === rows[i].length) {
+      for (let j = i + 1; j < rows.length && URL_CHARS_RE.test(rows[j]); j++) {
+        url += rows[j];
+      }
+    }
+    return url;
+  }
+  return null;
 }
 
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
