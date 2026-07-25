@@ -8,6 +8,7 @@ import { env } from "../env.js";
 import { branchOf, git } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
+import { agentEnv } from "../settings-store.js";
 
 const exec = promisify(execFile);
 
@@ -115,7 +116,12 @@ export default async function projectRoutes(app: FastifyInstance) {
           // dest is free
         }
         try {
-          await exec("gh", ["repo", "clone", url, dest], { timeout: 120_000 });
+          // agentEnv so GH_TOKEN from the settings page authenticates gh —
+          // without it, cloning a private repo fails as unauthenticated.
+          await exec("gh", ["repo", "clone", url, dest], {
+            timeout: 120_000,
+            env: { ...process.env, ...(await agentEnv()) },
+          });
         } catch (err) {
           req.log.error(err, "clone failed");
           return reply.code(502).send({ error: "clone failed" });
