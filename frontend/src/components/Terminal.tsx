@@ -38,6 +38,8 @@ function findAuthUrl(term: Xterm): string | null {
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
+  // carriage return — submits the claude prompt / a pasted sign-in code
+  { label: "⏎", seq: "\r" },
   { label: "/", seq: "/" },
   // shift+tab: claude's permission-mode toggle
   { label: "mode", seq: "\x1b[Z" },
