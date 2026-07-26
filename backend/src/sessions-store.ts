@@ -1,9 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentName, Session } from "../../shared/api.js";
+import type { AgentName, CreatedSession, Session } from "../../shared/api.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
+import { syncDefaultBranch } from "./git.js";
 import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
 
@@ -127,7 +128,11 @@ export async function createSession(
   agent: AgentName,
   title?: string,
   resume = false,
-): Promise<Session> {
+): Promise<CreatedSession> {
+  const extraEnv = await agentEnv();
+  // Start the agent from an up-to-date default branch. Reported back to the UI:
+  // it is a no-op on a worktree or a dirty tree, and the user has to know.
+  const sync = await syncDefaultBranch(projectDir, extraEnv);
   const metas = await readAll();
   const seq =
     metas
@@ -143,7 +148,6 @@ export async function createSession(
     cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
   };
   let command = (resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent];
-  const extraEnv = await agentEnv();
   // The session's headless browser (launched on demand, see browser.ts): the
   // agent connects playwright to VK_BROWSER_CDP to test in a browser the user
   // can watch in the UI. POST /api/sessions/$VK_SESSION_ID/browser/start boots
@@ -160,7 +164,7 @@ export async function createSession(
   await fs.rm(statePath(meta.id), { force: true });
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
   await writeMeta(meta);
-  return toSession(meta, true, null);
+  return { ...toSession(meta, true, null), sync };
 }
 
 /** Kill any live tmux sessions for a project and remove all its metadata files. */
