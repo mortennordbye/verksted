@@ -48,14 +48,49 @@ function findAuthUrl(term: Xterm): string | null {
   return null;
 }
 
+// shift+tab: claude's permission-mode toggle.
+const MODE_SEQ = "\x1b[Z";
+
+/**
+ * The permission mode as the agent prints it on its status line — the row the
+ * on-screen keyboard covers, which is the whole reason for the chip.
+ *
+ * claude renders that line as `<symbol> <indicator> on`; the indicators below
+ * are its full set, read off the CLI bundle rather than guessed. An unknown
+ * one just leaves the chip reading "mode", same as before it could detect any.
+ */
+const MODES: { re: RegExp; label: string; tone: string }[] = [
+  { re: /bypass permissions on\b/i, label: "bypass", tone: "border-fail text-fail" },
+  { re: /don['’]t ask on\b/i, label: "don't ask", tone: "border-fail text-fail" },
+  { re: /accept edits on\b/i, label: "accept edits", tone: "border-run text-run" },
+  { re: /auto mode on\b/i, label: "auto", tone: "border-run text-run" },
+  { re: /plan mode on\b/i, label: "plan", tone: "border-accent text-accent" },
+  { re: /manual mode on\b/i, label: "manual", tone: "border-line text-muted" },
+];
+
+/**
+ * Permission mode currently shown on the terminal's status line, or null when
+ * no line matches. Only the viewport is scanned — never the scrollback, where a
+ * stale mode line from an earlier screen would win.
+ */
+function findMode(term: Xterm): (typeof MODES)[number] | null {
+  const buf = term.buffer.active;
+  for (let i = buf.baseY + term.rows - 1; i >= buf.baseY; i--) {
+    const line = buf.getLine(i);
+    if (!line) continue;
+    const text = line.translateToString(true);
+    const hit = MODES.find((m) => m.re.test(text));
+    if (hit) return hit;
+  }
+  return null;
+}
+
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
   // carriage return — submits the claude prompt / a pasted sign-in code
   { label: "enter", seq: "\r" },
   { label: "/", seq: "/" },
-  // shift+tab: claude's permission-mode toggle
-  { label: "mode", seq: "\x1b[Z" },
   { label: "tab", seq: "\t" },
   { label: "^C", seq: "\x03" },
   { label: "↑", seq: "\x1b[A" },
@@ -88,6 +123,7 @@ export default function Terminal({
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
   const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
@@ -205,6 +241,7 @@ export default function Terminal({
     let unmounted = false;
 
     let scanTimer: number | undefined;
+    setMode(null);
     ws.onopen = () => setDisconnected(false);
     ws.onmessage = (e) => {
       term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
@@ -213,6 +250,10 @@ export default function Terminal({
       scanTimer = window.setTimeout(() => {
         const url = findAuthUrl(term);
         if (url) setAuthUrl(url);
+        // Sticky: while the agent works it replaces the status line with its
+        // own hints, and the mode hasn't changed just because it scrolled off.
+        const m = findMode(term);
+        if (m) setMode(m);
       }, 400);
     };
     ws.onclose = () => {
@@ -273,6 +314,17 @@ export default function Terminal({
       {/* Above the terminal, not below: on a phone the on-screen keyboard
           overlays the bottom of the box and would hide a bottom key row. */}
       <div className="hidden flex-none gap-1 overflow-x-auto border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
+        {/* First in the row so it survives the overflow scroll: this doubles as
+            the readout for a status line the keyboard covers. */}
+        <button
+          onClick={() => tapKey(() => sendInput(MODE_SEQ))}
+          title="cycle permission mode (shift+tab)"
+          className={`flex-none rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
+            mode ? mode.tone : "border-line text-muted"
+          }`}
+        >
+          {mode?.label ?? "mode"}
+        </button>
         <button
           onClick={() =>
             tapKey(() => {
