@@ -83,6 +83,12 @@ What does NOT belong:
 
 These guidelines are working if: fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+### Commits and pull requests
+
+No AI attribution anywhere in the git history or on GitHub. Commit messages carry no
+`Co-Authored-By` trailer for Claude or any other agent, and PR bodies carry no
+"Generated with Claude Code" footer or equivalent badge. Write them as the author would.
+
 ## Development
 
 Env vars: copy `.env.example` to `.env` (server config has working defaults; agent
