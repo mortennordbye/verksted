@@ -11,6 +11,7 @@ import type {
   SearchFlags,
   SearchHit,
   TreeNode,
+  UploadedFile,
 } from "../../../shared/api.js";
 import { branchOf } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
@@ -40,6 +41,28 @@ async function modifiedPaths(repoDir: string): Promise<Set<string>> {
     // not a git repo / git broke: no markers
   }
   return set;
+}
+
+// Phone uploads land here: hidden, and kept out of git so screenshots never
+// show up as untracked noise (or get committed by an agent).
+const UPLOAD_DIR = ".verksted/uploads";
+
+/**
+ * Ignore UPLOAD_DIR via .git/info/exclude — repo-local and untracked, so the
+ * project's own .gitignore is never touched. --git-common-dir resolves the real
+ * git dir, which in a linked worktree is not the local ".git" (a file there).
+ */
+async function excludeUploads(repoDir: string): Promise<void> {
+  try {
+    const { stdout } = await exec("git", ["-C", repoDir, "rev-parse", "--git-common-dir"]);
+    const file = path.resolve(repoDir, stdout.trim(), "info", "exclude");
+    const cur = await fs.readFile(file, "utf8").catch(() => "");
+    if (cur.split("\n").includes(".verksted/")) return;
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.appendFile(file, `${!cur || cur.endsWith("\n") ? "" : "\n"}.verksted/\n`);
+  } catch {
+    // not a git repo: nothing to exclude
+  }
 }
 
 async function walk(
@@ -212,6 +235,54 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (!Buffer.isBuffer(body)) return reply.code(415).send({ error: "raw body required" });
       await fs.writeFile(path.join(dir, path.basename(rel)), body);
       return { path: rel, bytes: body.length };
+    },
+  );
+
+  // Upload from a phone (a screenshot or photo, where there is no clipboard to
+  // paste from) and get back a repo-relative path to hand to the agent. Unlike
+  // PUT /file it creates its directory, never overwrites, and hides the result
+  // from git. The filename is decoration only — the stamped prefix owns
+  // uniqueness, and basename + allowlist mean nothing but a name reaches disk.
+  app.post<{ Params: { name: string }; Querystring: { filename: string } }>(
+    "/api/projects/:name/upload",
+    {
+      bodyLimit: MAX_RAW_BYTES,
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["filename"],
+          additionalProperties: false,
+          properties: { filename: { type: "string", minLength: 1, maxLength: 255 } },
+        },
+      },
+    },
+    async (req, reply): Promise<UploadedFile | void> => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return reply.code(415).send({ error: "raw body required" });
+      }
+      const safe = path
+        .basename(req.query.filename)
+        .replace(/[^\w.-]/g, "_")
+        .replace(/^\.+/, "")
+        .slice(-100);
+      // Date, time, millis: readable, and two quick taps cannot collide.
+      const stamp = new Date()
+        .toISOString()
+        .replace(/[-:]/g, "")
+        .replace("T", "-")
+        .replace(/\.(\d+)Z$/, "$1");
+      const rel = `${UPLOAD_DIR}/${stamp}-${safe}`;
+      await fs.mkdir(path.join(repoDir, UPLOAD_DIR), { recursive: true });
+      await excludeUploads(repoDir);
+      await fs.writeFile(path.join(repoDir, rel), body);
+      return { path: rel };
     },
   );
 
