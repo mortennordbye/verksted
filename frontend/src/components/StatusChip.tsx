@@ -1,6 +1,7 @@
 const styles = {
   run: "text-run border-run/30 bg-run/5",
   wait: "text-wait border-wait/30 bg-wait/5",
+  fail: "text-fail border-fail/30 bg-fail/5",
   idle: "text-muted border-line",
 } as const;
 
