@@ -153,25 +153,31 @@ export default function Terminal({
   }
 
   // A phone has no clipboard route for screenshots, so the picker (photo
-  // library / camera) stands in for pasting: upload the image, then type its
-  // path into the prompt so the agent can read it. No Enter — the user writes
-  // the rest of the message around it.
-  async function sendImage(f: File) {
+  // library / camera) stands in for pasting: upload the images, then type their
+  // paths into the prompt so the agent can read them. No Enter — the user writes
+  // the rest of the message around them. One request per image, in the order
+  // they were picked; whatever landed gets typed even if a later one fails.
+  async function sendImages(files: File[]) {
     setUpload("busy");
-    try {
-      const res = await fetch(
-        `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(f.name)}`,
-        { method: "POST", headers: { "content-type": "application/octet-stream" }, body: f },
-      );
-      if (!res.ok) throw new Error(String(res.status));
-      const { path } = (await res.json()) as UploadedFile;
-      sendInput(`${path} `);
-      setUpload("idle");
-      // Bring the on-screen keyboard back; the picker took the focus away.
-      termRef.current?.focus();
-    } catch {
-      setUpload("failed");
+    const paths: string[] = [];
+    let failed = false;
+    for (const f of files) {
+      try {
+        const res = await fetch(
+          `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(f.name)}`,
+          { method: "POST", headers: { "content-type": "application/octet-stream" }, body: f },
+        );
+        if (!res.ok) throw new Error(String(res.status));
+        const { path } = (await res.json()) as UploadedFile;
+        paths.push(path);
+      } catch {
+        failed = true;
+      }
     }
+    if (paths.length) sendInput(`${paths.join(" ")} `);
+    setUpload(failed ? "failed" : "idle");
+    // Bring the on-screen keyboard back; the picker took the focus away.
+    if (!failed) termRef.current?.focus();
   }
 
   async function copyAuthUrl() {
@@ -357,11 +363,12 @@ export default function Terminal({
           ref={picker}
           type="file"
           accept="image/*"
+          multiple
           className="hidden"
           onChange={(e) => {
-            const f = e.target.files?.[0];
+            const files = Array.from(e.target.files ?? []);
             e.target.value = "";
-            if (f) void sendImage(f);
+            if (files.length) void sendImages(files);
           }}
         />
         {KEYS.map((k) => (
