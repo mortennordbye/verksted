@@ -270,6 +270,58 @@ export default function Terminal({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* Above the terminal, not below: on a phone the on-screen keyboard
+          overlays the bottom of the box and would hide a bottom key row. */}
+      <div className="hidden flex-none gap-1 overflow-x-auto border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
+        <button
+          onClick={() =>
+            tapKey(() => {
+              ctrlArmed.current = !ctrlArmed.current;
+              setCtrl(ctrlArmed.current);
+            })
+          }
+          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] ${
+            ctrl ? "border-accent bg-surface-2 text-accent" : "border-line text-muted"
+          }`}
+        >
+          ctrl
+        </button>
+        <button
+          onClick={() => tapKey(pasteFromClipboard)}
+          className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
+        >
+          paste
+        </button>
+        <button
+          onClick={() => picker.current?.click()}
+          disabled={upload === "busy"}
+          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
+            upload === "failed" ? "border-wait text-wait" : "border-line text-muted"
+          }`}
+        >
+          {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void sendImage(f);
+          }}
+        />
+        {KEYS.map((k) => (
+          <button
+            key={k.label}
+            onClick={() => tapKey(() => sendInput(k.seq))}
+            className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
       <div className="relative min-h-0 flex-1">
         <div ref={ref} className="absolute inset-0 p-2" />
         {disconnected && (
@@ -338,56 +390,6 @@ export default function Terminal({
           </form>
         </div>
       )}
-      <div className="hidden flex-none gap-1 overflow-x-auto border-t border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
-        <button
-          onClick={() =>
-            tapKey(() => {
-              ctrlArmed.current = !ctrlArmed.current;
-              setCtrl(ctrlArmed.current);
-            })
-          }
-          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] ${
-            ctrl ? "border-accent bg-surface-2 text-accent" : "border-line text-muted"
-          }`}
-        >
-          ctrl
-        </button>
-        <button
-          onClick={() => tapKey(pasteFromClipboard)}
-          className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
-        >
-          paste
-        </button>
-        <button
-          onClick={() => picker.current?.click()}
-          disabled={upload === "busy"}
-          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
-            upload === "failed" ? "border-wait text-wait" : "border-line text-muted"
-          }`}
-        >
-          {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void sendImage(f);
-          }}
-        />
-        {KEYS.map((k) => (
-          <button
-            key={k.label}
-            onClick={() => tapKey(() => sendInput(k.seq))}
-            className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
-          >
-            {k.label}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
