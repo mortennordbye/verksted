@@ -59,3 +59,10 @@ body {
     animation: none;
   }
 }
+
+/* "Has room for the side-by-side session layout." Width alone isn't enough: a
+   landscape phone is ~874px wide but only ~400px tall, so a width-only
+   breakpoint hands it the desktop layout — a 250px file sidebar and a terminal
+   sized `--vvh - 200px`, which the on-screen keyboard collapses to nothing.
+   540px of height clears every phone in landscape and no tablet. */
+@custom-variant desk (@media (min-width: 800px) and (min-height: 540px));
