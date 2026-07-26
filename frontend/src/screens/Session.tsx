@@ -312,7 +312,7 @@ export default function Session() {
                     className={`${active === "agent" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 min-[800px]:flex ${shell || browser ? "min-[800px]:flex-none" : ""}`}
                     style={shell || browser ? { flexBasis: `${ratio}%` } : undefined}
                   >
-                    <Terminal sessionId={session.id} />
+                    <Terminal sessionId={session.id} project={session.project} />
                   </div>
                   {(shell || browser) && (
                     <div
@@ -338,7 +338,7 @@ export default function Session() {
                     <div
                       className={`${active === "shell" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 min-[800px]:flex`}
                     >
-                      <Terminal sessionId={session.id} shell />
+                      <Terminal sessionId={session.id} project={session.project} shell />
                     </div>
                   )}
                   {browser && (
