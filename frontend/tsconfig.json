@@ -12,5 +12,7 @@
     "verbatimModuleSyntax": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "../shared", "vite.config.ts"]
+  "include": ["src", "../shared", "vite.config.ts"],
+  // Worker globals, checked by tsconfig.sw.json instead.
+  "exclude": ["src/sw.ts"]
 }

@@ -107,21 +107,30 @@ what unblocks it / where the code lives.
 - **Where:** `frontend/src/components/TopBar.tsx` (wg chip),
   `backend/src/routes/facts.ts` (extend)
 
-## Verify claude status hooks and ntfy pushes end to end
+## Verify claude status hooks and the notification channels end to end
 
 - **What:** Claude sessions launch with `--settings <hooks file>` whose hooks
   write the per-session state file; the backend derives the "waiting" badge and
-  posts to NTFY_URL on transitions. Wiring is verified (state file → waiting
-  badge → project counts, `--settings` accepted by the CLI), but nothing has
-  confirmed claude actually fires the hooks in a real authenticated session, or
-  that ntfy receives the pushes.
+  notifies on transitions. Wiring is verified (state file → waiting badge →
+  project counts, `--settings` accepted by the CLI), but nothing has confirmed
+  claude actually fires the hooks in a real authenticated session, or that
+  either channel delivers.
 - **Why deferred:** Needs an authenticated claude session (past the trust
-  prompt) and a real ntfy topic.
+  prompt), a real ntfy topic, and — for web push — an iPhone with the app
+  installed to the Home Screen. Web push additionally requires the app to be
+  served over https: on a plain-http origin the browser registers no service
+  worker at all, so the settings page will report "unavailable" no matter what
+  the backend does.
 - **Unblocked by:** One authenticated session in dev or the pod: check the
-  `.state` file flips waiting/running across a turn, and set NTFY_URL to a
-  test topic and watch for the push.
+  `.state` file flips waiting/running across a turn; set NTFY_URL to a test
+  topic; and on the phone, enable notifications in settings, use "send test",
+  then confirm a real waiting/finished transition arrives and its tap opens the
+  session. The subscribe/unsubscribe/key surface has automated coverage
+  (`backend/test/push.test.ts`); actual delivery through Apple's push service
+  does not.
 - **Where:** `backend/src/claude-hooks.ts`, `backend/src/notifier.ts`,
-  `backend/src/sessions-store.ts`
+  `backend/src/push-store.ts`, `backend/src/sessions-store.ts`,
+  `frontend/src/sw.ts`, `frontend/src/screens/Settings.tsx` (`Notifications`)
 
 ## Status hooks for antigravity and codex sessions
 

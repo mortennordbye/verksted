@@ -58,8 +58,10 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && chmod +x /usr/local/bin/agy \
     && /usr/local/bin/agy --version
 
-# tmux draws no status bar; the web UI has its own.
-RUN printf 'set -g status off\n' > /etc/tmux.conf
+# tmux draws no status bar; the web UI has its own. Its scrollback is also the
+# only one the browser terminal has (see tmux.ts scrollHistory), and 2000 lines
+# — the default — is a short afternoon of agent output.
+RUN printf 'set -g status off\nset -g history-limit 20000\n' > /etc/tmux.conf
 
 # Colored prompt (user, cwd, git branch, ❯) + color ls/grep for the shell panes.
 # System-wide so it applies regardless of what $HOME on the volume contains.

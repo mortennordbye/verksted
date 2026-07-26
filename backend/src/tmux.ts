@@ -36,6 +36,44 @@ export async function newSession(
   await exec("tmux", ["send-keys", "-t", name, command, "Enter"]);
 }
 
+/**
+ * Scroll a pane's scrollback. tmux's history is the only scrollback there is:
+ * `tmux attach` runs in the alternate screen, so the browser terminal keeps
+ * none of its own and would turn scroll gestures into arrow keys instead.
+ * Positive lines go back in history, negative forward. "-e" leaves copy mode
+ * on its own once the view is back at the bottom.
+ */
+export async function scrollHistory(name: string, lines: number): Promise<void> {
+  // Pane target, so the session part needs the trailing ":" — bare "=name" is
+  // read as a pane name and never resolves. "=" still pins the exact session.
+  const target = `=${name}:`;
+  // Bounded: the caller queues keystrokes behind these, so a wedged tmux must
+  // not hold the session's input hostage.
+  await exec("tmux", ["copy-mode", "-e", "-t", target], { timeout: 3000 });
+  await exec(
+    "tmux",
+    [
+      "send-keys",
+      "-t",
+      target,
+      "-X",
+      "-N",
+      String(Math.abs(lines)),
+      lines > 0 ? "scroll-up" : "scroll-down",
+    ],
+    { timeout: 3000 },
+  );
+}
+
+/** Return a scrolled pane to the live view; a no-op when it isn't in copy mode. */
+export async function exitCopyMode(name: string): Promise<void> {
+  try {
+    await exec("tmux", ["send-keys", "-t", `=${name}:`, "-X", "cancel"], { timeout: 3000 });
+  } catch {
+    // "not in a mode" — the pane was already live (tmux's own -e exit).
+  }
+}
+
 export async function killSession(name: string): Promise<void> {
   // "=" pins tmux to the exact name — never prefix-match e.g. a -shell sibling.
   await exec("tmux", ["kill-session", "-t", `=${name}`]);

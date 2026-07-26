@@ -7,13 +7,14 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // Home-screen install on iOS. The service worker only precaches the built
-    // assets; navigations fall back to index.html but /api (REST + websockets)
-    // must always hit the network.
-    // "prompt": a new build waits until the user taps reload (see
-    // UpdateBanner) — an auto-reload would yank the terminal out from under
-    // whoever is typing in it.
+    // Home-screen install on iOS, and the push notifications that come with
+    // it. The worker itself is src/sw.ts (injectManifest rather than a
+    // generated one — a generated worker cannot carry a push handler); it
+    // precaches the built assets and holds the update-on-tap behaviour.
     VitePWA({
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
       registerType: "prompt",
       includeAssets: ["apple-touch-icon.png"],
       manifest: {
@@ -28,8 +29,7 @@ export default defineConfig({
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
         ],
       },
-      workbox: {
-        navigateFallbackDenylist: [/^\/api\//],
+      injectManifest: {
         // The hljs + icon chunks exceed the 2 MiB precache default.
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },

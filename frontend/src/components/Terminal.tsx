@@ -97,10 +97,20 @@ const KEYS: { label: string; seq: string }[] = [
   { label: "↓", seq: "\x1b[B" },
   { label: "←", seq: "\x1b[D" },
   { label: "→", seq: "\x1b[C" },
-  // tmux scrollback (claude's own hint: "scroll with PgUp/PgDn")
-  { label: "⇞", seq: "\x1b[5~" },
-  { label: "⇟", seq: "\x1b[6~" },
 ];
+
+// Toolbar key styling. Tap feedback matters more here than it looks: on a phone
+// these keys are the whole keyboard, and a press that leaves no mark reads as a
+// press that didn't land. :active covers the finger-down moment; `flash` holds
+// the same look for a moment after release, which is what makes a quick tap
+// visible at all.
+const KEY = "flex-none rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors";
+const KEY_PRESS = "active:border-accent active:bg-accent/25 active:text-accent";
+const KEY_IDLE = "border-line text-muted";
+const KEY_LIT = "border-accent bg-accent/25 text-accent";
+
+/** How long a key keeps the pressed look after the finger lifts. */
+const FLASH_MS = 160;
 
 export default function Terminal({
   sessionId,
@@ -127,18 +137,73 @@ export default function Terminal({
   const [copied, setCopied] = useState(false);
   const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
+  // Which toolbar key is showing the just-pressed look, and whether the pane is
+  // scrolled back into its history (tmux copy mode).
+  const [flash, setFlash] = useState<string | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
+  const [scrolled, setScrolled] = useState(false);
+  const pendingScroll = useRef(0);
+  const scrollTimer = useRef<number | undefined>(undefined);
 
   function sendInput(data: string) {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
+    // Typing returns to the live view — the server drops copy mode on input.
+    // A scroll still queued from the gesture before it would drag the view
+    // straight back off the prompt, so it goes too.
+    pendingScroll.current = 0;
+    setScrolled(false);
+  }
+
+  /**
+   * Scroll the session's history by `lines` (positive goes back). The work
+   * happens server-side in tmux: `tmux attach` runs in the alternate screen, so
+   * xterm has no scrollback of its own and its fallback is to send ↑/↓ keys,
+   * which the agent reads as "previous message" instead of scrolling.
+   *
+   * Deltas are batched into one message per tick — a single drag fires dozens
+   * of touchmove events and each server-side scroll is a tmux call. Fractions
+   * carry over between ticks so a slow drag still moves.
+   */
+  function scrollBy(lines: number) {
+    pendingScroll.current += lines;
+    if (scrollTimer.current !== undefined) return;
+    scrollTimer.current = window.setTimeout(() => {
+      scrollTimer.current = undefined;
+      const whole = Math.trunc(pendingScroll.current);
+      pendingScroll.current -= whole;
+      if (whole === 0) return;
+      const ws = wsRef.current;
+      if (ws?.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ t: "scroll", lines: whole }));
+      if (whole > 0) setScrolled(true);
+    }, 50);
+  }
+
+  // An empty input frame leaves copy mode without typing anything into the
+  // session — the same path any keystroke takes back to the live view.
+  function goLive() {
+    sendInput("");
+  }
+
+  function press(id: string) {
+    setFlash(id);
+    clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), FLASH_MS);
   }
 
   // Touch-toolbar taps run on click — the dependable tap event on iOS, where
   // onPointerDown+preventDefault can silently swallow the tap — then refocus
   // the terminal (in the same gesture) so the on-screen keyboard stays up.
-  function tapKey(run: () => void) {
+  function tapKey(id: string, run: () => void) {
     run();
+    press(id);
     termRef.current?.focus();
+  }
+
+  /** Class list for a toolbar key: idle look unless pressed or already lit. */
+  function keyClass(id: string, base = KEY_IDLE) {
+    return `${KEY} ${KEY_PRESS} ${flash === id ? KEY_LIT : base}`;
   }
 
   // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
@@ -266,7 +331,48 @@ export default function Terminal({
       if (!unmounted) setDisconnected(true);
     };
 
+    // One text row in CSS pixels — fit() sizes rows to this box, so the box
+    // height over the row count is the row height.
+    const rowHeight = () => Math.max(1, el.clientHeight / term.rows);
+
+    // Wheel and trackpad. Returning false stops xterm's own handling, which in
+    // the alternate screen is the ↑/↓ conversion we are replacing.
+    term.attachCustomWheelEventHandler((ev) => {
+      const rows =
+        ev.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? ev.deltaY
+          : ev.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? ev.deltaY * term.rows
+            : ev.deltaY / rowHeight();
+      scrollBy(-rows);
+      return false;
+    });
+
+    // Touch drag: the content follows the finger, as in any scroll view.
+    let dragY = 0;
+    let dragging = false;
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      dragY = e.touches[0].clientY;
+      dragging = false;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const dy = e.touches[0].clientY - dragY;
+      // Under the threshold this is still a tap (focus, keyboard), not a drag.
+      if (!dragging && Math.abs(dy) < 8) return;
+      dragging = true;
+      dragY = e.touches[0].clientY;
+      // Keeps the drag from becoming a text selection or a page pan.
+      e.preventDefault();
+      scrollBy(dy / rowHeight());
+    };
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+
     const input = term.onData((data) => {
+      pendingScroll.current = 0;
+      setScrolled(false);
       if (ctrlArmed.current && /^[a-zA-Z]$/.test(data)) {
         ctrlArmed.current = false;
         setCtrl(false);
@@ -291,6 +397,10 @@ export default function Terminal({
       unmounted = true;
       clearTimeout(debounce);
       clearTimeout(scanTimer);
+      clearTimeout(scrollTimer.current);
+      clearTimeout(flashTimer.current);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
       ro.disconnect();
       input.dispose();
       ws.close();
@@ -323,39 +433,33 @@ export default function Terminal({
         {/* First in the row so it survives the overflow scroll: this doubles as
             the readout for a status line the keyboard covers. */}
         <button
-          onClick={() => tapKey(() => sendInput(MODE_SEQ))}
+          onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
           title="cycle permission mode (shift+tab)"
-          className={`flex-none rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
-            mode ? mode.tone : "border-line text-muted"
-          }`}
+          className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
         >
           {mode?.label ?? "mode"}
         </button>
         <button
           onClick={() =>
-            tapKey(() => {
+            tapKey("ctrl", () => {
               ctrlArmed.current = !ctrlArmed.current;
               setCtrl(ctrlArmed.current);
             })
           }
-          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] ${
-            ctrl ? "border-accent bg-surface-2 text-accent" : "border-line text-muted"
-          }`}
+          className={keyClass("ctrl", ctrl ? KEY_LIT : KEY_IDLE)}
         >
           ctrl
         </button>
-        <button
-          onClick={() => tapKey(pasteFromClipboard)}
-          className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
-        >
+        <button onClick={() => tapKey("paste", pasteFromClipboard)} className={keyClass("paste")}>
           paste
         </button>
         <button
-          onClick={() => picker.current?.click()}
+          onClick={() => {
+            press("img");
+            picker.current?.click();
+          }}
           disabled={upload === "busy"}
-          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
-            upload === "failed" ? "border-wait text-wait" : "border-line text-muted"
-          }`}
+          className={keyClass("img", upload === "failed" ? "border-wait text-wait" : KEY_IDLE)}
         >
           {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
         </button>
@@ -374,15 +478,41 @@ export default function Terminal({
         {KEYS.map((k) => (
           <button
             key={k.label}
-            onClick={() => tapKey(() => sendInput(k.seq))}
-            className="rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted active:bg-surface-2"
+            onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+            className={keyClass(k.label)}
           >
             {k.label}
           </button>
         ))}
+        {/* A page of history at a time — the same scrollback the drag gesture
+            moves, not the PgUp/PgDn keys the agent would swallow. */}
+        <button
+          onClick={() => tapKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
+          title="scroll back"
+          className={keyClass("pgup")}
+        >
+          ⇞
+        </button>
+        <button
+          onClick={() => tapKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
+          title="scroll forward"
+          className={keyClass("pgdn")}
+        >
+          ⇟
+        </button>
       </div>
       <div className="relative min-h-0 flex-1">
         <div ref={ref} className="absolute inset-0 p-2" />
+        {scrolled && !disconnected && (
+          <button
+            onClick={() => tapKey("live", goLive)}
+            className={`absolute right-3 bottom-3 z-10 rounded-full border bg-surface/90 px-3 py-1.5 font-mono text-[12px] shadow-lg transition-colors ${
+              flash === "live" ? KEY_LIT : "border-accent text-accent"
+            }`}
+          >
+            ↓ live
+          </button>
+        )}
         {disconnected && (
           <button
             onClick={() => setAttempt((a) => a + 1)}

@@ -85,8 +85,10 @@ touching state files (not from parsing terminal output).
 
 Session status and notifications share one mechanism: Claude Code
 Notification/Stop hooks (and best-effort equivalents for gemini/codex) write
-state files that drive the UI badges over websocket, and post to ntfy so the
-phone gets pushed when a session waits on permission or finishes.
+state files that drive the UI badges over websocket, and feed the notifier so
+the phone gets pushed when a session waits on permission or finishes — as a web
+push to the installed PWA (per-device, opt-in on the settings page) and to an
+ntfy topic when one is configured.
 
 ## Auth and credentials
 
