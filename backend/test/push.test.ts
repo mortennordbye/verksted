@@ -106,3 +106,14 @@ describe("POST /api/push/unsubscribe", () => {
     expect(res.json().devices).toBe(1);
   });
 });
+
+describe("POST /api/push/test", () => {
+  it("reports a refused push instead of claiming it was sent", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/push/test" });
+    expect(res.statusCode).toBe(200);
+    // The one subscribed endpoint is on .example, which cannot resolve — so the
+    // send fails, and the point of this route is that it says so.
+    expect(res.json()).toMatchObject({ devices: 1, sent: 0, failed: 1 });
+    expect(res.json().error).toBeTruthy();
+  });
+});

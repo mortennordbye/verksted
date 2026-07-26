@@ -36,12 +36,24 @@ export interface PushPayload {
   url: string;
 }
 
+export interface SendResult {
+  sent: number;
+  failed: number;
+  /** The push service's rejection, when at least one device failed. */
+  error?: string;
+}
+
 /** One phone, one tablet, a laptop… a cap, not a design limit. */
 const MAX_SUBS = 20;
 
-// Push services want a contact for the sender; nobody reads it on a self-hosted
-// deployment, it only has to parse as a mailto/https URL.
-const VAPID_SUBJECT = "mailto:verksted@localhost";
+// Push services want a contact for the sender, and Apple *validates* it: a
+// mailto on a non-routable domain (localhost) gets every push rejected with
+// 403 BadJwtToken. The deployment's own https URL is both routable and honest
+// about who is sending; example.com is the fallback when the pod has no URL
+// configured (or only a plain-http one, which RFC 8292 doesn't allow here).
+const VAPID_SUBJECT = env.PUBLIC_URL.startsWith("https://")
+  ? env.PUBLIC_URL
+  : "mailto:verksted@example.com";
 
 let cache: PushFile | null = null;
 
@@ -106,12 +118,16 @@ export async function unsubscribe(endpoint: string): Promise<void> {
 /**
  * Push to every subscribed device. Endpoints the push service has retired
  * (404/410) are dropped — an uninstalled app would otherwise fail forever.
+ * The counts are for the settings page's "send test": a push that the service
+ * refuses looks exactly like a delivered one from the pod's side otherwise.
  */
-export async function send(payload: PushPayload, log: Logger): Promise<void> {
+export async function send(payload: PushPayload, log: Logger): Promise<SendResult> {
   const file = await read();
-  if (!file.subs.length) return;
+  if (!file.subs.length) return { sent: 0, failed: 0 };
   webpush.setVapidDetails(VAPID_SUBJECT, file.vapid.publicKey, file.vapid.privateKey);
   const dead = new Set<string>();
+  let sent = 0;
+  let error: string | undefined;
   await Promise.all(
     file.subs.map(async (s) => {
       try {
@@ -120,8 +136,10 @@ export async function send(payload: PushPayload, log: Logger): Promise<void> {
           JSON.stringify(payload),
           { TTL: 600 },
         );
+        sent += 1;
       } catch (err) {
-        const status = (err as { statusCode?: number }).statusCode;
+        const { statusCode: status, body } = err as { statusCode?: number; body?: string };
+        error ??= status ? `HTTP ${status} ${String(body ?? "").trim()}`.trim() : String(err);
         if (status === 404 || status === 410) dead.add(s.endpoint);
         else log.warn(err, "web push failed");
       }
@@ -131,4 +149,5 @@ export async function send(payload: PushPayload, log: Logger): Promise<void> {
     const current = await read();
     await write({ ...current, subs: current.subs.filter((s) => !dead.has(s.endpoint)) });
   }
+  return { sent, failed: file.subs.length - sent, error };
 }

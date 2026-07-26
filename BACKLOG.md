@@ -112,20 +112,24 @@ what unblocks it / where the code lives.
 - **What:** Claude sessions launch with `--settings <hooks file>` whose hooks
   write the per-session state file; the backend derives the "waiting" badge and
   notifies on transitions. Wiring is verified (state file → waiting badge →
-  project counts, `--settings` accepted by the CLI), but nothing has confirmed
-  claude actually fires the hooks in a real authenticated session, or that
-  either channel delivers.
+  project counts, `--settings` accepted by the CLI), and real sessions in the pod
+  do write `.state` files that flip waiting/running — so the hooks fire. Web
+  push is confirmed end to end (Apple accepted and an iPhone showed it, once the
+  VAPID subject stopped being a `localhost` mailto); ntfy is still untested.
+  Still unconfirmed: that a *question* to the user counts as waiting. A session blocked on `AskUserQuestion` read `running`,
+  because every tool call's `PreToolUse` hook writes `running` and it is unclear
+  whether such a prompt also fires `Notification`. If it doesn't, a question
+  never pushes and the hook set needs another event (or a fallback).
 - **Why deferred:** Needs an authenticated claude session (past the trust
   prompt), a real ntfy topic, and — for web push — an iPhone with the app
   installed to the Home Screen. Web push additionally requires the app to be
   served over https: on a plain-http origin the browser registers no service
   worker at all, so the settings page will report "unavailable" no matter what
   the backend does.
-- **Unblocked by:** One authenticated session in dev or the pod: check the
-  `.state` file flips waiting/running across a turn; set NTFY_URL to a test
-  topic; and on the phone, enable notifications in settings, use "send test",
-  then confirm a real waiting/finished transition arrives and its tap opens the
-  session. The subscribe/unsubscribe/key surface has automated coverage
+- **Unblocked by:** Set NTFY_URL to a test topic for that channel; for the rest,
+  confirm on the phone that a real waiting/finished transition arrives (not just
+  "send test") and that its tap opens the session.
+  The subscribe/unsubscribe/key surface has automated coverage
   (`backend/test/push.test.ts`); actual delivery through Apple's push service
   does not.
 - **Where:** `backend/src/claude-hooks.ts`, `backend/src/notifier.ts`,
