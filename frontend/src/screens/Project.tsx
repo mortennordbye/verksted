@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
-import type { AgentName, Project as ProjectInfo, Session } from "../../../shared/api";
+import type {
+  AgentName,
+  CreatedSession,
+  Project as ProjectInfo,
+  Session,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import BranchControl from "../components/BranchControl";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet from "../components/Sheet";
@@ -62,7 +68,10 @@ export default function Project() {
   const { data: sessions, refresh: refreshSessions } = usePoll<Session[]>(
     `/api/projects/${name}/sessions`,
   );
-  const { data: projects } = usePoll<ProjectInfo[]>("/api/projects", 10_000);
+  const { data: projects, refresh: refreshProjects } = usePoll<ProjectInfo[]>(
+    "/api/projects",
+    10_000,
+  );
   const info = projects?.find((p) => p.name === name);
   const [picking, setPicking] = useState(false);
   const [resume, setResume] = useState(false);
@@ -126,11 +135,13 @@ export default function Project() {
 
   async function newSession(agent: AgentName) {
     try {
-      const session = await api<Session>(`/api/projects/${name}/sessions`, {
+      const session = await api<CreatedSession>(`/api/projects/${name}/sessions`, {
         method: "POST",
         body: JSON.stringify({ agent, resume }),
       });
-      navigate(`/s/${session.id}`);
+      // The session screen reports it when the repo could not be put on an
+      // up-to-date main first.
+      navigate(`/s/${session.id}`, { state: { sync: session.sync } });
     } catch (e) {
       setError((e as Error).message);
       setPicking(false);
@@ -147,10 +158,23 @@ export default function Project() {
               Project
             </div>
             <h1 className="mb-1 font-mono text-[21px] font-semibold tracking-tight">~/{name}</h1>
-            <div className="text-sm text-muted">
-              {info
-                ? `⎇ ${info.branch} · ${info.dirty ? "dirty" : "clean"}${info.worktreeOf ? ` · worktree of ${info.worktreeOf}` : ""}`
-                : "…"}
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+              {info ? (
+                <>
+                  <BranchControl
+                    project={name!}
+                    branch={info.branch}
+                    onChanged={refreshProjects}
+                    className="rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[13px] hover:border-faint hover:text-text"
+                  />
+                  <span>
+                    {info.dirty ? "dirty" : "clean"}
+                    {info.worktreeOf ? ` · worktree of ${info.worktreeOf}` : ""}
+                  </span>
+                </>
+              ) : (
+                "…"
+              )}
             </div>
           </div>
           <div className="flex flex-none gap-2">
@@ -221,7 +245,7 @@ export default function Project() {
       {picking && (
         <Sheet
           title={`New session in ~/${name}`}
-          sub="Pick an agent. It runs in a fresh tmux session on the pod."
+          sub="Pick an agent. The repo moves to an up-to-date main first (skipped when it is dirty or a worktree), then the agent runs in a fresh tmux session on the pod."
           onClose={() => setPicking(false)}
         >
           <div className="flex flex-col gap-2">

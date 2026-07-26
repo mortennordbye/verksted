@@ -10,8 +10,11 @@ export default defineConfig({
     // Home-screen install on iOS. The service worker only precaches the built
     // assets; navigations fall back to index.html but /api (REST + websockets)
     // must always hit the network.
+    // "prompt": a new build waits until the user taps reload (see
+    // UpdateBanner) — an auto-reload would yank the terminal out from under
+    // whoever is typing in it.
     VitePWA({
-      registerType: "autoUpdate",
+      registerType: "prompt",
       includeAssets: ["apple-touch-icon.png"],
       manifest: {
         name: "verksted",

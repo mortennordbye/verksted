@@ -5,6 +5,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
   FileDiff,
+  GitBranches,
   GitFileStatus,
   GitStatus,
   ReplaceResult,
@@ -13,7 +14,7 @@ import type {
   TreeNode,
   UploadedFile,
 } from "../../../shared/api.js";
-import { branchOf } from "../git.js";
+import { branchOf, git, gitError } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import { agentEnv } from "../settings-store.js";
 
@@ -41,6 +42,33 @@ async function modifiedPaths(repoDir: string): Promise<Set<string>> {
     // not a git repo / git broke: no markers
   }
   return set;
+}
+
+/**
+ * Branch names under a ref prefix ("refs/heads" -> "main", "refs/remotes" ->
+ * "origin/main"). Full refnames, shortened here: git shortens
+ * refs/remotes/origin/HEAD to "origin" from 2.41 and "origin/HEAD" before it,
+ * and that symref is not a branch either way.
+ */
+async function refNames(repoDir: string, prefix: string): Promise<string[]> {
+  try {
+    const out = await git(repoDir, ["for-each-ref", "--format=%(refname)", "--sort=refname", prefix]);
+    return out
+      .split("\n")
+      .filter((r) => r && !r.endsWith("/HEAD"))
+      .map((r) => r.slice(prefix.length + 1));
+  } catch {
+    return [];
+  }
+}
+
+/** "origin/main" for the current branch, or null when it tracks nothing. */
+async function upstreamOf(repoDir: string): Promise<string | null> {
+  try {
+    return await git(repoDir, ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]);
+  } catch {
+    return null;
+  }
 }
 
 // Phone uploads land here: hidden, and kept out of git so screenshots never
@@ -490,6 +518,115 @@ export default async function fileRoutes(app: FastifyInstance) {
         return reply.code(500).send({ error: "commit failed" });
       }
       return { ok: true };
+    },
+  );
+
+  app.get<{ Params: { name: string } }>(
+    "/api/projects/:name/git/branches",
+    async (req, reply): Promise<GitBranches | void> => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      return {
+        current: await branchOf(repoDir),
+        local: await refNames(repoDir, "refs/heads"),
+        remote: await refNames(repoDir, "refs/remotes"),
+        upstream: await upstreamOf(repoDir),
+      };
+    },
+  );
+
+  app.post<{ Params: { name: string }; Body: { branch: string } }>(
+    "/api/projects/:name/git/checkout",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["branch"],
+          additionalProperties: false,
+          properties: { branch: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      const branch = req.body.branch.trim();
+      try {
+        await exec("git", ["check-ref-format", "--branch", branch]);
+      } catch {
+        return reply.code(400).send({ error: "invalid branch name" });
+      }
+      try {
+        // A name that only exists on one remote gets a local tracking branch
+        // here, which is why this is switch and not checkout of a ref.
+        await git(repoDir, ["switch", branch], { timeout: 60_000 });
+      } catch (err) {
+        req.log.error(err, "git switch failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
+      return { branch: await branchOf(repoDir) };
+    },
+  );
+
+  app.post<{ Params: { name: string } }>(
+    "/api/projects/:name/git/pull",
+    async (req, reply) => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      if (!(await upstreamOf(repoDir))) {
+        return reply.code(409).send({ error: "branch has no upstream" });
+      }
+      try {
+        // ff-only: a diverged branch is a decision for the user, not a merge
+        // commit made behind their back. The reset route is the way out.
+        await git(repoDir, ["pull", "--ff-only"], {
+          env: { ...process.env, ...(await agentEnv()) },
+          timeout: 120_000,
+        });
+      } catch (err) {
+        req.log.error(err, "git pull failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
+      return { branch: await branchOf(repoDir) };
+    },
+  );
+
+  // Destructive: drops local commits and tracked-file changes on the current
+  // branch to match its upstream. Untracked files are left alone.
+  app.post<{ Params: { name: string } }>(
+    "/api/projects/:name/git/reset",
+    async (req, reply) => {
+      let repoDir: string;
+      try {
+        repoDir = resolveInsideRepos(req.params.name);
+      } catch {
+        return reply.code(404).send({ error: "not found" });
+      }
+      const upstream = await upstreamOf(repoDir);
+      if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
+      try {
+        await git(repoDir, ["fetch", upstream.slice(0, upstream.indexOf("/"))], {
+          env: { ...process.env, ...(await agentEnv()) },
+          timeout: 120_000,
+        });
+        await git(repoDir, ["reset", "--hard", upstream]);
+      } catch (err) {
+        req.log.error(err, "git reset failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
+      return { branch: await branchOf(repoDir) };
     },
   );
 
