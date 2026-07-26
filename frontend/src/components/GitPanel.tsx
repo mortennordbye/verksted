@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { GitFileStatus, GitStatus } from "../../../shared/api";
 import { api } from "../api";
 import { fileIcon } from "../fileicons";
+import BranchControl from "./BranchControl";
 
 const STATUS_COLOR: Record<string, string> = {
   M: "text-wait",
@@ -168,9 +169,12 @@ export default function GitPanel({
     <nav className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
       <div className="flex items-center px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
         source control
-        <span className="ml-auto normal-case tracking-normal text-muted">
-          ⎇ {status?.branch ?? "…"}
-        </span>
+        <BranchControl
+          project={project}
+          branch={status?.branch ?? "…"}
+          onChanged={onRefresh}
+          className="ml-auto rounded px-1 normal-case tracking-normal text-muted hover:bg-line hover:text-text"
+        />
       </div>
       <div className="px-2.5">
         <textarea

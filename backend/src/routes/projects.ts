@@ -5,7 +5,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
-import { branchOf, git } from "../git.js";
+import { branchOf, git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { agentEnv } from "../settings-store.js";
@@ -14,22 +14,6 @@ const exec = promisify(execFile);
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
 const REPO_SHORTHAND_RE = /^[\w.-]+\/[\w.-]+$/;
-
-/**
- * Main-repo name if `dir` is a linked git worktree under REPOS_DIR, else null.
- * A worktree's .git is a file: "gitdir: <main>/.git/worktrees/<id>".
- */
-async function worktreeParent(dir: string): Promise<string | null> {
-  try {
-    const st = await fs.lstat(path.join(dir, ".git"));
-    if (!st.isFile()) return null;
-    const gitfile = await fs.readFile(path.join(dir, ".git"), "utf8");
-    const m = /^gitdir: (.+)\/\.git\/worktrees\//.exec(gitfile.trim());
-    return m ? path.basename(m[1]!) : null;
-  } catch {
-    return null;
-  }
-}
 
 /** Absolute paths of the linked worktrees attached to the repo at `dir`. */
 async function linkedWorktrees(dir: string): Promise<string[]> {

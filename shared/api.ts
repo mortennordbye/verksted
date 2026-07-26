@@ -83,6 +83,29 @@ export interface GitStatus {
   files: GitFileStatus[];
 }
 
+export interface GitBranches {
+  current: string;
+  /** Local branch names. */
+  local: string[];
+  /** Remote-tracking branches, e.g. "origin/main". */
+  remote: string[];
+  /** Upstream of the current branch ("origin/main"), null when it has none. */
+  upstream: string | null;
+}
+
+/** Outcome of putting a repo on an up-to-date default branch for a new session. */
+export interface BranchSync {
+  /** The branch the session actually starts on. */
+  branch: string;
+  status: "synced" | "skipped" | "failed";
+  /** Why it was skipped or how it failed; absent when synced. */
+  detail?: string;
+}
+
+export interface CreatedSession extends Session {
+  sync: BranchSync;
+}
+
 export interface SearchHit {
   path: string;
   line: number;

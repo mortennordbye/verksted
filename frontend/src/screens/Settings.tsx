@@ -143,7 +143,58 @@ export default function Settings() {
         </div>
 
         <SshKeys />
+        <AppReset />
       </main>
+    </>
+  );
+}
+
+/**
+ * The way out when the installed PWA is stuck on an old build: drops the
+ * service worker and every cache it holds, then reloads from the pod.
+ */
+function AppReset() {
+  const [busy, setBusy] = useState(false);
+
+  async function hardReset() {
+    if (busy) return;
+    if (
+      !confirm(
+        "Hard reset the app? The cached app shell is deleted and the page reloads from the pod. Sessions, repos and settings are untouched.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    for (const reg of (await navigator.serviceWorker?.getRegistrations()) ?? []) {
+      await reg.unregister();
+    }
+    if ("caches" in window) {
+      await Promise.all((await caches.keys()).map((k) => caches.delete(k)));
+    }
+    location.reload();
+  }
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        App
+      </div>
+      <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+        <span className="font-mono text-[12.5px]">hard reset</span>
+        <button
+          onClick={hardReset}
+          disabled={busy}
+          className="ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+        >
+          {busy ? "resetting…" : "clear cache and reload"}
+        </button>
+      </div>
+      <div className="mt-5 text-[13px] text-muted">
+        New builds normally announce themselves with a reload banner. Use this when the
+        home-screen app is serving something stale anyway — it unregisters the service
+        worker, deletes its caches and reloads from the pod.
+      </div>
     </>
   );
 }

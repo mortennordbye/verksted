@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
 import type {
+  BranchSync,
   FileDiff,
   FileContent,
   GitFileStatus,
@@ -102,6 +103,10 @@ export default function Session() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   useVisualViewport();
+  // Set when this screen was reached by creating the session: says whether the
+  // repo was actually moved to an up-to-date main.
+  const { sync } = (useLocation().state ?? {}) as { sync?: BranchSync };
+  const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
   const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<TreeNode[]>(
     session ? `/api/projects/${session.project}/tree` : null,
@@ -237,6 +242,22 @@ export default function Session() {
               </button>
             )}
           </div>
+
+          {syncNote && (
+            <div className="mb-2 flex flex-none items-center gap-2 rounded-lg border border-wait/40 bg-wait/5 px-3 py-1.5 font-mono text-[12px] text-wait">
+              <span className="min-w-0 flex-1 truncate">
+                {syncNote.status === "failed" ? "could not sync" : "not synced"} to main:{" "}
+                {syncNote.detail} · on ⎇ {syncNote.branch}
+              </span>
+              <button
+                onClick={() => setSyncNote(null)}
+                aria-label="dismiss"
+                className="flex-none px-1 text-faint hover:text-text"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Phone: one strip for every pane. Desktop shows the sidebar and the
               terminal side by side instead, and picks companions in the box. */}
