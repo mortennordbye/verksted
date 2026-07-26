@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 export default function TopBar({ crumb, back }: { crumb?: string[]; back?: string }) {
   const navigate = useNavigate();
   return (
-    <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-3.5 pt-[max(14px,env(safe-area-inset-top))] backdrop-blur-md">
+    <header className="sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))]">
       {back !== undefined && (
         <button
           onClick={() => navigate(back)}

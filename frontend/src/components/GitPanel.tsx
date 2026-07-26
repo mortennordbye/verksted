@@ -165,7 +165,7 @@ export default function GitPanel({
   }
 
   return (
-    <nav className="max-h-[calc(100dvh-240px)] overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
+    <nav className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
       <div className="flex items-center px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
         source control
         <span className="ml-auto normal-case tracking-normal text-muted">
