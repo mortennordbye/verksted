@@ -44,6 +44,11 @@ export interface FileDiff {
   diff: string;
 }
 
+/** Where a phone upload landed, repo-relative — the path to hand to the agent. */
+export interface UploadedFile {
+  path: string;
+}
+
 export interface ListeningPort {
   port: number;
   /** Process or container name, best effort. */
