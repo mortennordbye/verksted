@@ -8,6 +8,8 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BranchControl from "../components/BranchControl";
+import PrPanel from "../components/PrPanel";
+import ActionsPanel from "../components/ActionsPanel";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet from "../components/Sheet";
@@ -81,6 +83,7 @@ export default function Project() {
   const [branch, setBranch] = useState("");
   const [branchBusy, setBranchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"sessions" | "prs" | "actions">("sessions");
 
   const active = sessions?.filter((s) => s.status !== "done") ?? [];
   const recent = sessions?.filter((s) => s.status === "done") ?? [];
@@ -197,30 +200,35 @@ export default function Project() {
 
         {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
-        <div className="mt-6 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-          Active
-        </div>
-        <div className="flex flex-col gap-2.5">
-          {active.map((s) => (
-            <SessionRow
-              key={s.id}
-              session={s}
-              onClick={() => navigate(`/s/${s.id}`)}
-              onDelete={() => deleteSession(s)}
-            />
+        {/* An unselected panel is unmounted, so its poll does not run. */}
+        <div role="tablist" className="mt-6 mb-4 flex gap-1.5 border-b border-line pb-3">
+          {(["sessions", "prs", "actions"] as const).map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+                tab === t
+                  ? "border-accent bg-surface-2 text-text"
+                  : "border-line bg-surface text-muted"
+              }`}
+            >
+              {t}
+              {t === "sessions" && active.length > 0 && (
+                <span className="ml-1 text-run">{active.length}</span>
+              )}
+            </button>
           ))}
-          {active.length === 0 && (
-            <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
-          )}
         </div>
 
-        {recent.length > 0 && (
+        {tab === "sessions" && (
           <>
-            <div className="mt-6 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-              Recent
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Active
             </div>
             <div className="flex flex-col gap-2.5">
-              {recent.map((s) => (
+              {active.map((s) => (
                 <SessionRow
                   key={s.id}
                   session={s}
@@ -228,9 +236,33 @@ export default function Project() {
                   onDelete={() => deleteSession(s)}
                 />
               ))}
+              {active.length === 0 && (
+                <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
+              )}
             </div>
+
+            {recent.length > 0 && (
+              <>
+                <div className="mt-6 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+                  Recent
+                </div>
+                <div className="flex flex-col gap-2.5">
+                  {recent.map((s) => (
+                    <SessionRow
+                      key={s.id}
+                      session={s}
+                      onClick={() => navigate(`/s/${s.id}`)}
+                      onDelete={() => deleteSession(s)}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
+
+        {tab === "prs" && <PrPanel project={name!} onChanged={refreshProjects} />}
+        {tab === "actions" && <ActionsPanel project={name!} />}
 
         <div className="mt-10 border-t border-line pt-4">
           <button

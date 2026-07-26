@@ -12,6 +12,21 @@ what unblocks it / where the code lives.
   confirm the test job is green and `ghcr.io/<owner>/verksted:latest` appears.
 - **Where:** `.github/workflows/ci.yml`
 
+## gh-backed endpoints have no automated coverage
+
+- **What:** Every route in `backend/src/routes/github.ts` (PRs and Actions) is
+  verified by hand only. Automated tests cover the pure helpers
+  (`summarizeChecks`, `formatRunLog`, `ghError`, `ghMessage`) and the
+  schema/404/no-remote paths — not one real `gh` invocation.
+- **Why deferred:** CI has no `GH_TOKEN` and no network, and nothing in the
+  harness mocks `execFile`. Mocking it would test the mock rather than gh's real
+  output, which is the part that drifts across gh releases.
+- **Unblocked by:** Either a test-only `PATH` prefix holding a fake `gh` that
+  replays captured fixtures, or a CI job with a scoped token against a throwaway
+  repo.
+- **Where:** `backend/src/gh.ts`, `backend/src/routes/github.ts`,
+  `backend/test/gh.test.ts`, `backend/test/github.test.ts`
+
 ## Verify Antigravity headless auth in the pod
 
 - **What:** `ANTIGRAVITY_API_KEY` is documented in `.env.example` but reports on

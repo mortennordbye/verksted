@@ -106,6 +106,88 @@ export interface CreatedSession extends Session {
   sync: BranchSync;
 }
 
+/** A pull request as the project screen lists it. */
+export interface PullRequest {
+  number: number;
+  title: string;
+  state: "OPEN" | "MERGED" | "CLOSED";
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+  /** "" until a review is submitted, else APPROVED / CHANGES_REQUESTED / REVIEW_REQUIRED. */
+  reviewDecision: string;
+  /** Every check on the head commit, rolled into one word. */
+  checks: "passing" | "failing" | "pending" | "none";
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+}
+
+/** An issue comment or a review, flattened into one stream. */
+export interface PrComment {
+  author: string;
+  body: string;
+  createdAt: string;
+  /** Review verdict (APPROVED, CHANGES_REQUESTED, …); "" for a plain comment. */
+  state: string;
+}
+
+export interface PullRequestDetail extends PullRequest {
+  body: string;
+  /** Comments and reviews merged, oldest first. */
+  comments: PrComment[];
+  files: { path: string; additions: number; deletions: number }[];
+}
+
+/** Unified diff of a pull request; truncated when it was cut to fit. */
+export interface PrDiff {
+  diff: string;
+  truncated: boolean;
+}
+
+/** Outcome of a squash merge. detail carries anything that went wrong afterwards. */
+export interface MergeResult {
+  merged: true;
+  /** The branch the repo is on now — gh switches to the base branch on success. */
+  branch: string;
+  detail?: string;
+}
+
+export interface WorkflowRun {
+  id: number;
+  title: string;
+  workflow: string;
+  status: "queued" | "in_progress" | "completed";
+  /** "" while the run is unfinished, else success / failure / cancelled / skipped. */
+  conclusion: string;
+  event: string;
+  branch: string;
+  createdAt: string;
+  updatedAt: string;
+  url: string;
+}
+
+export interface WorkflowJob {
+  name: string;
+  status: string;
+  conclusion: string;
+  steps: { name: string; status: string; conclusion: string }[];
+}
+
+export interface WorkflowRunDetail extends WorkflowRun {
+  jobs: WorkflowJob[];
+}
+
+/** Failed-job logs, sanitized; truncated when older output was dropped. */
+export interface RunLog {
+  log: string;
+  truncated: boolean;
+}
+
 export interface SearchHit {
   path: string;
   line: number;
