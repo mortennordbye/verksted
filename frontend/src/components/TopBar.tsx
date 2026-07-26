@@ -12,14 +12,23 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
           ←
         </button>
       )}
-      <Link to="/" className="flex items-center font-mono text-[15px] font-semibold tracking-wide">
+      <Link
+        to="/"
+        className="flex flex-none items-center font-mono text-[15px] font-semibold tracking-wide"
+      >
         verksted
         <span className="ml-1 inline-block h-4 w-2 animate-blink bg-accent" />
       </Link>
       {crumb && crumb.length > 0 && (
-        <div className="hidden min-w-0 items-center gap-1.5 font-mono text-[13px] text-muted min-[800px]:flex">
-          {crumb.map((c) => (
-            <span key={c} className="flex min-w-0 items-center gap-1.5">
+        // A phone gets the last crumb only — it is the sole place the session
+        // name shows there, since the session screen drops its own title row to
+        // give the terminal the height back.
+        <div className="flex min-w-0 items-center gap-1.5 font-mono text-[13px] text-muted">
+          {crumb.map((c, i) => (
+            <span
+              key={c}
+              className={`${i < crumb.length - 1 ? "hidden min-[800px]:flex" : "flex"} min-w-0 items-center gap-1.5`}
+            >
               <span className="text-faint">/</span>
               <b className="overflow-hidden font-medium text-ellipsis whitespace-nowrap text-text">
                 {c}

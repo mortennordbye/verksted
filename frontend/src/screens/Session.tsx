@@ -201,15 +201,18 @@ export default function Session() {
       {/* Phone: exactly one visual viewport tall, and the document never
           scrolls — the terminal takes whatever room the keyboard leaves.
           Desktop keeps the ordinary scrolling page. */}
-      <div className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden min-[800px]:h-auto min-[800px]:overflow-visible">
+      <div className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:h-auto desk:overflow-visible">
         <TopBar
           back={session ? `/p/${session.project}` : "/"}
           crumb={session ? [session.project, session.title] : []}
         />
-        <main className="flex min-h-0 w-full flex-1 flex-col px-[18px] pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] min-[800px]:pt-[18px] min-[800px]:pb-6">
-          <div className="mb-2 flex flex-none items-center gap-2 min-[800px]:mb-3.5 min-[800px]:flex-wrap min-[800px]:gap-3">
+        <main className="flex min-h-0 w-full flex-1 flex-col px-[18px] pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] desk:pt-[18px] desk:pb-6">
+          {/* Phone folds this row into the pane strip below: four stacked bars
+              before the first terminal row left the agent a fifth of the
+              screen. The title lives in the top bar crumb there instead. */}
+          <div className="mb-2 hidden flex-none items-center gap-2 desk:mb-3.5 desk:flex desk:flex-wrap desk:gap-3">
             <StatusDot running={live} />
-            <h1 className="min-w-0 truncate font-mono text-[14px] font-semibold min-[800px]:text-[16px]">
+            <h1 className="min-w-0 truncate font-mono text-[14px] font-semibold desk:text-[16px]">
               {session?.title ?? "…"}
             </h1>
             {session && <AgentTag agent={session.agent} />}
@@ -220,7 +223,7 @@ export default function Session() {
               />
             )}
             {git && (
-              <span className="hidden font-mono text-[12px] text-muted min-[800px]:inline">
+              <span className="hidden font-mono text-[12px] text-muted desk:inline">
                 ⎇ {git.branch}
                 {git.files.length > 0 ? "*" : ""}
               </span>
@@ -254,7 +257,7 @@ export default function Session() {
 
           {/* Phone: one strip for every pane. Desktop shows the sidebar and the
               terminal side by side instead, and picks companions in the box. */}
-          <div className="mb-2 flex flex-none items-center gap-1.5 min-[800px]:hidden">
+          <div className="mb-2 flex flex-none items-center gap-1.5 desk:hidden">
             <div role="tablist" className="flex min-w-0 gap-1.5 overflow-x-auto">
               <Tab on={pane === "tree"} onClick={() => setPane("tree")}>
                 files
@@ -278,18 +281,35 @@ export default function Session() {
                 </Tab>
               )}
             </div>
+            {session && (
+              // Doubles as the actions trigger: two separate controls plus the
+              // tabs don't fit a phone width, and the sheet repeats the status.
+              <button
+                onClick={() => setMenu(true)}
+                aria-label="session actions"
+                className="ml-auto flex flex-none items-center gap-1"
+              >
+                <StatusChip
+                  kind={
+                    session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"
+                  }
+                  label={live ? session.status : "done"}
+                />
+                <span className="font-mono text-[13px] text-muted">⋯</span>
+              </button>
+            )}
             <button
               onClick={() => setFull(true)}
               aria-label="full screen"
-              className="ml-auto flex-none rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[12.5px] text-muted"
+              className={`${session ? "" : "ml-auto"} flex-none rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[12.5px] text-muted`}
             >
               ⛶
             </button>
           </div>
 
-          <div className="grid min-h-0 flex-1 items-stretch gap-3 min-[800px]:items-start min-[800px]:grid-cols-[250px_1fr]">
+          <div className="grid min-h-0 flex-1 items-stretch gap-3 desk:items-start desk:grid-cols-[250px_1fr]">
             <div
-              className={`${pane === "tree" ? "flex" : "hidden min-[800px]:flex"} min-h-0 flex-col min-[800px]:h-[calc(var(--vvh,100dvh)-200px)]`}
+              className={`${pane === "tree" ? "flex" : "hidden desk:flex"} min-h-0 flex-col desk:h-[calc(var(--vvh,100dvh)-200px)]`}
             >
               <div role="tablist" className="mb-2 flex flex-none gap-1.5">
                 {(["files", "git", "search"] as const).map((t) => (
@@ -338,21 +358,25 @@ export default function Session() {
             <div
               className={
                 full
-                  ? "fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-term"
-                  : `${pane === "term" ? "flex" : "hidden min-[800px]:flex"} min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-term min-[800px]:h-[calc(var(--vvh,100dvh)-200px)] min-[800px]:min-h-[380px]`
+                  ? // The visual viewport spans the whole screen, notch and home
+                    // indicator included, so full screen has to inset itself —
+                    // otherwise the pane strip lands under the status bar and
+                    // the terminal's last row under the home indicator.
+                    "fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
+                  : `${pane === "term" ? "flex" : "hidden desk:flex"} min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-term desk:h-[calc(var(--vvh,100dvh)-200px)] desk:min-h-[380px]`
               }
             >
               {/* On a phone the pane strip above the box carries these controls,
                   so the row only costs rows there when it's the way out of full. */}
               <div
-                className={`${full ? "flex" : "hidden min-[800px]:flex"} items-center gap-2.5 border-b border-line bg-surface px-3.5 py-[9px] font-mono text-[11.5px] text-faint`}
+                className={`${full ? "flex" : "hidden desk:flex"} flex-none items-center gap-2.5 border-b border-line bg-surface px-3.5 py-[9px] font-mono text-[11.5px] text-faint`}
               >
-                <span className="hidden text-muted min-[800px]:inline">
+                <span className="hidden text-muted desk:inline">
                   tmux · {session?.id ?? "…"}
                 </span>
                 {live && (
                   // Mobile: one pane at a time, these switch between them.
-                  <span role="tablist" className="flex gap-1.5 min-[800px]:hidden">
+                  <span role="tablist" className="flex gap-1.5 desk:hidden">
                     {(["agent", "shell", "browser"] as const).map((p) => (
                       <button
                         key={p}
@@ -372,7 +396,7 @@ export default function Session() {
                 )}
                 <span className="ml-auto flex items-center gap-2">
                   {live && (
-                    <span className="hidden gap-2 min-[800px]:flex">
+                    <span className="hidden gap-2 desk:flex">
                       <button
                         onClick={() => setShell((s) => !s)}
                         className={`rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${shell ? "border-accent text-text" : "border-line"}`}
@@ -393,14 +417,14 @@ export default function Session() {
                   >
                     {full ? "✕ full" : "⛶ full"}
                   </button>
-                  <span className="hidden min-[800px]:inline">{session?.agent}</span>
+                  <span className="hidden desk:inline">{session?.agent}</span>
                 </span>
               </div>
               {session &&
                 (live ? (
-                  <div ref={splitBox} className="flex min-h-0 flex-1 flex-col min-[800px]:flex-row">
+                  <div ref={splitBox} className="flex min-h-0 flex-1 flex-col desk:flex-row">
                     <div
-                      className={`${active === "agent" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 min-[800px]:flex ${shell || browser ? "min-[800px]:flex-none" : ""}`}
+                      className={`${active === "agent" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell || browser ? "desk:flex-none" : ""}`}
                       style={shell || browser ? { flexBasis: `${ratio}%` } : undefined}
                     >
                       <Terminal sessionId={session.id} project={session.project} />
@@ -422,19 +446,19 @@ export default function Session() {
                           e.currentTarget.releasePointerCapture(e.pointerId);
                         }}
                         title="drag to resize"
-                        className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 min-[800px]:block"
+                        className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
                       />
                     )}
                     {shell && (
                       <div
-                        className={`${active === "shell" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 min-[800px]:flex`}
+                        className={`${active === "shell" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex`}
                       >
                         <Terminal sessionId={session.id} project={session.project} shell />
                       </div>
                     )}
                     {browser && (
                       <div
-                        className={`${active === "browser" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 min-[800px]:flex ${shell ? "min-[800px]:border-l min-[800px]:border-line" : ""}`}
+                        className={`${active === "browser" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell ? "desk:border-l desk:border-line" : ""}`}
                       >
                         <BrowserPane sessionId={session.id} />
                       </div>
