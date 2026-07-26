@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
+import type { UploadedFile } from "../../../shared/api";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
@@ -68,13 +69,17 @@ const KEYS: { label: string; seq: string }[] = [
 
 export default function Terminal({
   sessionId,
+  project,
   shell = false,
 }: {
   sessionId: string;
+  /** Project the session runs in — the upload target for the image button. */
+  project: string;
   /** Attach the session's companion shell instead of the agent tmux session. */
   shell?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const termRef = useRef<Xterm | null>(null);
   // Sticky Ctrl: the next typed letter is sent as its control code.
@@ -85,6 +90,7 @@ export default function Terminal({
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [code, setCode] = useState("");
+  const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
 
   function sendInput(data: string) {
     const ws = wsRef.current;
@@ -107,6 +113,28 @@ export default function Terminal({
       if (text) sendInput(text);
     } catch {
       // clipboard read denied — nothing we can do without the OS prompt
+    }
+  }
+
+  // A phone has no clipboard route for screenshots, so the picker (photo
+  // library / camera) stands in for pasting: upload the image, then type its
+  // path into the prompt so the agent can read it. No Enter — the user writes
+  // the rest of the message around it.
+  async function sendImage(f: File) {
+    setUpload("busy");
+    try {
+      const res = await fetch(
+        `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(f.name)}`,
+        { method: "POST", headers: { "content-type": "application/octet-stream" }, body: f },
+      );
+      if (!res.ok) throw new Error(String(res.status));
+      const { path } = (await res.json()) as UploadedFile;
+      sendInput(`${path} `);
+      setUpload("idle");
+      // Bring the on-screen keyboard back; the picker took the focus away.
+      termRef.current?.focus();
+    } catch {
+      setUpload("failed");
     }
   }
 
@@ -330,6 +358,26 @@ export default function Terminal({
         >
           paste
         </button>
+        <button
+          onClick={() => picker.current?.click()}
+          disabled={upload === "busy"}
+          className={`rounded-md border px-2.5 py-1 font-mono text-[12px] active:bg-surface-2 ${
+            upload === "failed" ? "border-wait text-wait" : "border-line text-muted"
+          }`}
+        >
+          {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
+        </button>
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void sendImage(f);
+          }}
+        />
         {KEYS.map((k) => (
           <button
             key={k.label}

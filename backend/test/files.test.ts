@@ -286,6 +286,58 @@ describe("PUT /api/projects/:name/file", () => {
   });
 });
 
+describe("POST /api/projects/:name/upload", () => {
+  const upload = (project: string, filename: string, body: Buffer) =>
+    app.inject({
+      method: "POST",
+      url: `/api/projects/${project}/upload?filename=${encodeURIComponent(filename)}`,
+      headers: { "content-type": "application/octet-stream" },
+      payload: body,
+    });
+
+  it("stores the image under a stamped name and excludes it from git", async () => {
+    const res = await upload("demo", "IMG 4021.png", Buffer.from([137, 80, 78, 71]));
+    expect(res.statusCode).toBe(200);
+    const { path: rel } = res.json() as { path: string };
+    expect(rel).toMatch(/^\.verksted\/uploads\/\d{8}-\d{9}-IMG_4021\.png$/);
+
+    const demo = path.join(process.env.REPOS_DIR!, "demo");
+    expect(fs.readFileSync(path.join(demo, rel))).toEqual(Buffer.from([137, 80, 78, 71]));
+    expect(fs.readFileSync(path.join(demo, ".git", "info", "exclude"), "utf8")).toContain(
+      ".verksted/\n",
+    );
+    // The whole point of the exclude: uploads never show up as repo changes.
+    const status = execFileSync("git", ["-C", demo, "status", "--porcelain=v1", "-uall"], {
+      encoding: "utf8",
+    });
+    expect(status).not.toContain(".verksted");
+  });
+
+  it("keeps a second upload of the same name", async () => {
+    const a = await upload("demo", "shot.png", Buffer.from("one"));
+    const b = await upload("demo", "shot.png", Buffer.from("two"));
+    expect((a.json() as { path: string }).path).not.toBe((b.json() as { path: string }).path);
+  });
+
+  it("strips traversal out of the filename", async () => {
+    const res = await upload("demo", "../../etc/passwd", Buffer.from("x"));
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { path: string }).path).toMatch(
+      /^\.verksted\/uploads\/\d{8}-\d{9}-passwd$/,
+    );
+  });
+
+  it("404s on an unknown project", async () => {
+    const res = await upload("nope", "a.png", Buffer.from("x"));
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("rejects an empty body", async () => {
+    const res = await upload("demo", "a.png", Buffer.alloc(0));
+    expect(res.statusCode).toBe(415);
+  });
+});
+
 describe("POST /api/projects/:name/git/discard", () => {
   const post = (url: string, payload: object) => app.inject({ method: "POST", url, payload });
 
