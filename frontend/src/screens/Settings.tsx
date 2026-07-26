@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type {
   PushStatus,
+  PushTestResult,
   Settings as SettingsInfo,
   SettingVar,
   SshKey,
@@ -262,8 +263,14 @@ function Notifications() {
 
   const test = () =>
     act(async () => {
-      await api<PushStatus>("/api/push/test", { method: "POST" });
-      setNote("sent — it should arrive in a moment");
+      const res = await api<PushTestResult>("/api/push/test", { method: "POST" });
+      setNote(
+        res.failed
+          ? `the push service refused it: ${res.error ?? "unknown error"}`
+          : res.sent
+            ? "sent — it should arrive in a moment"
+            : "no subscribed devices to send to",
+      );
     });
 
   return (

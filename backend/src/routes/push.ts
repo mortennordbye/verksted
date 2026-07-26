@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { PushStatus } from "../../../shared/api.js";
+import type { PushStatus, PushTestResult } from "../../../shared/api.js";
 import * as push from "../push-store.js";
 
 // Endpoints are opaque URLs owned by the browser's push service (Apple, Google,
@@ -61,12 +61,14 @@ export default async function pushRoutes(app: FastifyInstance) {
   );
 
   // Proves the whole chain — permission, subscription, push service, service
-  // worker — without waiting for an agent to need something.
-  app.post("/api/push/test", async () => {
-    await push.send(
+  // worker — without waiting for an agent to need something. Reports what the
+  // push service said, so a refused push isn't indistinguishable from a phone
+  // that simply stayed quiet.
+  app.post("/api/push/test", async (): Promise<PushTestResult> => {
+    const result = await push.send(
       { title: "verksted", body: "notifications are working", url: "/" },
       app.log,
     );
-    return { devices: await push.deviceCount() };
+    return { devices: await push.deviceCount(), ...result };
   });
 }

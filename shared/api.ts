@@ -227,6 +227,19 @@ export interface PushStatus {
   devices: number;
 }
 
+/**
+ * Outcome of the settings page's "send test". The push service's own rejection
+ * comes back verbatim: it is the only way to tell "delivered" from "refused"
+ * (a bad VAPID subject fails every push with the same opaque 403), and the app
+ * has no public surface to leak it to.
+ */
+export interface PushTestResult {
+  devices: number;
+  sent: number;
+  failed: number;
+  error?: string;
+}
+
 /** An installed SSH key. Private halves are write-only and never leave the pod. */
 export interface SshKey {
   name: string;

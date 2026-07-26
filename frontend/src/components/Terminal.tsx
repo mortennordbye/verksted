@@ -132,6 +132,10 @@ export default function Terminal({
   const [ctrl, setCtrl] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Consecutive failed reconnects (the backoff), and whether the server told us
+  // the session is gone — in which case retrying is pointless.
+  const retries = useRef(0);
+  const gaveUp = useRef(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
@@ -156,10 +160,14 @@ export default function Terminal({
   }
 
   /**
-   * Scroll the session's history by `lines` (positive goes back). The work
-   * happens server-side in tmux: `tmux attach` runs in the alternate screen, so
-   * xterm has no scrollback of its own and its fallback is to send ↑/↓ keys,
-   * which the agent reads as "previous message" instead of scrolling.
+   * Scroll the session's history by `lines` (positive goes back). Which history
+   * that is depends on the pane: a full-screen TUI that turned mouse reporting
+   * on (claude) keeps its conversation in its own buffer and scrolls itself,
+   * while tmux's scrollback holds nothing but the line that started it — so
+   * that pane gets the gesture as wheel notches, three lines each, the way a
+   * real terminal reports them. Any position inside the pane does; the app
+   * scrolls its transcript, not a region under the pointer. A plain shell
+   * reports no mouse, and for it tmux's own history is the scrollback.
    *
    * Deltas are batched into one message per tick — a single drag fires dozens
    * of touchmove events and each server-side scroll is a tmux call. Fractions
@@ -170,11 +178,20 @@ export default function Terminal({
     if (scrollTimer.current !== undefined) return;
     scrollTimer.current = window.setTimeout(() => {
       scrollTimer.current = undefined;
+      const ws = wsRef.current;
+      const term = termRef.current;
+      if (!term || ws?.readyState !== WebSocket.OPEN) return;
+      if (term.modes.mouseTrackingMode !== "none") {
+        const notches = Math.trunc(pendingScroll.current / 3);
+        if (notches === 0) return;
+        pendingScroll.current -= notches * 3;
+        const wheel = `\x1b[<${notches > 0 ? 64 : 65};${Math.ceil(term.cols / 2)};${Math.ceil(term.rows / 2)}M`;
+        ws.send(JSON.stringify({ t: "in", data: wheel.repeat(Math.abs(notches)) }));
+        return;
+      }
       const whole = Math.trunc(pendingScroll.current);
       pendingScroll.current -= whole;
       if (whole === 0) return;
-      const ws = wsRef.current;
-      if (ws?.readyState !== WebSocket.OPEN) return;
       ws.send(JSON.stringify({ t: "scroll", lines: whole }));
       if (whole > 0) setScrolled(true);
     }, 50);
@@ -313,7 +330,10 @@ export default function Terminal({
 
     let scanTimer: number | undefined;
     setMode(null);
-    ws.onopen = () => setDisconnected(false);
+    ws.onopen = () => {
+      setDisconnected(false);
+      retries.current = 0;
+    };
     ws.onmessage = (e) => {
       term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
       // Debounced so we scan settled output, not every partial frame.
@@ -327,7 +347,10 @@ export default function Terminal({
         if (m) setMode(m);
       }, 400);
     };
-    ws.onclose = () => {
+    ws.onclose = (e) => {
+      // 4404 is the attach route saying the session no longer exists (ended or
+      // purged); no amount of reconnecting brings it back.
+      if (e.code === 4404) gaveUp.current = true;
       if (!unmounted) setDisconnected(true);
     };
 
@@ -336,8 +359,11 @@ export default function Terminal({
     const rowHeight = () => Math.max(1, el.clientHeight / term.rows);
 
     // Wheel and trackpad. Returning false stops xterm's own handling, which in
-    // the alternate screen is the ↑/↓ conversion we are replacing.
+    // the alternate screen is the ↑/↓ conversion we are replacing — unless the
+    // app asked for mouse events, in which case xterm already sends it exactly
+    // the wheel report it is waiting for.
     term.attachCustomWheelEventHandler((ev) => {
+      if (term.modes.mouseTrackingMode !== "none") return true;
       const rows =
         ev.deltaMode === WheelEvent.DOM_DELTA_LINE
           ? ev.deltaY
@@ -409,20 +435,29 @@ export default function Terminal({
     };
   }, [sessionId, shell, attempt]);
 
-  // One automatic retry (tmux repaints on re-attach); after that, reconnect
-  // whenever the tab regains focus — coming back after minutes away should
-  // just show the session again, not a dead overlay. Manual tap still works.
+  // Keep retrying while the pane is on screen (tmux repaints on re-attach), 1s
+  // doubling to 30s so a pod that is down isn't hammered. Waiting for a
+  // visibilitychange instead is not enough: iOS suspends the socket the moment
+  // the app is backgrounded, and on resume the close event lands *after* that
+  // event has fired — so the pane would sit under a dead overlay until tapped.
+  // While hidden there is nothing to reconnect for; the tap still works.
   useEffect(() => {
-    if (!disconnected) return;
-    if (attempt === 0) {
-      const id = setTimeout(() => setAttempt(1), 1000);
-      return () => clearTimeout(id);
+    if (!disconnected || gaveUp.current) return;
+    if (document.hidden) {
+      const onVisible = () => {
+        if (!document.hidden) setAttempt((a) => a + 1);
+      };
+      document.addEventListener("visibilitychange", onVisible);
+      return () => document.removeEventListener("visibilitychange", onVisible);
     }
-    const onVisible = () => {
-      if (!document.hidden) setAttempt((a) => a + 1);
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    const id = setTimeout(
+      () => {
+        retries.current += 1;
+        setAttempt((a) => a + 1);
+      },
+      Math.min(30_000, 1000 * 2 ** retries.current),
+    );
+    return () => clearTimeout(id);
   }, [disconnected, attempt]);
 
   return (
