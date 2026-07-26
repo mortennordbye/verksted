@@ -44,15 +44,19 @@ async function modifiedPaths(repoDir: string): Promise<Set<string>> {
   return set;
 }
 
-async function refNames(repoDir: string, ref: string): Promise<string[]> {
+/**
+ * Branch names under a ref prefix ("refs/heads" -> "main", "refs/remotes" ->
+ * "origin/main"). Full refnames, shortened here: git shortens
+ * refs/remotes/origin/HEAD to "origin" from 2.41 and "origin/HEAD" before it,
+ * and that symref is not a branch either way.
+ */
+async function refNames(repoDir: string, prefix: string): Promise<string[]> {
   try {
-    const out = await git(repoDir, [
-      "for-each-ref",
-      "--format=%(refname:short)",
-      "--sort=refname",
-      ref,
-    ]);
-    return out.split("\n").filter(Boolean);
+    const out = await git(repoDir, ["for-each-ref", "--format=%(refname)", "--sort=refname", prefix]);
+    return out
+      .split("\n")
+      .filter((r) => r && !r.endsWith("/HEAD"))
+      .map((r) => r.slice(prefix.length + 1));
   } catch {
     return [];
   }
@@ -529,7 +533,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       return {
         current: await branchOf(repoDir),
         local: await refNames(repoDir, "refs/heads"),
-        remote: (await refNames(repoDir, "refs/remotes")).filter((r) => !r.endsWith("/HEAD")),
+        remote: await refNames(repoDir, "refs/remotes"),
         upstream: await upstreamOf(repoDir),
       };
     },
