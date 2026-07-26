@@ -72,6 +72,18 @@ export default async function attachRoutes(app: FastifyInstance) {
       // through proxies. The tmux session itself never times out either way.
       const keepalive = setInterval(() => socket.ping(), 30_000);
 
+      // Scrolling puts the pane into tmux copy mode, where keystrokes are copy
+      // bindings rather than input — so the next input has to leave it first.
+      // The queue keeps that cancel (a tmux exec) ordered ahead of the
+      // keystroke that triggered it; without it the key would race the exec
+      // and be swallowed by copy mode.
+      const target = req.query.shell === "1" ? `${id}-shell` : id;
+      let scrolled = false;
+      let queue: Promise<unknown> = Promise.resolve();
+      const enqueue = (step: () => unknown) => {
+        queue = queue.then(step).catch(() => {});
+      };
+
       socket.on("message", (raw: Buffer) => {
         let msg: WsClientMsg;
         try {
@@ -80,9 +92,18 @@ export default async function attachRoutes(app: FastifyInstance) {
           return;
         }
         if (msg.t === "in" && typeof msg.data === "string") {
-          pty.write(msg.data);
+          if (scrolled) {
+            scrolled = false;
+            enqueue(() => tmux.exitCopyMode(target));
+          }
+          enqueue(() => pty.write(msg.data));
         } else if (msg.t === "resize") {
           pty.resize(clamp(msg.cols, 2, 500, 80), clamp(msg.rows, 2, 300, 24));
+        } else if (msg.t === "scroll") {
+          const lines = clamp(msg.lines, -500, 500, 0);
+          if (lines === 0) return;
+          scrolled = true;
+          enqueue(() => tmux.scrollHistory(target, lines));
         }
       });
 

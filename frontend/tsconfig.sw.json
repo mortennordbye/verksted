@@ -1,0 +1,11 @@
+// The service worker runs in a worker global, not the DOM one: its globals
+// clash with the app's, so it is typechecked on its own (see the lint script).
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "WebWorker"],
+    "types": []
+  },
+  "include": ["src/sw.ts"],
+  "exclude": []
+}

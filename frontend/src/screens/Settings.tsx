@@ -1,5 +1,10 @@
-import { useState } from "react";
-import type { Settings as SettingsInfo, SettingVar, SshKey } from "../../../shared/api";
+import { useEffect, useState } from "react";
+import type {
+  PushStatus,
+  Settings as SettingsInfo,
+  SettingVar,
+  SshKey,
+} from "../../../shared/api";
 import { api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
@@ -142,9 +147,185 @@ export default function Settings() {
           deployment env vars. Changes apply to sessions started afterwards.
         </div>
 
+        <Notifications />
         <SshKeys />
         <AppReset />
       </main>
+    </>
+  );
+}
+
+/** VAPID keys travel as base64url; PushManager wants the raw bytes. */
+function vapidKey(b64: string): Uint8Array<ArrayBuffer> {
+  const padded =
+    b64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob(padded);
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Push notifications for this device — the pod telling a pocketed phone that a
+ * session wants input, or has finished.
+ *
+ * iOS delivers web push only to an app installed on the Home Screen and served
+ * over a secure origin, so most of the states below exist to explain why the
+ * enable button isn't offered yet.
+ */
+function Notifications() {
+  const [state, setState] = useState<"loading" | "unavailable" | "denied" | "off" | "on">(
+    "loading",
+  );
+  const [devices, setDevices] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+        setState("unavailable");
+        return;
+      }
+      // getRegistration (not .ready, which never resolves without a worker):
+      // in dev, and in a plain browser tab on iOS, there is none.
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        setState("unavailable");
+        return;
+      }
+      if (Notification.permission === "denied") {
+        setState("denied");
+        return;
+      }
+      setState((await reg.pushManager.getSubscription()) ? "on" : "off");
+      await api<PushStatus>("/api/push")
+        .then((s) => setDevices(s.devices))
+        .catch(() => undefined);
+    })();
+  }, []);
+
+  async function act(run: () => Promise<void>) {
+    setBusy(true);
+    setNote(null);
+    try {
+      await run();
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const enable = () =>
+    act(async () => {
+      // iOS only grants permission from a user gesture — this click.
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setState(permission === "denied" ? "denied" : "off");
+        return;
+      }
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        setState("unavailable");
+        return;
+      }
+      const { publicKey } = await api<PushStatus>("/api/push");
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey(publicKey),
+      });
+      const { endpoint, keys } = sub.toJSON();
+      if (!endpoint || !keys?.p256dh || !keys?.auth) throw new Error("incomplete subscription");
+      const res = await api<PushStatus>("/api/push/subscribe", {
+        method: "POST",
+        body: JSON.stringify({ endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+      });
+      setDevices(res.devices);
+      setState("on");
+    });
+
+  const disable = () =>
+    act(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        const res = await api<PushStatus>("/api/push/unsubscribe", {
+          method: "POST",
+          body: JSON.stringify({ endpoint: sub.endpoint }),
+        });
+        setDevices(res.devices);
+        await sub.unsubscribe();
+      }
+      setState("off");
+    });
+
+  const test = () =>
+    act(async () => {
+      await api<PushStatus>("/api/push/test", { method: "POST" });
+      setNote("sent — it should arrive in a moment");
+    });
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        Notifications
+      </div>
+      <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+        <span className="font-mono text-[12.5px]">this device</span>
+        {state === "on" && <StatusChip kind="run" label="subscribed" />}
+        {state === "off" && <StatusChip kind="idle" label="off" />}
+        {state === "denied" && <StatusChip kind="wait" label="blocked" />}
+        {state === "unavailable" && <StatusChip kind="idle" label="unavailable" />}
+        {state === "on" && (
+          <>
+            <button
+              onClick={test}
+              disabled={busy}
+              className="ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              send test
+            </button>
+            <button
+              onClick={disable}
+              disabled={busy}
+              className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+            >
+              turn off
+            </button>
+          </>
+        )}
+        {state === "off" && (
+          <button
+            onClick={enable}
+            disabled={busy}
+            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+          >
+            {busy ? "enabling…" : "enable"}
+          </button>
+        )}
+      </div>
+      {note && <div className="mt-2.5 font-mono text-[12px] text-muted">{note}</div>}
+      <div className="mt-5 text-[13px] text-muted">
+        {state === "unavailable" ? (
+          <>
+            This browser can't receive push here. On iPhone, add verksted to the Home
+            Screen (Share → Add to Home Screen) and open it from there — Safari tabs get
+            no push. The app also has to be served over https.
+          </>
+        ) : state === "denied" ? (
+          <>
+            Notifications are blocked for this app. Re-allow them in iOS Settings →
+            Notifications → verksted (or the browser's site settings), then reload.
+          </>
+        ) : (
+          <>
+            The pod pushes when a session starts waiting for input or finishes; tapping
+            the notification opens that session. Each device subscribes separately —{" "}
+            {devices} subscribed right now.
+          </>
+        )}
+      </div>
     </>
   );
 }

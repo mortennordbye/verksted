@@ -31,6 +31,8 @@ export const env = {
   SETTINGS_FILE: process.env.SETTINGS_FILE ?? "/data/settings.json",
   // SSH keys managed via the settings page; $HOME so ssh/git find them natively.
   SSH_DIR: process.env.SSH_DIR ?? `${process.env.HOME ?? "/data/home"}/.ssh`,
+  // Web-push VAPID keypair and device subscriptions (on the PVC, self-managing).
+  PUSH_FILE: process.env.PUSH_FILE ?? "/data/push.json",
   // ntfy topic URL for session pushes; empty disables the notifier.
   NTFY_URL: ntfyUrl,
   // Where the app is reachable (over the VPN); used for ntfy click-through links.

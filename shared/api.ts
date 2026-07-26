@@ -220,6 +220,13 @@ export interface Settings {
   vars: SettingVar[];
 }
 
+/** What a browser needs to subscribe to session pushes, and who is subscribed. */
+export interface PushStatus {
+  /** VAPID public key; the private half never leaves the pod. */
+  publicKey: string;
+  devices: number;
+}
+
 /** An installed SSH key. Private halves are write-only and never leave the pod. */
 export interface SshKey {
   name: string;
@@ -229,7 +236,9 @@ export interface SshKey {
 
 export type WsClientMsg =
   | { t: "in"; data: string }
-  | { t: "resize"; cols: number; rows: number };
+  | { t: "resize"; cols: number; rows: number }
+  /** Scroll the pane's history: positive lines go back, negative go forward. */
+  | { t: "scroll"; lines: number };
 
 /** Browser pane websocket, client -> server. Mouse/key fields mirror CDP Input.dispatch*. */
 export type BrowserClientMsg =
