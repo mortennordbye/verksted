@@ -12,6 +12,9 @@
   --color-accent: #d9a441;
   --color-run: #4ec97b;
   --color-wait: #e0a63d;
+  /* Not from the mock: it predates CI, so it has no failure state. Same
+     lightness band as run and wait so the three read as one family. */
+  --color-fail: #e05c5c;
   --color-idle: #566072;
   --color-claude: #da7756;
   --color-antigravity: #7aa2f7;

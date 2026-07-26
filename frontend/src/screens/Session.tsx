@@ -12,6 +12,7 @@ import type {
   TreeNode,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
+import { diffLineClass } from "../diff";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
@@ -89,14 +90,6 @@ function useVisualViewport() {
       root.style.removeProperty("--vvt");
     };
   }, []);
-}
-
-function diffLineClass(line: string): string {
-  if (line.startsWith("+") && !line.startsWith("+++")) return "text-run";
-  if (line.startsWith("-") && !line.startsWith("---")) return "text-claude";
-  if (line.startsWith("@@")) return "text-accent";
-  if (/^(diff |index |\+\+\+|---)/.test(line)) return "text-faint";
-  return "text-muted";
 }
 
 export default function Session() {
