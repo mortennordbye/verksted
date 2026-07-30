@@ -70,7 +70,21 @@ export default async function attachRoutes(app: FastifyInstance) {
       // An agent waiting for input produces zero traffic; protocol-level pings
       // (answered by the browser automatically) keep idle connections alive
       // through proxies. The tmux session itself never times out either way.
-      const keepalive = setInterval(() => socket.ping(), 30_000);
+      //
+      // The pong is also how a client that went away without closing is found:
+      // iOS freezes a backgrounded PWA's socket, and TCP alone takes many
+      // minutes to notice, leaving a `tmux attach` client per suspension. A
+      // missed pong drops it — the tmux session is untouched, and a phone that
+      // comes back simply reconnects.
+      let answered = true;
+      socket.on("pong", () => {
+        answered = true;
+      });
+      const keepalive = setInterval(() => {
+        if (!answered) return socket.terminate();
+        answered = false;
+        socket.ping();
+      }, 30_000);
 
       // Scrolling puts the pane into tmux copy mode, where keystrokes are copy
       // bindings rather than input — so the next input has to leave it first.

@@ -3,28 +3,38 @@ import path from "node:path";
 import { env } from "./env.js";
 
 // Session-status hooks for Claude Code, passed via `claude --settings <file>`
-// (merged with the user's own settings). Each hook writes the session's state
-// file ($VK_STATE_FILE, set per session in createSession): Notification and
+// (merged with the user's own settings). The state hooks write the session's
+// state file ($VK_STATE_FILE, set per session in createSession): Notification and
 // Stop mean the agent needs the user; UserPromptSubmit and PreToolUse flip
 // back to running. `|| true` keeps every hook exit 0 — a nonzero exit (2)
 // would block claude.
 function write(state: "waiting" | "running") {
   return {
-    hooks: [
-      {
-        type: "command",
-        command: `[ -n "$VK_STATE_FILE" ] && printf ${state} > "$VK_STATE_FILE" || true`,
-      },
-    ],
+    type: "command",
+    command: `[ -n "$VK_STATE_FILE" ] && printf ${state} > "$VK_STATE_FILE" || true`,
   };
 }
 
+// Record the conversation claude is currently in, from the session_id every
+// hook payload carries on stdin. It is what lets a restarted pod put the
+// session back on the same conversation (sessions-store restoreSessions)
+// instead of guessing with --continue. Re-recorded on every prompt, not just at
+// start: a resumed conversation can come back under a different id. Written
+// only when jq produced one, so a parse failure leaves the last good id alone.
+const CONVERSATION = {
+  type: "command",
+  command:
+    `id=$(jq -r '.session_id // empty' 2>/dev/null); ` +
+    `[ -n "$id" ] && [ -n "$VK_CONV_FILE" ] && printf %s "$id" > "$VK_CONV_FILE" || true`,
+};
+
 const SETTINGS = {
   hooks: {
-    Notification: [write("waiting")],
-    Stop: [write("waiting")],
-    UserPromptSubmit: [write("running")],
-    PreToolUse: [write("running")],
+    SessionStart: [{ hooks: [CONVERSATION] }],
+    Notification: [{ hooks: [write("waiting")] }],
+    Stop: [{ hooks: [write("waiting")] }],
+    UserPromptSubmit: [{ hooks: [write("running"), CONVERSATION] }],
+    PreToolUse: [{ hooks: [write("running")] }],
   },
   // The session browser is claude's to drive; don't prompt per tool call.
   permissions: { allow: ["mcp__browser"] },
