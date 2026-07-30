@@ -5,6 +5,7 @@ import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
+import { resolveInsideRepos } from "./paths.js";
 import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
 
@@ -21,6 +22,11 @@ export const RESUME_COMMANDS: Partial<Record<AgentName, string>> = {
 };
 
 export const SESSION_ID_RE = /^vk-[A-Za-z0-9._-]+-\d+$/;
+
+interface Logger {
+  info: (msg: string) => void;
+  warn: (obj: unknown, msg?: string) => void;
+}
 
 interface Meta {
   id: string;
@@ -43,9 +49,34 @@ function statePath(id: string): string {
   return path.join(env.SESSIONS_DIR, `${id}.state`);
 }
 
+// Written by the SessionStart/UserPromptSubmit hooks: the id of the agent's own
+// conversation, which lives in $HOME on the volume and so outlives the pod.
+function convPath(id: string): string {
+  return path.join(env.SESSIONS_DIR, `${id}.conv`);
+}
+
 async function readState(id: string): Promise<string | null> {
   try {
     return (await fs.readFile(statePath(id), "utf8")).trim();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A conversation id as claude writes it: a uuid. This is a security check, not
+ * a sanity one — the resume command is delivered with `tmux send-keys`, which
+ * types it into the pane's shell, so anything in the id is shell syntax. The
+ * execFile argument array protects the tmux call, nothing protects the shell
+ * behind it but this.
+ */
+export const CONV_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
+
+/** The recorded conversation id, or null when absent or not a plausible id. */
+async function readConv(id: string): Promise<string | null> {
+  try {
+    const conv = (await fs.readFile(convPath(id), "utf8")).trim();
+    return CONV_ID_RE.test(conv) ? conv : null;
   } catch {
     return null;
   }
@@ -122,6 +153,59 @@ export async function getSession(id: string): Promise<Session | null> {
   }
 }
 
+/**
+ * Start a session's agent in a fresh tmux session named after it. `base` is the
+ * agent command with any resume flag already on it; everything after it — the
+ * status hooks, the session browser, the per-session env — is identical whether
+ * the session is new or being put back after a pod restart.
+ */
+async function launchAgent(meta: Meta, projectDir: string, base: string): Promise<void> {
+  const extraEnv = await agentEnv();
+  // The session's headless browser (launched on demand, see browser.ts): the
+  // agent connects playwright to VK_BROWSER_CDP to test in a browser the user
+  // can watch in the UI. POST /api/sessions/$VK_SESSION_ID/browser/start boots
+  // it if nothing is connected yet.
+  extraEnv.VK_SESSION_ID = meta.id;
+  extraEnv.VK_BROWSER_CDP = `http://127.0.0.1:${meta.cdpPort ?? (await cdpPortFor(meta.id))}`;
+  let command = base;
+  if (meta.agent === "claude") {
+    // Status hooks: claude writes waiting/running into the session state file
+    // and its conversation id into the conv file. MCP config: the playwright
+    // MCP drives the session browser.
+    command += ` --settings "${await ensureHooksSettings()}" --mcp-config "${await ensureMcpConfig()}"`;
+    extraEnv.VK_STATE_FILE = statePath(meta.id);
+    extraEnv.VK_CONV_FILE = convPath(meta.id);
+  }
+  await tmux.newSession(meta.id, projectDir, command, extraEnv);
+}
+
+/**
+ * Put sessions that were still live back on a fresh tmux server, after the pod
+ * restarted out from under them. The tmux server dies with the container, but
+ * everything the session actually is outlives it on the volume: its metadata
+ * here and its conversation in the agent's own $HOME. Resuming the recorded
+ * conversation by id is the whole point — `--continue` picks the newest
+ * conversation for a directory, so two sessions in one project would both land
+ * on the same one. A session with no recorded id is left to the list sweep,
+ * which ends it as before.
+ */
+export async function restoreSessions(log: Logger): Promise<void> {
+  const live = new Set(await tmux.listSessions());
+  for (const meta of await readAll()) {
+    if (meta.endedAt || live.has(meta.id) || meta.agent !== "claude") continue;
+    const conv = await readConv(meta.id);
+    if (!conv) continue;
+    try {
+      await launchAgent(meta, resolveInsideRepos(meta.project), `claude --resume ${conv}`);
+      log.info(`restored session ${meta.id} on conversation ${conv}`);
+    } catch (err) {
+      // A deleted project dir or a tmux that would not start: leave it to be
+      // swept as done rather than failing the whole boot.
+      log.warn(err, `could not restore session ${meta.id}`);
+    }
+  }
+}
+
 export async function createSession(
   project: string,
   projectDir: string,
@@ -147,22 +231,10 @@ export async function createSession(
     endedAt: null,
     cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
   };
-  let command = (resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent];
-  // The session's headless browser (launched on demand, see browser.ts): the
-  // agent connects playwright to VK_BROWSER_CDP to test in a browser the user
-  // can watch in the UI. POST /api/sessions/$VK_SESSION_ID/browser/start boots
-  // it if nothing is connected yet.
-  extraEnv.VK_SESSION_ID = meta.id;
-  extraEnv.VK_BROWSER_CDP = `http://127.0.0.1:${meta.cdpPort}`;
-  if (agent === "claude") {
-    // Status hooks: claude writes waiting/running into the session state file.
-    // MCP config: the playwright MCP drives the session browser.
-    command += ` --settings "${await ensureHooksSettings()}" --mcp-config "${await ensureMcpConfig()}"`;
-    extraEnv.VK_STATE_FILE = statePath(meta.id);
-  }
   // A purged session's id can be reused; drop any stale state from it.
   await fs.rm(statePath(meta.id), { force: true });
-  await tmux.newSession(meta.id, projectDir, command, extraEnv);
+  await fs.rm(convPath(meta.id), { force: true });
+  await launchAgent(meta, projectDir, (resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent]);
   await writeMeta(meta);
   return { ...toSession(meta, true, null), sync };
 }
@@ -177,6 +249,7 @@ export async function deleteProjectSessions(project: string): Promise<void> {
     await closeBrowser(m.id);
     await fs.rm(metaPath(m.id), { force: true });
     await fs.rm(statePath(m.id), { force: true });
+    await fs.rm(convPath(m.id), { force: true });
   }
 }
 
@@ -209,5 +282,6 @@ export async function deleteSession(id: string): Promise<boolean> {
   await closeBrowser(id);
   await fs.rm(metaPath(id), { force: true });
   await fs.rm(statePath(id), { force: true });
+  await fs.rm(convPath(id), { force: true });
   return true;
 }

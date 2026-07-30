@@ -108,6 +108,11 @@ ENV NODE_ENV=production \
     SESSIONS_DIR=/data/sessions \
     STATIC_DIR=/app/frontend/dist \
     TERM=xterm-256color
+# /data is an NFS volume, and libuv's default 4 threads run every fs call the
+# backend makes — including the static index.html the health check reads. Four
+# slow NFS reads would queue the health check behind them and get the pod
+# restarted, taking every tmux session with it.
+ENV UV_THREADPOOL_SIZE=16
 WORKDIR /app
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/backend/node_modules ./backend/node_modules

@@ -44,13 +44,34 @@ what unblocks it / where the code lives.
 
 - **What:** The "resume the previous conversation" toggle only maps to a command
   for claude (`claude --continue`). Codex reportedly has `codex resume --last`
-  and antigravity may have an equivalent; neither flag is verified.
+  and antigravity may have an equivalent; neither flag is verified. The same gap
+  costs them automatic restore after a pod restart (`restoreSessions`): that
+  needs both a resume-by-id flag and a way for the CLI to report the id it is
+  on, which claude does through its `SessionStart`/`UserPromptSubmit` hooks.
+  Codex and antigravity sessions are still ended by the list sweep on restart.
 - **Why deferred:** Can't verify the flags without running those CLIs
   authenticated in the pod.
 - **Unblocked by:** Testing the resume flag of each CLI in a pod terminal, then
-  adding it to `RESUME_COMMANDS`.
-- **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`),
-  `frontend/src/screens/Project.tsx` (picker label)
+  adding it to `RESUME_COMMANDS`; for restore, finding each CLI's equivalent of
+  a hook that exposes the conversation id and writing it to `$VK_CONV_FILE`.
+- **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`,
+  `restoreSessions`), `backend/src/claude-hooks.ts` (the `CONVERSATION` hook to
+  copy), `frontend/src/screens/Project.tsx` (picker label)
+
+## restoreSessions has no automated coverage
+
+- **What:** `restoreSessions` — re-creating tmux for sessions that survived a
+  pod restart — is verified by hand only. The unit test covers `CONV_ID_RE`,
+  the injection guard on the id that reaches `tmux send-keys`, and nothing else.
+- **Why deferred:** Exercising it means really spawning tmux and really starting
+  an agent CLI, which makes the suite stateful against a shared tmux server and
+  needs an authenticated agent to be meaningful. Nothing in the harness mocks
+  `execFile` (same reason as the gh entry above).
+- **Unblocked by:** A test-only `PATH` prefix holding a fake `tmux` that records
+  its argv, which would let the whole restore decision — which sessions are
+  picked, what command each is given — be asserted without a tmux server.
+- **Where:** `backend/src/sessions-store.ts` (`restoreSessions`, `launchAgent`),
+  `backend/test/sessions-store.test.ts`
 
 ## Browser pane: follow agent-created browser contexts
 

@@ -135,7 +135,7 @@ export default function Terminal({
   // Consecutive failed reconnects (the backoff), and whether the server told us
   // the session is gone — in which case retrying is pointless.
   const retries = useRef(0);
-  const gaveUp = useRef(false);
+  const [ended, setEnded] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
@@ -330,6 +330,7 @@ export default function Terminal({
 
     let scanTimer: number | undefined;
     setMode(null);
+    setEnded(false);
     ws.onopen = () => {
       setDisconnected(false);
       retries.current = 0;
@@ -350,8 +351,10 @@ export default function Terminal({
     ws.onclose = (e) => {
       // 4404 is the attach route saying the session no longer exists (ended or
       // purged); no amount of reconnecting brings it back.
-      if (e.code === 4404) gaveUp.current = true;
-      if (!unmounted) setDisconnected(true);
+      if (!unmounted) {
+        if (e.code === 4404) setEnded(true);
+        setDisconnected(true);
+      }
     };
 
     // One text row in CSS pixels — fit() sizes rows to this box, so the box
@@ -442,7 +445,7 @@ export default function Terminal({
   // event has fired — so the pane would sit under a dead overlay until tapped.
   // While hidden there is nothing to reconnect for; the tap still works.
   useEffect(() => {
-    if (!disconnected || gaveUp.current) return;
+    if (!disconnected || ended) return;
     if (document.hidden) {
       const onVisible = () => {
         if (!document.hidden) setAttempt((a) => a + 1);
@@ -458,7 +461,7 @@ export default function Terminal({
       Math.min(30_000, 1000 * 2 ** retries.current),
     );
     return () => clearTimeout(id);
-  }, [disconnected, attempt]);
+  }, [disconnected, attempt, ended]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -548,12 +551,17 @@ export default function Terminal({
             ↓ live
           </button>
         )}
+        {/* Two different situations behind one overlay before: a backend that
+            will come back (retrying works, and does so on its own) and a
+            session that is gone for good (retrying can only fail). Say which. */}
         {disconnected && (
           <button
             onClick={() => setAttempt((a) => a + 1)}
-            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 font-mono text-[13px] text-muted"
+            className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center bg-term/80 font-mono text-[13px] text-muted"
           >
-            disconnected — tap to reconnect
+            {ended
+              ? "this session has ended — start a new one with “resume” to pick the conversation up"
+              : "reconnecting — tap to retry now"}
           </button>
         )}
       </div>
