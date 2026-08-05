@@ -106,6 +106,7 @@ ENV NODE_ENV=production \
     PORT=8080 \
     REPOS_DIR=/data/repos \
     SESSIONS_DIR=/data/sessions \
+    SCHEDULES_DIR=/data/schedules \
     STATIC_DIR=/app/frontend/dist \
     TERM=xterm-256color
 # /data is an NFS volume, and libuv's default 4 threads run every fs call the

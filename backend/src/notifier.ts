@@ -14,17 +14,30 @@ export function transitions(prev: Map<string, Status>, sessions: Session[]): Ses
   });
 }
 
-/** What the notification says, on either channel. */
-function body(s: Session): string {
-  return s.status === "waiting" ? "waiting for input" : "session finished";
+/**
+ * Whether a transition is worth waking someone for, given the verdict the run
+ * left behind (see sessions-store readReport). A session that stopped to ask
+ * something always is — that is what "waiting" means. A finished one is only
+ * worth it if it did not report itself clean: the whole point of an unattended
+ * schedule is that a quiet night stays quiet. No report is the old behaviour,
+ * so a hand-started session still announces that it finished.
+ */
+export function shouldNotify(s: Session, report: string | null): boolean {
+  if (s.status !== "done") return true;
+  return !report || !/^ok\b/i.test(report);
 }
 
-async function ntfy(s: Session, log: Logger): Promise<void> {
+/** What the notification says: the run's own words when it left any. */
+function body(s: Session, report: string | null): string {
+  return report ?? (s.status === "waiting" ? "waiting for input" : "session finished");
+}
+
+async function ntfy(s: Session, report: string | null, log: Logger): Promise<void> {
   if (!env.NTFY_URL) return;
   try {
     const res = await fetch(env.NTFY_URL, {
       method: "POST",
-      body: body(s),
+      body: body(s, report),
       headers: {
         "X-Title": `${s.title} · ${s.project}`,
         "X-Tags": s.status === "waiting" ? "hourglass_flowing_sand" : "checkered_flag",
@@ -41,11 +54,14 @@ async function ntfy(s: Session, log: Logger): Promise<void> {
 }
 
 /** Both channels, independently: neither failing should silence the other. */
-async function notify(s: Session, log: Logger): Promise<void> {
+async function notify(s: Session, report: string | null, log: Logger): Promise<void> {
   await Promise.all([
-    ntfy(s, log),
+    ntfy(s, report, log),
     // Tapping the notification opens the session that wants attention.
-    push.send({ title: `${s.title} · ${s.project}`, body: body(s), url: `/s/${s.id}` }, log),
+    push.send(
+      { title: `${s.title} · ${s.project}`, body: body(s, report), url: `/s/${s.id}` },
+      log,
+    ),
   ]);
 }
 
@@ -70,7 +86,12 @@ export function startNotifier(log: Logger): void {
         return;
       }
       const sessions = await store.listSessions();
-      if (prev) for (const s of transitions(prev, sessions)) await notify(s, log);
+      if (prev) {
+        for (const s of transitions(prev, sessions)) {
+          const report = s.status === "done" ? await store.readReport(s.id) : null;
+          if (shouldNotify(s, report)) await notify(s, report, log);
+        }
+      }
       prev = new Map(sessions.map((s) => [s.id, s.status]));
     } catch (err) {
       log.warn(err, "notifier poll failed");

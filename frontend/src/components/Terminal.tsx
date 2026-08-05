@@ -85,6 +85,31 @@ function findMode(term: Xterm): (typeof MODES)[number] | null {
   return null;
 }
 
+/**
+ * The browser's dictation engine. The pod has no microphone and never will —
+ * the phone in your hand does — so speech becomes text here and reaches the
+ * agent as ordinary typing. Safari and Chrome both still expose it under the
+ * webkit prefix. Needs a secure origin, same as push.
+ */
+interface Recognition {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+}
+
+function speechCtor(): (new () => Recognition) | null {
+  const w = window as unknown as {
+    SpeechRecognition?: new () => Recognition;
+    webkitSpeechRecognition?: new () => Recognition;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
 const KEYS: { label: string; seq: string }[] = [
   { label: "esc", seq: "\x1b" },
@@ -141,6 +166,9 @@ export default function Terminal({
   const [copied, setCopied] = useState(false);
   const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
+  // Dictation: the run in progress, and whether the mic key is lit.
+  const recognition = useRef<Recognition | null>(null);
+  const [listening, setListening] = useState(false);
   // Which toolbar key is showing the just-pressed look, and whether the pane is
   // scrolled back into its history (tmux copy mode).
   const [flash, setFlash] = useState<string | null>(null);
@@ -223,6 +251,42 @@ export default function Terminal({
     return `${KEY} ${KEY_PRESS} ${flash === id ? KEY_LIT : base}`;
   }
 
+  /**
+   * Dictate a prompt: one utterance per tap, typed into the pane without Enter
+   * so it can be read — and edited, or thrown away with ^C — before the agent
+   * sees it. Tapping again while listening stops early.
+   */
+  function toggleDictation() {
+    if (recognition.current) {
+      recognition.current.stop();
+      return;
+    }
+    const Ctor = speechCtor();
+    if (!Ctor) return;
+    const rec = new Ctor();
+    // The device's own language, so Norwegian dictates as Norwegian.
+    rec.lang = navigator.language;
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.onresult = (e) => {
+      const parts: string[] = [];
+      for (let i = 0; i < e.results.length; i++) parts.push(e.results[i]?.[0]?.transcript ?? "");
+      const text = parts.join(" ").trim();
+      // Trailing space: dictating twice should not run the words together.
+      if (text) sendInput(`${text} `);
+    };
+    // A refused microphone or a failed transcription just ends the attempt;
+    // onend still runs, which is what puts the button back.
+    rec.onerror = () => {};
+    rec.onend = () => {
+      recognition.current = null;
+      setListening(false);
+    };
+    recognition.current = rec;
+    setListening(true);
+    rec.start();
+  }
+
   // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
   // the on-screen keyboard); send the clipboard straight in instead.
   async function pasteFromClipboard() {
@@ -283,6 +347,9 @@ export default function Terminal({
     setAuthUrl(null);
     setCopied(false);
   }
+
+  // Leaving the session must not leave the microphone open.
+  useEffect(() => () => recognition.current?.stop(), []);
 
   useEffect(() => {
     const el = ref.current!;
@@ -491,6 +558,15 @@ export default function Terminal({
         <button onClick={() => tapKey("paste", pasteFromClipboard)} className={keyClass("paste")}>
           paste
         </button>
+        {speechCtor() && (
+          <button
+            onClick={() => tapKey("mic", toggleDictation)}
+            title="dictate into the terminal"
+            className={keyClass("mic", listening ? KEY_LIT : KEY_IDLE)}
+          >
+            {listening ? "◉ mic" : "mic"}
+          </button>
+        )}
         <button
           onClick={() => {
             press("img");

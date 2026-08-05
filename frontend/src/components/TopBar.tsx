@@ -38,9 +38,16 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
         </div>
       )}
       <Link
+        to="/runs"
+        title="inbox — what the schedules did"
+        className="ml-auto flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+      >
+        ✉
+      </Link>
+      <Link
         to="/settings"
         title="settings"
-        className="ml-auto flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+        className="flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
       >
         ⚙
       </Link>
