@@ -24,6 +24,11 @@ beforeAll(async () => {
   git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init");
   fs.writeFileSync(path.join(demo, "sub", "b.txt"), "world changed");
   fs.writeFileSync(path.join(demo, "new.txt"), "untracked");
+  // Non-ASCII names: git C-quotes these in porcelain output unless -z is used,
+  // so without it they arrive as "\303\246rlig.txt" and never match a real path.
+  fs.writeFileSync(path.join(demo, "ærlig.txt"), "norsk");
+  fs.writeFileSync(path.join(demo, "sub", "smørbrød.txt"), "mat");
+  fs.writeFileSync(path.join(demo, "with space.txt"), "spaced");
 
   // gitops: a repo with a commit, for exercising stage/unstage/commit.
   const gitops = path.join(root, "gitops");
@@ -120,6 +125,24 @@ describe("GET /api/projects/:name/git", () => {
     expect(body.branch).toBe("main");
     expect(body.files).toContainEqual({ path: "sub/b.txt", status: "M", staged: false });
     expect(body.files).toContainEqual({ path: "new.txt", status: "U", staged: false });
+  });
+
+  // git C-quotes non-ASCII paths in porcelain output ("\303\246rlig.txt")
+  // unless -z is passed, and the quoted form matches no file on disk — so the
+  // tree marker missed them and stage/discard acted on a path that not exist.
+  it("reports non-ASCII and spaced filenames as themselves", async () => {
+    const files = (await app.inject({ url: "/api/projects/demo/git" })).json().files;
+    const paths = files.map((f: { path: string }) => f.path);
+    expect(paths).toContain("ærlig.txt");
+    expect(paths).toContain("sub/smørbrød.txt");
+    expect(paths).toContain("with space.txt");
+    for (const p of paths) expect(p).not.toMatch(/\\\d{3}/);
+  });
+
+  it("marks a non-ASCII file as modified in the tree", async () => {
+    const tree = (await app.inject({ url: "/api/projects/demo/tree" })).json();
+    const found = tree.find((n: { name: string }) => n.name === "ærlig.txt");
+    expect(found?.modified).toBe(true);
   });
 
   it("404s an unknown project", async () => {

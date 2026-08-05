@@ -112,6 +112,10 @@ export default async function projectRoutes(app: FastifyInstance) {
           });
         } catch (err) {
           req.log.error(err, "clone failed");
+          // A half-cloned directory is still a directory, so the 409 check above
+          // would block every retry with "project already exists" and the only
+          // way out would be kubectl exec.
+          await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
           return reply.code(502).send({ error: "clone failed" });
         }
         return reply.code(201).send({ name: repoName });
@@ -129,7 +133,14 @@ export default async function projectRoutes(app: FastifyInstance) {
         // dir is free
       }
       await fs.mkdir(dir);
-      await exec("git", ["-C", dir, "init", "-b", "main"]);
+      try {
+        await exec("git", ["-C", dir, "init", "-b", "main"]);
+      } catch (err) {
+        req.log.error(err, "init failed");
+        // Same reason as the clone above: an empty dir 409s every retry.
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+        return reply.code(502).send({ error: "init failed" });
+      }
       return reply.code(201).send({ name });
     },
   );

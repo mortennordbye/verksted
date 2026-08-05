@@ -103,7 +103,9 @@ async function dockerPorts(): Promise<ListeningPort[]> {
 export default async function factsRoutes(app: FastifyInstance) {
   app.get("/api/facts", async (): Promise<PodFacts> => {
     const [stat, mem, docker] = await Promise.all([
-      fs.statfs(env.REPOS_DIR),
+      // One unreadable mount must not 500 the whole facts endpoint, which also
+      // carries memory, browser count and the docker figures.
+      fs.statfs(env.REPOS_DIR).catch(() => ({ blocks: 0, bsize: 0, bavail: 0 })),
       memory(),
       dockerDf(),
     ]);

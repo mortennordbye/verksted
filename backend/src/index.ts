@@ -21,10 +21,33 @@ startNotifier(app.log);
 startMaintenance(app.log);
 await reloadSchedules(app.log);
 
-// Chromium children would outlive a dev-watch restart otherwise.
+// A rejection nobody handled would otherwise take the process down with Node's
+// default, killing every tmux attach and both websockets for something as small
+// as one failed git call in an interval body.
+process.on("unhandledRejection", (reason) => {
+  app.log.error({ reason }, "unhandled rejection");
+});
+
+// Chromium children would outlive a dev-watch restart otherwise. Closing the
+// app first lets in-flight requests finish and websockets close cleanly, rather
+// than every phone seeing a dropped socket on a rolling restart.
+let shuttingDown = false;
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
   process.on(sig, () => {
-    killAll();
-    process.exit(0);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    void app
+      .close()
+      .catch((err: unknown) => app.log.error({ err }, "shutdown failed"))
+      .finally(() => {
+        killAll();
+        process.exit(0);
+      });
+    // Kubernetes sends SIGKILL after its grace period regardless; this just
+    // makes sure a wedged close does not hold chromium processes open.
+    setTimeout(() => {
+      killAll();
+      process.exit(0);
+    }, 8_000).unref();
   });
 }

@@ -14,7 +14,7 @@ import type {
   TreeNode,
   UploadedFile,
 } from "../../../shared/api.js";
-import { branchOf, git, gitError } from "../git.js";
+import { branchOf, git, gitError, gitRaw, parsePorcelainZ } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
 import { ReplaceTimeout, runReplace } from "../replace.js";
@@ -32,13 +32,8 @@ const MAX_FILE_BYTES = 1024 * 1024;
 async function modifiedPaths(repoDir: string): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    const { stdout } = await exec("git", ["-C", repoDir, "status", "--porcelain=v1", "-uall"]);
-    for (const line of stdout.split("\n").filter(Boolean)) {
-      let p = line.slice(3);
-      const arrow = p.indexOf(" -> ");
-      if (arrow !== -1) p = p.slice(arrow + 4);
-      set.add(p.replace(/^"(.*)"$/, "$1"));
-    }
+    const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall"]);
+    for (const { path } of parsePorcelainZ(out)) set.add(path);
   } catch {
     // not a git repo / git broke: no markers
   }
@@ -172,10 +167,14 @@ export default async function fileRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
-      const stat = await fs.lstat(abs);
+      // The agent shares this working tree, so the file can vanish between the
+      // resolve and the stat. That is a 404, not a 500.
+      const stat = await fs.lstat(abs).catch(() => null);
+      if (!stat) return reply.code(404).send({ error: "not found" });
       if (!stat.isFile()) return reply.code(403).send({ error: "denied" });
       if (stat.size > MAX_FILE_BYTES) return reply.code(413).send({ error: "file too large" });
-      const buf = await fs.readFile(abs);
+      const buf = await fs.readFile(abs).catch(() => null);
+      if (!buf) return reply.code(404).send({ error: "not found" });
       if (buf.subarray(0, 8192).includes(0)) {
         return reply.code(415).send({ error: "binary file" });
       }
@@ -218,7 +217,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
-      const stat = await fs.lstat(abs);
+      const stat = await fs.lstat(abs).catch(() => null);
+      if (!stat) return reply.code(404).send({ error: "not found" });
       if (!stat.isFile()) return reply.code(403).send({ error: "denied" });
       if (stat.size > MAX_RAW_BYTES) return reply.code(413).send({ error: "file too large" });
       const name = path.basename(abs).replace(/[^\w.-]/g, "_");
@@ -378,13 +378,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       }
       let files: GitFileStatus[] = [];
       try {
-        const { stdout } = await exec("git", ["-C", repoDir, "status", "--porcelain=v1", "-uall"]);
-        for (const line of stdout.split("\n").filter(Boolean)) {
-          const [x, y] = [line[0]!, line[1]!];
-          let p = line.slice(3);
-          const arrow = p.indexOf(" -> ");
-          if (arrow !== -1) p = p.slice(arrow + 4);
-          p = p.replace(/^"(.*)"$/, "$1");
+        const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall"]);
+        for (const { x, y, path: p } of parsePorcelainZ(out)) {
           if (x === "?") {
             files.push({ path: p, status: "U", staged: false });
             continue;
@@ -794,19 +789,13 @@ export default async function fileRoutes(app: FastifyInstance) {
       // VS Code semantics: untracked files are deleted, tracked files restored
       // to their index state (working tree only, staged changes untouched).
       try {
-        const { stdout } = await exec(
-          "git",
-          ["-C", repoDir, "status", "--porcelain=v1", "-uall", "--", ...paths],
-          { env: GIT_ENV },
-        );
+        const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall", "--", ...paths], {
+          env: GIT_ENV,
+        });
         const untracked: string[] = [];
         const tracked: string[] = [];
-        for (const line of stdout.split("\n").filter(Boolean)) {
-          let p = line.slice(3);
-          const arrow = p.indexOf(" -> ");
-          if (arrow !== -1) p = p.slice(arrow + 4);
-          p = p.replace(/^"(.*)"$/, "$1");
-          (line[0] === "?" ? untracked : tracked).push(p);
+        for (const { x, path: p } of parsePorcelainZ(out)) {
+          (x === "?" ? untracked : tracked).push(p);
         }
         for (const p of untracked) {
           await fs.rm(resolveInsideRepos(req.params.name, p), { force: true });

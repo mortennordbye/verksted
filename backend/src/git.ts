@@ -6,13 +6,68 @@ import type { BranchSync } from "../../shared/api.js";
 
 const exec = promisify(execFile);
 
+/**
+ * Raw stdout, untrimmed. Porcelain -z output can legitimately begin with a
+ * space — " M path" is "modified in the worktree" — and trimming it would shift
+ * every field of the first entry by one character.
+ */
+export async function gitRaw(
+  repoDir: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
+): Promise<string> {
+  const { stdout } = await exec("git", ["-C", repoDir, ...args], {
+    env: opts.env,
+    // Without these, execFile's 1 MB default silently truncates and kills the
+    // call, and every caller reads that as "clean" or "no files" — a wrong UI
+    // rather than an error. A big status or diff really does exceed 1 MB.
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: opts.timeout ?? 15_000,
+  });
+  return stdout;
+}
+
 export async function git(
   repoDir: string,
   args: string[],
   opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
 ): Promise<string> {
-  const { stdout } = await exec("git", ["-C", repoDir, ...args], opts);
-  return stdout.trim();
+  return (await gitRaw(repoDir, args, opts)).trim();
+}
+
+export interface PorcelainEntry {
+  /** Index status. */
+  x: string;
+  /** Worktree status. */
+  y: string;
+  path: string;
+}
+
+/**
+ * Parse `git status --porcelain=v1 -z`.
+ *
+ * -z is not optional here. Without it git C-quotes any path that is not plain
+ * printable ASCII, so "æ.txt" arrives as "\303\246.txt" — and every consumer
+ * (the modified marker in the tree, stage, discard) then acts on a path that
+ * does not exist, silently missing the file. -z emits the raw bytes and
+ * NUL-terminates them instead, which also removes the ambiguity of splitting a
+ * rename on " -> " when a filename contains that sequence.
+ *
+ * A rename or copy entry is followed by a second field holding the source
+ * path. Callers want the destination, so the source field is skipped.
+ */
+export function parsePorcelainZ(stdout: string): PorcelainEntry[] {
+  const parts = stdout.split("\0");
+  const out: PorcelainEntry[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const entry = parts[i];
+    // "XY " plus at least one character of path.
+    if (!entry || entry.length < 4) continue;
+    const x = entry[0]!;
+    out.push({ x, y: entry[1]!, path: entry.slice(3) });
+    if (x === "R" || x === "C") i++;
+  }
+  return out;
 }
 
 export async function branchOf(repoDir: string): Promise<string> {
