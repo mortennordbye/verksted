@@ -242,3 +242,24 @@ what unblocks it / where the code lives.
   writing the same state file (`VK_STATE_FILE` is already the contract).
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
+
+## Upgrade react-router past the RSC-mode CSRF advisory
+
+- **What:** react-router is pinned at `^7.0.0` and resolves to 7.18.1, which is
+  inside the range of GHSA-qwww-vcr4-c8h2 ("RSC Mode CSRF Bypass Allows Action
+  Execution Before 400 Response"). The other five advisories found alongside it
+  were patched in place; this one is left open deliberately.
+- **Why deferred:** The advisory is specific to RSC mode. This app is a
+  client-side SPA that uses only `Routes`, `Route`, `BrowserRouter`, `Link`,
+  `useNavigate`, `useParams` and `useLocation` — no RSC, no server actions, no
+  data-router loaders — so the vulnerable code path is never reached. The fixed
+  version is >8.2.0, so clearing the advisory means a react-router 8 major bump
+  across the whole routing layer, which is a deliberate upgrade rather than a
+  security patch.
+- **Unblocked by:** Reading the react-router 8 migration notes and doing the
+  bump on its own branch. Until then `npm audit` will keep reporting one high
+  finding, so any dependency scanning added in CI needs to either allow this
+  advisory explicitly or be read with it in mind.
+- **Where:** `frontend/package.json` (`react-router`), and the import sites
+  listed above (`frontend/src/App.tsx`, `main.tsx`, `components/TopBar.tsx`,
+  `screens/Hub.tsx`, `Project.tsx`, `Session.tsx`, `Settings.tsx`, `Inbox.tsx`)
