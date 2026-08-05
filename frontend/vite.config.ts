@@ -42,7 +42,10 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://backend:8080",
-        changeOrigin: true,
+        // Forward the browser's own Host (dev is the only place the frontend
+        // and the API sit on different origins), so the backend's same-origin
+        // check sees Host and Origin agree. Fastify does not route on Host.
+        changeOrigin: false,
         ws: true,
       },
     },

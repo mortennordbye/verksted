@@ -21,6 +21,19 @@ if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
   fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
 }
 
+// Extra browser origins allowed to make mutating and websocket requests, on top
+// of same-origin (see origin.ts). Only needed when the frontend is served from a
+// different origin than the API — the single-container deployment is not.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+for (const o of allowedOrigins) {
+  if (!/^https?:\/\/[^/]+$/.test(o)) {
+    fail(`ALLOWED_ORIGINS entries must be scheme://host[:port], got "${o}"`);
+  }
+}
+
 export const env = {
   PORT: port,
   REPOS_DIR: process.env.REPOS_DIR ?? "/data/repos",
@@ -39,4 +52,6 @@ export const env = {
   NTFY_URL: ntfyUrl,
   // Where the app is reachable (over the VPN); used for ntfy click-through links.
   PUBLIC_URL: publicUrl,
+  // Cross-origin allowlist; empty means same-origin only.
+  ALLOWED_ORIGINS: allowedOrigins,
 };

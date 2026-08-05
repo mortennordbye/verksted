@@ -16,6 +16,10 @@ export class PathDeniedError extends Error {
  * repos root. Everything the backend reads from disk on behalf of a client goes
  * through here. Throws PathDeniedError on any escape attempt, bad name, or
  * nonexistent path — deliberately indistinguishable to the caller.
+ *
+ * `.git` is out of bounds too: the tree hides it, but without this the file
+ * endpoints would still read `.git/config` (remote URLs, tokens) and write
+ * `.git/hooks/pre-commit`, which the commit route then executes.
  */
 export function resolveInsideRepos(
   projectName: string,
@@ -34,6 +38,12 @@ export function resolveInsideRepos(
     throw new PathDeniedError();
   }
   if (real !== projDir && !real.startsWith(projDir + path.sep)) {
+    throw new PathDeniedError();
+  }
+  // Checked on the realpath, so a symlink pointing into .git is caught too. In a
+  // linked worktree `.git` is a file rather than a directory; both are denied.
+  const rel = path.relative(projDir, real);
+  if (rel !== "" && rel.split(path.sep).includes(".git")) {
     throw new PathDeniedError();
   }
   return real;

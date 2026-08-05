@@ -16,7 +16,8 @@ import type {
 } from "../../../shared/api.js";
 import { branchOf, git, gitError } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
-import { agentEnv } from "../settings-store.js";
+import { execEnv } from "../settings-store.js";
+import { ReplaceTimeout, runReplace } from "../replace.js";
 
 const exec = promisify(execFile);
 
@@ -497,9 +498,9 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (!message) return reply.code(400).send({ error: "empty commit message" });
       try {
         // Commits the index only (no -a) — exactly what the UI staged.
-        // agentEnv so GIT_AUTHOR_*/GIT_COMMITTER_* from the settings page apply.
+        // execEnv so GIT_AUTHOR_*/GIT_COMMITTER_* from the settings page apply.
         await exec("git", ["-C", repoDir, "commit", "-m", message], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
         });
       } catch (err) {
         const out = String((err as { stdout?: string }).stdout ?? "");
@@ -592,7 +593,7 @@ export default async function fileRoutes(app: FastifyInstance) {
         // ff-only: a diverged branch is a decision for the user, not a merge
         // commit made behind their back. The reset route is the way out.
         await git(repoDir, ["pull", "--ff-only"], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
       } catch (err) {
@@ -618,7 +619,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
       try {
         await git(repoDir, ["fetch", upstream.slice(0, upstream.indexOf("/"))], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
         await git(repoDir, ["reset", "--hard", upstream]);
@@ -747,31 +748,30 @@ export default async function fileRoutes(app: FastifyInstance) {
         req.log.error(err, "replace search failed");
         return reply.code(500).send({ error: "replace failed" });
       }
-      let files = 0;
-      let replacements = 0;
+      const paths: string[] = [];
       for (const rel of matched.slice(0, 500)) {
-        const abs = resolveInsideRepos(req.params.name, rel);
-        const before = await fs.readFile(abs, "utf8");
-        let n = 0;
-        let after: string;
-        if (req.body.regex) {
-          // String replacement so "$1" backreferences work.
-          n = (before.match(re) ?? []).length;
-          after = before.replace(re, replacement);
-        } else {
-          // Function replacement keeps "$&" etc. in the replacement literal.
-          after = before.replace(re, () => {
-            n++;
-            return replacement;
-          });
-        }
-        if (n > 0) {
-          await fs.writeFile(abs, after);
-          files++;
-          replacements += n;
+        try {
+          paths.push(resolveInsideRepos(req.params.name, rel));
+        } catch {
+          // Gone, or now out of bounds — rg listed it a moment ago.
         }
       }
-      return { files, replacements };
+      // Off-thread: the pattern is client input and can backtrack forever.
+      try {
+        return await runReplace({
+          paths,
+          source: re.source,
+          flags: re.flags,
+          replacement,
+          literal: !req.body.regex,
+        });
+      } catch (err) {
+        if (err instanceof ReplaceTimeout) {
+          return reply.code(400).send({ error: "pattern too slow — narrow it and try again" });
+        }
+        req.log.error(err, "replace failed");
+        return reply.code(500).send({ error: "replace failed" });
+      }
     },
   );
 

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { agentEnv } from "./settings-store.js";
+import { execEnv } from "./settings-store.js";
 import type { PullRequest, RunLog } from "../../shared/api.js";
 
 const exec = promisify(execFile);
@@ -31,7 +31,7 @@ export async function gh(
       cwd: repoDir,
       env: {
         ...process.env,
-        ...(await agentEnv()),
+        ...(await execEnv()),
         GH_PROMPT_DISABLED: "1",
         GH_NO_UPDATE_NOTIFIER: "1",
         NO_COLOR: "1",

@@ -14,7 +14,7 @@ import type {
 import { branchOf, defaultBranch, git, gitError } from "../git.js";
 import { gh, ghJson, formatRunLog, summarizeChecks, GhError } from "../gh.js";
 import { resolveInsideRepos } from "../paths.js";
-import { agentEnv } from "../settings-store.js";
+import { execEnv } from "../settings-store.js";
 
 const exec = promisify(execFile);
 
@@ -298,7 +298,7 @@ export default async function githubRoutes(app: FastifyInstance) {
 
       try {
         await git(repoDir, ["push", "-u", "origin", "HEAD"], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
       } catch (err) {
@@ -410,7 +410,7 @@ export default async function githubRoutes(app: FastifyInstance) {
       try {
         // gh deletes the remote branch but leaves its tracking ref behind.
         await git(repoDir, ["fetch", "--prune", "origin"], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
       } catch (err) {
