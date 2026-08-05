@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs/promises";
@@ -30,13 +31,22 @@ const MAX_ENTRIES = 5000;
 const MAX_FILE_BYTES = 1024 * 1024;
 
 /**
- * A file's version, for lost-update detection on save. mtime and size rather
- * than a content hash: the point is only to notice that something wrote to the
- * file between the read and the save, and the agent editing a file the user has
- * open is the ordinary case here, not a rare race.
+ * A file's version, for lost-update detection on save.
+ *
+ * Content hash rather than mtime and size: those collide whenever two writes
+ * land in the same millisecond at the same length, which is exactly what an
+ * automated writer does — and a missed collision here means silently
+ * overwriting the agent's work. Hashing also treats "changed and changed back"
+ * as unchanged, which is the answer the user would want anyway.
  */
-function fileEtag(stat: { mtimeMs: number; size: number }): string {
-  return `${Math.round(stat.mtimeMs)}-${stat.size}`;
+function contentEtag(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex").slice(0, 32);
+}
+
+/** The etag of what is on disk now, or null when there is no file there. */
+async function etagOnDisk(abs: string): Promise<string | null> {
+  const buf = await fs.readFile(abs).catch(() => null);
+  return buf ? contentEtag(buf) : null;
 }
 
 async function modifiedPaths(repoDir: string): Promise<Set<string>> {
@@ -188,7 +198,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (buf.subarray(0, 8192).includes(0)) {
         return reply.code(415).send({ error: "binary file" });
       }
-      return { path: req.query.path, content: buf.toString("utf8"), etag: fileEtag(stat) };
+      return { path: req.query.path, content: buf.toString("utf8"), etag: contentEtag(buf) };
     },
   );
 
@@ -280,8 +290,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       // keeps the old blind-write behaviour for callers that never read first.
       const expected = req.headers["if-match"];
       if (expected !== undefined) {
-        const stat = await fs.lstat(abs).catch(() => null);
-        const actual = stat?.isFile() ? fileEtag(stat) : null;
+        const actual = await etagOnDisk(abs);
         if (expected === "*" ? actual === null : actual !== expected) {
           return reply
             .code(412)
@@ -290,8 +299,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       }
 
       await fs.writeFile(abs, body);
-      const after = await fs.lstat(abs).catch(() => null);
-      return { path: rel, bytes: body.length, etag: after ? fileEtag(after) : null };
+      return { path: rel, bytes: body.length, etag: contentEtag(body) };
     },
   );
 

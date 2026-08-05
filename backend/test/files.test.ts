@@ -90,7 +90,7 @@ describe("GET /api/projects/:name/file", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ path: "a.txt", content: "hello" });
     // The version the client sends back as If-Match when it saves.
-    expect(res.json().etag).toMatch(/^\d+-\d+$/);
+    expect(res.json().etag).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it("denies .. traversal", async () => {
@@ -337,6 +337,17 @@ describe("PUT /api/projects/:name/file", () => {
       await put("demo", "starred.txt", Buffer.from("here"));
       expect((await putWith("starred.txt", Buffer.from("x"), "*")).statusCode).toBe(200);
       expect((await putWith("missing.txt", Buffer.from("x"), "*")).statusCode).toBe(412);
+    });
+
+    // mtime+size would miss this: same length, and an automated writer lands
+    // inside the same millisecond.
+    it("catches a same-length overwrite made in the same millisecond", async () => {
+      const abs = path.join(process.env.REPOS_DIR!, "demo", "samems.txt");
+      fs.writeFileSync(abs, "aaa");
+      const { etag } = await read("samems.txt");
+      fs.writeFileSync(abs, "bbb");
+      expect((await putWith("samems.txt", Buffer.from("ccc"), etag)).statusCode).toBe(412);
+      expect(fs.readFileSync(abs, "utf8")).toBe("bbb");
     });
 
     it("still writes blind when no precondition is sent", async () => {

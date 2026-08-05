@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import type { ListeningPort, PodFacts } from "../../../shared/api.js";
 import { browserCount } from "../browser.js";
+import { ttlCache } from "../cache.js";
 import { env } from "../env.js";
 
 const exec = promisify(execFile);
@@ -119,11 +120,16 @@ export default async function factsRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get("/api/ports", async (): Promise<ListeningPort[]> => {
+  // podListeners readlinks every fd of every pid; with chromium around that is
+  // thousands of syscalls, and the UI polls this from each open session tab. A
+  // preview port appearing three seconds late costs nothing.
+  const ports = ttlCache(3_000, async (): Promise<ListeningPort[]> => {
     const [pod, docker] = await Promise.all([podListeners(), dockerPorts()]);
     // Chromium CDP ports are infrastructure, not previews.
     return [...pod, ...docker]
       .filter((p) => p.port < 9222 || p.port > 9421)
       .sort((a, b) => a.port - b.port);
   });
+
+  app.get("/api/ports", () => ports());
 }

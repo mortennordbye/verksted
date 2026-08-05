@@ -11,6 +11,7 @@ import type {
   WorkflowRun,
   WorkflowRunDetail,
 } from "../../../shared/api.js";
+import { ttlCache } from "../cache.js";
 import { branchOf, defaultBranch, git, gitError } from "../git.js";
 import { gh, ghJson, formatRunLog, summarizeChecks, GhError } from "../gh.js";
 import { resolveInsideRepos } from "../paths.js";
@@ -122,6 +123,34 @@ const limitQuery = {
   properties: { limit: { type: "integer", minimum: 1, maximum: 30, default: 20 } },
 };
 
+/**
+ * The two list endpoints the session screen polls on a timer. Each miss is a
+ * real GitHub API call, billed against a rate limit the whole token shares, and
+ * multiplied by every open tab. 15 s is short enough that a new PR or a check
+ * flipping still shows up while you are looking at it.
+ *
+ * The key carries every argument that changes the answer; repoDir is already
+ * resolved and validated by the time it gets here.
+ */
+const prList = ttlCache(15_000, (key: string) => {
+  const [repoDir, state, limit] = key.split("\0");
+  return ghJson<GhPr[]>(repoDir!, [
+    "pr",
+    "list",
+    "--state",
+    state!,
+    "--limit",
+    limit!,
+    "--json",
+    PR_LIST_FIELDS,
+  ]);
+});
+
+const runList = ttlCache(15_000, (key: string) => {
+  const [repoDir, limit] = key.split("\0");
+  return ghJson<GhRun[]>(repoDir!, ["run", "list", "--limit", limit!, "--json", RUN_LIST_FIELDS]);
+});
+
 export default async function githubRoutes(app: FastifyInstance) {
   /** Send a gh failure with the status it was already mapped to. */
   function ghReply(req: FastifyRequest, reply: FastifyReply, err: unknown) {
@@ -162,16 +191,11 @@ export default async function githubRoutes(app: FastifyInstance) {
       const repoDir = repoOf(req, reply);
       if (!repoDir) return;
       try {
-        const prs = await ghJson<GhPr[]>(repoDir, [
-          "pr",
-          "list",
-          "--state",
-          req.query.state ?? "open",
-          "--limit",
-          String(req.query.limit ?? 20),
-          "--json",
-          PR_LIST_FIELDS,
-        ]);
+        // Every open session tab polls this on a timer, and each miss is a real
+        // GitHub API call against a rate limit shared by the whole token.
+        const prs = await prList(
+          `${repoDir}\0${req.query.state ?? "open"}\0${req.query.limit ?? 20}`,
+        );
         return prs.map(toPr);
       } catch (err) {
         return ghReply(req, reply, err);
@@ -428,14 +452,7 @@ export default async function githubRoutes(app: FastifyInstance) {
       const repoDir = repoOf(req, reply);
       if (!repoDir) return;
       try {
-        const runs = await ghJson<GhRun[]>(repoDir, [
-          "run",
-          "list",
-          "--limit",
-          String(req.query.limit ?? 20),
-          "--json",
-          RUN_LIST_FIELDS,
-        ]);
+        const runs = await runList(`${repoDir}\0${req.query.limit ?? 20}`);
         return runs.map(toRun);
       } catch (err) {
         return ghReply(req, reply, err);
