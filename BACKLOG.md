@@ -12,20 +12,21 @@ what unblocks it / where the code lives.
   confirm the test job is green and `ghcr.io/<owner>/verksted:latest` appears.
 - **Where:** `.github/workflows/ci.yml`
 
-## gh-backed endpoints have no automated coverage
+## gh output fixtures are hand-written, not captured from a real gh
 
-- **What:** Every route in `backend/src/routes/github.ts` (PRs and Actions) is
-  verified by hand only. Automated tests cover the pure helpers
-  (`summarizeChecks`, `formatRunLog`, `ghError`, `ghMessage`) and the
-  schema/404/no-remote paths — not one real `gh` invocation.
-- **Why deferred:** CI has no `GH_TOKEN` and no network, and nothing in the
-  harness mocks `execFile`. Mocking it would test the mock rather than gh's real
-  output, which is the part that drifts across gh releases.
-- **Unblocked by:** Either a test-only `PATH` prefix holding a fake `gh` that
-  replays captured fixtures, or a CI job with a scoped token against a throwaway
-  repo.
-- **Where:** `backend/src/gh.ts`, `backend/src/routes/github.ts`,
-  `backend/test/gh.test.ts`, `backend/test/github.test.ts`
+- **What:** The gh-backed routes now have coverage through a fake `gh` on PATH
+  (`backend/test/github-gh.test.ts`), so the argv, the wire mapping and the
+  error statuses are asserted. What that cannot catch is gh changing its own
+  output: the fixtures are written from the current `--json` shape by hand, so a
+  field renamed in a future gh release would keep the suite green and break the
+  app.
+- **Why deferred:** Catching that needs real gh output, which needs a token and
+  the network — neither exists in CI.
+- **Unblocked by:** A CI job with a scoped token against a throwaway repo that
+  captures `gh pr list --json …` and diffs it against the fixtures; or pinning
+  the gh version in the image and re-capturing on each bump.
+- **Where:** `backend/test/github-gh.test.ts` (the fixtures),
+  `backend/src/routes/github.ts` (`PR_LIST_FIELDS`, `RUN_LIST_FIELDS`)
 
 ## Verify Antigravity headless auth in the pod
 
@@ -57,21 +58,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`,
   `restoreSessions`), `backend/src/claude-hooks.ts` (the `CONVERSATION` hook to
   copy), `frontend/src/screens/Project.tsx` (picker label)
-
-## restoreSessions has no automated coverage
-
-- **What:** `restoreSessions` — re-creating tmux for sessions that survived a
-  pod restart — is verified by hand only. The unit test covers `CONV_ID_RE`,
-  the injection guard on the id that reaches `tmux send-keys`, and nothing else.
-- **Why deferred:** Exercising it means really spawning tmux and really starting
-  an agent CLI, which makes the suite stateful against a shared tmux server and
-  needs an authenticated agent to be meaningful. Nothing in the harness mocks
-  `execFile` (same reason as the gh entry above).
-- **Unblocked by:** A test-only `PATH` prefix holding a fake `tmux` that records
-  its argv, which would let the whole restore decision — which sessions are
-  picked, what command each is given — be asserted without a tmux server.
-- **Where:** `backend/src/sessions-store.ts` (`restoreSessions`, `launchAgent`),
-  `backend/test/sessions-store.test.ts`
 
 ## Browser pane: follow agent-created browser contexts
 
@@ -128,27 +114,22 @@ what unblocks it / where the code lives.
 - **Unblocked by:** Milestone-1 deployment.
 - **Where:** `backend/src/routes/facts.ts` (extend)
 
-## Scheduled runs are unverified past the point they launch a session
+## A scheduled run has never been watched end to end in the pod
 
-- **What:** `runSchedule` is covered only where it stops short — an unknown id,
-  and the store/route validation around it. The parts that matter in the pod
-  are untested: that a fired schedule really starts a claude session, that the
-  prompt arrives submitted rather than sitting in the input box, that
-  `--permission-mode auto` lets an unattended run get through `gh pr` calls
-  without stopping, and that the skip guard fires when the previous run is
-  still open. The prompt's shell-safety (it travels as `VK_PROMPT` and is only
-  ever a quoted expansion) was verified by hand against a real tmux session,
-  not in the suite.
-- **Why deferred:** Same wall as the other session tests — exercising it means
-  really spawning tmux and really starting an authenticated claude, and nothing
-  in the harness mocks `execFile`.
-- **Unblocked by:** The test-only fake-`tmux`-on-PATH idea from the
-  `restoreSessions` entry would cover the launch decision and the argv. The
-  auto-mode and submitted-prompt behaviour needs one real scheduled run in the
-  pod: point a schedule at a repo, hit "run now", confirm a session appears and
-  the agent is already working.
-- **Where:** `backend/src/scheduler.ts`, `backend/src/schedules-store.ts`,
-  `backend/src/routes/schedules.ts`, `backend/test/schedules.test.ts`
+- **What:** The launch decision is now covered
+  (`backend/test/scheduler-run.test.ts`): a tick starts a claude session in the
+  right repo, the prompt travels as `VK_PROMPT`, the run gets
+  `--permission-mode auto`, and a tick is skipped while the previous run is
+  open. What a fake tmux cannot answer is what the agent then does: whether the
+  prompt arrives *submitted* rather than sitting in the input box, and whether
+  auto mode really carries an unattended run through `gh pr` calls without
+  stopping.
+- **Why deferred:** Both need a real authenticated claude in a real pane.
+- **Unblocked by:** One real scheduled run in the pod: point a schedule at a
+  repo, hit "run now", confirm a session appears and the agent is already
+  working rather than waiting on an unsent prompt.
+- **Where:** `backend/src/scheduler.ts`, `backend/src/sessions-store.ts`
+  (`launchAgent`), `backend/test/scheduler-run.test.ts`
 
 ## Event triggers: react to the repo, not only to the clock
 
