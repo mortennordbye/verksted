@@ -12,6 +12,16 @@ function clamp(n: unknown, min: number, max: number, def: number): number {
   return Number.isInteger(v) && v >= min && v <= max ? v : def;
 }
 
+/**
+ * Attach clients per session. Each one is a `tmux attach` process plus a ping
+ * interval, so a page that reconnects in a loop (or a handful of forgotten
+ * phone tabs) quietly multiplies both. Well above what a person opens on
+ * purpose: a phone, a desktop, and room to reconnect before the dead one's
+ * missed pong drops it.
+ */
+const MAX_CLIENTS_PER_SESSION = 6;
+const clientCount = new Map<string, number>();
+
 export default async function attachRoutes(app: FastifyInstance) {
   app.get<{
     Params: { id: string };
@@ -21,9 +31,17 @@ export default async function attachRoutes(app: FastifyInstance) {
     { websocket: true },
     async (socket, req) => {
       const { id } = req.params;
+      // Without this a socket error (a phone dropping off mid-frame) reaches
+      // the server's error event and takes the process down.
+      socket.on("error", (err: unknown) => req.log.warn({ err, id }, "attach socket error"));
+
       const session = await store.getSession(id);
       if (!session || session.status === "done") {
         socket.close(4404, "no such session");
+        return;
+      }
+      if ((clientCount.get(id) ?? 0) >= MAX_CLIENTS_PER_SESSION) {
+        socket.close(4429, "too many clients");
         return;
       }
 
@@ -55,13 +73,24 @@ export default async function attachRoutes(app: FastifyInstance) {
         args = ["-u", "attach-session", "-t", `=${id}`];
       }
 
-      const pty = spawn("tmux", args, {
-        name: "xterm-256color",
-        cols: clamp(req.query.cols, 2, 500, 80),
-        rows: clamp(req.query.rows, 2, 300, 24),
-        cwd: env.REPOS_DIR,
-        env: tmux.UTF8_ENV as Record<string, string>,
-      });
+      // node-pty throws synchronously when it cannot fork, which inside an async
+      // websocket handler would surface as an unhandled rejection rather than a
+      // closed socket.
+      let pty: ReturnType<typeof spawn>;
+      try {
+        pty = spawn("tmux", args, {
+          name: "xterm-256color",
+          cols: clamp(req.query.cols, 2, 500, 80),
+          rows: clamp(req.query.rows, 2, 300, 24),
+          cwd: env.REPOS_DIR,
+          env: tmux.UTF8_ENV as Record<string, string>,
+        });
+      } catch (err) {
+        req.log.error({ err, id }, "could not attach to tmux");
+        socket.close(4500, "could not attach");
+        return;
+      }
+      clientCount.set(id, (clientCount.get(id) ?? 0) + 1);
 
       pty.onData((data) => socket.send(data));
       // Session killed elsewhere (or tmux exited): drop the socket.
@@ -125,6 +154,9 @@ export default async function attachRoutes(app: FastifyInstance) {
       // The tmux session and the agent inside it keep running.
       socket.on("close", () => {
         clearInterval(keepalive);
+        const left = (clientCount.get(id) ?? 1) - 1;
+        if (left > 0) clientCount.set(id, left);
+        else clientCount.delete(id);
         pty.kill();
       });
     },

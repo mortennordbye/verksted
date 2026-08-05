@@ -88,7 +88,9 @@ describe("GET /api/projects/:name/file", () => {
   it("reads a file inside the project", async () => {
     const res = await app.inject({ url: "/api/projects/demo/file?path=a.txt" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ path: "a.txt", content: "hello" });
+    expect(res.json()).toMatchObject({ path: "a.txt", content: "hello" });
+    // The version the client sends back as If-Match when it saves.
+    expect(res.json().etag).toMatch(/^\d+-\d+$/);
   });
 
   it("denies .. traversal", async () => {
@@ -292,9 +294,55 @@ describe("PUT /api/projects/:name/file", () => {
   it("writes the uploaded bytes", async () => {
     const res = await put("demo", "upload.bin", Buffer.from([9, 8, 0, 7]));
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ path: "upload.bin", bytes: 4 });
+    expect(res.json()).toMatchObject({ path: "upload.bin", bytes: 4 });
     const disk = fs.readFileSync(path.join(process.env.REPOS_DIR!, "demo", "upload.bin"));
     expect(disk).toEqual(Buffer.from([9, 8, 0, 7]));
+  });
+
+  // The agent shares this working tree, so a file changing under an open editor
+  // is the ordinary case. Without the precondition the save silently wins.
+  describe("If-Match precondition", () => {
+    const read = async (p: string) =>
+      (await app.inject({ url: `/api/projects/demo/file?path=${p}` })).json();
+
+    const putWith = (p: string, body: Buffer, ifMatch: string) =>
+      app.inject({
+        method: "PUT",
+        url: `/api/projects/demo/file?path=${p}`,
+        payload: body,
+        headers: { "content-type": "application/octet-stream", "if-match": ifMatch },
+      });
+
+    it("saves when the file is untouched", async () => {
+      await put("demo", "cond.txt", Buffer.from("one"));
+      const { etag } = await read("cond.txt");
+      const res = await putWith("cond.txt", Buffer.from("two"), etag);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().etag).not.toBe(etag);
+    });
+
+    it("rejects a save when something else wrote first", async () => {
+      await put("demo", "raced.txt", Buffer.from("one"));
+      const { etag } = await read("raced.txt");
+      // The agent edits the file while the editor is open.
+      const abs = path.join(process.env.REPOS_DIR!, "demo", "raced.txt");
+      fs.writeFileSync(abs, "agent wrote this");
+
+      const res = await putWith("raced.txt", Buffer.from("user wrote this"), etag);
+      expect(res.statusCode).toBe(412);
+      expect(fs.readFileSync(abs, "utf8")).toBe("agent wrote this");
+    });
+
+    it("rejects '*' when the file is gone, and accepts it when present", async () => {
+      await put("demo", "starred.txt", Buffer.from("here"));
+      expect((await putWith("starred.txt", Buffer.from("x"), "*")).statusCode).toBe(200);
+      expect((await putWith("missing.txt", Buffer.from("x"), "*")).statusCode).toBe(412);
+    });
+
+    it("still writes blind when no precondition is sent", async () => {
+      const res = await put("demo", "blind.txt", Buffer.from("x"));
+      expect(res.statusCode).toBe(200);
+    });
   });
 
   it("denies traversal", async () => {

@@ -29,6 +29,16 @@ const MAX_DEPTH = 12;
 const MAX_ENTRIES = 5000;
 const MAX_FILE_BYTES = 1024 * 1024;
 
+/**
+ * A file's version, for lost-update detection on save. mtime and size rather
+ * than a content hash: the point is only to notice that something wrote to the
+ * file between the read and the save, and the agent editing a file the user has
+ * open is the ordinary case here, not a rare race.
+ */
+function fileEtag(stat: { mtimeMs: number; size: number }): string {
+  return `${Math.round(stat.mtimeMs)}-${stat.size}`;
+}
+
 async function modifiedPaths(repoDir: string): Promise<Set<string>> {
   const set = new Set<string>();
   try {
@@ -178,7 +188,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (buf.subarray(0, 8192).includes(0)) {
         return reply.code(415).send({ error: "binary file" });
       }
-      return { path: req.query.path, content: buf.toString("utf8") };
+      return { path: req.query.path, content: buf.toString("utf8"), etag: fileEtag(stat) };
     },
   );
 
@@ -262,8 +272,26 @@ export default async function fileRoutes(app: FastifyInstance) {
       }
       const body = req.body;
       if (!Buffer.isBuffer(body)) return reply.code(415).send({ error: "raw body required" });
-      await fs.writeFile(path.join(dir, path.basename(rel)), body);
-      return { path: rel, bytes: body.length };
+      const abs = path.join(dir, path.basename(rel));
+
+      // Optional precondition: a client that read the file and sends back its
+      // etag gets a 412 instead of silently overwriting whatever the agent
+      // wrote in between. "*" means "must already exist"; no header at all
+      // keeps the old blind-write behaviour for callers that never read first.
+      const expected = req.headers["if-match"];
+      if (expected !== undefined) {
+        const stat = await fs.lstat(abs).catch(() => null);
+        const actual = stat?.isFile() ? fileEtag(stat) : null;
+        if (expected === "*" ? actual === null : actual !== expected) {
+          return reply
+            .code(412)
+            .send({ error: "the file changed on disk since you opened it", etag: actual });
+        }
+      }
+
+      await fs.writeFile(abs, body);
+      const after = await fs.lstat(abs).catch(() => null);
+      return { path: rel, bytes: body.length, etag: after ? fileEtag(after) : null };
     },
   );
 

@@ -36,6 +36,13 @@ export interface TreeNode {
 export interface FileContent {
   path: string;
   content: string;
+  /**
+   * Version of the file as read. Send it back as `If-Match` on PUT and the save
+   * is rejected with 412 if anything wrote to the file meanwhile — the agent
+   * shares this working tree, so that is a normal thing to happen rather than
+   * an edge case.
+   */
+  etag: string;
 }
 
 export interface FileDiff {

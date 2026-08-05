@@ -49,25 +49,12 @@ export function startMaintenance(log: Logger): void {
   const idleSince = new Map<string, number>();
 
   setInterval(async () => {
-    const tcp = await readTcpTables();
-    const unwatched = new Set<string>();
-    for (const { id, port } of unwatchedBrowsers()) {
-      unwatched.add(id);
-      if (establishedCount(tcp, port) > 1) {
-        idleSince.delete(id);
-        continue;
-      }
-      const since = idleSince.get(id) ?? Date.now();
-      idleSince.set(id, since);
-      if (Date.now() - since >= REAP_AFTER_MS) {
-        idleSince.delete(id);
-        log.info(`reaping idle browser for ${id}`);
-        await closeBrowser(id).catch(() => {});
-      }
-    }
-    // Watched or already-closed browsers are not idle.
-    for (const id of idleSince.keys()) {
-      if (!unwatched.has(id)) idleSince.delete(id);
+    try {
+      await reapIdleBrowsers(idleSince, log);
+    } catch (err) {
+      // An async setInterval body that throws is an unhandled rejection, and
+      // one unreadable /proc entry must not take the reaper down for good.
+      log.warn(err, "browser reap failed");
     }
   }, 60_000);
 
@@ -84,4 +71,27 @@ export function startMaintenance(log: Logger): void {
       log.warn(err, "docker prune failed");
     }
   }, PRUNE_EVERY_MS);
+}
+
+async function reapIdleBrowsers(idleSince: Map<string, number>, log: Logger): Promise<void> {
+  const tcp = await readTcpTables();
+  const unwatched = new Set<string>();
+  for (const { id, port } of unwatchedBrowsers()) {
+    unwatched.add(id);
+    if (establishedCount(tcp, port) > 1) {
+      idleSince.delete(id);
+      continue;
+    }
+    const since = idleSince.get(id) ?? Date.now();
+    idleSince.set(id, since);
+    if (Date.now() - since >= REAP_AFTER_MS) {
+      idleSince.delete(id);
+      log.info(`reaping idle browser for ${id}`);
+      await closeBrowser(id).catch(() => {});
+    }
+  }
+  // Watched or already-closed browsers are not idle.
+  for (const id of idleSince.keys()) {
+    if (!unwatched.has(id)) idleSince.delete(id);
+  }
 }

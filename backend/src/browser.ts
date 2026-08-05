@@ -36,6 +36,14 @@ export function validNavUrl(url: string): string | null {
 
 type Listener = (msg: BrowserServerMsg) => void;
 
+/**
+ * Pages whose handlers are already attached. setCurrent runs again on every
+ * page switch, and its own "close" handler can point back at a page that was
+ * current earlier, so without this each pass adds another copy of every
+ * handler — duplicate url broadcasts, and eventually a listener-leak warning.
+ */
+const wired = new WeakSet<Page>();
+
 interface Entry {
   port: number;
   proc: ChildProcess;
@@ -58,18 +66,21 @@ async function setCurrent(entry: Entry, page: Page): Promise<void> {
   const streaming = entry.cdp !== null;
   if (streaming) await stopStream(entry);
   entry.current = page;
-  // Headless dialogs would otherwise block the page forever.
-  page.on("dialog", (d) => void d.dismiss().catch(() => {}));
-  page.on("framenavigated", (f) => {
-    if (entry.current === page && f === page.mainFrame()) {
-      broadcast(entry, { t: "url", url: f.url() });
-    }
-  });
-  page.on("close", () => {
-    if (entry.current !== page) return;
-    const rest = entry.browser.contexts().flatMap((c) => c.pages());
-    if (rest.length > 0) void setCurrent(entry, rest.at(-1)!);
-  });
+  if (!wired.has(page)) {
+    wired.add(page);
+    // Headless dialogs would otherwise block the page forever.
+    page.on("dialog", (d) => void d.dismiss().catch(() => {}));
+    page.on("framenavigated", (f) => {
+      if (entry.current === page && f === page.mainFrame()) {
+        broadcast(entry, { t: "url", url: f.url() });
+      }
+    });
+    page.on("close", () => {
+      if (entry.current !== page) return;
+      const rest = entry.browser.contexts().flatMap((c) => c.pages());
+      if (rest.length > 0) void setCurrent(entry, rest.at(-1)!);
+    });
+  }
   broadcast(entry, { t: "url", url: page.url() });
   if (streaming) await startStream(entry);
 }
@@ -126,43 +137,58 @@ async function launch(sessionId: string, port: number): Promise<Entry> {
     ],
     { stdio: ["ignore", "ignore", "pipe"] },
   );
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("chromium did not start")), 15_000);
+  // Everything past the spawn has to clean up after itself. A chromium left
+  // running holds the CDP port, so the next attempt cannot bind it and the
+  // session's browser stays broken until the pod restarts — and the stale
+  // --user-data-dir makes it fail again even if the port were free.
+  try {
     let err = "";
-    proc.stderr!.on("data", (chunk: Buffer) => {
-      err += chunk.toString();
-      if (err.includes("DevTools listening on")) {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("chromium did not start")), 15_000);
+      proc.stderr!.on("data", (chunk: Buffer) => {
+        err += chunk.toString();
+        if (err.includes("DevTools listening on")) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      proc.on("exit", () => {
         clearTimeout(timer);
-        resolve();
+        reject(new Error(`chromium exited: ${err.slice(-500)}`));
+      });
+    });
+    // Chromium logs for as long as it lives; without this the startup buffer
+    // grows for the life of the process.
+    proc.stderr!.removeAllListeners("data");
+    proc.stderr!.resume();
+
+    const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10_000 });
+    const ctx = browser.contexts()[0] ?? (await browser.newContext());
+    const entry: Entry = {
+      port,
+      proc,
+      browser,
+      current: ctx.pages()[0] ?? (await ctx.newPage()),
+      cdp: null,
+      listeners: new Set(),
+      dataDir,
+    };
+    // Follow pages the agent (or a target=_blank link) opens.
+    ctx.on("page", (p) => void setCurrent(entry, p));
+    proc.on("exit", () => {
+      if (entries.get(sessionId) === entry) {
+        entries.delete(sessionId);
+        broadcast(entry, { t: "error", message: "browser exited" });
       }
     });
-    proc.on("exit", () => {
-      clearTimeout(timer);
-      reject(new Error(`chromium exited: ${err.slice(-500)}`));
-    });
-  });
-  const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10_000 });
-  const ctx = browser.contexts()[0] ?? (await browser.newContext());
-  const entry: Entry = {
-    port,
-    proc,
-    browser,
-    current: ctx.pages()[0] ?? (await ctx.newPage()),
-    cdp: null,
-    listeners: new Set(),
-    dataDir,
-  };
-  // Follow pages the agent (or a target=_blank link) opens.
-  ctx.on("page", (p) => void setCurrent(entry, p));
-  proc.on("exit", () => {
-    if (entries.get(sessionId) === entry) {
-      entries.delete(sessionId);
-      broadcast(entry, { t: "error", message: "browser exited" });
-    }
-  });
-  await setCurrent(entry, entry.current);
-  entries.set(sessionId, entry);
-  return entry;
+    await setCurrent(entry, entry.current);
+    entries.set(sessionId, entry);
+    return entry;
+  } catch (err) {
+    if (proc.exitCode === null) proc.kill("SIGKILL");
+    await fs.rm(dataDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 /** Launch (or reuse) the session's browser. Concurrent callers share one launch. */
