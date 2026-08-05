@@ -12,7 +12,7 @@ import Sheet from "../components/Sheet";
 
 export default function Hub() {
   const navigate = useNavigate();
-  const { data: projects, refresh } = usePoll<Project[]>("/api/projects");
+  const { data: projects, loading, refresh } = usePoll<Project[]>("/api/projects");
   const { data: facts } = usePoll<PodFacts>("/api/facts", 30_000);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState("");
@@ -76,6 +76,28 @@ export default function Hub() {
             + add project
           </button>
         </div>
+
+        {/* Skeletons rather than an empty grid: "nothing here" and "not loaded
+            yet" looked identical, so the hub flashed empty on every open. */}
+        {loading && projects === null && (
+          <div
+            aria-hidden
+            className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3"
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-[104px] animate-pulse rounded-xl border border-line bg-surface"
+              />
+            ))}
+          </div>
+        )}
+
+        {projects?.length === 0 && (
+          <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center font-mono text-[12.5px] text-faint">
+            no projects yet — clone or init one above
+          </div>
+        )}
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3">
           {(projects ?? []).map((p) => (

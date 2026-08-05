@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run lint && vite build",
-    "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json"
+    "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -18,13 +19,17 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.6.0",
+    "jsdom": "^26.1.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.6.0",
     "vite": "^7.0.0",
     "vite-plugin-pwa": "^1.0.0",
+    "vitest": "^3.2.7",
     "workbox-precaching": "^7.4.1",
     "workbox-routing": "^7.4.1"
   }

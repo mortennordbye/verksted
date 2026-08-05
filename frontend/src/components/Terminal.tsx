@@ -3,6 +3,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
+import { copyText } from "../clipboard";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
@@ -164,6 +165,7 @@ export default function Terminal({
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pasteBlocked, setPasteBlocked] = useState(false);
   const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
   // Dictation: the run in progress, and whether the mic key is lit.
@@ -289,12 +291,19 @@ export default function Terminal({
 
   // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
   // the on-screen keyboard); send the clipboard straight in instead.
+  //
+  // readText has no non-secure-context fallback the way copying does — reading
+  // the clipboard without an explicit paste gesture is exactly what browsers
+  // refuse. On plain HTTP this button used to fail silently, so say so instead:
+  // the sign-in code field below is the paste target that does work.
   async function pasteFromClipboard() {
     try {
       const text = await navigator.clipboard.readText();
       if (text) sendInput(text);
+      setPasteBlocked(false);
     } catch {
-      // clipboard read denied — nothing we can do without the OS prompt
+      setPasteBlocked(true);
+      setTimeout(() => setPasteBlocked(false), 4000);
     }
   }
 
@@ -328,12 +337,11 @@ export default function Terminal({
 
   async function copyAuthUrl() {
     if (!authUrl) return;
-    try {
-      await navigator.clipboard.writeText(authUrl);
+    // copyText, not navigator.clipboard: the Clipboard API only exists in a
+    // secure context, and this app is served over plain HTTP on the VPN.
+    if (await copyText(authUrl)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard blocked (rare over https) — the open link still works
     }
   }
 
@@ -555,8 +563,16 @@ export default function Terminal({
         >
           ctrl
         </button>
-        <button onClick={() => tapKey("paste", pasteFromClipboard)} className={keyClass("paste")}>
-          paste
+        <button
+          onClick={() => tapKey("paste", pasteFromClipboard)}
+          title={
+            pasteBlocked
+              ? "the browser will not hand over the clipboard on this origin"
+              : "paste the clipboard into the terminal"
+          }
+          className={keyClass("paste", pasteBlocked ? "border-fail text-fail" : KEY_IDLE)}
+        >
+          {pasteBlocked ? "no clipboard" : "paste"}
         </button>
         {speechCtor() && (
           <button

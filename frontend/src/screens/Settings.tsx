@@ -10,6 +10,7 @@ import type {
   SshKey,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { copyText } from "../clipboard";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
 
@@ -683,6 +684,34 @@ function Schedules() {
   );
 }
 
+/**
+ * Copy with feedback. The old button called navigator.clipboard directly, which
+ * is undefined on a plain-HTTP origin — the deployment this app is written for
+ * — so it silently did nothing and you found out when the paste came up empty.
+ */
+function CopyButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+
+  return (
+    <button
+      onClick={async () => {
+        setState((await copyText(text)) ? "ok" : "fail");
+        setTimeout(() => setState("idle"), 1500);
+      }}
+      title="copy public key"
+      className={`rounded-[7px] border px-2.5 py-1.5 font-mono text-[12px] ${
+        state === "fail"
+          ? "border-fail/50 text-fail"
+          : state === "ok"
+            ? "border-run/50 text-run"
+            : "border-line text-muted hover:border-faint hover:text-text"
+      }`}
+    >
+      {state === "ok" ? "copied" : state === "fail" ? "select it" : "copy"}
+    </button>
+  );
+}
+
 function SshKeys() {
   const { data: keys, refresh } = usePoll<SshKey[]>("/api/ssh-keys", 30_000);
   const [name, setName] = useState("id_ed25519");
@@ -763,13 +792,7 @@ function SshKeys() {
                 <pre className="min-w-0 flex-1 overflow-x-auto rounded-[7px] border border-line bg-surface-2 px-2.5 py-2 font-mono text-[11px] whitespace-pre-wrap break-all text-muted">
                   {k.publicKey}
                 </pre>
-                <button
-                  onClick={() => navigator.clipboard.writeText(k.publicKey)}
-                  title="copy public key"
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
-                >
-                  copy
-                </button>
+                <CopyButton text={k.publicKey} />
               </div>
             )}
           </div>

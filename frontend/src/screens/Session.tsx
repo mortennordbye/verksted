@@ -162,10 +162,16 @@ export default function Session() {
 
   async function uploadFile(f: File) {
     if (!session) return;
-    await fetch(
+    // The result was never checked, so a rejected upload — too large, denied
+    // path, no disk — looked exactly like a successful one.
+    const res = await fetch(
       `/api/projects/${session.project}/file?path=${encodeURIComponent(f.name)}`,
       { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: f },
     );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `upload failed (HTTP ${res.status})`);
+    }
   }
 
   async function kill() {

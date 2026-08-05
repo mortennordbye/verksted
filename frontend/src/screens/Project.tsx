@@ -67,9 +67,12 @@ function SessionRow({
 export default function Project() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
-  const { data: sessions, refresh: refreshSessions } = usePoll<Session[]>(
-    `/api/projects/${name}/sessions`,
-  );
+  const {
+    data: sessions,
+    loading: sessionsLoading,
+    notFound,
+    refresh: refreshSessions,
+  } = usePoll<Session[]>(`/api/projects/${name}/sessions`);
   const { data: projects, refresh: refreshProjects } = usePoll<ProjectInfo[]>(
     "/api/projects",
     10_000,
@@ -149,6 +152,23 @@ export default function Project() {
       setError((e as Error).message);
       setPicking(false);
     }
+  }
+
+  // A deleted or mistyped project used to render as an ordinary project with an
+  // empty session list, which reads as "this project is idle".
+  if (notFound) {
+    return (
+      <>
+        <TopBar back="/" crumb={name ? [name] : []} />
+        <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
+          <h1 className="mb-2 text-[21px] font-semibold tracking-tight">no such project</h1>
+          <p className="text-sm text-muted">
+            <code className="font-mono text-[12.5px]">{name}</code> is not a repo under the pod's
+            repos directory.
+          </p>
+        </main>
+      </>
+    );
   }
 
   return (
@@ -237,7 +257,9 @@ export default function Project() {
                 />
               ))}
               {active.length === 0 && (
-                <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
+                <div className="font-mono text-[12.5px] text-faint">
+                  {sessionsLoading ? "loading…" : "no active sessions"}
+                </div>
               )}
             </div>
 
