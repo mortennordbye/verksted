@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import type { PodFacts, Project } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 
@@ -101,9 +101,11 @@ export default function Hub() {
 
         <div className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
           {(projects ?? []).map((p) => (
-            <button
+            // A real link, not a button + navigate(): cmd-click, middle-click
+            // and "open in new tab" all worked nowhere before this.
+            <Link
               key={p.name}
-              onClick={() => navigate(`/p/${p.name}`)}
+              to={`/p/${p.name}`}
               className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-faint"
             >
               <div className="flex items-center gap-2.5">
@@ -139,7 +141,7 @@ export default function Hub() {
                   <span>last session {agoLabel(p.lastSessionAt)}</span>
                 )}
               </div>
-            </button>
+            </Link>
           ))}
           <button
             onClick={() => setAdding(true)}

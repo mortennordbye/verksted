@@ -6,7 +6,10 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
     <header className="sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))]">
       {back !== undefined && (
         <button
-          onClick={() => navigate(back)}
+          // Pop rather than push: pushing meant the browser's own Back
+          // then went forward into the screen you had just left.
+          onClick={() => (history.length > 1 ? navigate(-1) : navigate(back))}
+          aria-label="back"
           className="flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
         >
           ←

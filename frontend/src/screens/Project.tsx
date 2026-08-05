@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import type {
   AgentName,
   CreatedSession,
@@ -20,32 +20,28 @@ const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: stri
   { agent: "codex", swatch: "bg-codex", desc: "OpenAI Codex CLI", cmd: "$ codex" },
 ];
 
-function SessionRow({
-  session,
-  onClick,
-  onDelete,
-}: {
-  session: Session;
-  onClick: () => void;
-  onDelete: () => void;
-}) {
+function SessionRow({ session, onDelete }: { session: Session; onDelete: () => void }) {
   const live = session.status !== "done";
   return (
+    // The row was a div with an onClick: not focusable, not keyboard-reachable,
+    // and cmd-click did nothing. The delete button is a sibling of the link
+    // rather than inside it, since a button cannot nest in an anchor.
     <div
-      onClick={onClick}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${live ? "" : "opacity-60"}`}
+      className={`flex w-full items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] transition hover:border-faint ${live ? "" : "opacity-60"}`}
     >
-      <StatusDot running={live} />
-      <div className="min-w-0 flex-1">
-        <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
-          {session.title}
+      <Link to={`/s/${session.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <StatusDot running={live} />
+        <div className="min-w-0 flex-1">
+          <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
+            {session.title}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
+            <AgentTag agent={session.agent} />
+            <span>tmux: {session.id}</span>
+            <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
+          </div>
         </div>
-        <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
-          <AgentTag agent={session.agent} />
-          <span>tmux: {session.id}</span>
-          <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
-        </div>
-      </div>
+      </Link>
       <StatusChip
         kind={session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"}
         label={session.status}
@@ -54,10 +50,7 @@ function SessionRow({
           worst mis-tap in the app. A real target size and a gap from the row
           edge are the cheap half of the fix; the confirm is the other half. */}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
+        onClick={onDelete}
         title="delete session"
         aria-label={`delete session ${session.title}`}
         className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
@@ -253,12 +246,7 @@ export default function Project() {
             </div>
             <div className="flex flex-col gap-2.5">
               {active.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  onClick={() => navigate(`/s/${s.id}`)}
-                  onDelete={() => deleteSession(s)}
-                />
+                <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
               ))}
               {active.length === 0 && (
                 <div className="font-mono text-[12.5px] text-faint">
@@ -274,12 +262,7 @@ export default function Project() {
                 </div>
                 <div className="flex flex-col gap-2.5">
                   {recent.map((s) => (
-                    <SessionRow
-                      key={s.id}
-                      session={s}
-                      onClick={() => navigate(`/s/${s.id}`)}
-                      onDelete={() => deleteSession(s)}
-                    />
+                    <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
                   ))}
                 </div>
               </>

@@ -457,6 +457,10 @@ export default function Terminal({
     );
     term.open(el);
     fit.fit();
+    // On a desktop the terminal is the point of the screen, and it used to need
+    // a click before it would take a keystroke. Not on touch, where focusing
+    // would throw the on-screen keyboard up over the pane on arrival.
+    if (matchMedia("(pointer: fine)").matches) term.focus();
     termRef.current = term;
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -506,6 +510,23 @@ export default function Terminal({
     // the alternate screen is the ↑/↓ conversion we are replacing — unless the
     // app asked for mouse events, in which case xterm already sends it exactly
     // the wheel report it is waiting for.
+    // Ctrl+Shift+C/V is what a terminal uses for copy/paste, since plain Ctrl+C
+    // has to reach the agent as an interrupt.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== "keydown" || !ev.ctrlKey || !ev.shiftKey) return true;
+      const key = ev.key.toLowerCase();
+      if (key === "c") {
+        const selection = term.getSelection();
+        if (selection) void copyText(selection);
+        return false;
+      }
+      if (key === "v") {
+        void pasteFromClipboard();
+        return false;
+      }
+      return true;
+    });
+
     term.attachCustomWheelEventHandler((ev) => {
       if (term.modes.mouseTrackingMode !== "none") return true;
       const rows =
