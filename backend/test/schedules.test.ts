@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 let app: FastifyInstance;
 let schedulesDir: string;
 let sessionsDir: string;
+let reposDir: string;
 
 // A pattern that cannot fire during the run, so the timers the routes start
 // never actually launch a session.
@@ -17,14 +18,15 @@ async function create(body: Record<string, unknown>) {
 }
 
 beforeAll(async () => {
-  const repos = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
-  fs.mkdirSync(path.join(repos, "demo"));
+  reposDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
+  fs.mkdirSync(path.join(reposDir, "demo"));
+  fs.mkdirSync(path.join(reposDir, "other"));
   schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
 
   // env.ts snapshots process.env at first import, so set these before the app
   // module graph loads (each vitest file has its own module registry).
   sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
-  process.env.REPOS_DIR = repos;
+  process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = schedulesDir;
   process.env.STATIC_DIR = "";
@@ -159,6 +161,37 @@ describe("DELETE /api/schedules/:id", () => {
     expect((await app.inject({ method: "DELETE", url: `/api/schedules/${id}` })).statusCode).toBe(
       404,
     );
+  });
+});
+
+describe("GET /api/projects/:name/schedules", () => {
+  it("returns only the schedules that run in that repo", async () => {
+    const mine = (await create({ name: "scoped", project: "other", cron: CRON, prompt: "x" }))
+      .json().id;
+    const res = await app.inject({ url: "/api/projects/other/schedules" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().map((s: { id: string }) => s.id)).toEqual([mine]);
+    // The demo repo has schedules of its own from the tests above, and none of
+    // them is this one — the filter is not just "everything".
+    const demo = (await app.inject({ url: "/api/projects/demo/schedules" })).json();
+    expect(demo.length).toBeGreaterThan(0);
+    expect(demo.map((s: { id: string }) => s.id)).not.toContain(mine);
+  });
+
+  // A bare ".." is not worth asserting, encoded or not: the path collapses to
+  // /api/schedules before any handler sees it. Only a name carrying an encoded
+  // separator survives routing and reaches the guard, so those are the cases.
+  it("404s on a repo that does not exist, and on a traversal", async () => {
+    for (const name of [
+      "nope",
+      "%2e%2e%2fetc",
+      "%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+      ".hidden",
+      "demo%2f.git",
+    ]) {
+      const res = await app.inject({ url: `/api/projects/${name}/schedules` });
+      expect(res.statusCode, name).toBe(404);
+    }
   });
 });
 

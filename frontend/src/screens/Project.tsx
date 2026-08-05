@@ -10,6 +10,7 @@ import { agoLabel, api, usePoll } from "../api";
 import BranchControl from "../components/BranchControl";
 import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
+import SchedulesPanel from "../components/SchedulesPanel";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
@@ -99,7 +100,7 @@ export default function Project() {
   const [branch, setBranch] = useState("");
   const [branchBusy, setBranchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"sessions" | "prs" | "actions">("sessions");
+  const [tab, setTab] = useState<"sessions" | "prs" | "actions" | "schedules">("sessions");
   const [confirm, confirmDialog] = useConfirm();
 
   const active = sessions?.filter((s) => s.status !== "done") ?? [];
@@ -241,7 +242,7 @@ export default function Project() {
 
         {/* An unselected panel is unmounted, so its poll does not run. */}
         <div role="tablist" className="mt-6 mb-4 flex gap-1.5 border-b border-line pb-3">
-          {(["sessions", "prs", "actions"] as const).map((t) => (
+          {(["sessions", "prs", "actions", "schedules"] as const).map((t) => (
             <button
               key={t}
               role="tab"
@@ -294,6 +295,7 @@ export default function Project() {
 
         {tab === "prs" && <PrPanel project={name!} onChanged={refreshProjects} />}
         {tab === "actions" && <ActionsPanel project={name!} />}
+        {tab === "schedules" && <SchedulesPanel project={name} />}
 
         <div className="mt-10 border-t border-line pt-4">
           <button
