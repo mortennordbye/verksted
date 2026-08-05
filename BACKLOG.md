@@ -118,15 +118,15 @@ what unblocks it / where the code lives.
 
 ## Milestone 4 remainder (per SPEC.md)
 
-- **What:** Real WireGuard state in the top bar (the chip is static), and
-  per-agent auth status + MCP server count in the hub footer. PWA, status
-  hooks, ntfy pushes, and the pod-facts footer (disk/mem/browsers/docker) have
-  shipped.
-- **Why deferred:** Needs the pod deployed (wg state and auth are cluster
-  facts).
+- **What:** Per-agent auth status + MCP server count in the hub footer. PWA,
+  status hooks, ntfy pushes, and the pod-facts footer (disk/mem/browsers/docker)
+  have shipped. The WireGuard chip that was also listed here is gone rather than
+  finished: the app is unreachable except through the tunnel, so the chip could
+  only ever read "connected", and a tunnel that drops is already reported by the
+  connection banner.
+- **Why deferred:** Needs the pod deployed (auth is a cluster fact).
 - **Unblocked by:** Milestone-1 deployment.
-- **Where:** `frontend/src/components/TopBar.tsx` (wg chip),
-  `backend/src/routes/facts.ts` (extend)
+- **Where:** `backend/src/routes/facts.ts` (extend)
 
 ## Scheduled runs are unverified past the point they launch a session
 
