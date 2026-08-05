@@ -130,6 +130,14 @@ agent can tell whether "two PRs open" is fine or needs someone, which is why
 the verdict is the agent's to write rather than something the backend infers.
 Sessions started by hand write no report and behave exactly as before.
 
+Each schedule keeps its last 20 firings, and the inbox screen flattens them
+across schedules, newest first — the answer to "anything overnight?" without
+opening a terminal. Two guardrails sit in front of an unattended agent: a
+pause-all switch (the cron stops; "run now" still works, since that one is
+somebody asking), and a refusal to start a run when the pod already has six
+sessions alive. Both refusals are recorded as run outcomes rather than
+swallowed, so a schedule that never fires says why.
+
 Voice input belongs to the browser: the pod has no microphone, the phone does.
 The session toolbar has a mic key that dictates into the terminal (the browser's
 own speech recognition, secure origin required) and leaves the text in the pane

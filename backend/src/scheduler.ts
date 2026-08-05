@@ -2,7 +2,17 @@ import { Cron } from "croner";
 import type { Session } from "../../shared/api.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
-import { createSession, getSession } from "./sessions-store.js";
+import { createSession, getSession, listSessions } from "./sessions-store.js";
+import { schedulesPaused } from "./settings-store.js";
+
+/**
+ * How many sessions may be alive before a schedule declines to add another.
+ * An unattended run that quietly stacks sessions is the failure mode worth
+ * engineering against: each one holds a tmux session, an agent process and a
+ * share of the subscription. Pressing "run now" is subject to it too — if the
+ * pod is already full, it is full.
+ */
+const MAX_LIVE_SESSIONS = 6;
 
 interface Logger {
   info: (msg: string) => void;
@@ -68,6 +78,12 @@ export async function runSchedule(id: string, log: Logger): Promise<Session | nu
       log.info(`schedule ${id} skipped: ${last.id} still open`);
       return null;
     }
+    const live = (await listSessions()).filter((s) => s.status !== "done").length;
+    if (live >= MAX_LIVE_SESSIONS) {
+      await schedules.recordRun(id, { error: `${live} sessions already open` });
+      log.info(`schedule ${id} skipped: ${live} sessions already open`);
+      return null;
+    }
     const session = await createSession(
       schedule.project,
       resolveInsideRepos(schedule.project),
@@ -106,6 +122,13 @@ export async function reloadSchedules(log: Logger): Promise<void> {
       jobs.set(
         schedule.id,
         new Cron(schedule.cron, { protect: true }, async () => {
+          // The pause switch is read at fire time, not at reload: flipping it
+          // has to stop the next tick without rebuilding every timer. "Run now"
+          // deliberately ignores it — that one is somebody asking.
+          if (await schedulesPaused()) {
+            log.info(`schedule ${schedule.id} skipped: schedules are paused`);
+            return;
+          }
           if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
         }),
       );

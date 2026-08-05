@@ -422,6 +422,10 @@ const CRON_PRESETS = [
 function Schedules() {
   const { data: schedules, refresh } = usePoll<Schedule[]>("/api/schedules", 30_000);
   const { data: projects } = usePoll<Project[]>("/api/projects", 60_000);
+  const { data: settings, refresh: refreshSettings } = usePoll<SettingsInfo>(
+    "/api/settings",
+    30_000,
+  );
   const [draft, setDraft] = useState({
     name: "",
     project: "",
@@ -484,8 +488,27 @@ function Schedules() {
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-        Schedules · recurring prompts
+      <div className="mt-10 mb-2.5 flex flex-wrap items-center gap-2.5">
+        <span className="font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+          Schedules · recurring prompts
+        </span>
+        {settings?.schedulesPaused && <StatusChip kind="wait" label="all paused" />}
+        <button
+          onClick={() =>
+            run(async () => {
+              await api("/api/settings", {
+                method: "PUT",
+                body: JSON.stringify({ schedulesPaused: !settings?.schedulesPaused }),
+              });
+              refreshSettings();
+            })
+          }
+          disabled={busy || !settings}
+          title="stop every schedule firing on its cron; run now still works"
+          className={`ml-auto ${ghost}`}
+        >
+          {settings?.schedulesPaused ? "resume all" : "pause all"}
+        </button>
       </div>
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
       {note && <div className="mb-3 font-mono text-[12px] text-muted">{note}</div>}

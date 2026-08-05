@@ -2,15 +2,27 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Cron } from "croner";
-import type { Schedule } from "../../shared/api.js";
+import type { Schedule, ScheduleRun, Session } from "../../shared/api.js";
 import { env } from "./env.js";
-import { readReport } from "./sessions-store.js";
+import { listSessions, readReport } from "./sessions-store.js";
 
 /** Generated ids only — nothing from a client is ever used as a filename. */
 export const SCHEDULE_ID_RE = /^sch-[0-9a-f]{8}$/;
 
+/** Firings kept per schedule. Enough to see a pattern, small enough to reread. */
+const MAX_RUNS = 20;
+
+interface StoredRun {
+  at: string;
+  sessionId: string | null;
+  error: string | null;
+}
+
 /** The stored record; the rest of the wire type is derived on every read. */
-type Stored = Omit<Schedule, "nextRunAt" | "lastReport">;
+type Stored = Omit<Schedule, "nextRunAt" | "lastReport" | "lastRunAt" | "lastSessionId" | "lastError"> & {
+  /** Newest first, capped at MAX_RUNS. */
+  runs: StoredRun[];
+};
 
 function filePath(id: string): string {
   return path.join(env.SCHEDULES_DIR, `${id}.json`);
@@ -39,12 +51,16 @@ export function validCron(cron: string): boolean {
 }
 
 async function toWire(s: Stored): Promise<Schedule> {
+  const last = s.runs?.[0];
   return {
     ...s,
     jitterMinutes: s.jitterMinutes ?? 0,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
-    lastReport: s.lastSessionId ? await readReport(s.lastSessionId) : null,
+    lastRunAt: last?.at ?? null,
+    lastSessionId: last?.sessionId ?? null,
+    lastError: last?.error ?? null,
+    lastReport: last?.sessionId ? await readReport(last.sessionId) : null,
   };
 }
 
@@ -61,19 +77,23 @@ async function readStored(id: string): Promise<Stored | null> {
   }
 }
 
-export async function listSchedules(): Promise<Schedule[]> {
+async function readAllStored(): Promise<Stored[]> {
   const files = await fs.readdir(env.SCHEDULES_DIR).catch(() => []);
-  const out: Schedule[] = [];
+  const out: Stored[] = [];
   for (const f of files.filter((f) => f.endsWith(".json") && SCHEDULE_ID_RE.test(f.slice(0, -5)))) {
     try {
-      out.push(
-        await toWire(JSON.parse(await fs.readFile(path.join(env.SCHEDULES_DIR, f), "utf8"))),
-      );
+      out.push(JSON.parse(await fs.readFile(path.join(env.SCHEDULES_DIR, f), "utf8")));
     } catch {
       // Skip an unreadable file rather than failing the whole list.
     }
   }
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+export async function listSchedules(): Promise<Schedule[]> {
+  const out: Schedule[] = [];
+  for (const stored of await readAllStored()) out.push(await toWire(stored));
+  return out;
 }
 
 export async function getSchedule(id: string): Promise<Schedule | null> {
@@ -96,9 +116,7 @@ export async function createSchedule(
     prompt: input.prompt,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
-    lastRunAt: null,
-    lastSessionId: null,
-    lastError: null,
+    runs: [],
   };
   await write(stored);
   return toWire(stored);
@@ -128,10 +146,54 @@ export async function recordRun(
 ): Promise<void> {
   const stored = await readStored(id);
   if (!stored) return;
-  await write({
-    ...stored,
-    lastRunAt: new Date().toISOString(),
-    lastSessionId: result.sessionId ?? null,
-    lastError: result.error ?? null,
-  });
+  const run: StoredRun = {
+    at: new Date().toISOString(),
+    sessionId: result.sessionId ?? null,
+    error: result.error ?? null,
+  };
+  await write({ ...stored, runs: [run, ...(stored.runs ?? [])].slice(0, MAX_RUNS) });
+}
+
+/**
+ * A run rolled into one word. What it said about itself wins — that is the
+ * whole point of asking it to sign off — and only a run that said nothing is
+ * judged by where it got to instead.
+ */
+function outcome(run: StoredRun, report: string | null, session: Session | undefined): ScheduleRun["outcome"] {
+  if (run.error) return "blocked";
+  if (report) {
+    if (/^attention\b/i.test(report)) return "attention";
+    if (/^failed\b/i.test(report)) return "failed";
+    if (/^ok\b/i.test(report)) return "ok";
+  }
+  return session && session.status !== "done" ? "running" : "done";
+}
+
+/**
+ * Every firing across every schedule, newest first — what happened while you
+ * were not looking. Sessions are listed once and matched up here rather than
+ * fetched per run: each lookup would otherwise shell out to tmux.
+ */
+export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
+  const schedules = await readAllStored();
+  const sessions = new Map((await listSessions()).map((s) => [s.id, s]));
+  const rows = schedules
+    .flatMap((s) => (s.runs ?? []).map((run) => ({ s, run })))
+    .sort((a, b) => b.run.at.localeCompare(a.run.at))
+    .slice(0, limit);
+  const out: ScheduleRun[] = [];
+  for (const { s, run } of rows) {
+    const report = run.sessionId ? await readReport(run.sessionId) : null;
+    out.push({
+      scheduleId: s.id,
+      schedule: s.name,
+      project: s.project,
+      at: run.at,
+      sessionId: run.sessionId,
+      error: run.error,
+      report,
+      outcome: outcome(run, report, run.sessionId ? sessions.get(run.sessionId) : undefined),
+    });
+  }
+  return out;
 }

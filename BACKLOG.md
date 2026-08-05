@@ -150,6 +150,24 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts`, `backend/src/schedules-store.ts`,
   `backend/src/routes/schedules.ts`, `backend/test/schedules.test.ts`
 
+## Event triggers: react to the repo, not only to the clock
+
+- **What:** Schedules fire on a cron. "Keep an eye on my repos" really means
+  reacting to a change — a PR opened, CI turning red, a review requested —
+  which today can only be approximated by a frequent cron that mostly finds
+  nothing and burns a session doing it.
+- **Why deferred:** It is a new subsystem (a `gh` poller, per-trigger
+  last-seen state so one event fires once, and its own failure modes), and
+  stacking it on a scheduler that has never yet fired in the pod would mean
+  debugging two unproven things at once. One hard constraint is already known:
+  the pod is WireGuard-only and cannot receive inbound, so GitHub webhooks are
+  out — it has to be polling built on `gh`.
+- **Unblocked by:** A week of real scheduled runs, so the launch path and the
+  report contract are known-good first.
+- **Where:** `backend/src/scheduler.ts` (the run path to reuse),
+  `backend/src/gh.ts` and `backend/src/routes/github.ts` (the PR/checks
+  queries), `backend/src/schedules-store.ts` (the record shape to extend)
+
 ## Nothing checks that a scheduled run actually writes its report
 
 - **What:** The report loop is covered on the reading side — `readReport`

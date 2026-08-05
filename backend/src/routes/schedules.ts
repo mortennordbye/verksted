@@ -12,6 +12,9 @@ const JITTER = { type: "integer", minimum: 0, maximum: 720 };
 export default async function scheduleRoutes(app: FastifyInstance) {
   app.get("/api/schedules", async () => store.listSchedules());
 
+  // The inbox: what every schedule did while nobody was watching.
+  app.get("/api/runs", async () => store.listRuns());
+
   app.post<{
     Body: {
       name: string;

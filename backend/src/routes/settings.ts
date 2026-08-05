@@ -19,6 +19,7 @@ async function currentSettings(): Promise<Settings> {
       source:
         stored[key] !== undefined ? "settings" : process.env[key] ? "env" : "unset",
     })),
+    schedulesPaused: await settings.schedulesPaused(),
   };
 }
 
@@ -27,15 +28,15 @@ export default async function settingsRoutes(app: FastifyInstance) {
 
   // Set (string) or clear (null) settings-page vars. Values are write-only:
   // they are stored and injected into new tmux sessions, never returned.
-  app.put<{ Body: { vars: Record<string, string | null> } }>(
+  app.put<{ Body: { vars?: Record<string, string | null>; schedulesPaused?: boolean } }>(
     "/api/settings",
     {
       schema: {
         body: {
           type: "object",
-          required: ["vars"],
           additionalProperties: false,
           properties: {
+            schedulesPaused: { type: "boolean" },
             vars: {
               type: "object",
               maxProperties: 50,
@@ -48,6 +49,10 @@ export default async function settingsRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      if (req.body.schedulesPaused !== undefined) {
+        await settings.setSchedulesPaused(req.body.schedulesPaused);
+      }
+      if (!req.body.vars) return currentSettings();
       for (const key of Object.keys(req.body.vars)) {
         if (!settings.VAR_KEY_RE.test(key)) {
           return reply.code(400).send({ error: `invalid variable name: ${key}` });

@@ -193,6 +193,31 @@ describe("the store's own guards", () => {
     expect(after.lastSessionId).toBe("vk-demo-9");
   });
 
+  it("keeps a run history, newest first, and rolls each into one word", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "hist", project: "demo", cron: CRON, prompt: "x" })).json().id;
+
+    await store.recordRun(id, { error: "previous run is still open" });
+    await store.recordRun(id, { sessionId: "vk-demo-7" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-7.report"), "ok: nothing to do\n");
+    await store.recordRun(id, { sessionId: "vk-demo-8" });
+
+    const mine = (await store.listRuns()).filter((r) => r.scheduleId === id);
+    expect(mine).toHaveLength(3);
+    // Newest first: the sessionless run is oldest, so it comes last.
+    expect(mine.map((r) => r.outcome)).toEqual(["done", "ok", "blocked"]);
+    expect(mine[1]!.report).toBe("ok: nothing to do");
+    expect(mine[2]!.error).toBe("previous run is still open");
+    expect(mine[0]!.schedule).toBe("hist");
+  });
+
+  it("caps the history so a schedule file cannot grow forever", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "cap", project: "demo", cron: CRON, prompt: "x" })).json().id;
+    for (let i = 0; i < 25; i++) await store.recordRun(id, { sessionId: `vk-demo-${i}` });
+    expect((await store.listRuns(100)).filter((r) => r.scheduleId === id)).toHaveLength(20);
+  });
+
   it("accepts real cron patterns and rejects prose", async () => {
     const { validCron } = await import("../src/schedules-store.js");
     for (const ok of ["0 8 * * 1-5", "*/15 * * * *", "0 7 * * *"]) {

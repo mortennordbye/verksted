@@ -218,7 +218,7 @@ backend/src/
 └── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
 backend/test/         # vitest; the path-traversal suite is the one that matters
 frontend/src/
-├── screens/          # Hub, Project, Session
+├── screens/          # Hub, Project, Session, Inbox, Settings
 ├── components/       # Terminal, FileTree, TopBar, StatusChip
 ├── api.ts            # fetch helpers + usePoll
 └── theme.css         # mock.html palette as Tailwind v4 @theme
