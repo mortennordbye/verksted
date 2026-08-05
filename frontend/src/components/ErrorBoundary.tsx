@@ -40,8 +40,7 @@ export default class ErrorBoundary extends Component<Props, State> {
         </div>
         <h1 className="mb-3 text-[21px] font-semibold tracking-tight">this screen crashed</h1>
         <p className="mb-4 text-sm text-muted">
-          The sessions themselves are untouched — they live in tmux on the pod, not in this
-          page.
+          The sessions themselves are untouched — they live in tmux on the pod, not in this page.
         </p>
         <pre className="mb-5 overflow-x-auto rounded-[11px] border border-line bg-surface p-3 font-mono text-[12px] text-fail">
           {error.message}

@@ -136,7 +136,9 @@ describe("ghMessage", () => {
   it("keeps the continuation when the first line ends in a colon", () => {
     // How gh reports an existing PR — the url is the useful half.
     expect(
-      ghMessage('a pull request for branch "x" into branch "y" already exists:\nhttps://gh/pull/16'),
+      ghMessage(
+        'a pull request for branch "x" into branch "y" already exists:\nhttps://gh/pull/16',
+      ),
     ).toBe('a pull request for branch "x" into branch "y" already exists: https://gh/pull/16');
   });
 });

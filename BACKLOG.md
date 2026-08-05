@@ -121,7 +121,7 @@ what unblocks it / where the code lives.
   right repo, the prompt travels as `VK_PROMPT`, the run gets
   `--permission-mode auto`, and a tick is skipped while the previous run is
   open. What a fake tmux cannot answer is what the agent then does: whether the
-  prompt arrives *submitted* rather than sitting in the input box, and whether
+  prompt arrives _submitted_ rather than sitting in the input box, and whether
   auto mode really carries an unattended run through `gh pr` calls without
   stopping.
 - **Why deferred:** Both need a real authenticated claude in a real pane.
@@ -192,7 +192,7 @@ what unblocks it / where the code lives.
   do write `.state` files that flip waiting/running — so the hooks fire. Web
   push is confirmed end to end (Apple accepted and an iPhone showed it, once the
   VAPID subject stopped being a `localhost` mailto); ntfy is still untested.
-  Still unconfirmed: that a *question* to the user counts as waiting. A session blocked on `AskUserQuestion` read `running`,
+  Still unconfirmed: that a _question_ to the user counts as waiting. A session blocked on `AskUserQuestion` read `running`,
   because every tool call's `PreToolUse` hook writes `running` and it is unclear
   whether such a prompt also fires `Notification`. If it doesn't, a question
   never pushes and the hook set needs another event (or a fallback).
@@ -253,13 +253,13 @@ what unblocks it / where the code lives.
   phone detaches, and agent TUIs redraw their boxes at the smaller size.
 - **Why deferred:** The grouped-session fix this entry used to propose does not
   work, and that is now checked rather than assumed. `tmux new-session -t <id>
-  -s <id>-view-1` puts the new session in the same group, and
-  `list-windows -a` shows both sessions on the *same window* (`@0`) at one
+-s <id>-view-1` puts the new session in the same group, and
+  `list-windows -a` shows both sessions on the _same window_ (`@0`) at one
   size — a session group shares window objects, so a per-client session buys no
   per-client geometry. Nothing in tmux can: one pane is one screen buffer, and
   every client viewing it sees the same render. `aggressive-resize` does not
   help either, for the reason already recorded — it only separates clients whose
-  *current* windows differ.
+  _current_ windows differ.
 - **Unblocked by:** A product call, since the only lever is which client loses.
   `window-size largest` keeps the desktop intact and gives the phone a cropped
   viewport onto a wider window; `smallest` is today's complaint made permanent;

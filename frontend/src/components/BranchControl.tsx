@@ -106,7 +106,8 @@ export default function BranchControl({
             <button
               onClick={reset}
               disabled={busy || !data?.upstream}
-              title="discard local commits and changes on this branch" aria-label="discard local commits and changes on this branch"
+              title="discard local commits and changes on this branch"
+              aria-label="discard local commits and changes on this branch"
               className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               reset to {data?.upstream ?? "upstream"}

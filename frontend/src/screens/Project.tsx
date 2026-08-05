@@ -241,7 +241,11 @@ export default function Project() {
         {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
         {/* An unselected panel is unmounted, so its poll does not run. */}
-        <div role="group" aria-label="project view" className="mt-6 mb-4 flex gap-1.5 border-b border-line pb-3">
+        <div
+          role="group"
+          aria-label="project view"
+          className="mt-6 mb-4 flex gap-1.5 border-b border-line pb-3"
+        >
           {(["sessions", "prs", "actions", "schedules"] as const).map((t) => (
             <button
               key={t}

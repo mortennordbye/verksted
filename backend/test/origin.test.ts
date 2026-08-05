@@ -64,7 +64,7 @@ describe("origin check on mutating requests", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("blocks the opaque \"null\" origin a sandboxed iframe sends", async () => {
+  it('blocks the opaque "null" origin a sandboxed iframe sends', async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/projects",

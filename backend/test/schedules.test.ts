@@ -91,7 +91,13 @@ describe("POST /api/schedules", () => {
     expect(spread.json().jitterMinutes).toBe(30);
 
     for (const jitterMinutes of [-1, 721, 1.5]) {
-      const res = await create({ name: "j3", project: "demo", cron: CRON, prompt: "x", jitterMinutes });
+      const res = await create({
+        name: "j3",
+        project: "demo",
+        cron: CRON,
+        prompt: "x",
+        jitterMinutes,
+      });
       expect(res.statusCode).toBe(400);
     }
   });
@@ -166,8 +172,9 @@ describe("DELETE /api/schedules/:id", () => {
 
 describe("GET /api/projects/:name/schedules", () => {
   it("returns only the schedules that run in that repo", async () => {
-    const mine = (await create({ name: "scoped", project: "other", cron: CRON, prompt: "x" }))
-      .json().id;
+    const mine = (
+      await create({ name: "scoped", project: "other", cron: CRON, prompt: "x" })
+    ).json().id;
     const res = await app.inject({ url: "/api/projects/other/schedules" });
     expect(res.statusCode).toBe(200);
     expect(res.json().map((s: { id: string }) => s.id)).toEqual([mine]);

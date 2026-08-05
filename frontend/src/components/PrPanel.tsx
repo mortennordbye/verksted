@@ -39,10 +39,7 @@ export default function PrPanel({
     data: prs,
     error,
     refresh,
-  } = usePoll<PullRequest[]>(
-    `/api/projects/${project}/prs?state=${all ? "all" : "open"}`,
-    20_000,
-  );
+  } = usePoll<PullRequest[]>(`/api/projects/${project}/prs?state=${all ? "all" : "open"}`, 20_000);
 
   return (
     <>
@@ -67,7 +64,9 @@ export default function PrPanel({
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
       <div className="flex flex-col gap-2.5">
-        {prs?.map((pr) => <PrRow key={pr.number} pr={pr} onClick={() => setOpen(pr.number)} />)}
+        {prs?.map((pr) => (
+          <PrRow key={pr.number} pr={pr} onClick={() => setOpen(pr.number)} />
+        ))}
         {prs?.length === 0 && (
           <div className="font-mono text-[12.5px] text-faint">
             {all ? "no pull requests" : "no open pull requests"}

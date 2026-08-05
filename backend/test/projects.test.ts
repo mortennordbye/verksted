@@ -103,10 +103,15 @@ describe("POST /api/projects/:name/worktrees", () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({ name: "wt--feature-x", branch: "feature-x" });
-    const head = execFileSync(
-      "git",
-      ["-C", path.join(reposDir, "wt--feature-x"), "symbolic-ref", "--short", "HEAD"],
-    ).toString().trim();
+    const head = execFileSync("git", [
+      "-C",
+      path.join(reposDir, "wt--feature-x"),
+      "symbolic-ref",
+      "--short",
+      "HEAD",
+    ])
+      .toString()
+      .trim();
     expect(head).toBe("feature-x");
   });
 

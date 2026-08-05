@@ -16,8 +16,7 @@ async function currentSettings(): Promise<Settings> {
     },
     vars: keys.map((key) => ({
       key,
-      source:
-        stored[key] !== undefined ? "settings" : process.env[key] ? "env" : "unset",
+      source: stored[key] !== undefined ? "settings" : process.env[key] ? "env" : "unset",
     })),
     schedulesPaused: await settings.schedulesPaused(),
   };

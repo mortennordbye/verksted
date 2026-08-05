@@ -48,7 +48,10 @@ export default function WaitingSession({ session }: { session: Session }) {
         <StatusChip kind="wait" label="waiting" />
         <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{session.title}</span>
         <AgentTag agent={session.agent} />
-        <Link to={`/p/${session.project}`} className="font-mono text-[11px] text-faint hover:text-accent">
+        <Link
+          to={`/p/${session.project}`}
+          className="font-mono text-[11px] text-faint hover:text-accent"
+        >
           {session.project}
         </Link>
         <span className="font-mono text-[11px] text-faint">{agoLabel(session.createdAt)}</span>

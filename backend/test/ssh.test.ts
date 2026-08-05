@@ -71,9 +71,7 @@ describe("SSH keys", () => {
     });
     expect(res.statusCode).toBe(201);
     // ssh-keygen -y drops the comment; compare the key material itself
-    expect(res.json().publicKey.split(" ").slice(0, 2)).toEqual(
-      expectedPub.split(" ").slice(0, 2),
-    );
+    expect(res.json().publicKey.split(" ").slice(0, 2)).toEqual(expectedPub.split(" ").slice(0, 2));
   });
 
   it("rejects garbage and passphrase-less validation failures", async () => {
@@ -82,7 +80,8 @@ describe("SSH keys", () => {
       url: "/api/ssh-keys",
       payload: {
         name: "junk",
-        privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nnot a key\n-----END OPENSSH PRIVATE KEY-----",
+        privateKey:
+          "-----BEGIN OPENSSH PRIVATE KEY-----\nnot a key\n-----END OPENSSH PRIVATE KEY-----",
       },
     });
     expect(res.statusCode).toBe(400);

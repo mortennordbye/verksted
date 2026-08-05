@@ -133,7 +133,10 @@ export default function Hub() {
                 </span>
               </div>
               <div className="flex items-center gap-3.5 font-mono text-[11px] text-faint">
-                <span>⎇ {p.branch}{p.dirty ? "*" : ""}</span>
+                <span>
+                  ⎇ {p.branch}
+                  {p.dirty ? "*" : ""}
+                </span>
                 {p.agents.map((a) => (
                   <AgentTag key={a} agent={a} />
                 ))}
@@ -163,11 +166,15 @@ export default function Hub() {
               <span>
                 mem {gb(facts.memUsed)}/{gb(facts.memTotal)}
               </span>
-              <span>{facts.browsers} browser{facts.browsers === 1 ? "" : "s"}</span>
+              <span>
+                {facts.browsers} browser{facts.browsers === 1 ? "" : "s"}
+              </span>
               {facts.docker?.map((d) => (
                 <span key={d.type}>
                   docker {d.type.toLowerCase()} {d.size}
-                  {d.reclaimable.startsWith("0B") ? "" : ` (${d.reclaimable.split(" ")[0]} reclaimable)`}
+                  {d.reclaimable.startsWith("0B")
+                    ? ""
+                    : ` (${d.reclaimable.split(" ")[0]} reclaimable)`}
                 </span>
               ))}
             </>

@@ -236,14 +236,19 @@ describe("metadata writes", () => {
     writeMeta("vk-demo-1", { cdpPort: 9222 });
     tmuxList.mockResolvedValue([]);
     const bigTitle = "x".repeat(60_000);
-    fs.writeFileSync(metaFile("vk-demo-2"), JSON.stringify({
-      id: "vk-demo-2", project: "demo", agent: "claude", title: bigTitle,
-      createdAt: "2026-01-01T00:00:00.000Z", endedAt: null,
-    }));
-
-    const reads = await Promise.all(
-      Array.from({ length: 20 }, () => store.listSessions()),
+    fs.writeFileSync(
+      metaFile("vk-demo-2"),
+      JSON.stringify({
+        id: "vk-demo-2",
+        project: "demo",
+        agent: "claude",
+        title: bigTitle,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        endedAt: null,
+      }),
     );
+
+    const reads = await Promise.all(Array.from({ length: 20 }, () => store.listSessions()));
     for (const list of reads) expect(list).toHaveLength(2);
   });
 

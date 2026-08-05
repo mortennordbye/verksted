@@ -30,9 +30,7 @@ beforeAll(() => {
 
 describe("resolveInsideRepos", () => {
   it("resolves the project dir itself", () => {
-    expect(resolveInsideRepos("demo", "", root)).toBe(
-      fs.realpathSync(path.join(root, "demo")),
-    );
+    expect(resolveInsideRepos("demo", "", root)).toBe(fs.realpathSync(path.join(root, "demo")));
   });
 
   it("resolves files inside the project", () => {

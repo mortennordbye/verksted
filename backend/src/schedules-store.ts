@@ -19,7 +19,10 @@ interface StoredRun {
 }
 
 /** The stored record; the rest of the wire type is derived on every read. */
-type Stored = Omit<Schedule, "nextRunAt" | "lastReport" | "lastRunAt" | "lastSessionId" | "lastError"> & {
+type Stored = Omit<
+  Schedule,
+  "nextRunAt" | "lastReport" | "lastRunAt" | "lastSessionId" | "lastError"
+> & {
   /** Newest first, capped at MAX_RUNS. */
   runs: StoredRun[];
 };
@@ -163,7 +166,11 @@ export async function recordRun(
  * whole point of asking it to sign off — and only a run that said nothing is
  * judged by where it got to instead.
  */
-function outcome(run: StoredRun, report: string | null, session: Session | undefined): ScheduleRun["outcome"] {
+function outcome(
+  run: StoredRun,
+  report: string | null,
+  session: Session | undefined,
+): ScheduleRun["outcome"] {
   if (run.error) return "blocked";
   if (report) {
     if (/^attention\b/i.test(report)) return "attention";
