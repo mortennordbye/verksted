@@ -263,3 +263,44 @@ what unblocks it / where the code lives.
 - **Where:** `frontend/package.json` (`react-router`), and the import sites
   listed above (`frontend/src/App.tsx`, `main.tsx`, `components/TopBar.tsx`,
   `screens/Hub.tsx`, `Project.tsx`, `Session.tsx`, `Settings.tsx`, `Inbox.tsx`)
+
+## Give each terminal client its own tmux window size
+
+- **What:** Every attach client shares one tmux window, so tmux sizes it to the
+  smallest attached client. Opening a session on the phone snaps the desktop
+  terminal to phone geometry until the phone detaches, and agent TUIs redraw
+  their boxes at the smaller width.
+- **Why deferred:** The two fixes are not equivalent. `aggressive-resize` only
+  helps when clients are looking at *different* windows, which is not the case
+  here — every client attaches to the same one, so it changes nothing. The real
+  fix is grouped sessions: each client attaches to a throwaway
+  `tmux new-session -t <id> -s <id>-view-<n>`, which gets its own window and so
+  its own size. That means allocating and reaping per-client view sessions, and
+  it touches the invariant in CLAUDE.md that closing a websocket must detach and
+  never kill the underlying session — worth doing deliberately rather than
+  folding into a robustness pass.
+- **Unblocked by:** Deciding how view sessions are named and reaped (including
+  after a backend restart leaves orphans), and confirming that killing the base
+  session takes its views with it.
+- **Where:** `backend/src/ws/attach.ts` (the `attach-session` argv),
+  `backend/src/tmux.ts`, `backend/src/sessions-store.ts` (`killQuietly` of the
+  `-shell` companion is the pattern to follow for reaping)
+
+## Start the agent command without send-keys
+
+- **What:** `tmux.newSession` creates the session and then delivers the agent
+  command with `send-keys`, which can race the pane shell's startup and be
+  swallowed.
+- **Why deferred:** The obvious fix — passing the command as `new-session`'s
+  shell-command argument — changes behaviour: the tmux session then dies when
+  the agent exits, instead of dropping back to a shell in the project
+  directory. That shell is useful (it is how you restart a crashed agent in the
+  same session, and how a failed agent command stays visible instead of the
+  session vanishing). Preserving it means wrapping as
+  `<command>; exec "${SHELL:-/bin/sh}"`, which is a real change to how every
+  session starts and wants testing against all three agent CLIs.
+- **Unblocked by:** Deciding whether a session should outlive its agent at all.
+  If yes, the wrapped form above; if no, the plain shell-command form is simpler
+  and also fixes the "finished" semantics.
+- **Where:** `backend/src/tmux.ts` (`newSession`), `backend/src/sessions-store.ts`
+  (`launchAgent` builds the command string)
