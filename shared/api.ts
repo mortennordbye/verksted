@@ -23,6 +23,15 @@ export interface Session {
   createdAt: string;
   endedAt: string | null;
   status: "running" | "waiting" | "done";
+  /**
+   * The one-line verdict the agent wrote about its own work, or null when it
+   * wrote none. Scheduled runs have always been asked for this; every session
+   * is now, so a card can say what the agent concluded rather than only
+   * whether its tmux session is still alive.
+   */
+  report: string | null;
+  /** That verdict as one word, falling back to where the session got to. */
+  outcome: "ok" | "attention" | "failed" | "running" | "done";
 }
 
 export interface TreeNode {

@@ -180,9 +180,11 @@ async function killQuietly(name: string): Promise<void> {
   }
 }
 
-function toSession(meta: Meta, live: boolean, state: string | null): Session {
+async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
   const { cdpPort: _cdpPort, ...wire } = meta;
-  return { ...wire, status: !live ? "done" : state === "waiting" ? "waiting" : "running" };
+  const status = !live ? "done" : state === "waiting" ? "waiting" : "running";
+  const report = await readReport(meta.id);
+  return { ...wire, status, report, outcome: reportOutcome(report, live) };
 }
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
@@ -210,7 +212,7 @@ export async function listSessions(project?: string): Promise<Session[]> {
     // it would fire a "finished" push per session on every poll until it does.
     if (live === null) {
       const wasLive = !m.endedAt;
-      out.push(toSession(m, wasLive, wasLive ? await readState(m.id) : null));
+      out.push(await toSession(m, wasLive, wasLive ? await readState(m.id) : null));
       continue;
     }
     // Sweep: a session whose tmux died without going through DELETE gets its
@@ -224,7 +226,7 @@ export async function listSessions(project?: string): Promise<Session[]> {
     if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
       await killQuietly(`${m.id}-shell`);
     }
-    out.push(toSession(m, live.has(m.id), live.has(m.id) ? await readState(m.id) : null));
+    out.push(await toSession(m, live.has(m.id), live.has(m.id) ? await readState(m.id) : null));
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -236,7 +238,41 @@ export async function getSession(id: string): Promise<Session | null> {
   // Unknown liveness: fall back to what the metadata last recorded, the same
   // way listSessions does, rather than reporting a live session as done.
   const isLive = live === null ? !meta.endedAt : live.has(id);
-  return toSession(meta, isLive, isLive ? await readState(id) : null);
+  return await toSession(meta, isLive, isLive ? await readState(id) : null);
+}
+
+/**
+ * What a session is asked to leave behind when it finishes.
+ *
+ * Only the agent knows whether "two PRs open" is fine or needs a person, so it
+ * writes the verdict itself and everything downstream reads it: "ok:" keeps the
+ * phone quiet, the other two push. Appended to the prompt rather than buried in
+ * a hook because the agent has to be told in words.
+ *
+ * Only scheduled runs are *told* this. An interactive session has no defined
+ * end, and injecting the instruction as its first prompt would make the agent
+ * answer a piece of bookkeeping before the user has said anything. Every
+ * session can still write the file — VK_REPORT_FILE is set for all of them —
+ * and any session that does now has its verdict read and surfaced, so asking
+ * an agent for a sign-off mid-session works without changing how sessions
+ * start.
+ */
+export const REPORT_CONTRACT =
+  '\n\nWhen you are done, write one line to the file at "$VK_REPORT_FILE": ' +
+  '"ok: <summary>" if nothing needs me, "attention: <summary>" if I have to act, ' +
+  'or "failed: <summary>" if you could not finish.';
+
+/** The three verdicts a report can open with, plus where it got to otherwise. */
+export function reportOutcome(
+  report: string | null,
+  live: boolean,
+): "ok" | "attention" | "failed" | "running" | "done" {
+  if (report) {
+    if (/^attention\b/i.test(report)) return "attention";
+    if (/^failed\b/i.test(report)) return "failed";
+    if (/^ok\b/i.test(report)) return "ok";
+  }
+  return live ? "running" : "done";
 }
 
 export interface LaunchOptions {
@@ -292,6 +328,7 @@ async function launchAgent(
     extraEnv.VK_PROMPT = opts.prompt;
     command += ' "$VK_PROMPT"';
   }
+
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
 }
 
@@ -390,7 +427,7 @@ export function createSession(
       await fs.rm(metaPath(meta.id), { force: true });
       throw err;
     }
-    return { ...toSession(meta, true, null), sync };
+    return { ...(await toSession(meta, true, null)), sync };
   });
 }
 

@@ -250,3 +250,54 @@ describe("metadata writes", () => {
     expect(fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".tmp"))).toHaveLength(0);
   });
 });
+
+// The verdict an agent writes about its own work. VK_REPORT_FILE was always set
+// for every session, but only scheduled runs had their report read — so an
+// interactive session that wrote one had it ignored.
+describe("session sign-off", () => {
+  beforeEach(() => tmuxList.mockResolvedValue(["vk-demo-1"]));
+
+  const writeReport = (id: string, text: string) =>
+    fs.writeFileSync(path.join(sessionsDir, `${id}.report`), text);
+
+  it("carries the report and its outcome on any session", async () => {
+    writeMeta("vk-demo-1");
+    writeReport("vk-demo-1", "attention: the migration needs a decision\nsecond line");
+    const [session] = await store.listSessions();
+    expect(session!.report).toBe("attention: the migration needs a decision");
+    expect(session!.outcome).toBe("attention");
+  });
+
+  it("classifies each verdict, case-insensitively", async () => {
+    for (const [text, expected] of [
+      ["ok: nothing to do", "ok"],
+      ["OK: shouty but fine", "ok"],
+      ["failed: could not build", "failed"],
+      ["Attention: needs you", "attention"],
+    ] as const) {
+      writeMeta("vk-demo-1");
+      writeReport("vk-demo-1", text);
+      const [session] = await store.listSessions();
+      expect(session!.outcome, text).toBe(expected);
+    }
+  });
+
+  it("falls back to where the session got to when nothing was written", async () => {
+    writeMeta("vk-demo-1");
+    const [live] = await store.listSessions();
+    expect(live!.report).toBeNull();
+    expect(live!.outcome).toBe("running");
+
+    tmuxList.mockResolvedValue([]);
+    const [dead] = await store.listSessions();
+    expect(dead!.outcome).toBe("done");
+  });
+
+  it("ignores an unparseable verdict rather than guessing", async () => {
+    writeMeta("vk-demo-1");
+    writeReport("vk-demo-1", "I did some things");
+    const [session] = await store.listSessions();
+    expect(session!.report).toBe("I did some things");
+    expect(session!.outcome).toBe("running");
+  });
+});

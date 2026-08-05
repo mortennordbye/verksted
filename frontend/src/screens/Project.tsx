@@ -41,6 +41,21 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
             <span>tmux: {session.id}</span>
             <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
           </div>
+          {/* What the agent said about its own work, when it said anything —
+              far more use on a row than "done". */}
+          {session.report && (
+            <div
+              className={`mt-1 truncate text-[12px] ${
+                session.outcome === "failed"
+                  ? "text-fail"
+                  : session.outcome === "attention"
+                    ? "text-wait"
+                    : "text-muted"
+              }`}
+            >
+              {session.report}
+            </div>
+          )}
         </div>
       </Link>
       <StatusChip

@@ -88,7 +88,10 @@ export function startNotifier(log: Logger): void {
       const sessions = await store.listSessions();
       if (prev) {
         for (const s of transitions(prev, sessions)) {
-          const report = s.status === "done" ? await store.readReport(s.id) : null;
+          // Session carries its own report now, for every state — a waiting
+          // session that wrote one can say what it is waiting about rather
+          // than pushing the word "waiting".
+          const report = s.report;
           if (shouldNotify(s, report)) await notify(s, report, log);
         }
       }
