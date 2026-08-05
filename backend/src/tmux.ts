@@ -7,13 +7,33 @@ const exec = promisify(execFile);
 // mangles multibyte output to "_". Guarantee it even if the image env lacks LANG.
 export const UTF8_ENV = { ...process.env, LANG: process.env.LANG ?? "C.UTF-8" };
 
+/** tmux could not be asked what is live — which is not the same as "nothing is". */
+export class TmuxUnavailableError extends Error {
+  constructor(readonly cause: unknown) {
+    super("tmux unavailable");
+  }
+}
+
+// How tmux says "there is no server", which is the ordinary empty case: it
+// exits 1 with one of these on stderr. Anything else is a real failure.
+const NO_SERVER_RE = /no server running|error connecting to .*no such file or directory/i;
+
+/**
+ * Live tmux session names.
+ *
+ * Throws rather than returning [] when tmux itself is unreachable. The
+ * difference matters: callers use this set to decide a session is over, so
+ * swallowing a fork failure or a missing binary would stamp every session as
+ * finished and fire a "finished" push for each one, on every poll.
+ */
 export async function listSessions(): Promise<string[]> {
   try {
-    const { stdout } = await exec("tmux", ["ls", "-F", "#{session_name}"]);
+    const { stdout } = await exec("tmux", ["ls", "-F", "#{session_name}"], { timeout: 5_000 });
     return stdout.split("\n").filter(Boolean);
-  } catch {
-    // No tmux server running means no sessions.
-    return [];
+  } catch (err) {
+    const e = err as { stderr?: string; killed?: boolean };
+    if (!e.killed && NO_SERVER_RE.test(String(e.stderr ?? ""))) return [];
+    throw new TmuxUnavailableError(err);
   }
 }
 

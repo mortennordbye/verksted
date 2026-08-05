@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import { env } from "./env.js";
 
@@ -36,10 +37,21 @@ async function read(): Promise<Stored> {
 // Read-modify-write, so writing one field never drops the others. 0600 because
 // this file holds plaintext tokens — mode on writeFile only applies when the
 // file is created, so chmod covers a file already written at the old 0644.
+//
+// Write-temp-then-rename: a truncated settings.json is every credential the
+// user has entered, and read() swallows the parse error and returns {}, so a
+// crash mid-write would silently unset all of them.
 async function write(patch: Stored): Promise<void> {
   const data = JSON.stringify({ ...(await read()), ...patch }, null, 2);
-  await fs.writeFile(env.SETTINGS_FILE, data, { mode: 0o600 });
-  await fs.chmod(env.SETTINGS_FILE, 0o600);
+  const tmp = `${env.SETTINGS_FILE}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, data, { mode: 0o600 });
+    await fs.chmod(tmp, 0o600);
+    await fs.rename(tmp, env.SETTINGS_FILE);
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw err;
+  }
 }
 
 /** Vars set via the settings page, persisted on the data volume. */
