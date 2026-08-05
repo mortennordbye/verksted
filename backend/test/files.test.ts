@@ -380,7 +380,7 @@ describe("POST /api/projects/:name/upload", () => {
   it("stores the image under a stamped name and excludes it from git", async () => {
     const res = await upload("demo", "IMG 4021.png", Buffer.from([137, 80, 78, 71]));
     expect(res.statusCode).toBe(200);
-    const { path: rel } = res.json() as { path: string };
+    const { path: rel } = res.json();
     expect(rel).toMatch(/^\.verksted\/uploads\/\d{8}-\d{9}-IMG_4021\.png$/);
 
     const demo = path.join(process.env.REPOS_DIR!, "demo");
@@ -398,13 +398,13 @@ describe("POST /api/projects/:name/upload", () => {
   it("keeps a second upload of the same name", async () => {
     const a = await upload("demo", "shot.png", Buffer.from("one"));
     const b = await upload("demo", "shot.png", Buffer.from("two"));
-    expect((a.json() as { path: string }).path).not.toBe((b.json() as { path: string }).path);
+    expect((a.json()).path).not.toBe((b.json()).path);
   });
 
   it("strips traversal out of the filename", async () => {
     const res = await upload("demo", "../../etc/passwd", Buffer.from("x"));
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { path: string }).path).toMatch(
+    expect((res.json()).path).toMatch(
       /^\.verksted\/uploads\/\d{8}-\d{9}-passwd$/,
     );
   });

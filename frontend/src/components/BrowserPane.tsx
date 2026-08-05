@@ -327,12 +327,12 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
           onKeyUp={(e) => key(e, "keyUp")}
           onContextMenu={(e) => e.preventDefault()}
           onTouchStart={(e) => {
-            const t = e.touches[0]!;
+            const t = e.touches[0];
             touch.current = { x: t.clientX, y: t.clientY };
           }}
           onTouchMove={(e) => {
             // One-finger drag scrolls the remote page.
-            const t = e.touches[0]!;
+            const t = e.touches[0];
             const prev = touch.current;
             if (!prev) return;
             send({
@@ -348,7 +348,7 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
             // A tap (no movement) becomes a click.
             const start = touch.current;
             touch.current = null;
-            const t = e.changedTouches[0]!;
+            const t = e.changedTouches[0];
             if (!start) return;
             if (Math.abs(t.clientX - start.x) + Math.abs(t.clientY - start.y) > 8) return;
             const pos = toRemote(t);

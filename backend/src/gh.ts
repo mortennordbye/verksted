@@ -100,7 +100,7 @@ export function ghMessage(stderr: string): string {
   if (!lines.length) return "gh failed";
   // A trailing colon means the useful part is on the next line — that is how gh
   // reports an existing PR, and the url is the whole point of the message.
-  const msg = lines[0]!.endsWith(":") && lines[1] ? `${lines[0]} ${lines[1]}` : lines[0]!;
+  const msg = lines[0].endsWith(":") && lines[1] ? `${lines[0]} ${lines[1]}` : lines[0];
   return msg.slice(0, 200);
 }
 
@@ -117,6 +117,7 @@ export function summarizeChecks(
 
 // GitHub's log API stores colour in caret notation ("^[[36;1m") rather than as a
 // real escape byte, so match both — a real ESC shows up in some tools' output.
+// eslint-disable-next-line no-control-regex, no-useless-escape -- ESC is the point
 const ANSI_RE = /(?:\u001b|\^\[)\[[0-9;?]*[ -\/]*[@-~]/g;
 const LOG_LINE_RE = /^([^\t]*)\t([^\t]*)\t\d{4}-\d\d-\d\dT[\d:.]+Z ?(.*)$/;
 
@@ -142,7 +143,7 @@ export function formatRunLog(raw: string, maxChars = 60_000): RunLog {
       out.push(`${out.length ? "\n" : ""}── ${key} ──`);
     }
     // ##[error] is the signal; only the group markers are noise.
-    out.push(m[3]!.replace(/^##\[(?:end)?group\]/, "").trimEnd());
+    out.push(m[3].replace(/^##\[(?:end)?group\]/, "").trimEnd());
   }
   const log = out.join("\n");
   return log.length <= maxChars

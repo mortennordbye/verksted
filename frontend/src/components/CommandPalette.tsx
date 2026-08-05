@@ -95,7 +95,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   function go(entry: Entry | undefined) {
     if (!entry) return;
     onClose();
-    navigate(entry.to);
+    void navigate(entry.to);
   }
 
   return (

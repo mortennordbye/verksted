@@ -68,7 +68,7 @@ export default function BranchControl({
     ) {
       return;
     }
-    run(() => post("reset"));
+    void run(() => post("reset"));
   }
 
   const local = data?.local ?? [];

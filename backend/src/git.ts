@@ -60,8 +60,8 @@ export function parsePorcelainZ(stdout: string): PorcelainEntry[] {
     const entry = parts[i];
     // "XY " plus at least one character of path.
     if (!entry || entry.length < 4) continue;
-    const x = entry[0]!;
-    out.push({ x, y: entry[1]!, path: entry.slice(3) });
+    const x = entry[0];
+    out.push({ x, y: entry[1], path: entry.slice(3) });
     if (x === "R" || x === "C") i++;
   }
   return out;
@@ -99,7 +99,7 @@ export async function worktreeParent(dir: string): Promise<string | null> {
     if (!st.isFile()) return null;
     const gitfile = await fs.readFile(path.join(dir, ".git"), "utf8");
     const m = /^gitdir: (.+)\/\.git\/worktrees\//.exec(gitfile.trim());
-    return m ? path.basename(m[1]!) : null;
+    return m ? path.basename(m[1]) : null;
   } catch {
     return null;
   }

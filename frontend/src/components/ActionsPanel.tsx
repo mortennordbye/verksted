@@ -134,7 +134,7 @@ function RunSheet({
       danger: true,
     });
     if (!ok) return;
-    act(() => post("cancel"));
+    void act(() => post("cancel"));
   }
 
   const live = detail ? detail.status !== "completed" : false;

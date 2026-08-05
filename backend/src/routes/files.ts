@@ -689,9 +689,9 @@ export default async function fileRoutes(app: FastifyInstance) {
           const m = /^(.+?):(\d+):(.*)$/.exec(line);
           if (m) {
             hits.push({
-              path: m[1]!.replace(/^\.\//, ""),
+              path: m[1].replace(/^\.\//, ""),
               line: Number(m[2]),
-              text: m[3]!.trim().slice(0, 200),
+              text: m[3].trim().slice(0, 200),
             });
           }
         }

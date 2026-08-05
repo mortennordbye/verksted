@@ -47,7 +47,7 @@ describe("api", () => {
   it("sends an abort signal so a dead tunnel cannot hang the request", async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
     await api("/api/health");
-    expect(fetchMock.mock.calls[0]![1].signal).toBeInstanceOf(AbortSignal);
+    expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
   it("keeps caller headers instead of replacing them", async () => {
@@ -57,7 +57,7 @@ describe("api", () => {
       body: "raw",
       headers: { "content-type": "application/octet-stream", "if-match": "abc" },
     });
-    expect(fetchMock.mock.calls[0]![1].headers).toMatchObject({
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
       "content-type": "application/octet-stream",
       "if-match": "abc",
     });
@@ -66,7 +66,7 @@ describe("api", () => {
   it("still defaults to json for a body with no content-type", async () => {
     fetchMock.mockResolvedValue(jsonResponse({}));
     await api("/api/x", { method: "POST", body: "{}" });
-    expect(fetchMock.mock.calls[0]![1].headers).toMatchObject({
+    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({
       "content-type": "application/json",
     });
   });

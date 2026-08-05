@@ -37,7 +37,7 @@ export async function api<T>(
         ...(init?.body && !(init.headers as Record<string, string>)?.["content-type"]
           ? { "content-type": "application/json" }
           : {}),
-        ...((init?.headers as Record<string, string> | undefined) ?? {}),
+        ...((init?.headers) ?? {}),
       },
     });
   } catch {

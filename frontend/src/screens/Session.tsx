@@ -211,7 +211,7 @@ export default function Session() {
     });
     if (!ok) return;
     await api(`/api/sessions/${session.id}`, { method: "DELETE" });
-    navigate(`/p/${session.project}`);
+    void navigate(`/p/${session.project}`);
   }
 
   async function deleteSession() {
@@ -227,7 +227,7 @@ export default function Session() {
     });
     if (!ok) return;
     await api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" });
-    navigate(`/p/${session.project}`);
+    void navigate(`/p/${session.project}`);
   }
 
   const live = session != null && session.status !== "done";

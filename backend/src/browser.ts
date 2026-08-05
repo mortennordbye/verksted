@@ -24,7 +24,7 @@ export function validNavUrl(url: string): string | null {
   if (url.length > 2000) return null;
   const scheme = /^([a-z][a-z0-9+.-]*):(.*)$/i.exec(url);
   // "localhost:8080/x" parses as scheme "localhost:" — treat host:port as schemeless.
-  const hostPort = scheme && /^\d+(\/.*)?$/.test(scheme[2]!);
+  const hostPort = scheme && /^\d+(\/.*)?$/.test(scheme[2]);
   const withScheme = scheme && !hostPort ? url : `http://${url}`;
   try {
     const u = new URL(withScheme);
@@ -145,7 +145,7 @@ async function launch(sessionId: string, port: number): Promise<Entry> {
     let err = "";
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("chromium did not start")), 15_000);
-      proc.stderr!.on("data", (chunk: Buffer) => {
+      proc.stderr.on("data", (chunk: Buffer) => {
         err += chunk.toString();
         if (err.includes("DevTools listening on")) {
           clearTimeout(timer);
@@ -159,8 +159,8 @@ async function launch(sessionId: string, port: number): Promise<Entry> {
     });
     // Chromium logs for as long as it lives; without this the startup buffer
     // grows for the life of the process.
-    proc.stderr!.removeAllListeners("data");
-    proc.stderr!.resume();
+    proc.stderr.removeAllListeners("data");
+    proc.stderr.resume();
 
     const browser = await chromium.connectOverCDP(`http://127.0.0.1:${port}`, { timeout: 10_000 });
     const ctx = browser.contexts()[0] ?? (await browser.newContext());

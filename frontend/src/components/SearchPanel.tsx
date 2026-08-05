@@ -77,7 +77,7 @@ export default function SearchPanel({
   function toggle(set: (v: boolean) => void, key: "case" | "word" | "regex", value: boolean) {
     set(value);
     if (hits !== null) {
-      run({ case: caseSensitive, word: wholeWord, regex: useRegex, [key]: value });
+      void run({ case: caseSensitive, word: wholeWord, regex: useRegex, [key]: value });
     }
   }
 
@@ -121,7 +121,7 @@ export default function SearchPanel({
       );
       // Re-run the search rather than clearing it: the old code dropped the hit
       // list, so there was no way to see what had just been changed.
-      run({ case: caseSensitive, word: wholeWord, regex: useRegex });
+      void run({ case: caseSensitive, word: wholeWord, regex: useRegex });
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -126,7 +126,7 @@ export default function GitPanel({
 
   async function discard(files: GitFileStatus[]) {
     const untracked = files.filter((f) => f.status === "U").length;
-    const what = files.length === 1 ? files[0]!.path : `${files.length} files`;
+    const what = files.length === 1 ? files[0].path : `${files.length} files`;
     const warn = untracked > 0 ? " Untracked files are deleted." : "";
     if (
       !(await confirm({
@@ -138,7 +138,7 @@ export default function GitPanel({
     ) {
       return;
     }
-    gitOp("discard", files.map((f) => f.path));
+    void gitOp("discard", files.map((f) => f.path));
   }
 
   const canCommit = !busy && message.trim() !== "" && staged.length > 0;
@@ -198,7 +198,7 @@ export default function GitPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
               e.preventDefault();
-              commit();
+              void commit();
             }
           }}
           placeholder={`Message (${MOD}⏎ to commit on "${status?.branch ?? "…"}")`}

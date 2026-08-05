@@ -104,7 +104,7 @@ async function handle(
       const url = browser.validNavUrl(String(msg.url ?? ""));
       if (!url) return reply({ t: "error", message: "invalid url" });
       await page.goto(url, { waitUntil: "commit", timeout: 20_000 }).catch((err: Error) => {
-        reply({ t: "error", message: err.message.split("\n")[0]!.slice(0, 200) });
+        reply({ t: "error", message: err.message.split("\n")[0].slice(0, 200) });
       });
       return;
     }

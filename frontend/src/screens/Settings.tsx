@@ -484,7 +484,7 @@ function Schedules() {
       action: "delete the schedule",
       danger: true,
     });
-    if (ok) run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+    if (ok) void run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
   };
 
   function toggleOpen(s: Schedule) {
@@ -773,7 +773,7 @@ function SshKeys() {
       action: "delete the key",
       danger: true,
     });
-    if (ok) run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+    if (ok) void run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
   };
 
   return (

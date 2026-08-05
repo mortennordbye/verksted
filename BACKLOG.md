@@ -340,3 +340,49 @@ what unblocks it / where the code lives.
   than completion.
 - **Where:** `frontend/src/screens/Project.tsx` (tab strip),
   `frontend/src/screens/Session.tsx` (side panel tabs, pane tabs)
+
+## Clear the twenty jsx-a11y warnings
+
+- **What:** ESLint runs with `jsx-a11y` and reports 20 warnings, all from two
+  families: elements with click handlers that are not natively interactive
+  (modal backdrops, the terminal and browser panes, the resize separators), and
+  `tabIndex` on those same non-interactive elements. They are warnings rather
+  than errors so CI is not blocked.
+- **Why deferred:** Each needs markup restructuring rather than an attribute.
+  The backdrops close on click *and* on Escape and Android Back already, so the
+  keyboard path exists but the linter cannot see it. The browser pane's canvas
+  relays raw pointer events to a remote page, and the separators are `role
+  ="separator"` with arrow-key handlers — the rule does not recognise either.
+  Real fixes mean choosing different elements, which is a UI change worth doing
+  deliberately.
+- **Unblocked by:** Going through the twenty one at a time and deciding, per
+  case, whether to change the element, add a role the rule accepts, or add a
+  scoped disable with a reason. Run `docker compose run --rm backend npx eslint .`
+  for the list.
+- **Where:** `frontend/src/components/Sheet.tsx`, `CodeOverlay.tsx`,
+  `BrowserPane.tsx`, `Terminal.tsx`, `frontend/src/screens/Session.tsx`
+
+## Adopt Prettier across the existing code
+
+- **What:** Prettier is configured (`.prettierrc.json`) and `npm run format` /
+  `format:check` exist, but the codebase has not been reformatted and
+  `format:check` is not in CI.
+- **Why deferred:** Reformatting every file in the same branch as a large
+  behavioural change makes the diff unreviewable. The config is in place so the
+  reformat is a single mechanical commit whenever it suits.
+- **Unblocked by:** `npm run format` on a branch of its own, then adding
+  `npm run format:check` to the lint script and CI.
+- **Where:** `.prettierrc.json`, `.prettierignore`, `package.json` scripts,
+  `.github/workflows/ci.yml`
+
+## Run CI through the containers, not on the runner
+
+- **What:** CI still does `npm ci` on the GitHub runner, so node-pty is compiled
+  natively there, while CLAUDE.md says tooling runs in containers. The image is
+  now built and smoke-tested before it is pushed, which was the bigger gap.
+- **Why deferred:** Moving the test job onto compose means the runner builds the
+  dev image on every run; worth measuring against the current job time before
+  committing to it.
+- **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
+  runner against the present `npm ci` path.
+- **Where:** `.github/workflows/ci.yml` (the `test` job)

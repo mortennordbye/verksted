@@ -92,8 +92,8 @@ describe("liveness when tmux cannot be asked", () => {
     const before = fs.statSync(metaFile("vk-demo-1")).mtimeMs;
 
     const [session] = await store.listSessions();
-    expect(session!.status).toBe("running");
-    expect(session!.endedAt).toBeNull();
+    expect(session.status).toBe("running");
+    expect(session.endedAt).toBeNull();
     expect(readMetaFile("vk-demo-1").endedAt).toBeNull();
     expect(fs.statSync(metaFile("vk-demo-1")).mtimeMs).toBe(before);
   });
@@ -101,7 +101,7 @@ describe("liveness when tmux cannot be asked", () => {
   it("keeps reporting an already-ended session as done", async () => {
     writeMeta("vk-demo-2", { endedAt: "2026-01-02T00:00:00.000Z" });
     const [session] = await store.listSessions();
-    expect(session!.status).toBe("done");
+    expect(session.status).toBe("done");
   });
 
   it("applies the same fallback to a single get", async () => {
@@ -131,18 +131,18 @@ describe("liveness when tmux answers", () => {
     tmuxList.mockResolvedValue([]);
 
     const [first] = await store.listSessions();
-    expect(first!.status).toBe("done");
+    expect(first.status).toBe("done");
     const endedAt = readMetaFile("vk-demo-1").endedAt;
     expect(endedAt).not.toBeNull();
 
     const [second] = await store.listSessions();
-    expect(second!.endedAt).toBe(endedAt);
+    expect(second.endedAt).toBe(endedAt);
   });
 
   it("reports a session tmux still has as running", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue(["vk-demo-1"]);
-    expect((await store.listSessions())[0]!.status).toBe("running");
+    expect((await store.listSessions())[0].status).toBe("running");
   });
 
   it("reaps a shell companion left behind by a dead agent session", async () => {
@@ -268,8 +268,8 @@ describe("session sign-off", () => {
     writeMeta("vk-demo-1");
     writeReport("vk-demo-1", "attention: the migration needs a decision\nsecond line");
     const [session] = await store.listSessions();
-    expect(session!.report).toBe("attention: the migration needs a decision");
-    expect(session!.outcome).toBe("attention");
+    expect(session.report).toBe("attention: the migration needs a decision");
+    expect(session.outcome).toBe("attention");
   });
 
   it("classifies each verdict, case-insensitively", async () => {
@@ -282,27 +282,27 @@ describe("session sign-off", () => {
       writeMeta("vk-demo-1");
       writeReport("vk-demo-1", text);
       const [session] = await store.listSessions();
-      expect(session!.outcome, text).toBe(expected);
+      expect(session.outcome, text).toBe(expected);
     }
   });
 
   it("falls back to where the session got to when nothing was written", async () => {
     writeMeta("vk-demo-1");
     const [live] = await store.listSessions();
-    expect(live!.report).toBeNull();
-    expect(live!.outcome).toBe("running");
+    expect(live.report).toBeNull();
+    expect(live.outcome).toBe("running");
 
     tmuxList.mockResolvedValue([]);
     const [dead] = await store.listSessions();
-    expect(dead!.outcome).toBe("done");
+    expect(dead.outcome).toBe("done");
   });
 
   it("ignores an unparseable verdict rather than guessing", async () => {
     writeMeta("vk-demo-1");
     writeReport("vk-demo-1", "I did some things");
     const [session] = await store.listSessions();
-    expect(session!.report).toBe("I did some things");
-    expect(session!.outcome).toBe("running");
+    expect(session.report).toBe("I did some things");
+    expect(session.outcome).toBe("running");
   });
 });
 
@@ -351,7 +351,7 @@ describe("per-project standing context", () => {
   it("caps a context file that someone pasted a whole document into", async () => {
     writeContext("x".repeat(20_000));
     await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
-    expect(tmuxNewEnv().VK_PROMPT!.length).toBeLessThan(8_100);
+    expect(tmuxNewEnv().VK_PROMPT.length).toBeLessThan(8_100);
     clearContext();
   });
 });

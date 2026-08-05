@@ -12,6 +12,11 @@ const manifest = manifestJson as {
 };
 
 // node_modules lives at the workspace root, one level above the vite root.
+// The assertion below is load-bearing: tsc types import.meta.glob's values as
+// unknown and fails to compile without it. eslint's project service resolves
+// vite's types differently and calls it redundant — tsc is the one that has to
+// compile this.
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
 const icons = import.meta.glob("../../node_modules/material-icon-theme/icons/*.svg", {
   eager: true,
   query: "?url",

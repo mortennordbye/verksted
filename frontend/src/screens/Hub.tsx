@@ -38,7 +38,7 @@ export default function Hub() {
       setAdding(false);
       setInput("");
       refresh();
-      navigate(`/p/${name}`);
+      void navigate(`/p/${name}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {

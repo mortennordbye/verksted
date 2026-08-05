@@ -117,7 +117,7 @@ export default function Project() {
       });
       setBranching(false);
       setBranch("");
-      navigate(`/p/${created.name}`);
+      void navigate(`/p/${created.name}`);
     } catch (e) {
       setError((e as Error).message);
       setBranching(false);
@@ -150,7 +150,7 @@ export default function Project() {
     setDeleting(true);
     try {
       await api(`/api/projects/${name}`, { method: "DELETE" });
-      navigate("/");
+      void navigate("/");
     } catch (e) {
       setError((e as Error).message);
       setConfirmingDelete(false);
@@ -166,7 +166,7 @@ export default function Project() {
       });
       // The session screen reports it when the repo could not be put on an
       // up-to-date main first.
-      navigate(`/s/${session.id}`, { state: { sync: session.sync } });
+      void navigate(`/s/${session.id}`, { state: { sync: session.sync } });
     } catch (e) {
       setError((e as Error).message);
       setPicking(false);

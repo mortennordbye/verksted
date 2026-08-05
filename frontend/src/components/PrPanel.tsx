@@ -176,7 +176,7 @@ function PrSheet({
       action: "squash and merge",
     });
     if (!ok) return;
-    run(async () => {
+    void run(async () => {
       const res = await post<MergeResult>("merge");
       // Merged, but something local did not go to plan — say so rather than
       // leaving a stale branch to be discovered later.

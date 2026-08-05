@@ -83,7 +83,7 @@ export default async function attachRoutes(app: FastifyInstance) {
           cols: clamp(req.query.cols, 2, 500, 80),
           rows: clamp(req.query.rows, 2, 300, 24),
           cwd: env.REPOS_DIR,
-          env: tmux.UTF8_ENV as Record<string, string>,
+          env: tmux.UTF8_ENV,
         });
       } catch (err) {
         req.log.error({ err, id }, "could not attach to tmux");

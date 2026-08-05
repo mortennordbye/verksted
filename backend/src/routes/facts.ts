@@ -46,9 +46,9 @@ async function podListeners(): Promise<ListeningPort[]> {
       const cols = line.trim().split(/\s+/);
       // st 0A = LISTEN; cols: sl local rem st tx rx tr retrnsmt uid timeout inode
       if (cols.length < 10 || cols[3] !== "0A") continue;
-      const port = parseInt(cols[1]!.split(":").at(-1)!, 16);
+      const port = parseInt(cols[1].split(":").at(-1)!, 16);
       if (port === env.PORT || port === 5173) continue; // the app itself
-      byInode.set(cols[9]!, port);
+      byInode.set(cols[9], port);
     }
   }
   const names = new Map<number, string>();
@@ -59,7 +59,7 @@ async function podListeners(): Promise<ListeningPort[]> {
       for (const fd of fds) {
         const link = await fs.readlink(`/proc/${pid}/fd/${fd}`).catch(() => "");
         const m = /^socket:\[(\d+)\]$/.exec(link);
-        const port = m && byInode.get(m[1]!);
+        const port = m && byInode.get(m[1]);
         if (port && !names.has(port)) {
           names.set(port, (await fs.readFile(`/proc/${pid}/comm`, "utf8").catch(() => "?")).trim());
         }

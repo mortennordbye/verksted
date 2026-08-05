@@ -13,7 +13,7 @@ export function establishedCount(tcpData: string, port: number): number {
   for (const line of tcpData.split("\n").slice(1)) {
     const cols = line.trim().split(/\s+/);
     if (cols.length < 4) continue;
-    if (cols[1]!.endsWith(`:${hexPort}`) && cols[3] === "01") n++;
+    if (cols[1].endsWith(`:${hexPort}`) && cols[3] === "01") n++;
   }
   return n;
 }
