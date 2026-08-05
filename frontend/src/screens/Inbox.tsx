@@ -50,8 +50,8 @@ export default function Inbox() {
               : "nothing needs you"}
         </h1>
         <div className="mb-6 text-sm text-muted">
-          Agents blocked on a decision, then every firing of every schedule. A run signs
-          off with one line; that line is what the phone got.
+          Agents blocked on a decision, then every firing of every schedule. A run signs off with
+          one line; that line is what the phone got.
         </div>
 
         {waiting.length > 0 && (
@@ -85,9 +85,7 @@ export default function Inbox() {
                 >
                   {r.project}
                 </Link>
-                <span className="ml-auto font-mono text-[11px] text-faint">
-                  {agoLabel(r.at)}
-                </span>
+                <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(r.at)}</span>
               </div>
               <div className="mt-1.5 text-[12.5px] text-muted">
                 {r.report ?? r.error ?? "no sign-off"}

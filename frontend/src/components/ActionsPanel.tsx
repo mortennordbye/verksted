@@ -38,7 +38,9 @@ export default function ActionsPanel({ project }: { project: string }) {
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
       <div className="flex flex-col gap-2.5">
-        {runs?.map((run) => <RunRow key={run.id} run={run} onClick={() => setOpen(run.id)} />)}
+        {runs?.map((run) => (
+          <RunRow key={run.id} run={run} onClick={() => setOpen(run.id)} />
+        ))}
         {runs?.length === 0 && (
           <div className="font-mono text-[12.5px] text-faint">no workflow runs</div>
         )}
@@ -46,12 +48,7 @@ export default function ActionsPanel({ project }: { project: string }) {
       </div>
 
       {open !== null && (
-        <RunSheet
-          project={project}
-          id={open}
-          onClose={() => setOpen(null)}
-          onChanged={refresh}
-        />
+        <RunSheet project={project} id={open} onClose={() => setOpen(null)} onChanged={refresh} />
       )}
     </>
   );

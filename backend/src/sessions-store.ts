@@ -352,9 +352,7 @@ async function launchAgent(
   // quoted expansion, so no character in it can be read as shell syntax.
   if (opts.prompt) {
     const context = await projectContext(projectDir);
-    extraEnv.VK_PROMPT = context
-      ? `${context}\n\n---\n\n${opts.prompt}`
-      : opts.prompt;
+    extraEnv.VK_PROMPT = context ? `${context}\n\n---\n\n${opts.prompt}` : opts.prompt;
     command += ' "$VK_PROMPT"';
   }
 

@@ -41,15 +41,7 @@ interface Viewed {
 }
 
 /** Phone pane tab: one strip picks files / agent / shell / browser. */
-function Tab({
-  on,
-  onClick,
-  children,
-}: {
-  on: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
+function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
   return (
     // A pressed toggle button, not role="tab". The ARIA tabs pattern requires
     // each tab to point at its panel with aria-controls, and these panels are
@@ -165,7 +157,10 @@ export default function Session() {
   const [file, setFile] = useState<Viewed | null>(null);
   // The file viewer could only be closed by pointer: no Escape, and Back left
   // the session entirely rather than closing it.
-  useOverlayDismiss(file !== null, useCallback(() => setFile(null), []));
+  useOverlayDismiss(
+    file !== null,
+    useCallback(() => setFile(null), []),
+  );
   const [confirm, confirmDialog] = useConfirm();
 
   async function openFile(path: string) {
@@ -272,7 +267,13 @@ export default function Session() {
             {session && <AgentTag agent={session.agent} />}
             {session && (
               <StatusChip
-                kind={session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"}
+                kind={
+                  session.status === "running"
+                    ? "run"
+                    : session.status === "waiting"
+                      ? "wait"
+                      : "idle"
+                }
                 label={live ? `${session.status} · ${durLabel(session.createdAt)}` : "done"}
               />
             )}
@@ -345,7 +346,11 @@ export default function Session() {
               >
                 <StatusChip
                   kind={
-                    session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"
+                    session.status === "running"
+                      ? "run"
+                      : session.status === "waiting"
+                        ? "wait"
+                        : "idle"
                   }
                   label={live ? session.status : "done"}
                 />
@@ -471,9 +476,7 @@ export default function Session() {
               <div
                 className={`${full ? "flex" : "hidden desk:flex"} flex-none items-center gap-2.5 border-b border-line bg-surface px-3.5 py-[9px] font-mono text-[11.5px] text-faint`}
               >
-                <span className="hidden text-muted desk:inline">
-                  tmux · {session?.id ?? "…"}
-                </span>
+                <span className="hidden text-muted desk:inline">tmux · {session?.id ?? "…"}</span>
                 {live && (
                   // Mobile: one pane at a time, these switch between them.
                   <span role="group" aria-label="pane" className="flex gap-1.5 desk:hidden">
@@ -640,9 +643,15 @@ export default function Session() {
             className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface"
           >
             <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
-              <img src={fileIcon(file.path.split("/").at(-1)!)} alt="" className="h-4 w-4 flex-none" />
+              <img
+                src={fileIcon(file.path.split("/").at(-1)!)}
+                alt=""
+                className="h-4 w-4 flex-none"
+              />
               <span className="min-w-0 truncate">{file.path}</span>
-              {file.kind === "diff" && <span className="flex-none text-[10px] text-faint">diff</span>}
+              {file.kind === "diff" && (
+                <span className="flex-none text-[10px] text-faint">diff</span>
+              )}
               {session && file.kind !== "diff" && (
                 <a
                   href={`/api/projects/${session.project}/raw?path=${encodeURIComponent(file.path)}&download=1`}
@@ -677,7 +686,10 @@ export default function Session() {
               </pre>
             ) : highlighted !== null ? (
               <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
-                <code className="hljs !bg-transparent" dangerouslySetInnerHTML={{ __html: highlighted }} />
+                <code
+                  className="hljs !bg-transparent"
+                  dangerouslySetInnerHTML={{ __html: highlighted }}
+                />
               </pre>
             ) : (
               <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text">

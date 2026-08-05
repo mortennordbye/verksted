@@ -86,10 +86,16 @@ export default async function projectRoutes(app: FastifyInstance) {
       const { mode, url, name } = req.body;
 
       if (mode === "clone") {
-        if (!url || !(GITHUB_URL_RE.test(url.replace(/\.git$/, "")) || REPO_SHORTHAND_RE.test(url))) {
+        if (
+          !url ||
+          !(GITHUB_URL_RE.test(url.replace(/\.git$/, "")) || REPO_SHORTHAND_RE.test(url))
+        ) {
           return reply.code(400).send({ error: "invalid repo url" });
         }
-        const repoName = url.replace(/\.git$/, "").split("/").at(-1)!;
+        const repoName = url
+          .replace(/\.git$/, "")
+          .split("/")
+          .at(-1)!;
         if (!PROJECT_NAME_RE.test(repoName)) {
           return reply.code(400).send({ error: "invalid repo name" });
         }
@@ -187,7 +193,9 @@ export default async function projectRoutes(app: FastifyInstance) {
       } catch (err) {
         const stderr = String((err as { stderr?: string }).stderr ?? "");
         if (stderr.includes("already checked out") || stderr.includes("already used by worktree")) {
-          return reply.code(409).send({ error: "branch is already checked out in another worktree" });
+          return reply
+            .code(409)
+            .send({ error: "branch is already checked out in another worktree" });
         }
         try {
           // New branch from HEAD.

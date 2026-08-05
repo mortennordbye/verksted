@@ -9,7 +9,8 @@ import { copyText } from "../clipboard";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
-const AUTH_URL_RE = /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
+const AUTH_URL_RE =
+  /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
 
 // A wrapped URL continuation row is one unbroken run of URL characters — no
 // spaces, since that's the only thing wrapping split. This is the reconnection

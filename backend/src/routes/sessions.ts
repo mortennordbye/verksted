@@ -10,17 +10,14 @@ export default async function sessionRoutes(app: FastifyInstance) {
   // you want to know which of them wants you.
   app.get("/api/sessions", () => store.listSessions());
 
-  app.get<{ Params: { name: string } }>(
-    "/api/projects/:name/sessions",
-    async (req, reply) => {
-      try {
-        resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
-      return store.listSessions(req.params.name);
-    },
-  );
+  app.get<{ Params: { name: string } }>("/api/projects/:name/sessions", async (req, reply) => {
+    try {
+      resolveInsideRepos(req.params.name);
+    } catch {
+      return reply.code(404).send({ error: "not found" });
+    }
+    return store.listSessions(req.params.name);
+  });
 
   app.post<{
     Params: { name: string };

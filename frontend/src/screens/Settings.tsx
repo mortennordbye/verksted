@@ -58,8 +58,8 @@ export default function Settings() {
         </div>
         <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Environment</h1>
         <div className="mb-6 text-sm text-muted">
-          Variables reach the agent CLIs inside new tmux sessions. Values are write-only:
-          the page shows where a variable is defined, never what it contains.
+          Variables reach the agent CLIs inside new tmux sessions. Values are write-only: the page
+          shows where a variable is defined, never what it contains.
         </div>
 
         {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
@@ -94,9 +94,7 @@ export default function Settings() {
                 value={drafts[v.key] ?? ""}
                 onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
                 onKeyDown={(e) => e.key === "Enter" && saveDraft(v.key)}
-                placeholder={
-                  v.source === "unset" ? "enter value…" : "enter new value to replace…"
-                }
+                placeholder={v.source === "unset" ? "enter value…" : "enter new value to replace…"}
                 className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
               />
               {drafts[v.key]?.trim() && (
@@ -129,9 +127,7 @@ export default function Settings() {
             />
             <input
               value={drafts[newKey.trim()] ?? ""}
-              onChange={(e) =>
-                setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))
-              }
+              onChange={(e) => setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && addVar()}
               placeholder="value"
               className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
@@ -147,8 +143,8 @@ export default function Settings() {
         </div>
 
         <div className="mt-5 text-[13px] text-muted">
-          Settings-page values persist on the data volume and take precedence over
-          deployment env vars. Changes apply to sessions started afterwards.
+          Settings-page values persist on the data volume and take precedence over deployment env
+          vars. Changes apply to sessions started afterwards.
         </div>
 
         <Notifications />
@@ -162,8 +158,7 @@ export default function Settings() {
 
 /** VAPID keys travel as base64url; PushManager wants the raw bytes. */
 function vapidKey(b64: string): Uint8Array<ArrayBuffer> {
-  const padded =
-    b64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64.length % 4)) % 4);
+  const padded = b64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64.length % 4)) % 4);
   const raw = atob(padded);
   const bytes = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -320,20 +315,20 @@ function Notifications() {
       <div className="mt-5 text-[13px] text-muted">
         {state === "unavailable" ? (
           <>
-            This browser can't receive push here. On iPhone, add verksted to the Home
-            Screen (Share → Add to Home Screen) and open it from there — Safari tabs get
-            no push. The app also has to be served over https.
+            This browser can't receive push here. On iPhone, add verksted to the Home Screen (Share
+            → Add to Home Screen) and open it from there — Safari tabs get no push. The app also has
+            to be served over https.
           </>
         ) : state === "denied" ? (
           <>
-            Notifications are blocked for this app. Re-allow them in iOS Settings →
-            Notifications → verksted (or the browser's site settings), then reload.
+            Notifications are blocked for this app. Re-allow them in iOS Settings → Notifications →
+            verksted (or the browser's site settings), then reload.
           </>
         ) : (
           <>
-            The pod pushes when a session starts waiting for input or finishes; tapping
-            the notification opens that session. Each device subscribes separately —{" "}
-            {devices} subscribed right now.
+            The pod pushes when a session starts waiting for input or finishes; tapping the
+            notification opens that session. Each device subscribes separately — {devices}{" "}
+            subscribed right now.
           </>
         )}
       </div>
@@ -383,9 +378,9 @@ function AppReset() {
         </button>
       </div>
       <div className="mt-5 text-[13px] text-muted">
-        New builds normally announce themselves with a reload banner. Use this when the
-        home-screen app is serving something stale anyway — it unregisters the service
-        worker, deletes its caches and reloads from the pod.
+        New builds normally announce themselves with a reload banner. Use this when the home-screen
+        app is serving something stale anyway — it unregisters the service worker, deletes its
+        caches and reloads from the pod.
       </div>
       {confirmDialog}
     </>
@@ -481,7 +476,10 @@ function SshKeys() {
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
       <div className="flex flex-col gap-2">
         {(keys ?? []).map((k) => (
-          <div key={k.name} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+          <div
+            key={k.name}
+            className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5"
+          >
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="font-mono text-[12.5px]">{k.name}</span>
               <span className="min-w-0 truncate font-mono text-[11px] text-faint">
@@ -528,7 +526,8 @@ function SshKeys() {
             <button
               onClick={generate}
               disabled={busy || !name.trim()}
-              title="generate an ed25519 keypair in the pod — the private key never leaves it" aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
+              title="generate an ed25519 keypair in the pod — the private key never leaves it"
+              aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
               className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
@@ -555,9 +554,9 @@ function SshKeys() {
         </div>
       </div>
       <div className="mt-5 text-[13px] text-muted">
-        Keys are write-only: only the public half is ever shown. Sessions pick them up
-        automatically (git over ssh, plain ssh). Paste the public key into GitHub →
-        Settings → SSH keys to push over ssh.
+        Keys are write-only: only the public half is ever shown. Sessions pick them up automatically
+        (git over ssh, plain ssh). Paste the public key into GitHub → Settings → SSH keys to push
+        over ssh.
       </div>
       {confirmDialog}
     </>

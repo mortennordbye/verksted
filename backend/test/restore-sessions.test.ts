@@ -48,9 +48,7 @@ function created(): string[] {
 
 /** The shell-command a session was created to run. */
 function commandFor(id: string): string | undefined {
-  const argv = fake
-    .subcommand("tmux", "new-session")
-    .find((a) => a[a.indexOf("-s") + 1] === id);
+  const argv = fake.subcommand("tmux", "new-session").find((a) => a[a.indexOf("-s") + 1] === id);
   return argv?.at(-1);
 }
 
@@ -89,7 +87,9 @@ describe("restoreSessions", () => {
     await store.restoreSessions(log);
 
     expect(created()).toEqual(["vk-demo-1"]);
-    expect(commandFor("vk-demo-1")).toContain("claude --resume 11111111-2222-3333-4444-555555555555");
+    expect(commandFor("vk-demo-1")).toContain(
+      "claude --resume 11111111-2222-3333-4444-555555555555",
+    );
   });
 
   it("starts the agent as the session's own command, not by typing into its pane", async () => {
@@ -119,7 +119,10 @@ describe("restoreSessions", () => {
     // against the same conversation.
     seed("vk-demo-1", { conv: "11111111-1111-1111-1111-111111111111" });
     // Already over.
-    seed("vk-demo-2", { endedAt: "2026-01-02T00:00:00.000Z", conv: "22222222-2222-2222-2222-222222222222" });
+    seed("vk-demo-2", {
+      endedAt: "2026-01-02T00:00:00.000Z",
+      conv: "22222222-2222-2222-2222-222222222222",
+    });
     // No recorded conversation: --continue would pick the newest one for the
     // directory, which is another session's.
     seed("vk-demo-3");

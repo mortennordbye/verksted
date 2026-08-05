@@ -77,7 +77,13 @@ function FileRow({
       </button>
       <span className={`ml-auto ${ACTIONS_CLS}`}>
         {actions.map((a) => (
-          <IconButton key={a.title} glyph={a.glyph} title={a.title} onClick={a.run} disabled={busy} />
+          <IconButton
+            key={a.title}
+            glyph={a.glyph}
+            title={a.title}
+            onClick={a.run}
+            disabled={busy}
+          />
         ))}
       </span>
       <span className={`pl-1.5 ${STATUS_COLOR[file.status] ?? "text-muted"}`}>{file.status}</span>
@@ -141,7 +147,10 @@ export default function GitPanel({
     ) {
       return;
     }
-    void gitOp("discard", files.map((f) => f.path));
+    void gitOp(
+      "discard",
+      files.map((f) => f.path),
+    );
   }
 
   const canCommit = !busy && message.trim() !== "" && staged.length > 0;
@@ -167,7 +176,13 @@ export default function GitPanel({
           {label}
           <span className={ACTIONS_CLS}>
             {headerActions.map((a) => (
-              <IconButton key={a.title} glyph={a.glyph} title={a.title} onClick={a.run} disabled={busy} />
+              <IconButton
+                key={a.title}
+                glyph={a.glyph}
+                title={a.title}
+                onClick={a.run}
+                disabled={busy}
+              />
             ))}
           </span>
           <span className="ml-auto rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal text-muted">
@@ -176,7 +191,13 @@ export default function GitPanel({
         </div>
         <ul>
           {items.map((f) => (
-            <FileRow key={f.path} file={f} onOpenDiff={onOpenDiff} actions={rowActions(f)} busy={busy} />
+            <FileRow
+              key={f.path}
+              file={f}
+              onOpenDiff={onOpenDiff}
+              actions={rowActions(f)}
+              busy={busy}
+            />
           ))}
         </ul>
       </>
@@ -184,7 +205,10 @@ export default function GitPanel({
   }
 
   return (
-    <section aria-label="git" className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
+    <section
+      aria-label="git"
+      className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
+    >
       <div className="flex items-center px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
         source control
         <BranchControl
@@ -224,7 +248,17 @@ export default function GitPanel({
         section(
           "staged changes",
           staged,
-          [{ glyph: "−", title: "unstage all", run: () => gitOp("unstage", staged.map((f) => f.path)) }],
+          [
+            {
+              glyph: "−",
+              title: "unstage all",
+              run: () =>
+                gitOp(
+                  "unstage",
+                  staged.map((f) => f.path),
+                ),
+            },
+          ],
           (f) => [{ glyph: "−", title: "unstage", run: () => gitOp("unstage", [f.path]) }],
         )}
       {unstaged.length > 0 &&
@@ -233,7 +267,15 @@ export default function GitPanel({
           unstaged,
           [
             { glyph: "⟲", title: "discard all changes", run: () => discard(unstaged) },
-            { glyph: "+", title: "stage all", run: () => gitOp("stage", unstaged.map((f) => f.path)) },
+            {
+              glyph: "+",
+              title: "stage all",
+              run: () =>
+                gitOp(
+                  "stage",
+                  unstaged.map((f) => f.path),
+                ),
+            },
           ],
           (f) => [
             { glyph: "⟲", title: "discard changes", run: () => discard([f]) },

@@ -204,10 +204,18 @@ describe("git stage / unstage / commit", () => {
   it("unstages in a repo with no commits yet", async () => {
     let res = await post("/api/projects/fresh/git/stage", { paths: ["first.txt"] });
     expect(res.statusCode).toBe(200);
-    expect(await gitFiles("fresh")).toContainEqual({ path: "first.txt", status: "A", staged: true });
+    expect(await gitFiles("fresh")).toContainEqual({
+      path: "first.txt",
+      status: "A",
+      staged: true,
+    });
     res = await post("/api/projects/fresh/git/unstage", { paths: ["first.txt"] });
     expect(res.statusCode).toBe(200);
-    expect(await gitFiles("fresh")).toContainEqual({ path: "first.txt", status: "U", staged: false });
+    expect(await gitFiles("fresh")).toContainEqual({
+      path: "first.txt",
+      status: "U",
+      staged: false,
+    });
   });
 
   it("denies .. traversal in stage paths", async () => {
@@ -398,15 +406,13 @@ describe("POST /api/projects/:name/upload", () => {
   it("keeps a second upload of the same name", async () => {
     const a = await upload("demo", "shot.png", Buffer.from("one"));
     const b = await upload("demo", "shot.png", Buffer.from("two"));
-    expect((a.json()).path).not.toBe((b.json()).path);
+    expect(a.json().path).not.toBe(b.json().path);
   });
 
   it("strips traversal out of the filename", async () => {
     const res = await upload("demo", "../../etc/passwd", Buffer.from("x"));
     expect(res.statusCode).toBe(200);
-    expect((res.json()).path).toMatch(
-      /^\.verksted\/uploads\/\d{8}-\d{9}-passwd$/,
-    );
+    expect(res.json().path).toMatch(/^\.verksted\/uploads\/\d{8}-\d{9}-passwd$/);
   });
 
   it("404s on an unknown project", async () => {
@@ -477,9 +483,13 @@ describe("GET /api/projects/:name/search", () => {
   });
 
   it("supports regex with regex=true and 400s a bad pattern", async () => {
-    let res = await app.inject({ url: `/api/projects/demo/search?q=${encodeURIComponent("hel+o")}&regex=true` });
+    let res = await app.inject({
+      url: `/api/projects/demo/search?q=${encodeURIComponent("hel+o")}&regex=true`,
+    });
     expect(res.json()).toHaveLength(1);
-    res = await app.inject({ url: `/api/projects/demo/search?q=${encodeURIComponent("[")}&regex=true` });
+    res = await app.inject({
+      url: `/api/projects/demo/search?q=${encodeURIComponent("[")}&regex=true`,
+    });
     expect(res.statusCode).toBe(400);
   });
 });

@@ -131,7 +131,10 @@ const LOG_LINE_RE = /^([^\t]*)\t([^\t]*)\t\d{4}-\d\d-\d\dT[\d:.]+Z ?(.*)$/;
 export function formatRunLog(raw: string, maxChars = 60_000): RunLog {
   const out: string[] = [];
   let seen = "";
-  for (const line of raw.replace(/\uFEFF/g, "").replace(ANSI_RE, "").split("\n")) {
+  for (const line of raw
+    .replace(/\uFEFF/g, "")
+    .replace(ANSI_RE, "")
+    .split("\n")) {
     const m = LOG_LINE_RE.exec(line);
     if (!m) {
       if (line.trim()) out.push(line.trimEnd());

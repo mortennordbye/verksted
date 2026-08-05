@@ -57,11 +57,9 @@ export function startMaintenance(log: Logger): void {
 
   setInterval(async () => {
     try {
-      const { stdout } = await exec(
-        "docker",
-        ["system", "prune", "-af", "--filter", "until=72h"],
-        { timeout: 600_000 },
-      );
+      const { stdout } = await exec("docker", ["system", "prune", "-af", "--filter", "until=72h"], {
+        timeout: 600_000,
+      });
       log.info(`docker prune: ${stdout.trim().split("\n").at(-1) ?? "done"}`);
     } catch (err) {
       // No daemon (e.g. `make run` without dind) is normal; log and move on.

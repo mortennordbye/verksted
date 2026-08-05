@@ -27,7 +27,6 @@ function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-
 /**
  * Sleep a random slice of the schedule's jitter window. Resolves false when a
  * reload cancelled the wait — the schedule changed under it, so the run that

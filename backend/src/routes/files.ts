@@ -91,7 +91,12 @@ async function modifiedPaths(repoDir: string): Promise<Set<string>> {
  */
 async function refNames(repoDir: string, prefix: string): Promise<string[]> {
   try {
-    const out = await git(repoDir, ["for-each-ref", "--format=%(refname)", "--sort=refname", prefix]);
+    const out = await git(repoDir, [
+      "for-each-ref",
+      "--format=%(refname)",
+      "--sort=refname",
+      prefix,
+    ]);
     return out
       .split("\n")
       .filter((r) => r && !r.endsWith("/HEAD"))
@@ -141,11 +146,7 @@ async function walk(
 ): Promise<TreeNode[]> {
   const entries = await fs.readdir(absDir, { withFileTypes: true });
   entries.sort((a, b) =>
-    a.isDirectory() === b.isDirectory()
-      ? a.name.localeCompare(b.name)
-      : a.isDirectory()
-        ? -1
-        : 1,
+    a.isDirectory() === b.isDirectory() ? a.name.localeCompare(b.name) : a.isDirectory() ? -1 : 1,
   );
   const nodes: TreeNode[] = [];
   for (const e of entries) {
@@ -160,7 +161,9 @@ async function walk(
         path: rel,
         type: "dir",
         children:
-          depth < MAX_DEPTH ? await walk(path.join(absDir, e.name), rel, depth + 1, budget, modified) : [],
+          depth < MAX_DEPTH
+            ? await walk(path.join(absDir, e.name), rel, depth + 1, budget, modified)
+            : [],
       });
     } else if (e.isFile()) {
       budget.left--;
@@ -172,10 +175,8 @@ async function walk(
 
 export default async function fileRoutes(app: FastifyInstance) {
   // Raw request bodies for the upload endpoint.
-  app.addContentTypeParser(
-    "application/octet-stream",
-    { parseAs: "buffer" },
-    (_req, body, done) => done(null, body),
+  app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_req, body, done) =>
+    done(null, body),
   );
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/tree",
@@ -263,16 +264,21 @@ export default async function fileRoutes(app: FastifyInstance) {
       if (!stat.isFile()) return reply.code(403).send({ error: "denied" });
       if (stat.size > MAX_RAW_BYTES) return reply.code(413).send({ error: "file too large" });
       const name = path.basename(abs).replace(/[^\w.-]/g, "_");
-      return reply
-        .header("content-type", MIME[name.split(".").at(-1)!.toLowerCase()] ?? "application/octet-stream")
-        // Repo content must never script against the app origin (e.g. SVG).
-        .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
-        .header("x-content-type-options", "nosniff")
-        .header(
-          "content-disposition",
-          `${req.query.download ? "attachment" : "inline"}; filename="${name}"`,
-        )
-        .send(await fs.readFile(abs));
+      return (
+        reply
+          .header(
+            "content-type",
+            MIME[name.split(".").at(-1)!.toLowerCase()] ?? "application/octet-stream",
+          )
+          // Repo content must never script against the app origin (e.g. SVG).
+          .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
+          .header("x-content-type-options", "nosniff")
+          .header(
+            "content-disposition",
+            `${req.query.download ? "attachment" : "inline"}; filename="${name}"`,
+          )
+          .send(await fs.readFile(abs))
+      );
     },
   );
 
@@ -402,7 +408,11 @@ export default async function fileRoutes(app: FastifyInstance) {
         if (!stdout && !req.query.staged) {
           // Untracked files have no diff against the index; fabricate the
           // new-file diff (--no-index exits 1 when the files differ).
-          stdout = await exec("git", ["-C", repoDir, "diff", "--no-index", "--", "/dev/null", rel], opts)
+          stdout = await exec(
+            "git",
+            ["-C", repoDir, "diff", "--no-index", "--", "/dev/null", rel],
+            opts,
+          )
             .then((r) => r.stdout)
             .catch((err: { code?: number; stdout?: string }) =>
               err.code === 1 ? (err.stdout ?? "") : "",
@@ -597,51 +607,45 @@ export default async function fileRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { name: string } }>(
-    "/api/projects/:name/git/pull",
-    async (req, reply) => {
-      const repoDir = repoDirOr404(reply, req.params.name);
-      if (!repoDir) return;
-      if (!(await upstreamOf(repoDir))) {
-        return reply.code(409).send({ error: "branch has no upstream" });
-      }
-      try {
-        // ff-only: a diverged branch is a decision for the user, not a merge
-        // commit made behind their back. The reset route is the way out.
-        await git(repoDir, ["pull", "--ff-only"], {
-          env: { ...process.env, ...(await execEnv()) },
-          timeout: 120_000,
-        });
-      } catch (err) {
-        req.log.error(err, "git pull failed");
-        return reply.code(409).send({ error: gitError(err) });
-      }
-      return { branch: await branchOf(repoDir) };
-    },
-  );
+  app.post<{ Params: { name: string } }>("/api/projects/:name/git/pull", async (req, reply) => {
+    const repoDir = repoDirOr404(reply, req.params.name);
+    if (!repoDir) return;
+    if (!(await upstreamOf(repoDir))) {
+      return reply.code(409).send({ error: "branch has no upstream" });
+    }
+    try {
+      // ff-only: a diverged branch is a decision for the user, not a merge
+      // commit made behind their back. The reset route is the way out.
+      await git(repoDir, ["pull", "--ff-only"], {
+        env: { ...process.env, ...(await execEnv()) },
+        timeout: 120_000,
+      });
+    } catch (err) {
+      req.log.error(err, "git pull failed");
+      return reply.code(409).send({ error: gitError(err) });
+    }
+    return { branch: await branchOf(repoDir) };
+  });
 
   // Destructive: drops local commits and tracked-file changes on the current
   // branch to match its upstream. Untracked files are left alone.
-  app.post<{ Params: { name: string } }>(
-    "/api/projects/:name/git/reset",
-    async (req, reply) => {
-      const repoDir = repoDirOr404(reply, req.params.name);
-      if (!repoDir) return;
-      const upstream = await upstreamOf(repoDir);
-      if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
-      try {
-        await git(repoDir, ["fetch", upstream.slice(0, upstream.indexOf("/"))], {
-          env: { ...process.env, ...(await execEnv()) },
-          timeout: 120_000,
-        });
-        await git(repoDir, ["reset", "--hard", upstream]);
-      } catch (err) {
-        req.log.error(err, "git reset failed");
-        return reply.code(409).send({ error: gitError(err) });
-      }
-      return { branch: await branchOf(repoDir) };
-    },
-  );
+  app.post<{ Params: { name: string } }>("/api/projects/:name/git/reset", async (req, reply) => {
+    const repoDir = repoDirOr404(reply, req.params.name);
+    if (!repoDir) return;
+    const upstream = await upstreamOf(repoDir);
+    if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
+    try {
+      await git(repoDir, ["fetch", upstream.slice(0, upstream.indexOf("/"))], {
+        env: { ...process.env, ...(await execEnv()) },
+        timeout: 120_000,
+      });
+      await git(repoDir, ["reset", "--hard", upstream]);
+    } catch (err) {
+      req.log.error(err, "git reset failed");
+      return reply.code(409).send({ error: gitError(err) });
+    }
+    return { branch: await branchOf(repoDir) };
+  });
 
   // VS Code-style match flags, shared by search and replace. rg skips .git,
   // binaries and .gitignore'd files itself.
@@ -677,10 +681,19 @@ export default async function fileRoutes(app: FastifyInstance) {
       try {
         const { stdout } = await exec(
           "rg",
-          ["--line-number", "--no-heading", ...rgFlags(req.query),
-           "--max-count", "20", "--max-columns", "250",
-           // explicit path: without it rg would read from our stdin pipe
-           "--", req.query.q, "."],
+          [
+            "--line-number",
+            "--no-heading",
+            ...rgFlags(req.query),
+            "--max-count",
+            "20",
+            "--max-columns",
+            "250",
+            // explicit path: without it rg would read from our stdin pipe
+            "--",
+            req.query.q,
+            ".",
+          ],
           { cwd: repoDir, timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
         );
         const hits: SearchHit[] = [];
@@ -744,7 +757,10 @@ export default async function fileRoutes(app: FastifyInstance) {
           ["--files-with-matches", ...rgFlags(req.body), "--", q, "."],
           { cwd: repoDir, timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
         );
-        matched = stdout.split("\n").filter(Boolean).map((p) => p.replace(/^\.\//, ""));
+        matched = stdout
+          .split("\n")
+          .filter(Boolean)
+          .map((p) => p.replace(/^\.\//, ""));
       } catch (err) {
         const code = (err as { code?: number }).code;
         if (code === 1) return { files: 0, replacements: 0 };
@@ -794,9 +810,13 @@ export default async function fileRoutes(app: FastifyInstance) {
       // VS Code semantics: untracked files are deleted, tracked files restored
       // to their index state (working tree only, staged changes untouched).
       try {
-        const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall", "--", ...paths], {
-          env: GIT_ENV,
-        });
+        const out = await gitRaw(
+          repoDir,
+          ["status", "--porcelain=v1", "-z", "-uall", "--", ...paths],
+          {
+            env: GIT_ENV,
+          },
+        );
         const untracked: string[] = [];
         const tracked: string[] = [];
         for (const { x, path: p } of parsePorcelainZ(out)) {

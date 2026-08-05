@@ -140,7 +140,10 @@ export default function SearchPanel({
     "flex items-center gap-1 rounded-[7px] border border-line bg-surface-2 px-2 py-1.5 focus-within:border-accent";
 
   return (
-    <section aria-label="search" className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
+    <section
+      aria-label="search"
+      className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
+    >
       <div className="px-2.5 pb-2.5 text-[11px] tracking-widest text-faint uppercase">search</div>
       <div className="flex gap-1 px-2.5 pb-2">
         <button
@@ -190,7 +193,8 @@ export default function SearchPanel({
               <button
                 onClick={replaceAll}
                 disabled={busy || !q.trim()}
-                title="replace all" aria-label="replace all"
+                title="replace all"
+                aria-label="replace all"
                 className="rounded px-1 text-[11px] text-faint hover:text-text disabled:opacity-50"
               >
                 ⇄ all
@@ -232,7 +236,9 @@ export default function SearchPanel({
                     onClick={() => onOpenFile(path)}
                     className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-0.5 text-left text-muted hover:bg-surface-2 hover:text-text"
                   >
-                    <span className="w-7 flex-none text-right text-[11px] text-faint">{h.line}</span>
+                    <span className="w-7 flex-none text-right text-[11px] text-faint">
+                      {h.line}
+                    </span>
                     <span className="min-w-0 truncate text-[12px]">{h.text}</span>
                   </button>
                 </li>

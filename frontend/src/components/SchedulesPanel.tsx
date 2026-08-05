@@ -1,10 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type {
-  Project,
-  Schedule,
-  Settings as SettingsInfo,
-} from "../../../shared/api";
+import type { Project, Schedule, Settings as SettingsInfo } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { useConfirm } from "../useConfirm";
 import { StatusChip } from "./StatusChip";
@@ -125,9 +121,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   return (
     <>
-      <div
-        className={`mb-2.5 flex flex-wrap items-center gap-2.5 ${project ? "" : "mt-10"}`}
-      >
+      <div className={`mb-2.5 flex flex-wrap items-center gap-2.5 ${project ? "" : "mt-10"}`}>
         <span className="font-mono text-[11px] tracking-[.12em] text-faint uppercase">
           {project ? "Recurring prompts" : "Schedules · recurring prompts"}
         </span>
@@ -290,9 +284,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 min={0}
                 max={720}
                 value={draft.jitterMinutes}
-                onChange={(e) =>
-                  setDraft((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))
-                }
+                onChange={(e) => setDraft((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))}
                 className={`mx-2 w-[72px] ${field}`}
               />
               min
@@ -318,10 +310,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           <button
             onClick={add}
             disabled={
-              busy ||
-              !draft.name.trim() ||
-              !draft.prompt.trim() ||
-              (!project && !projects?.length)
+              busy || !draft.name.trim() || !draft.prompt.trim() || (!project && !projects?.length)
             }
             className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
@@ -330,14 +319,13 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         </div>
       </div>
       <div className="mt-5 text-[13px] text-muted">
-        Cron patterns are read in the pod's timezone; times above are shown in this
-        device's, before jitter — a jittered run starts somewhere in the window after
-        it. A tick is skipped while the schedule's previous session is still open.
-        Runs start in auto permission mode: routine tool calls go through unattended,
-        and anything the agent still has to ask about turns the session amber and
-        pushes you. Every run is asked to sign off with one line — "ok: …",
-        "attention: …" or "failed: …" — which shows up here and is what the phone
-        gets. A run that reports itself ok stays silent.
+        Cron patterns are read in the pod's timezone; times above are shown in this device's, before
+        jitter — a jittered run starts somewhere in the window after it. A tick is skipped while the
+        schedule's previous session is still open. Runs start in auto permission mode: routine tool
+        calls go through unattended, and anything the agent still has to ask about turns the session
+        amber and pushes you. Every run is asked to sign off with one line — "ok: …", "attention: …"
+        or "failed: …" — which shows up here and is what the phone gets. A run that reports itself
+        ok stays silent.
       </div>
       {confirmDialog}
     </>

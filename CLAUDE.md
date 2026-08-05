@@ -11,6 +11,7 @@ These guidelines bias toward caution over speed. For trivial tasks, use judgment
 Don't assume. Don't hide confusion. Surface tradeoffs.
 
 Before implementing:
+
 - State your assumptions explicitly. If uncertain, ask.
 - If multiple interpretations exist, present them — don't pick silently.
 - If a simpler approach exists, say so. Push back when warranted.
@@ -33,12 +34,14 @@ Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, sim
 Touch only what you must. Clean up only your own mess.
 
 When editing existing code:
+
 - Don't "improve" adjacent code, comments, or formatting.
 - Don't refactor things that aren't broken.
 - Match existing style, even if you'd do it differently.
 - If you notice unrelated dead code, mention it — don't delete it.
 
 When your changes create orphans:
+
 - Remove imports/variables/functions that YOUR changes made unused.
 - Don't remove pre-existing dead code unless asked.
 
@@ -49,11 +52,13 @@ The test: every changed line should trace directly to the user's request.
 Define success criteria. Loop until verified.
 
 Transform tasks into verifiable goals:
+
 - "Add validation" → "Write tests for invalid inputs, then make them pass"
 - "Fix the bug" → "Write a test that reproduces it, then make it pass"
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
 ```
 1. [Step] → verify: [check]
 2. [Step] → verify: [check]
@@ -68,9 +73,10 @@ If you leave anything unfinished, partially implemented, or explicitly defer it,
 
 Each entry needs four things: **what** the work is, **why** it was deferred, **what would unblock it**, and **where** the relevant code lives (file paths). Read existing entries for the format.
 
-Don't put work-in-progress on `BACKLOG.md` — WIP belongs on a branch. The backlog is for *known gaps the team has agreed to leave for later*. If you finish an item, delete it.
+Don't put work-in-progress on `BACKLOG.md` — WIP belongs on a branch. The backlog is for _known gaps the team has agreed to leave for later_. If you finish an item, delete it.
 
 What counts as "unfinished":
+
 - Tier 1 / Tier 2 splits where you only shipped Tier 1.
 - Out-of-scope items you noticed but didn't fix.
 - Features behind a feature flag that still need ramping or cleanup.
@@ -78,6 +84,7 @@ What counts as "unfinished":
 - TODO comments you wrote (write the entry instead — TODOs rot in code).
 
 What does NOT belong:
+
 - Forward-looking ideas the user didn't agree to defer ("we could also..."). Either do them or drop them.
 - Codebase-wide debts that pre-existed your work and the user didn't ask you to track.
 
@@ -127,32 +134,39 @@ baseline pre-ship checklist below before declaring the task done. -->
 Applies to any project with a network, auth, or data surface — APIs, web apps, services. Skip it for a pure CLI, library, or offline tool, but say so when you skip. This is a floor that heads off the incidents that hit vibe-coded apps most often. It is not a substitute for a real threat model or a security review.
 
 **Two defaults that flip the common failure modes:**
+
 - **Deny by default.** Every endpoint, query, and storage rule starts closed and opens only for a reason you can state. An endpoint with no auth decision is a bug, not a public route.
 - **Every input crossing a trust boundary is hostile** until validated — request bodies, query params, headers, path segments, uploaded files, third-party responses, anything a user can influence.
 
 **Authentication and authorization**
+
 - Every endpoint makes an explicit auth decision. "Public" is a choice you write down, not one you forget into.
-- Authorize the object, not just the route: confirm the caller may act on *this specific* record. An ID from the client is a request, never proof of ownership — this broken-access-control / IDOR class is the most common serious bug.
+- Authorize the object, not just the route: confirm the caller may act on _this specific_ record. An ID from the client is a request, never proof of ownership — this broken-access-control / IDOR class is the most common serious bug.
 - Read identity (user, role, tenant) from the verified session or token on the server. Never accept it as a request parameter.
 - Enforce on the server. Hiding a button or a route in the client is not access control.
 
 **Don't hand-roll the dangerous parts**
+
 - Use the framework's auth, sessions, password hashing, and crypto. No custom JWT verification, no homemade login, no roll-your-own crypto.
 - Reach the database through parameterized queries or the ORM. Never assemble SQL, shell commands, or HTML by concatenating user input.
 
 **Secrets**
+
 - Never in source, client bundles, logs, or error messages. Server-side only, validated at startup, loaded the way `### Environment variables` describes.
 - A secret that ever landed in a commit is compromised — rotate it. Deleting the line does not help; git remembers.
 
 **Abuse and cost**
+
 - Rate-limit and size-cap anything unauthenticated or expensive: login, signup, password reset, search, uploads, and any call to a paid or model API. A runaway bill is a security incident too.
 
 **Input and output**
+
 - Validate and parse at the boundary with a schema, and allowlist the fields you accept — never bind a request body straight onto a database model (mass assignment).
 - Don't reflect raw user input into HTML, SQL, shell, file paths, or outbound URLs (XSS, injection, path traversal, SSRF).
 - Generic errors to the client, full detail to server logs only. Keep secrets and personal data out of logs.
 
 **Data exposure**
+
 - Storage and row-level rules default to deny (RLS on, buckets private). Return only the fields the caller needs — no password hashes, internal flags, or other users' rows.
 - Restrict CORS to known origins; never `*` together with credentials.
 
@@ -161,6 +175,7 @@ Applies to any project with a network, auth, or data surface — APIs, web apps,
 ## Architecture
 
 Single container, three parts (see SPEC.md for the full picture):
+
 - Backend: Node 22 + TypeScript + Fastify. REST under `/api`, a websocket bridging
   xterm.js to `tmux attach` via node-pty, static serving of the built frontend.
 - Frontend: Vite + React + TypeScript + Tailwind v4 + @xterm/xterm. Three screens:

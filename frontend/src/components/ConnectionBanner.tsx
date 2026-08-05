@@ -22,8 +22,13 @@ export default function ConnectionBanner() {
       aria-live="polite"
       className="fixed inset-x-0 top-0 z-50 flex items-center gap-2 border-b border-fail/40 bg-fail/15 px-[18px] py-2 pt-[max(8px,env(safe-area-inset-top))] font-mono text-[12px] text-text backdrop-blur"
     >
-      <span aria-hidden className="inline-block size-1.5 flex-none animate-pulse rounded-full bg-fail" />
-      <span className="min-w-0 flex-1">can't reach the pod — showing the last data, still retrying</span>
+      <span
+        aria-hidden
+        className="inline-block size-1.5 flex-none animate-pulse rounded-full bg-fail"
+      />
+      <span className="min-w-0 flex-1">
+        can't reach the pod — showing the last data, still retrying
+      </span>
     </div>
   );
 }
