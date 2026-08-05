@@ -1,0 +1,22 @@
+# The Dockerfile pins versions and the lockfile pins the rest, so nothing moves
+# without a PR. Weekly rather than daily: this is one person's homelab, and a
+# daily drip is noise that gets ignored.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR for the routine bumps; anything major still arrives on its own.
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

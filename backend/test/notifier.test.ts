@@ -10,6 +10,8 @@ function s(id: string, status: Session["status"]): Session {
     title: id,
     createdAt: "2026-07-14T00:00:00.000Z",
     endedAt: null,
+  report: null,
+  outcome: "running" as const,
     status,
   };
 }

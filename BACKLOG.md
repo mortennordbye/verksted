@@ -242,3 +242,147 @@ what unblocks it / where the code lives.
   writing the same state file (`VK_STATE_FILE` is already the contract).
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
+
+## Upgrade react-router past the RSC-mode CSRF advisory
+
+- **What:** react-router is pinned at `^7.0.0` and resolves to 7.18.1, which is
+  inside the range of GHSA-qwww-vcr4-c8h2 ("RSC Mode CSRF Bypass Allows Action
+  Execution Before 400 Response"). The other five advisories found alongside it
+  were patched in place; this one is left open deliberately.
+- **Why deferred:** The advisory is specific to RSC mode. This app is a
+  client-side SPA that uses only `Routes`, `Route`, `BrowserRouter`, `Link`,
+  `useNavigate`, `useParams` and `useLocation` — no RSC, no server actions, no
+  data-router loaders — so the vulnerable code path is never reached. The fixed
+  version is >8.2.0, so clearing the advisory means a react-router 8 major bump
+  across the whole routing layer, which is a deliberate upgrade rather than a
+  security patch.
+- **Unblocked by:** Reading the react-router 8 migration notes and doing the
+  bump on its own branch. Until then `npm audit` will keep reporting one high
+  finding, so any dependency scanning added in CI needs to either allow this
+  advisory explicitly or be read with it in mind.
+- **Where:** `frontend/package.json` (`react-router`), and the import sites
+  listed above (`frontend/src/App.tsx`, `main.tsx`, `components/TopBar.tsx`,
+  `screens/Hub.tsx`, `Project.tsx`, `Session.tsx`, `Settings.tsx`, `Inbox.tsx`)
+
+## Give each terminal client its own tmux window size
+
+- **What:** Every attach client shares one tmux window, so tmux sizes it to the
+  smallest attached client. Opening a session on the phone snaps the desktop
+  terminal to phone geometry until the phone detaches, and agent TUIs redraw
+  their boxes at the smaller width.
+- **Why deferred:** The two fixes are not equivalent. `aggressive-resize` only
+  helps when clients are looking at *different* windows, which is not the case
+  here — every client attaches to the same one, so it changes nothing. The real
+  fix is grouped sessions: each client attaches to a throwaway
+  `tmux new-session -t <id> -s <id>-view-<n>`, which gets its own window and so
+  its own size. That means allocating and reaping per-client view sessions, and
+  it touches the invariant in CLAUDE.md that closing a websocket must detach and
+  never kill the underlying session — worth doing deliberately rather than
+  folding into a robustness pass.
+- **Unblocked by:** Deciding how view sessions are named and reaped (including
+  after a backend restart leaves orphans), and confirming that killing the base
+  session takes its views with it.
+- **Where:** `backend/src/ws/attach.ts` (the `attach-session` argv),
+  `backend/src/tmux.ts`, `backend/src/sessions-store.ts` (`killQuietly` of the
+  `-shell` companion is the pattern to follow for reaping)
+
+## Start the agent command without send-keys
+
+- **What:** `tmux.newSession` creates the session and then delivers the agent
+  command with `send-keys`, which can race the pane shell's startup and be
+  swallowed.
+- **Why deferred:** The obvious fix — passing the command as `new-session`'s
+  shell-command argument — changes behaviour: the tmux session then dies when
+  the agent exits, instead of dropping back to a shell in the project
+  directory. That shell is useful (it is how you restart a crashed agent in the
+  same session, and how a failed agent command stays visible instead of the
+  session vanishing). Preserving it means wrapping as
+  `<command>; exec "${SHELL:-/bin/sh}"`, which is a real change to how every
+  session starts and wants testing against all three agent CLIs.
+- **Unblocked by:** Deciding whether a session should outlive its agent at all.
+  If yes, the wrapped form above; if no, the plain shell-command form is simpler
+  and also fixes the "finished" semantics.
+- **Where:** `backend/src/tmux.ts` (`newSession`), `backend/src/sessions-store.ts`
+  (`launchAgent` builds the command string)
+
+## Per-file selection and a dry run for repo-wide replace
+
+- **What:** `POST /api/projects/:name/replace` still rewrites every match in one
+  shot. The confirm now states how many matches in how many files and names the
+  first five, and the hit list is re-run afterwards so the result can be
+  checked — but there is no per-file selection, no server-side dry run, and no
+  undo.
+- **Why deferred:** A real dry run means a second response shape (per-file
+  before/after counts, ideally the replaced lines) and a review UI on top of it,
+  which is a feature rather than a safety fix. The immediate risk — an
+  unbounded rewrite behind a single unstyled `confirm()` — is addressed, and the
+  regex no longer runs on the event loop.
+- **Unblocked by:** Deciding whether the review step shows counts per file or
+  actual diff lines; the latter needs the endpoint to return content, which has
+  size implications on a phone.
+- **Where:** `backend/src/routes/files.ts` (the replace route),
+  `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
+
+## Arrow-key movement and tabpanel pairing for the tab strips
+
+- **What:** The tab strips on the project and session screens use `role="tab"`
+  without `aria-controls`, without matching `role="tabpanel"` elements, and
+  without arrow-key movement between tabs. `aria-label`s, landmark labelling and
+  the focus ring are done; this part is not.
+- **Why deferred:** Doing it properly means a roving-tabindex helper and giving
+  every panel a stable id, across three separate strips whose panels are
+  conditionally mounted (an unselected panel is deliberately unmounted so its
+  poll does not run). That interacts with the mounting rule and wants doing in
+  one pass rather than piecemeal.
+- **Unblocked by:** Deciding whether panels stay unmounted when unselected. If
+  they do, `aria-controls` points at an element that is not in the DOM, which is
+  worse than omitting it — so the fix may be `role="tablist"` removal rather
+  than completion.
+- **Where:** `frontend/src/screens/Project.tsx` (tab strip),
+  `frontend/src/screens/Session.tsx` (side panel tabs, pane tabs)
+
+## Clear the twenty jsx-a11y warnings
+
+- **What:** ESLint runs with `jsx-a11y` and reports 20 warnings, all from two
+  families: elements with click handlers that are not natively interactive
+  (modal backdrops, the terminal and browser panes, the resize separators), and
+  `tabIndex` on those same non-interactive elements. They are warnings rather
+  than errors so CI is not blocked.
+- **Why deferred:** Each needs markup restructuring rather than an attribute.
+  The backdrops close on click *and* on Escape and Android Back already, so the
+  keyboard path exists but the linter cannot see it. The browser pane's canvas
+  relays raw pointer events to a remote page, and the separators are `role
+  ="separator"` with arrow-key handlers — the rule does not recognise either.
+  Real fixes mean choosing different elements, which is a UI change worth doing
+  deliberately.
+- **Unblocked by:** Going through the twenty one at a time and deciding, per
+  case, whether to change the element, add a role the rule accepts, or add a
+  scoped disable with a reason. Run `docker compose run --rm backend npx eslint .`
+  for the list.
+- **Where:** `frontend/src/components/Sheet.tsx`, `CodeOverlay.tsx`,
+  `BrowserPane.tsx`, `Terminal.tsx`, `frontend/src/screens/Session.tsx`
+
+## Adopt Prettier across the existing code
+
+- **What:** Prettier is configured (`.prettierrc.json`) and `npm run format` /
+  `format:check` exist, but the codebase has not been reformatted and
+  `format:check` is not in CI.
+- **Why deferred:** Reformatting every file in the same branch as a large
+  behavioural change makes the diff unreviewable. The config is in place so the
+  reformat is a single mechanical commit whenever it suits.
+- **Unblocked by:** `npm run format` on a branch of its own, then adding
+  `npm run format:check` to the lint script and CI.
+- **Where:** `.prettierrc.json`, `.prettierignore`, `package.json` scripts,
+  `.github/workflows/ci.yml`
+
+## Run CI through the containers, not on the runner
+
+- **What:** CI still does `npm ci` on the GitHub runner, so node-pty is compiled
+  natively there, while CLAUDE.md says tooling runs in containers. The image is
+  now built and smoke-tested before it is pushed, which was the bigger gap.
+- **Why deferred:** Moving the test job onto compose means the runner builds the
+  dev image on every run; worth measuring against the current job time before
+  committing to it.
+- **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
+  runner against the present `npm ci` path.
+- **Where:** `.github/workflows/ci.yml` (the `test` job)

@@ -2,12 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- maximum-scale=1 stops iOS Safari's auto-zoom on <16px inputs; pinch-zoom still works (ignored for user gestures since iOS 10) -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
+    <!--
+      No maximum-scale: iOS ignores it for pinch gestures, but Android Chrome
+      honours it and so had zooming disabled outright — against 11-12px text
+      throughout. The auto-zoom it was there to prevent is handled in theme.css
+      by giving fields 16px on touch instead.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Self-hosted workbench for driving coding agents from a phone." />
     <meta name="theme-color" content="#0f1216" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- Home-screen label; without it iOS uses the <title>, which changes. -->
+    <meta name="apple-mobile-web-app-title" content="verksted" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>verksted</title>
   </head>

@@ -1,18 +1,18 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 import type { PodFacts, Project } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import TopBar from "../components/TopBar";
+import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
+import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
 }
-import TopBar from "../components/TopBar";
-import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
-import Sheet from "../components/Sheet";
 
 export default function Hub() {
   const navigate = useNavigate();
-  const { data: projects, refresh } = usePoll<Project[]>("/api/projects");
+  const { data: projects, loading, refresh } = usePoll<Project[]>("/api/projects");
   const { data: facts } = usePoll<PodFacts>("/api/facts", 30_000);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState("");
@@ -38,7 +38,7 @@ export default function Hub() {
       setAdding(false);
       setInput("");
       refresh();
-      navigate(`/p/${name}`);
+      void navigate(`/p/${name}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -71,17 +71,41 @@ export default function Hub() {
           </div>
           <button
             onClick={() => setAdding(true)}
-            className="flex-none rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110"
+            className="flex-none rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
           >
             + add project
           </button>
         </div>
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3">
+        {/* Skeletons rather than an empty grid: "nothing here" and "not loaded
+            yet" looked identical, so the hub flashed empty on every open. */}
+        {loading && projects === null && (
+          <div
+            aria-hidden
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3"
+          >
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="h-[104px] animate-pulse rounded-xl border border-line bg-surface"
+              />
+            ))}
+          </div>
+        )}
+
+        {projects?.length === 0 && (
+          <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center font-mono text-[12.5px] text-faint">
+            no projects yet — clone or init one above
+          </div>
+        )}
+
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
           {(projects ?? []).map((p) => (
-            <button
+            // A real link, not a button + navigate(): cmd-click, middle-click
+            // and "open in new tab" all worked nowhere before this.
+            <Link
               key={p.name}
-              onClick={() => navigate(`/p/${p.name}`)}
+              to={`/p/${p.name}`}
               className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-faint"
             >
               <div className="flex items-center gap-2.5">
@@ -117,7 +141,7 @@ export default function Hub() {
                   <span>last session {agoLabel(p.lastSessionAt)}</span>
                 )}
               </div>
-            </button>
+            </Link>
           ))}
           <button
             onClick={() => setAdding(true)}
@@ -158,7 +182,7 @@ export default function Hub() {
           onClose={() => setAdding(false)}
         >
           <input
-            autoFocus
+            ref={focusIfPointerFine}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addProject()}
@@ -169,7 +193,7 @@ export default function Hub() {
           <button
             onClick={addProject}
             disabled={busy}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "working…" : input.includes("/") ? "clone" : "init"}
           </button>

@@ -5,9 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+# A new push supersedes the run in flight; main still runs to completion so a
+# promoted image is never built from a superseded commit.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,6 +34,7 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -47,6 +55,27 @@ jobs:
             type=sha
             # Monotonic SemVer tag the homelab Kargo Warehouse selects to promote.
             type=raw,value=0.0.${{ github.run_number }}
+      # Build once, prove it boots, then push. Tagging an image `latest` that
+      # cannot start is the one CI failure that reaches the cluster.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: verksted:smoke
+          cache-from: type=gha
+      - name: smoke-test the image
+        run: |
+          docker run -d --name smoke -p 8080:8080 \
+            -e REPOS_DIR=/data/repos -e SESSIONS_DIR=/data/sessions \
+            -e SCHEDULES_DIR=/data/schedules -e SETTINGS_FILE=/data/settings.json \
+            verksted:smoke
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/api/health; then ok=1; break; fi
+            sleep 2
+          done
+          docker logs smoke
+          test -n "$ok"
       - uses: docker/build-push-action@v6
         with:
           context: .

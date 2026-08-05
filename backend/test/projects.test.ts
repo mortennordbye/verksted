@@ -59,6 +59,29 @@ describe("DELETE /api/sessions/:id?purge=1", () => {
   });
 });
 
+describe("POST /api/projects clone url validation", () => {
+  const clone = (url: string) =>
+    app.inject({ method: "POST", url: "/api/projects", payload: { mode: "clone", url } });
+
+  // `gh repo clone` would read a leading-dash shorthand as a flag rather than a
+  // repository. Rejected here, before it can reach the argv.
+  it("rejects a shorthand that would land as a gh flag", async () => {
+    for (const url of ["-o/x", "--upstream/x", "owner/-x", ".git/x", "-/-"]) {
+      const res = await clone(url);
+      expect(res.statusCode, url).toBe(400);
+    }
+  });
+
+  it("still accepts an ordinary shorthand and a github url", async () => {
+    // Reaching a non-400 means validation passed; the clone itself then fails
+    // without a network or a token, which is not what this asserts.
+    for (const url of ["owner/repo", "0wner/re-po.js", "https://github.com/owner/repo"]) {
+      const res = await clone(url);
+      expect(res.statusCode, url).not.toBe(400);
+    }
+  });
+});
+
 describe("POST /api/projects/:name/worktrees", () => {
   let repo: string;
 

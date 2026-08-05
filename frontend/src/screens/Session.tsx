@@ -9,7 +9,7 @@ import type {
   GitFileStatus,
   GitStatus,
   Session as SessionInfo,
-  TreeNode,
+  Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
@@ -22,6 +22,7 @@ import GitPanel from "../components/GitPanel";
 import SearchPanel from "../components/SearchPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
+import { useConfirm } from "../useConfirm";
 
 /** hljs language for a path, via its extension (aliases resolve: ts, py, yml…). */
 function langFor(path: string): string | null {
@@ -92,6 +93,15 @@ function useVisualViewport() {
   }, []);
 }
 
+const SIDE_KEY = "vk.session.sideWidth";
+const RATIO_KEY = "vk.session.ratio";
+
+/** A persisted layout number, clamped — localStorage is user-editable. */
+function storedNumber(key: string, fallback: number, min: number, max: number): number {
+  const n = Number(localStorage.getItem(key));
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+
 export default function Session() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -101,7 +111,7 @@ export default function Session() {
   const { sync } = (useLocation().state ?? {}) as { sync?: BranchSync };
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
   const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
-  const { data: tree, refresh: refreshTree } = usePoll<TreeNode[]>(
+  const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
     8_000,
   );
@@ -125,12 +135,29 @@ export default function Session() {
     setBrowser(p === "browser");
   }
   const [full, setFull] = useState(false);
+  // Sidebar width and the split ratio are per-device preferences that used to
+  // reset on every navigation between sessions.
+  const [sideWidth, setSideWidth] = useState(() => storedNumber(SIDE_KEY, 250, 160, 640));
+  const sideDrag = useRef(false);
+
+  useEffect(() => localStorage.setItem(SIDE_KEY, String(sideWidth)), [sideWidth]);
+
+  // Full screen could only be left with the small ⛶ button; Escape is what
+  // every other full-screen surface on a desktop answers to.
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [full]);
   const [menu, setMenu] = useState(false);
   // Agent-pane share of the split, in %. Adjusted by dragging the divider.
-  const [ratio, setRatio] = useState(50);
+  const [ratio, setRatio] = useState(() => storedNumber(RATIO_KEY, 50, 20, 80));
+  useEffect(() => localStorage.setItem(RATIO_KEY, String(ratio)), [ratio]);
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [file, setFile] = useState<Viewed | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   async function openFile(path: string) {
     if (!session) return;
@@ -162,29 +189,45 @@ export default function Session() {
 
   async function uploadFile(f: File) {
     if (!session) return;
-    await fetch(
+    // The result was never checked, so a rejected upload — too large, denied
+    // path, no disk — looked exactly like a successful one.
+    const res = await fetch(
       `/api/projects/${session.project}/file?path=${encodeURIComponent(f.name)}`,
       { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: f },
     );
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      throw new Error(body?.error ?? `upload failed (HTTP ${res.status})`);
+    }
   }
 
   async function kill() {
-    if (!session || !confirm("Kill this session? The tmux session and the agent inside it end.")) {
-      return;
-    }
+    if (!session) return;
+    const ok = await confirm({
+      title: "Kill this session?",
+      body: "The tmux session and the agent inside it end. The session stays in history.",
+      action: "kill the session",
+      danger: true,
+    });
+    if (!ok) return;
     await api(`/api/sessions/${session.id}`, { method: "DELETE" });
-    navigate(`/p/${session.project}`);
+    void navigate(`/p/${session.project}`);
   }
 
   async function deleteSession() {
     if (!session) return;
-    const msg =
-      session.status !== "done"
-        ? "Kill and delete this session? The tmux session ends and it is removed from history."
-        : "Delete this session from history?";
-    if (!confirm(msg)) return;
+    const live = session.status !== "done";
+    const ok = await confirm({
+      title: live ? "Kill and delete this session?" : "Delete this session?",
+      body: live
+        ? "The tmux session and the agent inside it end, and the session is removed from history. This cannot be undone."
+        : "It is removed from history. This cannot be undone.",
+      action: live ? "kill and delete" : "delete",
+      danger: true,
+    });
+    if (!ok) return;
     await api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" });
-    navigate(`/p/${session.project}`);
+    void navigate(`/p/${session.project}`);
   }
 
   const live = session != null && session.status !== "done";
@@ -206,7 +249,9 @@ export default function Session() {
           back={session ? `/p/${session.project}` : "/"}
           crumb={session ? [session.project, session.title] : []}
         />
-        <main className="flex min-h-0 w-full flex-1 flex-col px-[18px] pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] desk:pt-[18px] desk:pb-6">
+        {/* max-w to match the other screens: without it the kill and delete
+            buttons sat a screen-width away from the title on an ultrawide. */}
+        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] desk:pt-[18px] desk:pb-6">
           {/* Phone folds this row into the pane strip below: four stacked bars
               before the first terminal row left the agent a fifth of the
               screen. The title lives in the top bar crumb there instead. */}
@@ -307,10 +352,49 @@ export default function Session() {
             </button>
           </div>
 
-          <div className="grid min-h-0 flex-1 items-stretch gap-3 desk:items-start desk:grid-cols-[250px_1fr]">
+          <div
+            className="grid min-h-0 flex-1 items-stretch gap-3 desk:items-start desk:grid-cols-[var(--side)_1fr]"
+            style={{ "--side": `${sideWidth}px` } as React.CSSProperties}
+          >
             <div
-              className={`${pane === "tree" ? "flex" : "hidden desk:flex"} min-h-0 flex-col desk:h-[calc(var(--vvh,100dvh)-200px)]`}
+              className={`${pane === "tree" ? "flex" : "hidden desk:flex"} relative min-h-0 flex-col desk:h-[calc(var(--vvh,100dvh)-200px)]`}
             >
+              {/* The sidebar was a fixed 250px: deep trees scrolled inside it
+                  while a wide monitor sat empty. Absolutely positioned on the
+                  edge rather than a third grid column, so the mobile stacking
+                  of this grid is untouched. */}
+              <div
+                onPointerDown={(e) => {
+                  sideDrag.current = true;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={(e) => {
+                  if (!sideDrag.current) return;
+                  const left = e.currentTarget.parentElement!.getBoundingClientRect().left;
+                  setSideWidth(Math.min(640, Math.max(160, e.clientX - left)));
+                }}
+                onPointerUp={(e) => {
+                  sideDrag.current = false;
+                  e.currentTarget.releasePointerCapture(e.pointerId);
+                }}
+                onDoubleClick={() => setSideWidth(250)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowLeft") setSideWidth((w) => Math.max(160, w - 16));
+                  else if (e.key === "ArrowRight") setSideWidth((w) => Math.min(640, w + 16));
+                  else if (e.key === "Home") setSideWidth(250);
+                  else return;
+                  e.preventDefault();
+                }}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="resize the sidebar"
+                aria-valuenow={sideWidth}
+                aria-valuemin={160}
+                aria-valuemax={640}
+                tabIndex={0}
+                title="drag to resize · double-click to reset · arrow keys"
+                className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
+              />
               <div role="tablist" className="mb-2 flex flex-none gap-1.5">
                 {(["files", "git", "search"] as const).map((t) => (
                   <button
@@ -334,7 +418,8 @@ export default function Session() {
               {side === "files" && (
                 <FileTree
                   title={session ? `~/${session.project}` : "…"}
-                  nodes={tree}
+                  nodes={tree?.nodes ?? null}
+                  truncated={tree?.truncated ?? false}
                   onOpenFile={openFile}
                   onUpload={async (f) => {
                     await uploadFile(f);
@@ -445,7 +530,24 @@ export default function Session() {
                           dragging.current = false;
                           e.currentTarget.releasePointerCapture(e.pointerId);
                         }}
-                        title="drag to resize"
+                        onDoubleClick={() => setRatio(50)}
+                        onKeyDown={(e) => {
+                          if (e.key === "ArrowLeft") setRatio((r) => Math.max(20, r - 2));
+                          else if (e.key === "ArrowRight") setRatio((r) => Math.min(80, r + 2));
+                          else if (e.key === "Home") setRatio(50);
+                          else return;
+                          e.preventDefault();
+                        }}
+                        // A 6px drag target was the only way to move this, which
+                        // is no way at all without a mouse.
+                        role="separator"
+                        aria-orientation="vertical"
+                        aria-label="resize the agent pane"
+                        aria-valuenow={Math.round(ratio)}
+                        aria-valuemin={20}
+                        aria-valuemax={80}
+                        tabIndex={0}
+                        title="drag to resize · double-click to reset · arrow keys"
                         className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
                       />
                     )}
@@ -559,6 +661,7 @@ export default function Session() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </>
   );
 }

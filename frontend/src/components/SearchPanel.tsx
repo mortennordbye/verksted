@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReplaceResult, SearchHit } from "../../../shared/api";
 import { api } from "../api";
+import { useConfirm } from "../useConfirm";
 import { fileIcon } from "../fileicons";
 
 function Toggle({
@@ -42,6 +43,7 @@ export default function SearchPanel({
   const [useRegex, setUseRegex] = useState(false);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,14 +77,32 @@ export default function SearchPanel({
   function toggle(set: (v: boolean) => void, key: "case" | "word" | "regex", value: boolean) {
     set(value);
     if (hits !== null) {
-      run({ case: caseSensitive, word: wholeWord, regex: useRegex, [key]: value });
+      void run({ case: caseSensitive, word: wholeWord, regex: useRegex, [key]: value });
     }
   }
 
   async function replaceAll() {
     const query = q.trim();
     if (!query || busy) return;
-    if (!confirm(`Replace all matches of "${query}" with "${replace}" across the repo?`)) return;
+    // The riskiest control in the app: it rewrites every match across the repo,
+    // there is no undo, and it races whatever the agent is doing in the same
+    // tree. The least it can do is say how much it is about to change, and
+    // name the files — the hit list is right there and used to be thrown away
+    // afterwards, so you could not even check what had happened.
+    const files = new Set((hits ?? []).map((h) => h.path));
+    const scope =
+      hits === null
+        ? "Search first to see what this will touch."
+        : `${hits.length} match${hits.length === 1 ? "" : "es"} in ${files.size} file${
+            files.size === 1 ? "" : "s"
+          }: ${[...files].slice(0, 5).join(", ")}${files.size > 5 ? `, and ${files.size - 5} more` : ""}.`;
+    const ok = await confirm({
+      title: `Replace every "${query}" with "${replace}"?`,
+      body: `${scope} This cannot be undone, and the agent may be editing the same files.`,
+      action: "replace across the repo",
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
@@ -99,7 +119,9 @@ export default function SearchPanel({
       setNote(
         `replaced ${res.replacements} occurrence${res.replacements === 1 ? "" : "s"} in ${res.files} file${res.files === 1 ? "" : "s"}`,
       );
-      setHits(null);
+      // Re-run the search rather than clearing it: the old code dropped the hit
+      // list, so there was no way to see what had just been changed.
+      void run({ case: caseSensitive, word: wholeWord, regex: useRegex });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -118,7 +140,7 @@ export default function SearchPanel({
     "flex items-center gap-1 rounded-[7px] border border-line bg-surface-2 px-2 py-1.5 focus-within:border-accent";
 
   return (
-    <nav className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
+    <section aria-label="search" className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
       <div className="px-2.5 pb-2.5 text-[11px] tracking-widest text-faint uppercase">search</div>
       <div className="flex gap-1 px-2.5 pb-2">
         <button
@@ -168,7 +190,7 @@ export default function SearchPanel({
               <button
                 onClick={replaceAll}
                 disabled={busy || !q.trim()}
-                title="replace all"
+                title="replace all" aria-label="replace all"
                 className="rounded px-1 text-[11px] text-faint hover:text-text disabled:opacity-50"
               >
                 ⇄ all
@@ -219,6 +241,7 @@ export default function SearchPanel({
           </div>
         );
       })}
-    </nav>
+      {confirmDialog}
+    </section>
   );
 }

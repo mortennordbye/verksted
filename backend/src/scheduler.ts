@@ -2,7 +2,7 @@ import { Cron } from "croner";
 import type { Session } from "../../shared/api.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
-import { createSession, getSession, listSessions } from "./sessions-store.js";
+import { REPORT_CONTRACT, createSession, getSession, listSessions } from "./sessions-store.js";
 import { schedulesPaused } from "./settings-store.js";
 
 /**
@@ -27,17 +27,6 @@ function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * What every scheduled run has to leave behind. Only the agent knows whether
- * "two PRs open" is fine or needs someone, so it writes the verdict itself and
- * the notifier reads it: "ok:" keeps the phone quiet, the other two push. It is
- * appended to the prompt rather than buried in a hook because the agent has to
- * be told, and the settings page says so in the same words.
- */
-const REPORT_CONTRACT =
-  '\n\nWhen you are done, write one line to the file at "$VK_REPORT_FILE": ' +
-  '"ok: <summary>" if nothing needs me, "attention: <summary>" if I have to act, ' +
-  'or "failed: <summary>" if you could not finish.';
 
 /**
  * Sleep a random slice of the schedule's jitter window. Resolves false when a

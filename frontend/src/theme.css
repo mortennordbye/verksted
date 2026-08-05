@@ -8,8 +8,14 @@
   --color-line: #262c38;
   --color-text: #e7eaf0;
   --color-muted: #8a93a6;
-  --color-faint: #566072;
+  /* Was #566072 — 2.97:1 on the background, failing AA, while carrying nearly
+     all the secondary text at 10-11px. #7d8798 clears 4.5:1 and keeps the same
+     cool grey. --color-idle stays put: it is a dot, not text. */
+  --color-faint: #7d8798;
   --color-accent: #d9a441;
+  /* Text on an accent-filled button. Was written as a raw #16130a in twenty-one
+     places, so a change to --color-accent could not follow it. */
+  --color-on-accent: #16130a;
   --color-run: #4ec97b;
   --color-wait: #e0a63d;
   /* Not from the mock: it predates CI, so it has no failure state. Same
@@ -44,6 +50,16 @@ body,
   height: 100%;
 }
 
+html {
+  /* Android Chrome's pull-to-refresh reloads the whole app — which drops both
+     websockets and the terminal's scrollback position — and a downward swipe is
+     exactly how you scroll a terminal that is already at the top. */
+  overscroll-behavior: none;
+  /* Native form controls, checkboxes and scrollbars render light-themed
+     otherwise, against a deliberately dark palette. */
+  color-scheme: dark;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text);
@@ -51,6 +67,83 @@ body {
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* The grey flash on every tap belongs to a document, not to an app whose
+     controls already have their own pressed states. */
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+[role="tab"],
+summary {
+  /* Skips the 300ms click delay left over from double-tap-to-zoom. */
+  touch-action: manipulation;
+}
+
+/* Chrome elements should not turn into a text selection when a tap is held or
+   a drag starts. Anything the user might legitimately want to copy — terminal
+   output, file contents, the ssh public key — opts back in below. */
+button,
+[role="tab"],
+[role="tablist"],
+nav,
+h1,
+h2 {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+pre,
+code,
+input,
+textarea,
+.xterm {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* iOS zooms the page when a focused field's text is under 16px, and the zoom
+   is not undone on blur — the layout is left shifted and half off-screen.
+   Sizing fields at 16px on touch is the only way to prevent it, now that the
+   viewport tag no longer bans zooming outright (Android honoured that ban).
+   !important because the sizes it overrides are Tailwind utilities. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch targets. 44px is the smallest reliable one, and nearly every icon
+   control here is 15-26px tall. A utility rather than a rule on every button,
+   so dense rows opt in without the layout being rewritten.
+
+   Height only: vertical precision is what actually goes wrong in a list of
+   stacked rows, and forcing 44px of width as well would turn the terminal key
+   bar — twenty-odd keys in one scroller — into a much longer scroll for no
+   accuracy gained. `tap-sq` is for icon-only buttons, where the label carries
+   no width of its own. */
+@media (pointer: coarse) {
+  .tap,
+  .tap-sq {
+    min-height: 44px;
+  }
+  .tap-sq {
+    min-width: 44px;
+  }
+}
+
+/* From mock.html:32, never ported. Without it there is no keyboard focus
+   indicator anywhere: Tab moves an invisible cursor around the app. */
+button:focus-visible,
+a:focus-visible,
+[role="tab"]:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 @media (prefers-reduced-motion: reduce) {

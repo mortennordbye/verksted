@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import type {
   AgentName,
   CreatedSession,
@@ -12,7 +12,8 @@ import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
-import Sheet from "../components/Sheet";
+import Sheet, { focusIfPointerFine } from "../components/Sheet";
+import { useConfirm } from "../useConfirm";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
   { agent: "claude", swatch: "bg-claude", desc: "Claude Code · Max plan", cmd: "$ claude" },
@@ -20,43 +21,55 @@ const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: stri
   { agent: "codex", swatch: "bg-codex", desc: "OpenAI Codex CLI", cmd: "$ codex" },
 ];
 
-function SessionRow({
-  session,
-  onClick,
-  onDelete,
-}: {
-  session: Session;
-  onClick: () => void;
-  onDelete: () => void;
-}) {
+function SessionRow({ session, onDelete }: { session: Session; onDelete: () => void }) {
   const live = session.status !== "done";
   return (
+    // The row was a div with an onClick: not focusable, not keyboard-reachable,
+    // and cmd-click did nothing. The delete button is a sibling of the link
+    // rather than inside it, since a button cannot nest in an anchor.
     <div
-      onClick={onClick}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${live ? "" : "opacity-60"}`}
+      className={`flex w-full items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] transition hover:border-faint ${live ? "" : "opacity-60"}`}
     >
-      <StatusDot running={live} />
-      <div className="min-w-0 flex-1">
-        <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
-          {session.title}
+      <Link to={`/s/${session.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <StatusDot running={live} />
+        <div className="min-w-0 flex-1">
+          <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
+            {session.title}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
+            <AgentTag agent={session.agent} />
+            <span>tmux: {session.id}</span>
+            <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
+          </div>
+          {/* What the agent said about its own work, when it said anything —
+              far more use on a row than "done". */}
+          {session.report && (
+            <div
+              className={`mt-1 truncate text-[12px] ${
+                session.outcome === "failed"
+                  ? "text-fail"
+                  : session.outcome === "attention"
+                    ? "text-wait"
+                    : "text-muted"
+              }`}
+            >
+              {session.report}
+            </div>
+          )}
         </div>
-        <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
-          <AgentTag agent={session.agent} />
-          <span>tmux: {session.id}</span>
-          <span>{agoLabel(live ? session.createdAt : session.endedAt)}</span>
-        </div>
-      </div>
+      </Link>
       <StatusChip
         kind={session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"}
         label={session.status}
       />
+      {/* Sits inside the row's own tap area, and kills a running agent — the
+          worst mis-tap in the app. A real target size and a gap from the row
+          edge are the cheap half of the fix; the confirm is the other half. */}
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete();
-        }}
+        onClick={onDelete}
         title="delete session"
-        className="rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
+        aria-label={`delete session ${session.title}`}
+        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
       >
         ✕
       </button>
@@ -67,9 +80,12 @@ function SessionRow({
 export default function Project() {
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
-  const { data: sessions, refresh: refreshSessions } = usePoll<Session[]>(
-    `/api/projects/${name}/sessions`,
-  );
+  const {
+    data: sessions,
+    loading: sessionsLoading,
+    notFound,
+    refresh: refreshSessions,
+  } = usePoll<Session[]>(`/api/projects/${name}/sessions`);
   const { data: projects, refresh: refreshProjects } = usePoll<ProjectInfo[]>(
     "/api/projects",
     10_000,
@@ -84,6 +100,7 @@ export default function Project() {
   const [branchBusy, setBranchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"sessions" | "prs" | "actions">("sessions");
+  const [confirm, confirmDialog] = useConfirm();
 
   const active = sessions?.filter((s) => s.status !== "done") ?? [];
   const recent = sessions?.filter((s) => s.status === "done") ?? [];
@@ -100,7 +117,7 @@ export default function Project() {
       });
       setBranching(false);
       setBranch("");
-      navigate(`/p/${created.name}`);
+      void navigate(`/p/${created.name}`);
     } catch (e) {
       setError((e as Error).message);
       setBranching(false);
@@ -110,11 +127,16 @@ export default function Project() {
   }
 
   async function deleteSession(s: Session) {
-    const msg =
-      s.status !== "done"
-        ? `Kill and delete ${s.title}? The tmux session and the agent inside it end.`
-        : `Delete ${s.title} from history?`;
-    if (!confirm(msg)) return;
+    const live = s.status !== "done";
+    const ok = await confirm({
+      title: live ? `Kill and delete ${s.title}?` : `Delete ${s.title}?`,
+      body: live
+        ? "The tmux session and the agent inside it end, and it is removed from history. This cannot be undone."
+        : "It is removed from history. This cannot be undone.",
+      action: live ? "kill and delete" : "delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/sessions/${s.id}?purge=1`, { method: "DELETE" });
       refreshSessions();
@@ -128,7 +150,7 @@ export default function Project() {
     setDeleting(true);
     try {
       await api(`/api/projects/${name}`, { method: "DELETE" });
-      navigate("/");
+      void navigate("/");
     } catch (e) {
       setError((e as Error).message);
       setConfirmingDelete(false);
@@ -144,11 +166,28 @@ export default function Project() {
       });
       // The session screen reports it when the repo could not be put on an
       // up-to-date main first.
-      navigate(`/s/${session.id}`, { state: { sync: session.sync } });
+      void navigate(`/s/${session.id}`, { state: { sync: session.sync } });
     } catch (e) {
       setError((e as Error).message);
       setPicking(false);
     }
+  }
+
+  // A deleted or mistyped project used to render as an ordinary project with an
+  // empty session list, which reads as "this project is idle".
+  if (notFound) {
+    return (
+      <>
+        <TopBar back="/" crumb={name ? [name] : []} />
+        <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
+          <h1 className="mb-2 text-[21px] font-semibold tracking-tight">no such project</h1>
+          <p className="text-sm text-muted">
+            <code className="font-mono text-[12.5px]">{name}</code> is not a repo under the pod's
+            repos directory.
+          </p>
+        </main>
+      </>
+    );
   }
 
   return (
@@ -191,7 +230,7 @@ export default function Project() {
             )}
             <button
               onClick={() => setPicking(true)}
-              className="rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110"
+              className="rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
             >
               ▸ new session
             </button>
@@ -229,15 +268,12 @@ export default function Project() {
             </div>
             <div className="flex flex-col gap-2.5">
               {active.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  session={s}
-                  onClick={() => navigate(`/s/${s.id}`)}
-                  onDelete={() => deleteSession(s)}
-                />
+                <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
               ))}
               {active.length === 0 && (
-                <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
+                <div className="font-mono text-[12.5px] text-faint">
+                  {sessionsLoading ? "loading…" : "no active sessions"}
+                </div>
               )}
             </div>
 
@@ -248,12 +284,7 @@ export default function Project() {
                 </div>
                 <div className="flex flex-col gap-2.5">
                   {recent.map((s) => (
-                    <SessionRow
-                      key={s.id}
-                      session={s}
-                      onClick={() => navigate(`/s/${s.id}`)}
-                      onDelete={() => deleteSession(s)}
-                    />
+                    <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
                   ))}
                 </div>
               </>
@@ -318,7 +349,7 @@ export default function Project() {
           onClose={() => setBranching(false)}
         >
           <input
-            autoFocus
+            ref={focusIfPointerFine}
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && newWorktree()}
@@ -328,7 +359,7 @@ export default function Project() {
           <button
             onClick={newWorktree}
             disabled={branchBusy || !branch.trim()}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {branchBusy ? "working…" : "create worktree"}
           </button>
@@ -350,6 +381,7 @@ export default function Project() {
           </button>
         </Sheet>
       )}
+      {confirmDialog}
     </>
   );
 }

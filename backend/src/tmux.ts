@@ -1,19 +1,36 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { exec } from "./exec.js";
 
 // The tmux server inherits its locale from whoever starts it; without UTF-8 it
 // mangles multibyte output to "_". Guarantee it even if the image env lacks LANG.
 export const UTF8_ENV = { ...process.env, LANG: process.env.LANG ?? "C.UTF-8" };
 
+/** tmux could not be asked what is live — which is not the same as "nothing is". */
+export class TmuxUnavailableError extends Error {
+  constructor(readonly cause: unknown) {
+    super("tmux unavailable");
+  }
+}
+
+// How tmux says "there is no server", which is the ordinary empty case: it
+// exits 1 with one of these on stderr. Anything else is a real failure.
+const NO_SERVER_RE = /no server running|error connecting to .*no such file or directory/i;
+
+/**
+ * Live tmux session names.
+ *
+ * Throws rather than returning [] when tmux itself is unreachable. The
+ * difference matters: callers use this set to decide a session is over, so
+ * swallowing a fork failure or a missing binary would stamp every session as
+ * finished and fire a "finished" push for each one, on every poll.
+ */
 export async function listSessions(): Promise<string[]> {
   try {
-    const { stdout } = await exec("tmux", ["ls", "-F", "#{session_name}"]);
+    const { stdout } = await exec("tmux", ["ls", "-F", "#{session_name}"], { timeout: 5_000 });
     return stdout.split("\n").filter(Boolean);
-  } catch {
-    // No tmux server running means no sessions.
-    return [];
+  } catch (err) {
+    const e = err as { stderr?: string; killed?: boolean };
+    if (!e.killed && NO_SERVER_RE.test(String(e.stderr ?? ""))) return [];
+    throw new TmuxUnavailableError(err);
   }
 }
 
@@ -72,6 +89,39 @@ export async function exitCopyMode(name: string): Promise<void> {
   } catch {
     // "not in a mode" — the pane was already live (tmux's own -e exit).
   }
+}
+
+/**
+ * Type text into a session's pane, as if it had come over the attach socket.
+ *
+ * "-l" is literal mode: without it tmux interprets the text as key names, so a
+ * prompt containing "Enter" or "C-c" would be read as keystrokes. The caller
+ * asks for a trailing Return separately, which is the only key this sends.
+ *
+ * The argv form means nothing here reaches a shell — but the text does reach
+ * the agent's stdin, which is exactly what the terminal websocket already
+ * allows, so this adds no capability beyond convenience.
+ */
+export async function sendText(name: string, text: string, enter: boolean): Promise<void> {
+  // Pane target, so the session part needs the trailing ":" — same as
+  // scrollHistory. Bare "=name" is read as a pane name and never resolves.
+  const target = `=${name}:`;
+  await exec("tmux", ["send-keys", "-t", target, "-l", "--", text], { timeout: 5_000 });
+  if (enter) {
+    await exec("tmux", ["send-keys", "-t", target, "Enter"], { timeout: 5_000 });
+  }
+}
+
+/** The last `lines` rows of a pane, as plain text. */
+export async function capturePane(name: string, lines: number): Promise<string> {
+  const { stdout } = await exec(
+    "tmux",
+    // -p to stdout, -J so a wrapped line comes back as one, -S -N for how far
+    // back to start.
+    ["capture-pane", "-p", "-J", "-t", `=${name}:`, "-S", `-${lines}`],
+    { timeout: 5_000, maxBuffer: 4 * 1024 * 1024, env: UTF8_ENV },
+  );
+  return stdout;
 }
 
 export async function killSession(name: string): Promise<void> {

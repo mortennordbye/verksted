@@ -1,12 +1,9 @@
-import { execFile } from "node:child_process";
+import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import type { SshKey } from "../../../shared/api.js";
 import { env } from "../env.js";
-
-const exec = promisify(execFile);
 
 // Leading alnum rules out "..", dotfiles and option-like names.
 const KEY_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

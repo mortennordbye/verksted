@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { Schedule } from "../../shared/api.js";
 
 let app: FastifyInstance;
 let schedulesDir: string;
@@ -36,7 +35,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Deleting every schedule reloads the scheduler down to zero live timers,
   // which is what lets the test process exit.
-  for (const s of (await app.inject({ url: "/api/schedules" })).json() as Schedule[]) {
+  for (const s of (await app.inject({ url: "/api/schedules" })).json()) {
     await app.inject({ method: "DELETE", url: `/api/schedules/${s.id}` });
   }
   await app.close();
@@ -51,11 +50,11 @@ describe("POST /api/schedules", () => {
       prompt: "check the open PRs",
     });
     expect(res.statusCode).toBe(201);
-    const body = res.json() as Schedule;
+    const body = res.json();
     expect(body.id).toMatch(/^sch-[0-9a-f]{8}$/);
     expect(body.enabled).toBe(true);
     expect(body.lastRunAt).toBeNull();
-    expect(Date.parse(body.nextRunAt!)).toBeGreaterThan(Date.now());
+    expect(Date.parse(body.nextRunAt)).toBeGreaterThan(Date.now());
     expect(fs.existsSync(path.join(schedulesDir, `${body.id}.json`))).toBe(true);
   });
 
@@ -206,9 +205,9 @@ describe("the store's own guards", () => {
     expect(mine).toHaveLength(3);
     // Newest first: the sessionless run is oldest, so it comes last.
     expect(mine.map((r) => r.outcome)).toEqual(["done", "ok", "blocked"]);
-    expect(mine[1]!.report).toBe("ok: nothing to do");
-    expect(mine[2]!.error).toBe("previous run is still open");
-    expect(mine[0]!.schedule).toBe("hist");
+    expect(mine[1].report).toBe("ok: nothing to do");
+    expect(mine[2].error).toBe("previous run is still open");
+    expect(mine[0].schedule).toBe("hist");
   });
 
   it("caps the history so a schedule file cannot grow forever", async () => {

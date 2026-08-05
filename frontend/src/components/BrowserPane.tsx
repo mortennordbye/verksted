@@ -35,6 +35,9 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
   const [attempt, setAttempt] = useState(0);
   const hiddenInput = useRef<HTMLInputElement>(null);
   const [ports, setPorts] = useState<ListeningPort[] | null>(null);
+  // A failed scan used to render as "nothing listening", which is a
+  // different and much more misleading statement than "the scan failed".
+  const [portsError, setPortsError] = useState<string | null>(null);
 
   /** Relay a full key press (down+up) into the remote page. */
   function pressKey(key: string, keyCode: number, text?: string) {
@@ -210,11 +213,16 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
         />
         <button
           onClick={async () => {
-            if (ports) return setPorts(null);
+            if (ports) {
+              setPortsError(null);
+              return setPorts(null);
+            }
             try {
               setPorts(await api<ListeningPort[]>("/api/ports"));
-            } catch {
+              setPortsError(null);
+            } catch (err) {
               setPorts([]);
+              setPortsError((err as Error).message);
             }
           }}
           title="open a port that is listening in the pod"
@@ -243,7 +251,12 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
       </div>
       {ports && (
         <div className="border-b border-line bg-surface px-2 py-1 font-mono text-[12px]">
-          {ports.length === 0 && <span className="px-1 text-faint">nothing listening</span>}
+          {ports.length === 0 &&
+            (portsError ? (
+              <span className="px-1 text-fail">could not scan ports — {portsError}</span>
+            ) : (
+              <span className="px-1 text-faint">nothing listening</span>
+            ))}
           {ports.map((p) => (
             <button
               key={`${p.url}`}
@@ -314,12 +327,12 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
           onKeyUp={(e) => key(e, "keyUp")}
           onContextMenu={(e) => e.preventDefault()}
           onTouchStart={(e) => {
-            const t = e.touches[0]!;
+            const t = e.touches[0];
             touch.current = { x: t.clientX, y: t.clientY };
           }}
           onTouchMove={(e) => {
             // One-finger drag scrolls the remote page.
-            const t = e.touches[0]!;
+            const t = e.touches[0];
             const prev = touch.current;
             if (!prev) return;
             send({
@@ -335,7 +348,7 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
             // A tap (no movement) becomes a click.
             const start = touch.current;
             touch.current = null;
-            const t = e.changedTouches[0]!;
+            const t = e.changedTouches[0];
             if (!start) return;
             if (Math.abs(t.clientX - start.x) + Math.abs(t.clientY - start.y) > 8) return;
             const pos = toRemote(t);

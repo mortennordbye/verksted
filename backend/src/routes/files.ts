@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "../exec.js";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -11,33 +11,72 @@ import type {
   ReplaceResult,
   SearchFlags,
   SearchHit,
+  Tree,
   TreeNode,
   UploadedFile,
 } from "../../../shared/api.js";
-import { branchOf, git, gitError } from "../git.js";
-import { repoRelPath, resolveInsideRepos } from "../paths.js";
-import { agentEnv } from "../settings-store.js";
-
-const exec = promisify(execFile);
+import { branchOf, git, gitError, gitRaw, parsePorcelainZ } from "../git.js";
+import { repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
+import { execEnv } from "../settings-store.js";
+import { ReplaceTimeout, runReplace } from "../replace.js";
 
 // Literal pathspecs: client-supplied paths can never be pathspec magic/globs.
 const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: "1" };
 
-const SKIP_DIRS = new Set([".git", "node_modules"]);
+/**
+ * Directories never worth walking. .gitignore would be the principled answer,
+ * but parsing it correctly (negations, nested files, precedence) is a library's
+ * worth of work — and the budget below is the real protection. These are the
+ * ones that actually blow it: a repo with .venv or target hits 5000 entries
+ * before reaching any source, and the tree silently came back missing files
+ * with no indication that anything had been dropped.
+ */
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  "target",
+  "dist",
+  "build",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".gradle",
+  "vendor",
+]);
 const MAX_DEPTH = 12;
 const MAX_ENTRIES = 5000;
 const MAX_FILE_BYTES = 1024 * 1024;
 
+/**
+ * A file's version, for lost-update detection on save.
+ *
+ * Content hash rather than mtime and size: those collide whenever two writes
+ * land in the same millisecond at the same length, which is exactly what an
+ * automated writer does — and a missed collision here means silently
+ * overwriting the agent's work. Hashing also treats "changed and changed back"
+ * as unchanged, which is the answer the user would want anyway.
+ */
+function contentEtag(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex").slice(0, 32);
+}
+
+/** The etag of what is on disk now, or null when there is no file there. */
+async function etagOnDisk(abs: string): Promise<string | null> {
+  const buf = await fs.readFile(abs).catch(() => null);
+  return buf ? contentEtag(buf) : null;
+}
+
 async function modifiedPaths(repoDir: string): Promise<Set<string>> {
   const set = new Set<string>();
   try {
-    const { stdout } = await exec("git", ["-C", repoDir, "status", "--porcelain=v1", "-uall"]);
-    for (const line of stdout.split("\n").filter(Boolean)) {
-      let p = line.slice(3);
-      const arrow = p.indexOf(" -> ");
-      if (arrow !== -1) p = p.slice(arrow + 4);
-      set.add(p.replace(/^"(.*)"$/, "$1"));
-    }
+    const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall"]);
+    for (const { path } of parsePorcelainZ(out)) set.add(path);
   } catch {
     // not a git repo / git broke: no markers
   }
@@ -140,15 +179,13 @@ export default async function fileRoutes(app: FastifyInstance) {
   );
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/tree",
-    async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+    async (req, reply): Promise<Tree | void> => {
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const modified = await modifiedPaths(repoDir);
-      return walk(repoDir, "", 0, { left: MAX_ENTRIES }, modified);
+      const budget = { left: MAX_ENTRIES };
+      const nodes = await walk(repoDir, "", 0, budget, modified);
+      return { nodes, truncated: budget.left <= 0 };
     },
   );
 
@@ -171,14 +208,18 @@ export default async function fileRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
-      const stat = await fs.lstat(abs);
+      // The agent shares this working tree, so the file can vanish between the
+      // resolve and the stat. That is a 404, not a 500.
+      const stat = await fs.lstat(abs).catch(() => null);
+      if (!stat) return reply.code(404).send({ error: "not found" });
       if (!stat.isFile()) return reply.code(403).send({ error: "denied" });
       if (stat.size > MAX_FILE_BYTES) return reply.code(413).send({ error: "file too large" });
-      const buf = await fs.readFile(abs);
+      const buf = await fs.readFile(abs).catch(() => null);
+      if (!buf) return reply.code(404).send({ error: "not found" });
       if (buf.subarray(0, 8192).includes(0)) {
         return reply.code(415).send({ error: "binary file" });
       }
-      return { path: req.query.path, content: buf.toString("utf8") };
+      return { path: req.query.path, content: buf.toString("utf8"), etag: contentEtag(buf) };
     },
   );
 
@@ -217,7 +258,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
-      const stat = await fs.lstat(abs);
+      const stat = await fs.lstat(abs).catch(() => null);
+      if (!stat) return reply.code(404).send({ error: "not found" });
       if (!stat.isFile()) return reply.code(403).send({ error: "denied" });
       if (stat.size > MAX_RAW_BYTES) return reply.code(413).send({ error: "file too large" });
       const name = path.basename(abs).replace(/[^\w.-]/g, "_");
@@ -261,8 +303,24 @@ export default async function fileRoutes(app: FastifyInstance) {
       }
       const body = req.body;
       if (!Buffer.isBuffer(body)) return reply.code(415).send({ error: "raw body required" });
-      await fs.writeFile(path.join(dir, path.basename(rel)), body);
-      return { path: rel, bytes: body.length };
+      const abs = path.join(dir, path.basename(rel));
+
+      // Optional precondition: a client that read the file and sends back its
+      // etag gets a 412 instead of silently overwriting whatever the agent
+      // wrote in between. "*" means "must already exist"; no header at all
+      // keeps the old blind-write behaviour for callers that never read first.
+      const expected = req.headers["if-match"];
+      if (expected !== undefined) {
+        const actual = await etagOnDisk(abs);
+        if (expected === "*" ? actual === null : actual !== expected) {
+          return reply
+            .code(412)
+            .send({ error: "the file changed on disk since you opened it", etag: actual });
+        }
+      }
+
+      await fs.writeFile(abs, body);
+      return { path: rel, bytes: body.length, etag: contentEtag(body) };
     },
   );
 
@@ -285,12 +343,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<UploadedFile | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const body = req.body;
       if (!Buffer.isBuffer(body) || body.length === 0) {
         return reply.code(415).send({ error: "raw body required" });
@@ -330,12 +384,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<FileDiff | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let rel: string;
       try {
         rel = repoRelPath(req.query.path);
@@ -369,21 +419,12 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/git",
     async (req, reply): Promise<GitStatus | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let files: GitFileStatus[] = [];
       try {
-        const { stdout } = await exec("git", ["-C", repoDir, "status", "--porcelain=v1", "-uall"]);
-        for (const line of stdout.split("\n").filter(Boolean)) {
-          const [x, y] = [line[0]!, line[1]!];
-          let p = line.slice(3);
-          const arrow = p.indexOf(" -> ");
-          if (arrow !== -1) p = p.slice(arrow + 4);
-          p = p.replace(/^"(.*)"$/, "$1");
+        const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall"]);
+        for (const { x, y, path: p } of parsePorcelainZ(out)) {
           if (x === "?") {
             files.push({ path: p, status: "U", staged: false });
             continue;
@@ -417,12 +458,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/stage",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);
@@ -443,12 +480,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/unstage",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);
@@ -487,19 +520,15 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const message = req.body.message.trim();
       if (!message) return reply.code(400).send({ error: "empty commit message" });
       try {
         // Commits the index only (no -a) — exactly what the UI staged.
-        // agentEnv so GIT_AUTHOR_*/GIT_COMMITTER_* from the settings page apply.
+        // execEnv so GIT_AUTHOR_*/GIT_COMMITTER_* from the settings page apply.
         await exec("git", ["-C", repoDir, "commit", "-m", message], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
         });
       } catch (err) {
         const out = String((err as { stdout?: string }).stdout ?? "");
@@ -524,12 +553,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/git/branches",
     async (req, reply): Promise<GitBranches | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       return {
         current: await branchOf(repoDir),
         local: await refNames(repoDir, "refs/heads"),
@@ -552,12 +577,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const branch = req.body.branch.trim();
       try {
         await exec("git", ["check-ref-format", "--branch", branch]);
@@ -579,12 +600,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string } }>(
     "/api/projects/:name/git/pull",
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       if (!(await upstreamOf(repoDir))) {
         return reply.code(409).send({ error: "branch has no upstream" });
       }
@@ -592,7 +609,7 @@ export default async function fileRoutes(app: FastifyInstance) {
         // ff-only: a diverged branch is a decision for the user, not a merge
         // commit made behind their back. The reset route is the way out.
         await git(repoDir, ["pull", "--ff-only"], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
       } catch (err) {
@@ -608,17 +625,13 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string } }>(
     "/api/projects/:name/git/reset",
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const upstream = await upstreamOf(repoDir);
       if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
       try {
         await git(repoDir, ["fetch", upstream.slice(0, upstream.indexOf("/"))], {
-          env: { ...process.env, ...(await agentEnv()) },
+          env: { ...process.env, ...(await execEnv()) },
           timeout: 120_000,
         });
         await git(repoDir, ["reset", "--hard", upstream]);
@@ -659,12 +672,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       try {
         const { stdout } = await exec(
           "rg",
@@ -680,9 +689,9 @@ export default async function fileRoutes(app: FastifyInstance) {
           const m = /^(.+?):(\d+):(.*)$/.exec(line);
           if (m) {
             hits.push({
-              path: m[1]!.replace(/^\.\//, ""),
+              path: m[1].replace(/^\.\//, ""),
               line: Number(m[2]),
-              text: m[3]!.trim().slice(0, 200),
+              text: m[3].trim().slice(0, 200),
             });
           }
         }
@@ -714,12 +723,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<ReplaceResult | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const { q, replace: replacement } = req.body;
       // The same match as rg, expressed as a JS regex for the rewrite. Rust
       // and JS regex syntax differ at the margins; matching files are found by
@@ -747,31 +752,30 @@ export default async function fileRoutes(app: FastifyInstance) {
         req.log.error(err, "replace search failed");
         return reply.code(500).send({ error: "replace failed" });
       }
-      let files = 0;
-      let replacements = 0;
+      const paths: string[] = [];
       for (const rel of matched.slice(0, 500)) {
-        const abs = resolveInsideRepos(req.params.name, rel);
-        const before = await fs.readFile(abs, "utf8");
-        let n = 0;
-        let after: string;
-        if (req.body.regex) {
-          // String replacement so "$1" backreferences work.
-          n = (before.match(re) ?? []).length;
-          after = before.replace(re, replacement);
-        } else {
-          // Function replacement keeps "$&" etc. in the replacement literal.
-          after = before.replace(re, () => {
-            n++;
-            return replacement;
-          });
-        }
-        if (n > 0) {
-          await fs.writeFile(abs, after);
-          files++;
-          replacements += n;
+        try {
+          paths.push(resolveInsideRepos(req.params.name, rel));
+        } catch {
+          // Gone, or now out of bounds — rg listed it a moment ago.
         }
       }
-      return { files, replacements };
+      // Off-thread: the pattern is client input and can backtrack forever.
+      try {
+        return await runReplace({
+          paths,
+          source: re.source,
+          flags: re.flags,
+          replacement,
+          literal: !req.body.regex,
+        });
+      } catch (err) {
+        if (err instanceof ReplaceTimeout) {
+          return reply.code(400).send({ error: "pattern too slow — narrow it and try again" });
+        }
+        req.log.error(err, "replace failed");
+        return reply.code(500).send({ error: "replace failed" });
+      }
     },
   );
 
@@ -779,12 +783,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/discard",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);
@@ -794,19 +794,13 @@ export default async function fileRoutes(app: FastifyInstance) {
       // VS Code semantics: untracked files are deleted, tracked files restored
       // to their index state (working tree only, staged changes untouched).
       try {
-        const { stdout } = await exec(
-          "git",
-          ["-C", repoDir, "status", "--porcelain=v1", "-uall", "--", ...paths],
-          { env: GIT_ENV },
-        );
+        const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall", "--", ...paths], {
+          env: GIT_ENV,
+        });
         const untracked: string[] = [];
         const tracked: string[] = [];
-        for (const line of stdout.split("\n").filter(Boolean)) {
-          let p = line.slice(3);
-          const arrow = p.indexOf(" -> ");
-          if (arrow !== -1) p = p.slice(arrow + 4);
-          p = p.replace(/^"(.*)"$/, "$1");
-          (line[0] === "?" ? untracked : tracked).push(p);
+        for (const { x, path: p } of parsePorcelainZ(out)) {
+          (x === "?" ? untracked : tracked).push(p);
         }
         for (const p of untracked) {
           await fs.rm(resolveInsideRepos(req.params.name, p), { force: true });

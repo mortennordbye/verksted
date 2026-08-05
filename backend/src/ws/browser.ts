@@ -32,6 +32,8 @@ export default async function browserRoutes(app: FastifyInstance) {
     { websocket: true },
     async (socket, req) => {
       const { id } = req.params;
+      socket.on("error", (err: unknown) => req.log.warn({ err, id }, "browser socket error"));
+
       const session = await store.getSession(id);
       if (!session || session.status === "done") {
         socket.close(4404, "no such session");
@@ -58,6 +60,20 @@ export default async function browserRoutes(app: FastifyInstance) {
       };
       await browser.addListener(entry, listener);
 
+      // Same reason the attach socket has one: a pane showing a static page
+      // sends nothing for minutes, and an idle-timeout proxy — or an iOS PWA
+      // frozen in the background — leaves a socket that TCP alone takes many
+      // minutes to notice, holding a screencast listener open behind it.
+      let answered = true;
+      socket.on("pong", () => {
+        answered = true;
+      });
+      const keepalive = setInterval(() => {
+        if (!answered) return socket.terminate();
+        answered = false;
+        socket.ping();
+      }, 30_000);
+
       socket.on("message", (raw: Buffer) => {
         if (raw.length > 4096) return;
         let msg: BrowserClientMsg;
@@ -70,6 +86,7 @@ export default async function browserRoutes(app: FastifyInstance) {
       });
 
       socket.on("close", () => {
+        clearInterval(keepalive);
         void browser.removeListener(entry, listener);
       });
     },
@@ -87,7 +104,7 @@ async function handle(
       const url = browser.validNavUrl(String(msg.url ?? ""));
       if (!url) return reply({ t: "error", message: "invalid url" });
       await page.goto(url, { waitUntil: "commit", timeout: 20_000 }).catch((err: Error) => {
-        reply({ t: "error", message: err.message.split("\n")[0]!.slice(0, 200) });
+        reply({ t: "error", message: err.message.split("\n")[0].slice(0, 200) });
       });
       return;
     }
