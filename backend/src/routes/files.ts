@@ -1,6 +1,5 @@
+import { exec } from "../exec.js";
 import { createHash } from "node:crypto";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -17,11 +16,9 @@ import type {
   UploadedFile,
 } from "../../../shared/api.js";
 import { branchOf, git, gitError, gitRaw, parsePorcelainZ } from "../git.js";
-import { repoRelPath, resolveInsideRepos } from "../paths.js";
+import { repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
 import { ReplaceTimeout, runReplace } from "../replace.js";
-
-const exec = promisify(execFile);
 
 // Literal pathspecs: client-supplied paths can never be pathspec magic/globs.
 const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: "1" };
@@ -183,12 +180,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/tree",
     async (req, reply): Promise<Tree | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const modified = await modifiedPaths(repoDir);
       const budget = { left: MAX_ENTRIES };
       const nodes = await walk(repoDir, "", 0, budget, modified);
@@ -350,12 +343,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<UploadedFile | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const body = req.body;
       if (!Buffer.isBuffer(body) || body.length === 0) {
         return reply.code(415).send({ error: "raw body required" });
@@ -395,12 +384,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<FileDiff | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let rel: string;
       try {
         rel = repoRelPath(req.query.path);
@@ -434,12 +419,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/git",
     async (req, reply): Promise<GitStatus | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let files: GitFileStatus[] = [];
       try {
         const out = await gitRaw(repoDir, ["status", "--porcelain=v1", "-z", "-uall"]);
@@ -477,12 +458,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/stage",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);
@@ -503,12 +480,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/unstage",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);
@@ -547,12 +520,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const message = req.body.message.trim();
       if (!message) return reply.code(400).send({ error: "empty commit message" });
       try {
@@ -584,12 +553,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/git/branches",
     async (req, reply): Promise<GitBranches | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       return {
         current: await branchOf(repoDir),
         local: await refNames(repoDir, "refs/heads"),
@@ -612,12 +577,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const branch = req.body.branch.trim();
       try {
         await exec("git", ["check-ref-format", "--branch", branch]);
@@ -639,12 +600,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string } }>(
     "/api/projects/:name/git/pull",
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       if (!(await upstreamOf(repoDir))) {
         return reply.code(409).send({ error: "branch has no upstream" });
       }
@@ -668,12 +625,8 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string } }>(
     "/api/projects/:name/git/reset",
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const upstream = await upstreamOf(repoDir);
       if (!upstream) return reply.code(409).send({ error: "branch has no upstream" });
       try {
@@ -719,12 +672,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       try {
         const { stdout } = await exec(
           "rg",
@@ -774,12 +723,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<ReplaceResult | void> => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       const { q, replace: replacement } = req.body;
       // The same match as rg, expressed as a JS regex for the rewrite. Rust
       // and JS regex syntax differ at the margins; matching files are found by
@@ -838,12 +783,8 @@ export default async function fileRoutes(app: FastifyInstance) {
     "/api/projects/:name/git/discard",
     { schema: { body: pathsBody } },
     async (req, reply) => {
-      let repoDir: string;
-      try {
-        repoDir = resolveInsideRepos(req.params.name);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
-      }
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
       let paths: string[];
       try {
         paths = req.body.paths.map(repoRelPath);

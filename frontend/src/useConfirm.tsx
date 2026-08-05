@@ -48,7 +48,7 @@ export function useConfirm(): [(req: Request) => Promise<boolean>, ReactNode] {
       <button
         onClick={() => settle(true)}
         className={`tap w-full rounded-[11px] px-3.5 py-3 font-mono text-[13px] font-semibold ${
-          request.danger ? "bg-fail text-[#1a0e0e]" : "bg-accent text-[#16130a]"
+          request.danger ? "bg-fail text-[#1a0e0e]" : "bg-accent text-on-accent"
         }`}
       >
         {request.action}

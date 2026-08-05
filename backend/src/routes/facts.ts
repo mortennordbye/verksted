@@ -1,14 +1,11 @@
-import { execFile } from "node:child_process";
+import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import os from "node:os";
-import { promisify } from "node:util";
 import type { FastifyInstance } from "fastify";
 import type { ListeningPort, PodFacts } from "../../../shared/api.js";
 import { browserCount } from "../browser.js";
 import { ttlCache } from "../cache.js";
 import { env } from "../env.js";
-
-const exec = promisify(execFile);
 
 /** cgroup-v2 aware memory usage; falls back to OS totals outside a limit. */
 async function memory(): Promise<{ used: number; total: number }> {

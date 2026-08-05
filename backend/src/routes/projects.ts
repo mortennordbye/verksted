@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -9,8 +8,6 @@ import { branchOf, git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { execEnv } from "../settings-store.js";
-
-const exec = promisify(execFile);
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
 // Both halves must start alphanumeric: "-oX/y" would otherwise reach

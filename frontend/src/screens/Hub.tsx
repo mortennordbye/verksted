@@ -2,13 +2,13 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import type { PodFacts, Project } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import TopBar from "../components/TopBar";
+import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
+import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
 }
-import TopBar from "../components/TopBar";
-import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
-import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 export default function Hub() {
   const navigate = useNavigate();
@@ -71,7 +71,7 @@ export default function Hub() {
           </div>
           <button
             onClick={() => setAdding(true)}
-            className="flex-none rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110"
+            className="flex-none rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
           >
             + add project
           </button>
@@ -193,7 +193,7 @@ export default function Hub() {
           <button
             onClick={addProject}
             disabled={busy}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "working…" : input.includes("/") ? "clone" : "init"}
           </button>

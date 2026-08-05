@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { BranchSync } from "../../shared/api.js";
-
-const exec = promisify(execFile);
 
 /**
  * Raw stdout, untrimmed. Porcelain -z output can legitimately begin with a

@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "../exec.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type {
   MergeResult,
@@ -16,8 +15,6 @@ import { branchOf, defaultBranch, git, gitError } from "../git.js";
 import { gh, ghJson, formatRunLog, summarizeChecks, GhError } from "../gh.js";
 import { resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
-
-const exec = promisify(execFile);
 
 const MAX_DIFF_CHARS = 400_000;
 

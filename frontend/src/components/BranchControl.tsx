@@ -99,7 +99,7 @@ export default function BranchControl({
             <button
               onClick={() => run(() => post("pull"))}
               disabled={busy || !data?.upstream}
-              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               {busy ? "working…" : "↓ pull"}
             </button>

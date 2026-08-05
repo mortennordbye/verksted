@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "./exec.js";
 import { execEnv } from "./settings-store.js";
 import type { PullRequest, RunLog } from "../../shared/api.js";
-
-const exec = promisify(execFile);
 
 /** A failed gh call, already mapped to what the client should see. */
 export class GhError extends Error {

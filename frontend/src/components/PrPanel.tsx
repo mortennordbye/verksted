@@ -204,7 +204,7 @@ function PrSheet({
             onClick={merge}
             disabled={busy || !open}
             title={open ? "squash and delete the branch" : `already ${pr?.state.toLowerCase()}`}
-            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "working…" : open ? "⑃ squash merge" : (pr?.state.toLowerCase() ?? "…")}
           </button>
@@ -356,7 +356,7 @@ function CreatePrSheet({
       <button
         onClick={create}
         disabled={busy || !title.trim()}
-        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
       >
         {busy ? "pushing…" : "push and open pr"}
       </button>

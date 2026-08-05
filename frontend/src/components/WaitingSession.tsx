@@ -121,7 +121,7 @@ function Reply({ onSend, sending }: { onSend: (text: string) => void; sending: b
       <button
         onClick={send}
         disabled={sending || !text.trim()}
-        className="tap flex-none rounded-md bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] disabled:opacity-50"
+        className="tap flex-none rounded-md bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent disabled:opacity-50"
       >
         send
       </button>

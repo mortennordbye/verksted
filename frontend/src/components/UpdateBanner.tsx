@@ -30,7 +30,7 @@ export default function UpdateBanner() {
       <span className="min-w-0 flex-1">a new build of verksted is ready</span>
       <button
         onClick={() => void updateServiceWorker(true)}
-        className="flex-none rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-[#16130a] hover:brightness-110"
+        className="flex-none rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-on-accent hover:brightness-110"
       >
         reload
       </button>

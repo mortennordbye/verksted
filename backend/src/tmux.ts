@@ -1,7 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
-const exec = promisify(execFile);
+import { exec } from "./exec.js";
 
 // The tmux server inherits its locale from whoever starts it; without UTF-8 it
 // mangles multibyte output to "_". Guarantee it even if the image env lacks LANG.

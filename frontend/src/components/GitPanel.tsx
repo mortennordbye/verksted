@@ -208,7 +208,7 @@ export default function GitPanel({
         <button
           onClick={commit}
           disabled={!canCommit}
-          className="mt-1 w-full rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+          className="mt-1 w-full rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {busy ? "working…" : "✓ Commit"}
         </button>

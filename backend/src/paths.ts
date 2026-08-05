@@ -64,3 +64,25 @@ export function repoRelPath(relPath: string): string {
   if (norm === ".." || norm.startsWith(".." + path.sep)) throw new PathDeniedError();
   return norm;
 }
+
+/**
+ * Resolve a project (and optional path) or answer 404, which every route did
+ * with its own four-line try/catch — seventeen copies in files.ts alone.
+ *
+ * Returns null when it replied, so the caller's next line is `if (!dir) return;`.
+ * A missing project and a denied path are deliberately the same answer: the
+ * difference tells a caller whether a name exists, which is the one thing the
+ * scoping is there to hide.
+ */
+export function repoDirOr404(
+  reply: { code: (n: number) => { send: (body: unknown) => unknown } },
+  projectName: string,
+  relPath = "",
+): string | null {
+  try {
+    return resolveInsideRepos(projectName, relPath);
+  } catch {
+    reply.code(404).send({ error: "not found" });
+    return null;
+  }
+}

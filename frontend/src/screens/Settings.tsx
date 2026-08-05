@@ -104,7 +104,7 @@ export default function Settings() {
               {drafts[v.key]?.trim() && (
                 <button
                   onClick={() => saveDraft(v.key)}
-                  className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110"
+                  className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
                 >
                   save
                 </button>
@@ -141,7 +141,7 @@ export default function Settings() {
             <button
               onClick={addVar}
               disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add
             </button>
@@ -312,7 +312,7 @@ function Notifications() {
           <button
             onClick={enable}
             disabled={busy}
-            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "enabling…" : "enable"}
           </button>
@@ -601,7 +601,7 @@ function Schedules() {
                 <button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
                   disabled={busy || !edit.cron.trim() || !edit.prompt.trim()}
-                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   save
                 </button>
@@ -674,7 +674,7 @@ function Schedules() {
           <button
             onClick={add}
             disabled={busy || !draft.name.trim() || !draft.prompt.trim() || !projects?.length}
-            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             add schedule
           </button>
@@ -832,7 +832,7 @@ function SshKeys() {
               onClick={generate}
               disabled={busy || !name.trim()}
               title="generate an ed25519 keypair in the pod — the private key never leaves it" aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
             </button>
@@ -850,7 +850,7 @@ function SshKeys() {
             <button
               onClick={add}
               disabled={busy || !name.trim()}
-              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add key
             </button>

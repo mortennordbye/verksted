@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
+import { exec } from "./exec.js";
 import fs from "node:fs/promises";
-import { promisify } from "node:util";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
-
-const exec = promisify(execFile);
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.

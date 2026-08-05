@@ -13,6 +13,9 @@
      cool grey. --color-idle stays put: it is a dot, not text. */
   --color-faint: #7d8798;
   --color-accent: #d9a441;
+  /* Text on an accent-filled button. Was written as a raw #16130a in twenty-one
+     places, so a change to --color-accent could not follow it. */
+  --color-on-accent: #16130a;
   --color-run: #4ec97b;
   --color-wait: #e0a63d;
   /* Not from the mock: it predates CI, so it has no failure state. Same

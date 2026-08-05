@@ -230,7 +230,7 @@ export default function Project() {
             )}
             <button
               onClick={() => setPicking(true)}
-              className="rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110"
+              className="rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
             >
               ▸ new session
             </button>
@@ -359,7 +359,7 @@ export default function Project() {
           <button
             onClick={newWorktree}
             disabled={branchBusy || !branch.trim()}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {branchBusy ? "working…" : "create worktree"}
           </button>
