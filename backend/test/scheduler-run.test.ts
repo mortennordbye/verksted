@@ -107,7 +107,7 @@ describe("runSchedule", () => {
 
     const [argv] = fake.subcommand("tmux", "new-session");
     expect(envOf(argv).VK_PROMPT).toContain('merge "approved" PRs; then $(rm -rf /) `whoami`');
-    const command = fake.subcommand("tmux", "send-keys")[0][3];
+    const command = argv.at(-1)!;
     expect(command).toContain('"$VK_PROMPT"');
     expect(command).not.toContain("rm -rf");
   });
@@ -128,7 +128,7 @@ describe("runSchedule", () => {
 
     await scheduler.runSchedule(s.id, log);
 
-    expect(fake.subcommand("tmux", "send-keys")[0][3]).toContain("--permission-mode auto");
+    expect(fake.subcommand("tmux", "new-session")[0].at(-1)).toContain("--permission-mode auto");
   });
 
   it("skips a tick while the previous run is still open, and records why", async () => {

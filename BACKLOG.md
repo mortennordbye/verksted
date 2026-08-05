@@ -245,46 +245,31 @@ what unblocks it / where the code lives.
   listed above (`frontend/src/App.tsx`, `main.tsx`, `components/TopBar.tsx`,
   `screens/Hub.tsx`, `Project.tsx`, `Session.tsx`, `Settings.tsx`, `Inbox.tsx`)
 
-## Give each terminal client its own tmux window size
+## Pick a window-size policy for two clients on one session
 
-- **What:** Every attach client shares one tmux window, so tmux sizes it to the
-  smallest attached client. Opening a session on the phone snaps the desktop
-  terminal to phone geometry until the phone detaches, and agent TUIs redraw
-  their boxes at the smaller width.
-- **Why deferred:** The two fixes are not equivalent. `aggressive-resize` only
-  helps when clients are looking at *different* windows, which is not the case
-  here — every client attaches to the same one, so it changes nothing. The real
-  fix is grouped sessions: each client attaches to a throwaway
-  `tmux new-session -t <id> -s <id>-view-<n>`, which gets its own window and so
-  its own size. That means allocating and reaping per-client view sessions, and
-  it touches the invariant in CLAUDE.md that closing a websocket must detach and
-  never kill the underlying session — worth doing deliberately rather than
-  folding into a robustness pass.
-- **Unblocked by:** Deciding how view sessions are named and reaped (including
-  after a backend restart leaves orphans), and confirming that killing the base
-  session takes its views with it.
-- **Where:** `backend/src/ws/attach.ts` (the `attach-session` argv),
-  `backend/src/tmux.ts`, `backend/src/sessions-store.ts` (`killQuietly` of the
-  `-shell` companion is the pattern to follow for reaping)
-
-## Start the agent command without send-keys
-
-- **What:** `tmux.newSession` creates the session and then delivers the agent
-  command with `send-keys`, which can race the pane shell's startup and be
-  swallowed.
-- **Why deferred:** The obvious fix — passing the command as `new-session`'s
-  shell-command argument — changes behaviour: the tmux session then dies when
-  the agent exits, instead of dropping back to a shell in the project
-  directory. That shell is useful (it is how you restart a crashed agent in the
-  same session, and how a failed agent command stays visible instead of the
-  session vanishing). Preserving it means wrapping as
-  `<command>; exec "${SHELL:-/bin/sh}"`, which is a real change to how every
-  session starts and wants testing against all three agent CLIs.
-- **Unblocked by:** Deciding whether a session should outlive its agent at all.
-  If yes, the wrapped form above; if no, the plain shell-command form is simpler
-  and also fixes the "finished" semantics.
-- **Where:** `backend/src/tmux.ts` (`newSession`), `backend/src/sessions-store.ts`
-  (`launchAgent` builds the command string)
+- **What:** Two clients on one session share one geometry. The default
+  `window-size latest` means the most recently attached client wins, so opening
+  a session on the phone snaps the desktop terminal to phone width until the
+  phone detaches, and agent TUIs redraw their boxes at the smaller size.
+- **Why deferred:** The grouped-session fix this entry used to propose does not
+  work, and that is now checked rather than assumed. `tmux new-session -t <id>
+  -s <id>-view-1` puts the new session in the same group, and
+  `list-windows -a` shows both sessions on the *same window* (`@0`) at one
+  size — a session group shares window objects, so a per-client session buys no
+  per-client geometry. Nothing in tmux can: one pane is one screen buffer, and
+  every client viewing it sees the same render. `aggressive-resize` does not
+  help either, for the reason already recorded — it only separates clients whose
+  *current* windows differ.
+- **Unblocked by:** A product call, since the only lever is which client loses.
+  `window-size largest` keeps the desktop intact and gives the phone a cropped
+  viewport onto a wider window; `smallest` is today's complaint made permanent;
+  `latest` is the current behaviour, where whichever device you just picked up
+  renders correctly and the other is wrong until it detaches. Given the phone is
+  the device this app is mostly used from, `latest` may already be the least-bad
+  default — which would make this entry a decision to close rather than code to
+  write.
+- **Where:** `backend/src/tmux.ts` (`newSession` would set the option),
+  `backend/src/ws/attach.ts` (the `attach-session` argv)
 
 ## Per-file selection and a dry run for repo-wide replace
 

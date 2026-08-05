@@ -46,9 +46,12 @@ function created(): string[] {
   return fake.subcommand("tmux", "new-session").map((argv) => argv[argv.indexOf("-s") + 1]);
 }
 
-/** The command string sent into a session's pane. */
+/** The shell-command a session was created to run. */
 function commandFor(id: string): string | undefined {
-  return fake.subcommand("tmux", "send-keys").find((argv) => argv[2] === id)?.[3];
+  const argv = fake
+    .subcommand("tmux", "new-session")
+    .find((a) => a[a.indexOf("-s") + 1] === id);
+  return argv?.at(-1);
 }
 
 beforeAll(async () => {
@@ -87,6 +90,19 @@ describe("restoreSessions", () => {
 
     expect(created()).toEqual(["vk-demo-1"]);
     expect(commandFor("vk-demo-1")).toContain("claude --resume 11111111-2222-3333-4444-555555555555");
+  });
+
+  it("starts the agent as the session's own command, not by typing into its pane", async () => {
+    // send-keys races the pane shell's startup: a command sent before the shell
+    // is reading is dropped, leaving a session with no agent in it.
+    seed("vk-demo-1", { conv: "11111111-1111-1111-1111-111111111111" });
+
+    await store.restoreSessions(log);
+
+    expect(fake.subcommand("tmux", "send-keys")).toEqual([]);
+    // The trailing exec is what keeps the session alive once the agent exits —
+    // that shell is how a crashed agent is restarted in the same session.
+    expect(commandFor("vk-demo-1")).toMatch(/; exec "\$\{SHELL:-\/bin\/sh\}"$/);
   });
 
   it("starts the agent in the session's own project directory", async () => {
