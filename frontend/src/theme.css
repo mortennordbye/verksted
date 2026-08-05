@@ -73,7 +73,6 @@ body {
 }
 
 button,
-[role="tab"],
 summary {
   /* Skips the 300ms click delay left over from double-tap-to-zoom. */
   touch-action: manipulation;
@@ -83,8 +82,6 @@ summary {
    a drag starts. Anything the user might legitimately want to copy — terminal
    output, file contents, the ssh public key — opts back in below. */
 button,
-[role="tab"],
-[role="tablist"],
 nav,
 h1,
 h2 {
@@ -137,7 +134,6 @@ textarea,
    indicator anywhere: Tab moves an invisible cursor around the app. */
 button:focus-visible,
 a:focus-visible,
-[role="tab"]:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {

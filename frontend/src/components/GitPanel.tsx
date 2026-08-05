@@ -62,22 +62,25 @@ function FileRow({
   const dir = file.path.includes("/") ? file.path.slice(0, file.path.lastIndexOf("/")) : "";
   const deleted = file.status === "D";
   return (
-    <li className="group">
-      {/* div, not button: the action buttons nest inside the clickable row */}
-      <div
+    // The row used to be a div with an onClick, because a button cannot nest
+    // buttons — which left opening a diff unreachable without a pointer. The
+    // action buttons are siblings of the clickable part instead, the same shape
+    // the session rows use.
+    <li className="group flex w-full items-center gap-[7px] whitespace-nowrap rounded-md px-2.5 py-1 text-muted hover:bg-surface-2 hover:text-text">
+      <button
         onClick={() => onOpenDiff(file)}
-        className="flex w-full cursor-pointer items-center gap-[7px] whitespace-nowrap rounded-md px-2.5 py-1 text-left text-muted hover:bg-surface-2 hover:text-text"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] text-left"
       >
         <img src={fileIcon(name)} alt="" className="h-4 w-4 flex-none" />
         <span className={`text-text ${deleted ? "line-through opacity-60" : ""}`}>{name}</span>
         {dir && <span className="min-w-0 truncate text-[11px] text-faint">{dir}</span>}
-        <span className={`ml-auto ${ACTIONS_CLS}`}>
-          {actions.map((a) => (
-            <IconButton key={a.title} glyph={a.glyph} title={a.title} onClick={a.run} disabled={busy} />
-          ))}
-        </span>
-        <span className={`pl-1.5 ${STATUS_COLOR[file.status] ?? "text-muted"}`}>{file.status}</span>
-      </div>
+      </button>
+      <span className={`ml-auto ${ACTIONS_CLS}`}>
+        {actions.map((a) => (
+          <IconButton key={a.title} glyph={a.glyph} title={a.title} onClick={a.run} disabled={busy} />
+        ))}
+      </span>
+      <span className={`pl-1.5 ${STATUS_COLOR[file.status] ?? "text-muted"}`}>{file.status}</span>
     </li>
   );
 }

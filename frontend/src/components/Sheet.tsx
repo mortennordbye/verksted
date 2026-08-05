@@ -1,5 +1,5 @@
 import { useEffect, type ReactNode } from "react";
-import { useDismissOnBack } from "../useDismissOnBack";
+import { useOverlayDismiss } from "../useDismissOnBack";
 
 /**
  * Autofocus, but only where focusing is free.
@@ -24,15 +24,9 @@ export default function Sheet({
   onClose: () => void;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    addEventListener("keydown", onKey);
-    return () => removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  // A Sheet is only ever rendered when it is open, so Back closes this one
-  // rather than leaving the screen.
-  useDismissOnBack(true, onClose);
+  // A Sheet is only ever rendered when it is open, so Escape and Back close
+  // this one rather than leaving the screen.
+  useOverlayDismiss(true, onClose);
 
   // Scroll lock. Without it a touch drag over the sheet scrolls the page
   // underneath, which on a phone reads as the sheet sliding around.
@@ -46,6 +40,11 @@ export default function Sheet({
 
   return (
     <div
+      // Presentational: the backdrop is a click-away shortcut, not a control.
+      // Every way out it offers already exists on the keyboard — Escape and
+      // Android Back through useDismissOnBack, and the cancel button below —
+      // so there is nothing here for a keyboard user to be locked out of.
+      role="presentation"
       className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 min-[800px]:items-center"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >

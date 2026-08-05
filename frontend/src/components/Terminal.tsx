@@ -344,6 +344,15 @@ export default function Terminal({
     }
   }
 
+  // The terminal effect is set up once per connection, so referring to the
+  // function directly would pin the first render's copy of it there for the
+  // life of the socket. Everything the body touches today is a ref or a stable
+  // setter, so that stale closure happens to behave — but that is a property of
+  // the current body rather than of the Ctrl+Shift+V handler, and the next bit
+  // of state added here would break it silently.
+  const pasteRef = useRef(pasteFromClipboard);
+  pasteRef.current = pasteFromClipboard;
+
   // A phone has no clipboard route for screenshots, so the picker (photo
   // library / camera) stands in for pasting: upload the images, then type their
   // paths into the prompt so the agent can read them. No Enter — the user writes
@@ -521,7 +530,7 @@ export default function Terminal({
         return false;
       }
       if (key === "v") {
-        void pasteFromClipboard();
+        void pasteRef.current();
         return false;
       }
       return true;

@@ -100,6 +100,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      // Presentational: clicking away duplicates Escape and Android Back.
+      role="presentation"
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 px-4 pt-[12vh]"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
@@ -110,6 +112,10 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
         className="flex max-h-[70dvh] w-full max-w-[560px] flex-col overflow-hidden rounded-2xl border border-line bg-surface"
       >
         <input
+          // The palette is opened in order to type into it, so moving focus here is
+          // the action the user just asked for rather than a surprise. Without it
+          // every open would need a Tab first.
+          // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
           value={query}
           onChange={(e) => setQuery(e.target.value)}

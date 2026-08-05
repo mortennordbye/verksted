@@ -1,4 +1,5 @@
 import { diffLineClass } from "../diff";
+import { useOverlayDismiss } from "../useDismissOnBack";
 
 /**
  * Full-screen text viewer for a PR diff or a failed run's log. Colours diff
@@ -17,13 +18,24 @@ export default function CodeOverlay({
   truncated?: boolean;
   onClose: () => void;
 }) {
+  // This overlay had neither: Escape did nothing, and Android Back left the
+  // screen entirely instead of closing the viewer.
+  useOverlayDismiss(true, onClose);
+
   const lines = text.split("\n");
   return (
     <div
+      // Presentational: clicking away duplicates Escape, Back and the ✕ button.
+      role="presentation"
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface"
+      >
         <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
           <span className="min-w-0 truncate">{title}</span>
           <button onClick={onClose} className="ml-auto flex-none px-2 text-faint hover:text-text">

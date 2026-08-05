@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -23,6 +23,7 @@ import SearchPanel from "../components/SearchPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
 import { useConfirm } from "../useConfirm";
+import { useOverlayDismiss } from "../useDismissOnBack";
 
 /** hljs language for a path, via its extension (aliases resolve: ts, py, yml…). */
 function langFor(path: string): string | null {
@@ -50,9 +51,14 @@ function Tab({
   children: ReactNode;
 }) {
   return (
+    // A pressed toggle button, not role="tab". The ARIA tabs pattern requires
+    // each tab to point at its panel with aria-controls, and these panels are
+    // deliberately unmounted while unselected so their polls do not run — so
+    // aria-controls would name an element that is not in the document, which
+    // reads worse than never claiming the pattern. aria-pressed says the one
+    // thing that actually matters here: which of these is on.
     <button
-      role="tab"
-      aria-selected={on}
+      aria-pressed={on}
       onClick={onClick}
       className={`flex-none rounded-lg border px-3 py-1.5 font-mono text-[12.5px] ${
         on ? "border-accent bg-surface-2 text-text" : "border-line bg-surface text-muted"
@@ -157,6 +163,9 @@ export default function Session() {
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [file, setFile] = useState<Viewed | null>(null);
+  // The file viewer could only be closed by pointer: no Escape, and Back left
+  // the session entirely rather than closing it.
+  useOverlayDismiss(file !== null, useCallback(() => setFile(null), []));
   const [confirm, confirmDialog] = useConfirm();
 
   async function openFile(path: string) {
@@ -303,7 +312,7 @@ export default function Session() {
           {/* Phone: one strip for every pane. Desktop shows the sidebar and the
               terminal side by side instead, and picks companions in the box. */}
           <div className="mb-2 flex flex-none items-center gap-1.5 desk:hidden">
-            <div role="tablist" className="flex min-w-0 gap-1.5 overflow-x-auto">
+            <div role="group" aria-label="pane" className="flex min-w-0 gap-1.5 overflow-x-auto">
               <Tab on={pane === "tree"} onClick={() => setPane("tree")}>
                 files
               </Tab>
@@ -363,6 +372,11 @@ export default function Session() {
                   while a wide monitor sat empty. Absolutely positioned on the
                   edge rather than a third grid column, so the mobile stacking
                   of this grid is untouched. */}
+              {/* A focusable separator is the WAI-ARIA window splitter pattern: it is an
+                  interactive widget, and the valuenow/min/max and arrow-key handling that
+                  pattern asks for is all right here. The rule only knows that "separator"
+                  is non-interactive by default. */}
+              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
               <div
                 onPointerDown={(e) => {
                   sideDrag.current = true;
@@ -391,16 +405,17 @@ export default function Session() {
                 aria-valuenow={sideWidth}
                 aria-valuemin={160}
                 aria-valuemax={640}
+                // Being focusable is what makes the splitter usable without a mouse.
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                 tabIndex={0}
                 title="drag to resize · double-click to reset · arrow keys"
                 className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
               />
-              <div role="tablist" className="mb-2 flex flex-none gap-1.5">
+              <div role="group" aria-label="side panel" className="mb-2 flex flex-none gap-1.5">
                 {(["files", "git", "search"] as const).map((t) => (
                   <button
                     key={t}
-                    role="tab"
-                    aria-selected={side === t}
+                    aria-pressed={side === t}
                     onClick={() => setSide(t)}
                     className={`rounded-md border px-2.5 py-1 font-mono text-[11px] ${
                       side === t
@@ -461,12 +476,11 @@ export default function Session() {
                 </span>
                 {live && (
                   // Mobile: one pane at a time, these switch between them.
-                  <span role="tablist" className="flex gap-1.5 desk:hidden">
+                  <span role="group" aria-label="pane" className="flex gap-1.5 desk:hidden">
                     {(["agent", "shell", "browser"] as const).map((p) => (
                       <button
                         key={p}
-                        role="tab"
-                        aria-selected={active === p}
+                        aria-pressed={active === p}
                         onClick={() => pick(p)}
                         className={`rounded-[5px] border px-2 py-0.5 ${
                           active === p
@@ -515,6 +529,9 @@ export default function Session() {
                       <Terminal sessionId={session.id} project={session.project} />
                     </div>
                     {(shell || browser) && (
+                      // The WAI-ARIA window splitter pattern again; see the sidebar
+                      // separator above.
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
                       <div
                         onPointerDown={(e) => {
                           dragging.current = true;
@@ -546,6 +563,8 @@ export default function Session() {
                         aria-valuenow={Math.round(ratio)}
                         aria-valuemin={20}
                         aria-valuemax={80}
+                        // Being focusable is what makes the splitter usable without a mouse.
+                        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
                         tabIndex={0}
                         title="drag to resize · double-click to reset · arrow keys"
                         className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
@@ -609,10 +628,17 @@ export default function Session() {
 
       {file && (
         <div
+          // Presentational: clicking away duplicates Escape, Back and the ✕.
+          role="presentation"
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
           onClick={(e) => e.target === e.currentTarget && setFile(null)}
         >
-          <div className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={file.path}
+            className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface"
+          >
             <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
               <img src={fileIcon(file.path.split("/").at(-1)!)} alt="" className="h-4 w-4 flex-none" />
               <span className="min-w-0 truncate">{file.path}</span>

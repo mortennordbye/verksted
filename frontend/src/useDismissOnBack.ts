@@ -42,3 +42,27 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
     };
   }, [open]);
 }
+
+/**
+ * The two ways out every overlay in this app offers: Escape on a desktop, and
+ * Android Back on a phone. Sheet, the code viewer and the session's file viewer
+ * each had their own copy of the keydown effect next to their own call to
+ * useDismissOnBack; the file viewer had neither, which is how it ended up
+ * closeable only by pointer.
+ *
+ * `open` matters for overlays that are rendered unconditionally and hidden by
+ * state. One that is only mounted while open passes true.
+ */
+export function useOverlayDismiss(open: boolean, onClose: () => void): void {
+  const close = useRef(onClose);
+  close.current = onClose;
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current();
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [open]);
+
+  useDismissOnBack(open, onClose);
+}
