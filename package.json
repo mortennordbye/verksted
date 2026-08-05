@@ -6,7 +6,7 @@
     "frontend"
   ],
   "scripts": {
-    "lint": "npm run lint --workspaces && eslint .",
+    "lint": "npm run lint --workspaces && eslint . && npm run format:check",
     "test": "npm test --workspaces",
     "build": "npm run build --workspaces",
     "format": "prettier --write .",

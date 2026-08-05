@@ -289,19 +289,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/routes/files.ts` (the replace route),
   `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
 
-## Adopt Prettier across the existing code
-
-- **What:** Prettier is configured (`.prettierrc.json`) and `npm run format` /
-  `format:check` exist, but the codebase has not been reformatted and
-  `format:check` is not in CI.
-- **Why deferred:** Reformatting every file in the same branch as a large
-  behavioural change makes the diff unreviewable. The config is in place so the
-  reformat is a single mechanical commit whenever it suits.
-- **Unblocked by:** `npm run format` on a branch of its own, then adding
-  `npm run format:check` to the lint script and CI.
-- **Where:** `.prettierrc.json`, `.prettierignore`, `package.json` scripts,
-  `.github/workflows/ci.yml`
-
 ## Run CI through the containers, not on the runner
 
 - **What:** CI still does `npm ci` on the GitHub runner, so node-pty is compiled
