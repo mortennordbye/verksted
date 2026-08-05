@@ -9,7 +9,7 @@ import type {
   GitFileStatus,
   GitStatus,
   Session as SessionInfo,
-  TreeNode,
+  Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
@@ -111,7 +111,7 @@ export default function Session() {
   const { sync } = (useLocation().state ?? {}) as { sync?: BranchSync };
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
   const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
-  const { data: tree, refresh: refreshTree } = usePoll<TreeNode[]>(
+  const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
     8_000,
   );
@@ -418,7 +418,8 @@ export default function Session() {
               {side === "files" && (
                 <FileTree
                   title={session ? `~/${session.project}` : "…"}
-                  nodes={tree}
+                  nodes={tree?.nodes ?? null}
+                  truncated={tree?.truncated ?? false}
                   onOpenFile={openFile}
                   onUpload={async (f) => {
                     await uploadFile(f);

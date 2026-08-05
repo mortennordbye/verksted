@@ -51,11 +51,14 @@ function Node({
 export default function FileTree({
   title,
   nodes,
+  truncated,
   onOpenFile,
   onUpload,
 }: {
   title: string;
   nodes: TreeNode[] | null;
+  /** The walk hit its entry budget, so files are missing from this tree. */
+  truncated?: boolean;
   onOpenFile: (path: string) => void;
   onUpload?: (file: File) => Promise<void>;
 }) {
@@ -106,6 +109,13 @@ export default function FileTree({
           <Node key={n.path} node={n} onOpenFile={onOpenFile} />
         ))}
         {nodes?.length === 0 && <li className="px-2.5 text-faint">empty repo</li>}
+        {truncated && (
+          // Otherwise a missing file reads as "not there" rather than "the
+          // tree stopped early".
+          <li className="px-2.5 pt-2 text-[11px] text-wait">
+            too many files — this tree is incomplete
+          </li>
+        )}
       </ul>
     </nav>
   );

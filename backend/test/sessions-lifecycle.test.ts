@@ -7,7 +7,7 @@ import { TmuxUnavailableError } from "../src/tmux.js";
 // sessions-store is the state machine; everything it talks to is stubbed so the
 // tests are about its own decisions rather than tmux, git or chromium.
 const tmuxList = vi.fn<() => Promise<string[]>>();
-const tmuxNew = vi.fn<() => Promise<void>>();
+const tmuxNew = vi.fn<(...args: unknown[]) => Promise<void>>();
 const tmuxKill = vi.fn<(name: string) => Promise<void>>();
 
 vi.mock("../src/tmux.js", async () => {
@@ -15,7 +15,7 @@ vi.mock("../src/tmux.js", async () => {
   return {
     ...actual,
     listSessions: () => tmuxList(),
-    newSession: () => tmuxNew(),
+    newSession: (...args: unknown[]) => tmuxNew(...args),
     killSession: (name: string) => tmuxKill(name),
   };
 });
@@ -39,6 +39,10 @@ let sessionsDir: string;
 let reposDir: string;
 
 const metaFile = (id: string) => path.join(sessionsDir, `${id}.json`);
+
+/** The extraEnv the last newSession call was given (its 4th argument). */
+const tmuxNewEnv = (): Record<string, string> =>
+  (tmuxNew.mock.calls.at(-1)?.[3] ?? {}) as Record<string, string>;
 const readMetaFile = (id: string) => JSON.parse(fs.readFileSync(metaFile(id), "utf8"));
 
 function writeMeta(id: string, extra: Record<string, unknown> = {}) {
@@ -299,5 +303,55 @@ describe("session sign-off", () => {
     const [session] = await store.listSessions();
     expect(session!.report).toBe("I did some things");
     expect(session!.outcome).toBe("running");
+  });
+});
+
+// Standing context: the hub stops being stateless. Conventions and decisions
+// were re-explained to every agent otherwise, and on a phone the re-typing is
+// the expensive part.
+describe("per-project standing context", () => {
+  beforeEach(() => tmuxList.mockResolvedValue([]));
+
+  const writeContext = (text: string) => {
+    const dir = path.join(reposDir, "demo", ".verksted");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "context.md"), text);
+  };
+
+  const clearContext = () =>
+    fs.rmSync(path.join(reposDir, "demo", ".verksted"), { recursive: true, force: true });
+
+  it("prepends the context to a session's prompt", async () => {
+    writeContext("Always run make lint before committing.");
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude", {
+      prompt: "tidy the imports",
+    });
+    const env = tmuxNewEnv();
+    expect(env.VK_PROMPT).toBe(
+      "Always run make lint before committing.\n\n---\n\ntidy the imports",
+    );
+    clearContext();
+  });
+
+  it("leaves the prompt alone when there is no context file", async () => {
+    clearContext();
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude", {
+      prompt: "tidy the imports",
+    });
+    expect(tmuxNewEnv().VK_PROMPT).toBe("tidy the imports");
+  });
+
+  it("ignores a context file that is only whitespace", async () => {
+    writeContext("   \n\n  ");
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
+    expect(tmuxNewEnv().VK_PROMPT).toBe("go");
+    clearContext();
+  });
+
+  it("caps a context file that someone pasted a whole document into", async () => {
+    writeContext("x".repeat(20_000));
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
+    expect(tmuxNewEnv().VK_PROMPT!.length).toBeLessThan(8_100);
+    clearContext();
   });
 });

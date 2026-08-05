@@ -292,6 +292,32 @@ export interface LaunchOptions {
 }
 
 /**
+ * Standing context for a project, prepended to whatever a session is asked to
+ * do. Lives in the repo at .verksted/context.md — the same hidden directory
+ * phone uploads use, which is already kept out of git via .git/info/exclude.
+ *
+ * The point is that the hub stops being stateless. Conventions, decisions and
+ * the shape of the repo are re-explained to every agent otherwise, and on a
+ * phone re-typing them is the expensive part.
+ *
+ * Read at launch rather than cached: editing the file should affect the next
+ * session, not the next restart.
+ */
+export const CONTEXT_PATH = ".verksted/context.md";
+
+async function projectContext(projectDir: string): Promise<string | null> {
+  try {
+    const text = await fs.readFile(path.join(projectDir, CONTEXT_PATH), "utf8");
+    const trimmed = text.trim();
+    // Bounded: it becomes part of an argv-delivered env var, and an accidental
+    // paste of a whole file should not push the real prompt out of the window.
+    return trimmed ? trimmed.slice(0, 8_000) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Start a session's agent in a fresh tmux session named after it. `base` is the
  * agent command with any resume flag already on it; everything after it — the
  * status hooks, the session browser, the per-session env — is identical whether
@@ -325,7 +351,10 @@ async function launchAgent(
   // gets it as an execFile argument, and the pane's shell only ever sees the
   // quoted expansion, so no character in it can be read as shell syntax.
   if (opts.prompt) {
-    extraEnv.VK_PROMPT = opts.prompt;
+    const context = await projectContext(projectDir);
+    extraEnv.VK_PROMPT = context
+      ? `${context}\n\n---\n\n${opts.prompt}`
+      : opts.prompt;
     command += ' "$VK_PROMPT"';
   }
 

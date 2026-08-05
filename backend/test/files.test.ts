@@ -68,7 +68,7 @@ describe("GET /api/projects/:name/tree", () => {
   it("returns the tree for a real project", async () => {
     const res = await app.inject({ url: "/api/projects/demo/tree" });
     expect(res.statusCode).toBe(200);
-    const names = res.json().map((n: { name: string }) => n.name);
+    const names = res.json().nodes.map((n: { name: string }) => n.name);
     expect(names).toContain("a.txt");
     expect(names).toContain("sub");
   });
@@ -143,7 +143,7 @@ describe("GET /api/projects/:name/git", () => {
 
   it("marks a non-ASCII file as modified in the tree", async () => {
     const tree = (await app.inject({ url: "/api/projects/demo/tree" })).json();
-    const found = tree.find((n: { name: string }) => n.name === "ærlig.txt");
+    const found = tree.nodes.find((n: { name: string }) => n.name === "ærlig.txt");
     expect(found?.modified).toBe(true);
   });
 

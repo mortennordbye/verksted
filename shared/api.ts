@@ -50,6 +50,16 @@ export interface TreeNode {
   children?: TreeNode[];
 }
 
+/**
+ * The file tree, plus whether the walk ran out of budget. Without the flag a
+ * huge repo came back quietly missing files, which reads as "the file is not
+ * there" rather than "the tree stopped early".
+ */
+export interface Tree {
+  nodes: TreeNode[];
+  truncated: boolean;
+}
+
 export interface FileContent {
   path: string;
   content: string;

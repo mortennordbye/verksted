@@ -12,6 +12,7 @@ import type {
   ReplaceResult,
   SearchFlags,
   SearchHit,
+  Tree,
   TreeNode,
   UploadedFile,
 } from "../../../shared/api.js";
@@ -25,7 +26,32 @@ const exec = promisify(execFile);
 // Literal pathspecs: client-supplied paths can never be pathspec magic/globs.
 const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: "1" };
 
-const SKIP_DIRS = new Set([".git", "node_modules"]);
+/**
+ * Directories never worth walking. .gitignore would be the principled answer,
+ * but parsing it correctly (negations, nested files, precedence) is a library's
+ * worth of work — and the budget below is the real protection. These are the
+ * ones that actually blow it: a repo with .venv or target hits 5000 entries
+ * before reaching any source, and the tree silently came back missing files
+ * with no indication that anything had been dropped.
+ */
+const SKIP_DIRS = new Set([
+  ".git",
+  "node_modules",
+  ".venv",
+  "venv",
+  "__pycache__",
+  ".mypy_cache",
+  ".pytest_cache",
+  ".ruff_cache",
+  "target",
+  "dist",
+  "build",
+  ".next",
+  ".nuxt",
+  ".turbo",
+  ".gradle",
+  "vendor",
+]);
 const MAX_DEPTH = 12;
 const MAX_ENTRIES = 5000;
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -156,7 +182,7 @@ export default async function fileRoutes(app: FastifyInstance) {
   );
   app.get<{ Params: { name: string } }>(
     "/api/projects/:name/tree",
-    async (req, reply) => {
+    async (req, reply): Promise<Tree | void> => {
       let repoDir: string;
       try {
         repoDir = resolveInsideRepos(req.params.name);
@@ -164,7 +190,9 @@ export default async function fileRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "not found" });
       }
       const modified = await modifiedPaths(repoDir);
-      return walk(repoDir, "", 0, { left: MAX_ENTRIES }, modified);
+      const budget = { left: MAX_ENTRIES };
+      const nodes = await walk(repoDir, "", 0, budget, modified);
+      return { nodes, truncated: budget.left <= 0 };
     },
   );
 
