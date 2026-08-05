@@ -90,9 +90,13 @@ async function readAllStored(): Promise<Stored[]> {
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function listSchedules(): Promise<Schedule[]> {
+/** Every schedule, or only the ones that run in `project` when given. */
+export async function listSchedules(project?: string): Promise<Schedule[]> {
   const out: Schedule[] = [];
-  for (const stored of await readAllStored()) out.push(await toWire(stored));
+  for (const stored of await readAllStored()) {
+    if (project !== undefined && stored.project !== project) continue;
+    out.push(await toWire(stored));
+  }
   return out;
 }
 

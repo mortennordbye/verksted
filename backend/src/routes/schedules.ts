@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { resolveInsideRepos } from "../paths.js";
+import { repoDirOr404, resolveInsideRepos } from "../paths.js";
 import { reloadSchedules, runSchedule } from "../scheduler.js";
 import * as store from "../schedules-store.js";
 
@@ -11,6 +11,12 @@ const JITTER = { type: "integer", minimum: 0, maximum: 720 };
 
 export default async function scheduleRoutes(app: FastifyInstance) {
   app.get("/api/schedules", async () => store.listSchedules());
+
+  // The same list scoped to one repo, for the project screen's schedules tab.
+  app.get<{ Params: { name: string } }>("/api/projects/:name/schedules", async (req, reply) => {
+    if (!repoDirOr404(reply, req.params.name)) return;
+    return store.listSchedules(req.params.name);
+  });
 
   // The inbox: what every schedule did while nobody was watching.
   app.get("/api/runs", async () => store.listRuns());
