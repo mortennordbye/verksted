@@ -55,6 +55,24 @@ function convPath(id: string): string {
   return path.join(env.SESSIONS_DIR, `${id}.conv`);
 }
 
+// Written by the agent itself at the end of a scheduled run (the contract is in
+// scheduler.ts): one line, "ok:" / "attention:" / "failed:" and a summary. It is
+// what lets a night of unattended runs stay silent unless one needs a person.
+function reportPath(id: string): string {
+  return path.join(env.SESSIONS_DIR, `${id}.report`);
+}
+
+/** The run's own verdict, first line only; null when it wrote none. */
+export async function readReport(id: string): Promise<string | null> {
+  if (!SESSION_ID_RE.test(id)) return null;
+  try {
+    const first = (await fs.readFile(reportPath(id), "utf8")).trim().split("\n")[0]?.trim();
+    return first ? first.slice(0, 300) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readState(id: string): Promise<string | null> {
   try {
     return (await fs.readFile(statePath(id), "utf8")).trim();
@@ -153,13 +171,34 @@ export async function getSession(id: string): Promise<Session | null> {
   }
 }
 
+export interface LaunchOptions {
+  /** Session title; defaults to "<agent>-<seq>". */
+  title?: string;
+  /** Pick up the agent's previous conversation in this project. */
+  resume?: boolean;
+  /** First prompt, submitted as the session starts (scheduled runs). */
+  prompt?: string;
+  /**
+   * Claude's "auto" permission mode: a classifier approves the routine tool
+   * calls and still stops for the rest. What an unattended run wants — nobody
+   * is there to confirm `git status`, and the calls that do stop it show up as
+   * a waiting session, which is exactly what the notifier pushes.
+   */
+  autoPermissions?: boolean;
+}
+
 /**
  * Start a session's agent in a fresh tmux session named after it. `base` is the
  * agent command with any resume flag already on it; everything after it — the
  * status hooks, the session browser, the per-session env — is identical whether
  * the session is new or being put back after a pod restart.
  */
-async function launchAgent(meta: Meta, projectDir: string, base: string): Promise<void> {
+async function launchAgent(
+  meta: Meta,
+  projectDir: string,
+  base: string,
+  opts: LaunchOptions = {},
+): Promise<void> {
   const extraEnv = await agentEnv();
   // The session's headless browser (launched on demand, see browser.ts): the
   // agent connects playwright to VK_BROWSER_CDP to test in a browser the user
@@ -175,6 +214,15 @@ async function launchAgent(meta: Meta, projectDir: string, base: string): Promis
     command += ` --settings "${await ensureHooksSettings()}" --mcp-config "${await ensureMcpConfig()}"`;
     extraEnv.VK_STATE_FILE = statePath(meta.id);
     extraEnv.VK_CONV_FILE = convPath(meta.id);
+    extraEnv.VK_REPORT_FILE = reportPath(meta.id);
+    if (opts.autoPermissions) command += " --permission-mode auto";
+  }
+  // The prompt travels in the session environment, never in the command: tmux
+  // gets it as an execFile argument, and the pane's shell only ever sees the
+  // quoted expansion, so no character in it can be read as shell syntax.
+  if (opts.prompt) {
+    extraEnv.VK_PROMPT = opts.prompt;
+    command += ' "$VK_PROMPT"';
   }
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
 }
@@ -210,8 +258,7 @@ export async function createSession(
   project: string,
   projectDir: string,
   agent: AgentName,
-  title?: string,
-  resume = false,
+  opts: LaunchOptions = {},
 ): Promise<CreatedSession> {
   const extraEnv = await agentEnv();
   // Start the agent from an up-to-date default branch. Reported back to the UI:
@@ -226,7 +273,7 @@ export async function createSession(
     id: `vk-${project}-${seq}`,
     project,
     agent,
-    title: title?.trim() || `${agent}-${seq}`,
+    title: opts.title?.trim() || `${agent}-${seq}`,
     createdAt: new Date().toISOString(),
     endedAt: null,
     cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
@@ -234,7 +281,13 @@ export async function createSession(
   // A purged session's id can be reused; drop any stale state from it.
   await fs.rm(statePath(meta.id), { force: true });
   await fs.rm(convPath(meta.id), { force: true });
-  await launchAgent(meta, projectDir, (resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent]);
+  await fs.rm(reportPath(meta.id), { force: true });
+  await launchAgent(
+    meta,
+    projectDir,
+    (opts.resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent],
+    opts,
+  );
   await writeMeta(meta);
   return { ...toSession(meta, true, null), sync };
 }
@@ -250,6 +303,7 @@ export async function deleteProjectSessions(project: string): Promise<void> {
     await fs.rm(metaPath(m.id), { force: true });
     await fs.rm(statePath(m.id), { force: true });
     await fs.rm(convPath(m.id), { force: true });
+    await fs.rm(reportPath(m.id), { force: true });
   }
 }
 
@@ -283,5 +337,6 @@ export async function deleteSession(id: string): Promise<boolean> {
   await fs.rm(metaPath(id), { force: true });
   await fs.rm(statePath(id), { force: true });
   await fs.rm(convPath(id), { force: true });
+  await fs.rm(reportPath(id), { force: true });
   return true;
 }

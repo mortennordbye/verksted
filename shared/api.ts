@@ -208,6 +208,36 @@ export interface ReplaceResult {
   replacements: number;
 }
 
+/**
+ * A recurring prompt: on its cron the pod starts a claude session in the
+ * project and submits the prompt, unattended (auto permission mode).
+ */
+export interface Schedule {
+  id: string;
+  /** Human label; also the title of the sessions it starts. */
+  name: string;
+  project: string;
+  /** Five-field cron, read in the pod's timezone. */
+  cron: string;
+  /**
+   * Random delay added to each fire, in minutes (0 = fire on the dot). Spreads
+   * schedules that share a cron so they don't all start at once.
+   */
+  jitterMinutes: number;
+  prompt: string;
+  enabled: boolean;
+  createdAt: string;
+  lastRunAt: string | null;
+  /** Session the last run started; null when it never ran or could not start. */
+  lastSessionId: string | null;
+  /** Why the last run started nothing; null when it did. */
+  lastError: string | null;
+  /** The verdict the last run wrote for itself ("ok: …"); null when it wrote none. */
+  lastReport: string | null;
+  /** Next fire time, computed on read; null when disabled. */
+  nextRunAt: string | null;
+}
+
 export interface SettingVar {
   key: string;
   /** Where the variable is defined; values are write-only and never returned. */

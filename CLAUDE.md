@@ -212,6 +212,8 @@ backend/src/
 ├── paths.ts          # path-scoping helper — the security surface
 ├── tmux.ts           # execFile wrappers around tmux
 ├── sessions-store.ts # session metadata JSON + tmux liveness
+├── schedules-store.ts# recurring prompts: one JSON file per schedule
+├── scheduler.ts      # cron timers -> unattended sessions
 ├── routes/           # projects, sessions, files
 └── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
 backend/test/         # vitest; the path-traversal suite is the one that matters

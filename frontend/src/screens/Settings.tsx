@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import type {
+  Project,
   PushStatus,
   PushTestResult,
+  Schedule,
   Settings as SettingsInfo,
   SettingVar,
   SshKey,
 } from "../../../shared/api";
-import { api, usePoll } from "../api";
+import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
 
@@ -149,6 +152,7 @@ export default function Settings() {
         </div>
 
         <Notifications />
+        <Schedules />
         <SshKeys />
         <AppReset />
       </main>
@@ -382,6 +386,275 @@ function AppReset() {
         New builds normally announce themselves with a reload banner. Use this when the
         home-screen app is serving something stale anyway — it unregisters the service
         worker, deletes its caches and reloads from the pod.
+      </div>
+    </>
+  );
+}
+
+/** A cron pattern's next fire time, in this device's timezone. */
+function whenLabel(iso: string | null): string {
+  if (!iso) return "paused";
+  return new Date(iso).toLocaleString([], {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/** A run's own verdict, coloured by the word it starts with. */
+function reportChip(report: string) {
+  const kind = /^attention\b/i.test(report) ? "wait" : /^failed\b/i.test(report) ? "fail" : "run";
+  return <StatusChip kind={kind} label={report} />;
+}
+
+const CRON_PRESETS = [
+  { cron: "0 8 * * 1-5", label: "weekdays 08:00" },
+  { cron: "0 * * * *", label: "hourly" },
+  { cron: "0 7 * * *", label: "daily 07:00" },
+];
+
+/**
+ * Recurring prompts. Each one starts a claude session in its project on the
+ * cron and submits the prompt, in auto permission mode — nobody is there to
+ * answer a permission question at 07:00. The run shows up as an ordinary
+ * session, so it pushes and can be taken over from the phone like any other.
+ */
+function Schedules() {
+  const { data: schedules, refresh } = usePoll<Schedule[]>("/api/schedules", 30_000);
+  const { data: projects } = usePoll<Project[]>("/api/projects", 60_000);
+  const [draft, setDraft] = useState({
+    name: "",
+    project: "",
+    cron: "0 8 * * 1-5",
+    jitterMinutes: 0,
+    prompt: "",
+  });
+  const [open, setOpen] = useState<string | null>(null);
+  const [edit, setEdit] = useState({ cron: "", jitterMinutes: 0, prompt: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  async function run(fn: () => Promise<unknown>) {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      await fn();
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const add = () =>
+    run(async () => {
+      await api("/api/schedules", {
+        method: "POST",
+        body: JSON.stringify({ ...draft, project: draft.project || projects?.[0]?.name }),
+      });
+      setDraft({ ...draft, name: "", prompt: "" });
+    });
+
+  const patch = (s: Schedule, body: Partial<Schedule>) =>
+    run(() => api(`/api/schedules/${s.id}`, { method: "PATCH", body: JSON.stringify(body) }));
+
+  const runNow = (s: Schedule) =>
+    run(async () => {
+      await api(`/api/schedules/${s.id}/run`, { method: "POST" });
+      setNote(`started a session for "${s.name}"`);
+    });
+
+  const remove = (s: Schedule) =>
+    confirm(`Delete the schedule "${s.name}"? Sessions it already started are untouched.`) &&
+    run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+
+  function toggleOpen(s: Schedule) {
+    setOpen(open === s.id ? null : s.id);
+    setEdit({ cron: s.cron, jitterMinutes: s.jitterMinutes, prompt: s.prompt });
+  }
+
+  const field =
+    "rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+  const ghost =
+    "rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        Schedules · recurring prompts
+      </div>
+      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {note && <div className="mb-3 font-mono text-[12px] text-muted">{note}</div>}
+      <div className="flex flex-col gap-2">
+        {(schedules ?? []).map((s) => (
+          <div key={s.id} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="font-mono text-[12.5px]">{s.name}</span>
+              <span className="font-mono text-[11px] text-faint">{s.project}</span>
+              <StatusChip
+                kind={s.enabled ? "run" : "idle"}
+                label={s.enabled ? whenLabel(s.nextRunAt) : "paused"}
+              />
+              <span className="ml-auto flex flex-wrap gap-2">
+                <button onClick={() => toggleOpen(s)} className={ghost}>
+                  {open === s.id ? "hide" : "edit"}
+                </button>
+                <button onClick={() => runNow(s)} disabled={busy} className={ghost}>
+                  run now
+                </button>
+                <button
+                  onClick={() => patch(s, { enabled: !s.enabled })}
+                  disabled={busy}
+                  className={ghost}
+                >
+                  {s.enabled ? "pause" : "resume"}
+                </button>
+                <button
+                  onClick={() => remove(s)}
+                  disabled={busy}
+                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                >
+                  delete
+                </button>
+              </span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-faint">
+              <span>{s.cron}</span>
+              {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
+              <span>last run {agoLabel(s.lastRunAt)}</span>
+              {s.lastSessionId && (
+                <Link to={`/s/${s.lastSessionId}`} className="text-muted hover:text-accent">
+                  {s.lastSessionId}
+                </Link>
+              )}
+              {s.lastError && <span className="text-wait">{s.lastError}</span>}
+            </div>
+            {s.lastReport && <div className="mt-1.5">{reportChip(s.lastReport)}</div>}
+            {open === s.id ? (
+              <div className="mt-2 flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <input
+                    value={edit.cron}
+                    onChange={(e) => setEdit((d) => ({ ...d, cron: e.target.value }))}
+                    placeholder="0 8 * * 1-5"
+                    className={`w-[200px] ${field}`}
+                  />
+                  <label className="font-mono text-[11px] text-faint">
+                    jitter
+                    <input
+                      type="number"
+                      min={0}
+                      max={720}
+                      value={edit.jitterMinutes}
+                      onChange={(e) =>
+                        setEdit((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))
+                      }
+                      className={`ml-2 w-[72px] ${field}`}
+                    />
+                    <span className="ml-1.5">min</span>
+                  </label>
+                </div>
+                <textarea
+                  value={edit.prompt}
+                  onChange={(e) => setEdit((d) => ({ ...d, prompt: e.target.value }))}
+                  rows={3}
+                  className={`w-full resize-y ${field}`}
+                />
+                <button
+                  onClick={() => patch(s, edit).then(() => setOpen(null))}
+                  disabled={busy || !edit.cron.trim() || !edit.prompt.trim()}
+                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+                >
+                  save
+                </button>
+              </div>
+            ) : (
+              <div className="mt-1.5 line-clamp-2 text-[12.5px] text-muted">{s.prompt}</div>
+            )}
+          </div>
+        ))}
+        {schedules?.length === 0 && (
+          <div className="font-mono text-[12.5px] text-faint">no schedules</div>
+        )}
+
+        <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="what it does"
+              className={`w-[200px] ${field}`}
+            />
+            <select
+              value={draft.project || projects?.[0]?.name || ""}
+              onChange={(e) => setDraft((d) => ({ ...d, project: e.target.value }))}
+              className={field}
+            >
+              {(projects ?? []).map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={draft.cron}
+              onChange={(e) => setDraft((d) => ({ ...d, cron: e.target.value }))}
+              placeholder="0 8 * * 1-5"
+              className={`w-[130px] ${field}`}
+            />
+            <label className="font-mono text-[11px] text-faint">
+              jitter
+              <input
+                type="number"
+                min={0}
+                max={720}
+                value={draft.jitterMinutes}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))
+                }
+                className={`mx-2 w-[72px] ${field}`}
+              />
+              min
+            </label>
+            {CRON_PRESETS.map((p) => (
+              <button
+                key={p.cron}
+                onClick={() => setDraft((d) => ({ ...d, cron: p.cron }))}
+                className="font-mono text-[11px] text-faint hover:text-accent"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={draft.prompt}
+            onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
+            placeholder="Check the open pull requests and merge any that are approved and green."
+            rows={3}
+            className={`w-full resize-y ${field}`}
+          />
+          <button
+            onClick={add}
+            disabled={busy || !draft.name.trim() || !draft.prompt.trim() || !projects?.length}
+            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+          >
+            add schedule
+          </button>
+        </div>
+      </div>
+      <div className="mt-5 text-[13px] text-muted">
+        Cron patterns are read in the pod's timezone; times above are shown in this
+        device's, before jitter — a jittered run starts somewhere in the window after
+        it. A tick is skipped while the schedule's previous session is still open.
+        Runs start in auto permission mode: routine tool calls go through unattended,
+        and anything the agent still has to ask about turns the session amber and
+        pushes you. Every run is asked to sign off with one line — "ok: …",
+        "attention: …" or "failed: …" — which shows up here and is what the phone
+        gets. A run that reports itself ok stays silent.
       </div>
     </>
   );

@@ -11,6 +11,7 @@ async function currentSettings(): Promise<Settings> {
       PORT: String(env.PORT),
       REPOS_DIR: env.REPOS_DIR,
       SESSIONS_DIR: env.SESSIONS_DIR,
+      SCHEDULES_DIR: env.SCHEDULES_DIR,
       SETTINGS_FILE: env.SETTINGS_FILE,
     },
     vars: keys.map((key) => ({

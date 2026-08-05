@@ -105,6 +105,36 @@ ntfy topic when one is configured.
   add an auth layer only if the app ever needs to be reachable outside
   WireGuard.
 
+## Schedules
+
+Recurring prompts, so the workbench keeps an eye on a repo without being
+asked. Each schedule is a name, a project, a cron pattern (read in the pod's
+timezone), an optional jitter window, and a prompt; they live as one JSON file
+each under SCHEDULES_DIR and are managed from the settings page.
+
+When one fires, the backend starts an ordinary claude session in that project
+and hands it the prompt, in claude's auto permission mode: the routine tool
+calls go through unattended, and the ones that still need a person stop the
+session, which is what turns it "waiting" and pushes the phone. Nobody is there
+to confirm a `git status` at 07:00; the judgement calls still come to you.
+Because it is an ordinary session, everything
+built for sessions applies to it: it appears on the hub, the status hooks flip
+it to "waiting" when it needs a person, the notifier pushes to the phone, and
+tapping the push opens the terminal to take over. A tick is skipped while the
+schedule's previous session is still open.
+
+Every run is asked to sign off with one line to $VK_REPORT_FILE — "ok: …",
+"attention: …" or "failed: …". That line is the push body, it shows on the
+schedule, and a run that reports itself ok pushes nothing at all. Only the
+agent can tell whether "two PRs open" is fine or needs someone, which is why
+the verdict is the agent's to write rather than something the backend infers.
+Sessions started by hand write no report and behave exactly as before.
+
+Voice input belongs to the browser: the pod has no microphone, the phone does.
+The session toolbar has a mic key that dictates into the terminal (the browser's
+own speech recognition, secure origin required) and leaves the text in the pane
+unsent, so it can be read before the agent gets it.
+
 ## Deployment
 
 - Image: multi-stage Dockerfile. Build stage compiles the frontend; runtime
