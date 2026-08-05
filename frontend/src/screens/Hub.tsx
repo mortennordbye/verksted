@@ -8,7 +8,7 @@ function gb(bytes: number): string {
 }
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
-import Sheet from "../components/Sheet";
+import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 export default function Hub() {
   const navigate = useNavigate();
@@ -82,7 +82,7 @@ export default function Hub() {
         {loading && projects === null && (
           <div
             aria-hidden
-            className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3"
+            className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3"
           >
             {[0, 1, 2].map((i) => (
               <div
@@ -99,7 +99,7 @@ export default function Hub() {
           </div>
         )}
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
           {(projects ?? []).map((p) => (
             <button
               key={p.name}
@@ -180,7 +180,7 @@ export default function Hub() {
           onClose={() => setAdding(false)}
         >
           <input
-            autoFocus
+            ref={focusIfPointerFine}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addProject()}

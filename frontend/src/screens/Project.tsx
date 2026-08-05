@@ -12,7 +12,7 @@ import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
-import Sheet from "../components/Sheet";
+import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
   { agent: "claude", swatch: "bg-claude", desc: "Claude Code · Max plan", cmd: "$ claude" },
@@ -50,13 +50,17 @@ function SessionRow({
         kind={session.status === "running" ? "run" : session.status === "waiting" ? "wait" : "idle"}
         label={session.status}
       />
+      {/* Sits inside the row's own tap area, and kills a running agent — the
+          worst mis-tap in the app. A real target size and a gap from the row
+          edge are the cheap half of the fix; the confirm is the other half. */}
       <button
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
         }}
         title="delete session"
-        className="rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
+        aria-label={`delete session ${session.title}`}
+        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
       >
         ✕
       </button>
@@ -340,7 +344,7 @@ export default function Project() {
           onClose={() => setBranching(false)}
         >
           <input
-            autoFocus
+            ref={focusIfPointerFine}
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && newWorktree()}

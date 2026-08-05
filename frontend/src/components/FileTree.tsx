@@ -15,10 +15,13 @@ function Node({
       <li>
         <button
           onClick={() => setOpen(!open)}
-          className="flex w-full items-center gap-[7px] whitespace-nowrap rounded-md px-2.5 py-1 text-left text-text hover:bg-surface-2"
+          title={node.path}
+          className="tap flex w-full items-center gap-[7px] rounded-md px-2.5 py-1 text-left text-text hover:bg-surface-2"
         >
           <img src={folderIcon(node.name, open)} alt="" className="h-4 w-4 flex-none" />
-          {node.name}/
+          {/* truncate, not nowrap: a deep path used to force the whole sidebar
+              to scroll sideways on a phone. */}
+          <span className="truncate">{node.name}/</span>
         </button>
         {open && node.children && node.children.length > 0 && (
           <ul className="pl-4">
@@ -34,11 +37,12 @@ function Node({
     <li>
       <button
         onClick={() => onOpenFile(node.path)}
-        className="flex w-full items-center gap-[7px] whitespace-nowrap rounded-md px-2.5 py-1 text-left text-muted hover:bg-surface-2 hover:text-text"
+        title={node.path}
+        className="tap flex w-full items-center gap-[7px] rounded-md px-2.5 py-1 text-left text-muted hover:bg-surface-2 hover:text-text"
       >
         <img src={fileIcon(node.name)} alt="" className="h-4 w-4 flex-none" />
-        {node.name}
-        {node.modified && <span className="ml-auto text-[10px] text-wait">M</span>}
+        <span className="truncate">{node.name}</span>
+        {node.modified && <span className="ml-auto flex-none text-[10px] text-wait">M</span>}
       </button>
     </li>
   );

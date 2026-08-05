@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { PrDiff, PullRequest, PullRequestDetail, MergeResult } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { StatusChip } from "./StatusChip";
-import Sheet from "./Sheet";
+import Sheet, { focusIfPointerFine } from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
 
 const CHECK_CHIP = {
@@ -325,7 +325,7 @@ function CreatePrSheet({
     >
       {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
       <input
-        autoFocus
+        ref={focusIfPointerFine}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="title"
