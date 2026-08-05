@@ -5,10 +5,12 @@ import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 
-// These routes shell out to gh, which needs a token and the network — neither
-// exists in CI. So this covers what does not: the path boundary, the param
-// schemas, and the answer a project with no GitHub remote gets. The gh output
-// parsing is unit-tested against captured fixtures in gh.test.ts.
+// This covers everything that stops before gh runs: the path boundary, the
+// param schemas, and the answer a project with no GitHub remote gets. What
+// happens once gh does run — the argv it is given, its output becoming the wire
+// shape, its failures becoming statuses — is in github-gh.test.ts, against a
+// fake gh on PATH. The output parsing helpers are unit-tested against captured
+// fixtures in gh.test.ts.
 
 let app: FastifyInstance;
 let reposDir: string;
