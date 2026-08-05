@@ -8,7 +8,10 @@
   --color-line: #262c38;
   --color-text: #e7eaf0;
   --color-muted: #8a93a6;
-  --color-faint: #566072;
+  /* Was #566072 — 2.97:1 on the background, failing AA, while carrying nearly
+     all the secondary text at 10-11px. #7d8798 clears 4.5:1 and keeps the same
+     cool grey. --color-idle stays put: it is a dot, not text. */
+  --color-faint: #7d8798;
   --color-accent: #d9a441;
   --color-run: #4ec97b;
   --color-wait: #e0a63d;

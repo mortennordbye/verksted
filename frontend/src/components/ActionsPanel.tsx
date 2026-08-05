@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { RunLog, WorkflowRun, WorkflowRunDetail } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { useConfirm } from "../useConfirm";
 import { StatusChip, StatusDot } from "./StatusChip";
 import Sheet from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
@@ -95,6 +96,7 @@ function RunSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [log, setLog] = useState<RunLog | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   // Step-by-step progress is the one live thing here. Polling does not stop once
   // the run lands: usePoll clears its data when the path or interval changes, so
   // pausing would blank the sheet the user is reading.
@@ -124,8 +126,14 @@ function RunSheet({
       body: body ? JSON.stringify(body) : undefined,
     });
 
-  function cancel() {
-    if (!confirm("Cancel this run?")) return;
+  async function cancel() {
+    const ok = await confirm({
+      title: "Cancel this run?",
+      body: "The workflow stops where it is.",
+      action: "cancel the run",
+      danger: true,
+    });
+    if (!ok) return;
     act(() => post("cancel"));
   }
 
@@ -238,6 +246,7 @@ function RunSheet({
           onClose={() => setLog(null)}
         />
       )}
+      {confirmDialog}
     </>
   );
 }

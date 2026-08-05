@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { PrDiff, PullRequest, PullRequestDetail, MergeResult } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { useConfirm } from "../useConfirm";
 import { StatusChip } from "./StatusChip";
 import Sheet, { focusIfPointerFine } from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
@@ -144,6 +145,7 @@ function PrSheet({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [diff, setDiff] = useState<PrDiff | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   const { data: pr, refresh } = usePoll<PullRequestDetail>(
     `/api/projects/${project}/prs/${number}`,
     30_000,
@@ -167,10 +169,13 @@ function PrSheet({
   const post = <T,>(op: string) =>
     api<T>(`/api/projects/${project}/prs/${number}/${op}`, { method: "POST" });
 
-  function merge() {
-    if (!confirm(`Squash-merge PR #${number} into ${pr?.baseRefName} and delete the branch?`)) {
-      return;
-    }
+  async function merge() {
+    const ok = await confirm({
+      title: `Squash-merge PR #${number}?`,
+      body: `It merges into ${pr?.baseRefName} and the head branch is deleted.`,
+      action: "squash and merge",
+    });
+    if (!ok) return;
     run(async () => {
       const res = await post<MergeResult>("merge");
       // Merged, but something local did not go to plan — say so rather than
@@ -281,6 +286,7 @@ function PrSheet({
           onClose={() => setDiff(null)}
         />
       )}
+      {confirmDialog}
     </>
   );
 }

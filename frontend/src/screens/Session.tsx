@@ -22,6 +22,7 @@ import GitPanel from "../components/GitPanel";
 import SearchPanel from "../components/SearchPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
+import { useConfirm } from "../useConfirm";
 
 /** hljs language for a path, via its extension (aliases resolve: ts, py, yml…). */
 function langFor(path: string): string | null {
@@ -156,6 +157,7 @@ export default function Session() {
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [file, setFile] = useState<Viewed | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   async function openFile(path: string) {
     if (!session) return;
@@ -200,20 +202,30 @@ export default function Session() {
   }
 
   async function kill() {
-    if (!session || !confirm("Kill this session? The tmux session and the agent inside it end.")) {
-      return;
-    }
+    if (!session) return;
+    const ok = await confirm({
+      title: "Kill this session?",
+      body: "The tmux session and the agent inside it end. The session stays in history.",
+      action: "kill the session",
+      danger: true,
+    });
+    if (!ok) return;
     await api(`/api/sessions/${session.id}`, { method: "DELETE" });
     navigate(`/p/${session.project}`);
   }
 
   async function deleteSession() {
     if (!session) return;
-    const msg =
-      session.status !== "done"
-        ? "Kill and delete this session? The tmux session ends and it is removed from history."
-        : "Delete this session from history?";
-    if (!confirm(msg)) return;
+    const live = session.status !== "done";
+    const ok = await confirm({
+      title: live ? "Kill and delete this session?" : "Delete this session?",
+      body: live
+        ? "The tmux session and the agent inside it end, and the session is removed from history. This cannot be undone."
+        : "It is removed from history. This cannot be undone.",
+      action: live ? "kill and delete" : "delete",
+      danger: true,
+    });
+    if (!ok) return;
     await api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" });
     navigate(`/p/${session.project}`);
   }
@@ -648,6 +660,7 @@ export default function Session() {
           </div>
         </div>
       )}
+      {confirmDialog}
     </>
   );
 }

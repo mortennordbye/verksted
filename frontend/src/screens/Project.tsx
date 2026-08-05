@@ -13,6 +13,7 @@ import ActionsPanel from "../components/ActionsPanel";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
+import { useConfirm } from "../useConfirm";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
   { agent: "claude", swatch: "bg-claude", desc: "Claude Code · Max plan", cmd: "$ claude" },
@@ -84,6 +85,7 @@ export default function Project() {
   const [branchBusy, setBranchBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"sessions" | "prs" | "actions">("sessions");
+  const [confirm, confirmDialog] = useConfirm();
 
   const active = sessions?.filter((s) => s.status !== "done") ?? [];
   const recent = sessions?.filter((s) => s.status === "done") ?? [];
@@ -110,11 +112,16 @@ export default function Project() {
   }
 
   async function deleteSession(s: Session) {
-    const msg =
-      s.status !== "done"
-        ? `Kill and delete ${s.title}? The tmux session and the agent inside it end.`
-        : `Delete ${s.title} from history?`;
-    if (!confirm(msg)) return;
+    const live = s.status !== "done";
+    const ok = await confirm({
+      title: live ? `Kill and delete ${s.title}?` : `Delete ${s.title}?`,
+      body: live
+        ? "The tmux session and the agent inside it end, and it is removed from history. This cannot be undone."
+        : "It is removed from history. This cannot be undone.",
+      action: live ? "kill and delete" : "delete",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       await api(`/api/sessions/${s.id}?purge=1`, { method: "DELETE" });
       refreshSessions();
@@ -359,6 +366,7 @@ export default function Project() {
           </button>
         </Sheet>
       )}
+      {confirmDialog}
     </>
   );
 }

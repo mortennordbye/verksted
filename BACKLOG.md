@@ -304,3 +304,39 @@ what unblocks it / where the code lives.
   and also fixes the "finished" semantics.
 - **Where:** `backend/src/tmux.ts` (`newSession`), `backend/src/sessions-store.ts`
   (`launchAgent` builds the command string)
+
+## Per-file selection and a dry run for repo-wide replace
+
+- **What:** `POST /api/projects/:name/replace` still rewrites every match in one
+  shot. The confirm now states how many matches in how many files and names the
+  first five, and the hit list is re-run afterwards so the result can be
+  checked — but there is no per-file selection, no server-side dry run, and no
+  undo.
+- **Why deferred:** A real dry run means a second response shape (per-file
+  before/after counts, ideally the replaced lines) and a review UI on top of it,
+  which is a feature rather than a safety fix. The immediate risk — an
+  unbounded rewrite behind a single unstyled `confirm()` — is addressed, and the
+  regex no longer runs on the event loop.
+- **Unblocked by:** Deciding whether the review step shows counts per file or
+  actual diff lines; the latter needs the endpoint to return content, which has
+  size implications on a phone.
+- **Where:** `backend/src/routes/files.ts` (the replace route),
+  `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
+
+## Arrow-key movement and tabpanel pairing for the tab strips
+
+- **What:** The tab strips on the project and session screens use `role="tab"`
+  without `aria-controls`, without matching `role="tabpanel"` elements, and
+  without arrow-key movement between tabs. `aria-label`s, landmark labelling and
+  the focus ring are done; this part is not.
+- **Why deferred:** Doing it properly means a roving-tabindex helper and giving
+  every panel a stable id, across three separate strips whose panels are
+  conditionally mounted (an unselected panel is deliberately unmounted so its
+  poll does not run). That interacts with the mounting rule and wants doing in
+  one pass rather than piecemeal.
+- **Unblocked by:** Deciding whether panels stay unmounted when unselected. If
+  they do, `aria-controls` points at an element that is not in the DOM, which is
+  worse than omitting it — so the fix may be `role="tablist"` removal rather
+  than completion.
+- **Where:** `frontend/src/screens/Project.tsx` (tab strip),
+  `frontend/src/screens/Session.tsx` (side panel tabs, pane tabs)

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { GitBranches } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import { useConfirm } from "../useConfirm";
 import Sheet from "./Sheet";
 
 /**
@@ -23,6 +24,7 @@ export default function BranchControl({
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   const { data, refresh } = usePoll<GitBranches>(
     open ? `/api/projects/${project}/git/branches` : null,
     15_000,
@@ -55,11 +57,14 @@ export default function BranchControl({
       setOpen(false);
     });
 
-  function reset() {
+  async function reset() {
     if (
-      !confirm(
-        `Reset ${data?.current} to ${data?.upstream}? Commits and changes to tracked files that are not on the remote are lost.`,
-      )
+      !(await confirm({
+        title: `Reset ${data?.current} to ${data?.upstream}?`,
+        body: "Commits and changes to tracked files that are not on the remote are lost. Untracked files are left alone.",
+        action: "reset the branch",
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -101,7 +106,7 @@ export default function BranchControl({
             <button
               onClick={reset}
               disabled={busy || !data?.upstream}
-              title="discard local commits and changes on this branch"
+              title="discard local commits and changes on this branch" aria-label="discard local commits and changes on this branch"
               className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               reset to {data?.upstream ?? "upstream"}
@@ -138,6 +143,7 @@ export default function BranchControl({
           </div>
         </Sheet>
       )}
+      {confirmDialog}
     </>
   );
 }

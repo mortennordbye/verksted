@@ -11,6 +11,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { copyText } from "../clipboard";
+import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
 
@@ -348,16 +349,16 @@ function Notifications() {
  */
 function AppReset() {
   const [busy, setBusy] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
 
   async function hardReset() {
     if (busy) return;
-    if (
-      !confirm(
-        "Hard reset the app? The cached app shell is deleted and the page reloads from the pod. Sessions, repos and settings are untouched.",
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Hard reset the app?",
+      body: "The cached app shell is deleted and the page reloads from the pod. Sessions, repos and settings are untouched.",
+      action: "reset the app",
+    });
+    if (!ok) return;
     setBusy(true);
     for (const reg of (await navigator.serviceWorker?.getRegistrations()) ?? []) {
       await reg.unregister();
@@ -388,6 +389,7 @@ function AppReset() {
         home-screen app is serving something stale anyway — it unregisters the service
         worker, deletes its caches and reloads from the pod.
       </div>
+      {confirmDialog}
     </>
   );
 }
@@ -473,9 +475,17 @@ function Schedules() {
       setNote(`started a session for "${s.name}"`);
     });
 
-  const remove = (s: Schedule) =>
-    confirm(`Delete the schedule "${s.name}"? Sessions it already started are untouched.`) &&
-    run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+  const [confirm, confirmDialog] = useConfirm();
+
+  const remove = async (s: Schedule) => {
+    const ok = await confirm({
+      title: `Delete the schedule "${s.name}"?`,
+      body: "It stops firing. Sessions it already started are untouched.",
+      action: "delete the schedule",
+      danger: true,
+    });
+    if (ok) run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+  };
 
   function toggleOpen(s: Schedule) {
     setOpen(open === s.id ? null : s.id);
@@ -680,6 +690,7 @@ function Schedules() {
         "attention: …" or "failed: …" — which shows up here and is what the phone
         gets. A run that reports itself ok stays silent.
       </div>
+      {confirmDialog}
     </>
   );
 }
@@ -753,9 +764,17 @@ function SshKeys() {
       setShown(key.name);
     });
 
-  const remove = (key: SshKey) =>
-    confirm(`Delete SSH key ${key.name}? Anything authenticating with it stops working.`) &&
-    run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+  const [confirm, confirmDialog] = useConfirm();
+
+  const remove = async (key: SshKey) => {
+    const ok = await confirm({
+      title: `Delete SSH key ${key.name}?`,
+      body: "Anything authenticating with it — git pushes, remote hosts — stops working.",
+      action: "delete the key",
+      danger: true,
+    });
+    if (ok) run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+  };
 
   return (
     <>
@@ -812,7 +831,7 @@ function SshKeys() {
             <button
               onClick={generate}
               disabled={busy || !name.trim()}
-              title="generate an ed25519 keypair in the pod — the private key never leaves it"
+              title="generate an ed25519 keypair in the pod — the private key never leaves it" aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
               className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
@@ -843,6 +862,7 @@ function SshKeys() {
         automatically (git over ssh, plain ssh). Paste the public key into GitHub →
         Settings → SSH keys to push over ssh.
       </div>
+      {confirmDialog}
     </>
   );
 }
