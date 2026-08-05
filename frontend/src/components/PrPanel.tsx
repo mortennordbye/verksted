@@ -105,7 +105,9 @@ export default function PrPanel({
 function PrRow({ pr, onClick }: { pr: PullRequest; onClick: () => void }) {
   const chip = chipFor(pr);
   return (
-    <div
+    // A button, not a div with an onClick: the row opens the PR's sheet, and
+    // as a div there was no way to reach it without a pointer.
+    <button
       onClick={onClick}
       className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${pr.state === "OPEN" ? "" : "opacity-60"}`}
     >
@@ -126,7 +128,7 @@ function PrRow({ pr, onClick }: { pr: PullRequest; onClick: () => void }) {
         </div>
       </div>
       <StatusChip kind={chip.kind} label={chip.label} />
-    </div>
+    </button>
   );
 }
 
