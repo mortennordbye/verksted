@@ -1,6 +1,11 @@
 import { useState } from "react";
 import type { GitFileStatus, GitStatus } from "../../../shared/api";
 import { api } from "../api";
+import { useConfirm } from "../useConfirm";
+
+// The commit hint used to read "⌘⏎" on every platform, including the Linux and
+// Windows desktops this is driven from.
+const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 import { fileIcon } from "../fileicons";
 import BranchControl from "./BranchControl";
 
@@ -89,6 +94,7 @@ export default function GitPanel({
   onRefresh: () => void;
 }) {
   const [message, setMessage] = useState("");
+  const [confirm, confirmDialog] = useConfirm();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,12 +124,21 @@ export default function GitPanel({
       }),
     );
 
-  function discard(files: GitFileStatus[]) {
+  async function discard(files: GitFileStatus[]) {
     const untracked = files.filter((f) => f.status === "U").length;
-    const what = files.length === 1 ? files[0]!.path : `${files.length} files`;
+    const what = files.length === 1 ? files[0].path : `${files.length} files`;
     const warn = untracked > 0 ? " Untracked files are deleted." : "";
-    if (!confirm(`Discard changes in ${what}? This cannot be undone.${warn}`)) return;
-    gitOp("discard", files.map((f) => f.path));
+    if (
+      !(await confirm({
+        title: `Discard changes in ${what}?`,
+        body: `This cannot be undone.${warn}`,
+        action: "discard the changes",
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    void gitOp("discard", files.map((f) => f.path));
   }
 
   const canCommit = !busy && message.trim() !== "" && staged.length > 0;
@@ -166,7 +181,7 @@ export default function GitPanel({
   }
 
   return (
-    <nav className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
+    <section aria-label="git" className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]">
       <div className="flex items-center px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
         source control
         <BranchControl
@@ -183,17 +198,17 @@ export default function GitPanel({
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && canCommit) {
               e.preventDefault();
-              commit();
+              void commit();
             }
           }}
-          placeholder={`Message (⌘⏎ to commit on "${status?.branch ?? "…"}")`}
+          placeholder={`Message (${MOD}⏎ to commit on "${status?.branch ?? "…"}")`}
           rows={2}
           className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12px] outline-none placeholder:text-faint focus:border-accent"
         />
         <button
           onClick={commit}
           disabled={!canCommit}
-          className="mt-1 w-full rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+          className="mt-1 w-full rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {busy ? "working…" : "✓ Commit"}
         </button>
@@ -222,6 +237,7 @@ export default function GitPanel({
             { glyph: "+", title: "stage", run: () => gitOp("stage", [f.path]) },
           ],
         )}
-    </nav>
+      {confirmDialog}
+    </section>
   );
 }

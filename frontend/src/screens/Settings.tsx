@@ -10,6 +10,8 @@ import type {
   SshKey,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { copyText } from "../clipboard";
+import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
 
@@ -102,7 +104,7 @@ export default function Settings() {
               {drafts[v.key]?.trim() && (
                 <button
                   onClick={() => saveDraft(v.key)}
-                  className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110"
+                  className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
                 >
                   save
                 </button>
@@ -139,7 +141,7 @@ export default function Settings() {
             <button
               onClick={addVar}
               disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add
             </button>
@@ -310,7 +312,7 @@ function Notifications() {
           <button
             onClick={enable}
             disabled={busy}
-            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "enabling…" : "enable"}
           </button>
@@ -347,16 +349,16 @@ function Notifications() {
  */
 function AppReset() {
   const [busy, setBusy] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
 
   async function hardReset() {
     if (busy) return;
-    if (
-      !confirm(
-        "Hard reset the app? The cached app shell is deleted and the page reloads from the pod. Sessions, repos and settings are untouched.",
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Hard reset the app?",
+      body: "The cached app shell is deleted and the page reloads from the pod. Sessions, repos and settings are untouched.",
+      action: "reset the app",
+    });
+    if (!ok) return;
     setBusy(true);
     for (const reg of (await navigator.serviceWorker?.getRegistrations()) ?? []) {
       await reg.unregister();
@@ -387,6 +389,7 @@ function AppReset() {
         home-screen app is serving something stale anyway — it unregisters the service
         worker, deletes its caches and reloads from the pod.
       </div>
+      {confirmDialog}
     </>
   );
 }
@@ -472,9 +475,17 @@ function Schedules() {
       setNote(`started a session for "${s.name}"`);
     });
 
-  const remove = (s: Schedule) =>
-    confirm(`Delete the schedule "${s.name}"? Sessions it already started are untouched.`) &&
-    run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+  const [confirm, confirmDialog] = useConfirm();
+
+  const remove = async (s: Schedule) => {
+    const ok = await confirm({
+      title: `Delete the schedule "${s.name}"?`,
+      body: "It stops firing. Sessions it already started are untouched.",
+      action: "delete the schedule",
+      danger: true,
+    });
+    if (ok) void run(() => api(`/api/schedules/${s.id}`, { method: "DELETE" }));
+  };
 
   function toggleOpen(s: Schedule) {
     setOpen(open === s.id ? null : s.id);
@@ -590,7 +601,7 @@ function Schedules() {
                 <button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
                   disabled={busy || !edit.cron.trim() || !edit.prompt.trim()}
-                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   save
                 </button>
@@ -663,7 +674,7 @@ function Schedules() {
           <button
             onClick={add}
             disabled={busy || !draft.name.trim() || !draft.prompt.trim() || !projects?.length}
-            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             add schedule
           </button>
@@ -679,7 +690,36 @@ function Schedules() {
         "attention: …" or "failed: …" — which shows up here and is what the phone
         gets. A run that reports itself ok stays silent.
       </div>
+      {confirmDialog}
     </>
+  );
+}
+
+/**
+ * Copy with feedback. The old button called navigator.clipboard directly, which
+ * is undefined on a plain-HTTP origin — the deployment this app is written for
+ * — so it silently did nothing and you found out when the paste came up empty.
+ */
+function CopyButton({ text }: { text: string }) {
+  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
+
+  return (
+    <button
+      onClick={async () => {
+        setState((await copyText(text)) ? "ok" : "fail");
+        setTimeout(() => setState("idle"), 1500);
+      }}
+      title="copy public key"
+      className={`rounded-[7px] border px-2.5 py-1.5 font-mono text-[12px] ${
+        state === "fail"
+          ? "border-fail/50 text-fail"
+          : state === "ok"
+            ? "border-run/50 text-run"
+            : "border-line text-muted hover:border-faint hover:text-text"
+      }`}
+    >
+      {state === "ok" ? "copied" : state === "fail" ? "select it" : "copy"}
+    </button>
   );
 }
 
@@ -724,9 +764,17 @@ function SshKeys() {
       setShown(key.name);
     });
 
-  const remove = (key: SshKey) =>
-    confirm(`Delete SSH key ${key.name}? Anything authenticating with it stops working.`) &&
-    run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+  const [confirm, confirmDialog] = useConfirm();
+
+  const remove = async (key: SshKey) => {
+    const ok = await confirm({
+      title: `Delete SSH key ${key.name}?`,
+      body: "Anything authenticating with it — git pushes, remote hosts — stops working.",
+      action: "delete the key",
+      danger: true,
+    });
+    if (ok) void run(() => api(`/api/ssh-keys/${key.name}`, { method: "DELETE" }));
+  };
 
   return (
     <>
@@ -763,13 +811,7 @@ function SshKeys() {
                 <pre className="min-w-0 flex-1 overflow-x-auto rounded-[7px] border border-line bg-surface-2 px-2.5 py-2 font-mono text-[11px] whitespace-pre-wrap break-all text-muted">
                   {k.publicKey}
                 </pre>
-                <button
-                  onClick={() => navigator.clipboard.writeText(k.publicKey)}
-                  title="copy public key"
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
-                >
-                  copy
-                </button>
+                <CopyButton text={k.publicKey} />
               </div>
             )}
           </div>
@@ -789,8 +831,8 @@ function SshKeys() {
             <button
               onClick={generate}
               disabled={busy || !name.trim()}
-              title="generate an ed25519 keypair in the pod — the private key never leaves it"
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              title="generate an ed25519 keypair in the pod — the private key never leaves it" aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
+              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
             </button>
@@ -808,7 +850,7 @@ function SshKeys() {
             <button
               onClick={add}
               disabled={busy || !name.trim()}
-              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add key
             </button>
@@ -820,6 +862,7 @@ function SshKeys() {
         automatically (git over ssh, plain ssh). Paste the public key into GitHub →
         Settings → SSH keys to push over ssh.
       </div>
+      {confirmDialog}
     </>
   );
 }

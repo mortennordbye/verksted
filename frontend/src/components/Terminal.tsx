@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
+import { copyText } from "../clipboard";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
@@ -111,17 +114,29 @@ function speechCtor(): (new () => Recognition) | null {
 }
 
 /** Special keys for touch screens, where the on-screen keyboard lacks them. */
-const KEYS: { label: string; seq: string }[] = [
+const KEYS: { label: string; seq: string; title?: string }[] = [
   { label: "esc", seq: "\x1b" },
   // carriage return — submits the claude prompt / a pasted sign-in code
   { label: "enter", seq: "\r" },
+  // A newline without submitting: how you write a second line into a claude
+  // prompt, and unreachable from an on-screen keyboard otherwise.
+  { label: "⏎+", seq: "\x1b\r", title: "newline without sending" },
+  // Permission prompts are the single most common thing to answer from a
+  // phone, and both answers are one tap away here.
+  { label: "y", seq: "y", title: "answer yes" },
+  { label: "n", seq: "n", title: "answer no" },
   { label: "/", seq: "/" },
   { label: "tab", seq: "\t" },
   { label: "^C", seq: "\x03" },
+  { label: "^D", seq: "\x04", title: "end of input" },
+  { label: "^R", seq: "\x12", title: "reverse history search" },
+  { label: "^L", seq: "\x0c", title: "clear screen" },
   { label: "↑", seq: "\x1b[A" },
   { label: "↓", seq: "\x1b[B" },
   { label: "←", seq: "\x1b[D" },
   { label: "→", seq: "\x1b[C" },
+  { label: "home", seq: "\x1b[H", title: "start of line" },
+  { label: "end", seq: "\x1b[F", title: "end of line" },
 ];
 
 // Toolbar key styling. Tap feedback matters more here than it looks: on a phone
@@ -129,13 +144,33 @@ const KEYS: { label: string; seq: string }[] = [
 // press that didn't land. :active covers the finger-down moment; `flash` holds
 // the same look for a moment after release, which is what makes a quick tap
 // visible at all.
-const KEY = "flex-none rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors";
+const KEY =
+  "tap flex-none items-center justify-center rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors";
 const KEY_PRESS = "active:border-accent active:bg-accent/25 active:text-accent";
 const KEY_IDLE = "border-line text-muted";
 const KEY_LIT = "border-accent bg-accent/25 text-accent";
 
 /** How long a key keeps the pressed look after the finger lifts. */
 const FLASH_MS = 160;
+
+/**
+ * Terminal font size, persisted per device.
+ *
+ * 13px gives about 46 columns on a 390px phone, and agent TUIs assume 80 — so
+ * their boxes and diffs wrap into garbage. Being able to go down to 9 makes the
+ * difference between a readable diff and a scrambled one, and it is a per-device
+ * preference (a phone and a desktop want different answers), which is why it
+ * lives in localStorage rather than in session metadata.
+ */
+const FONT_KEY = "vk.term.fontSize";
+const FONT_MIN = 8;
+const FONT_MAX = 22;
+const FONT_DEFAULT = 13;
+
+function storedFontSize(): number {
+  const n = Number(localStorage.getItem(FONT_KEY));
+  return Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX ? n : FONT_DEFAULT;
+}
 
 export default function Terminal({
   sessionId,
@@ -164,6 +199,10 @@ export default function Terminal({
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pasteBlocked, setPasteBlocked] = useState(false);
+  const [fontSize, setFontSize] = useState(storedFontSize);
+  const [closeCode, setCloseCode] = useState<number | null>(null);
+  const fitRef = useRef<FitAddon | null>(null);
   const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
   // Dictation: the run in progress, and whether the mic key is lit.
@@ -289,12 +328,19 @@ export default function Terminal({
 
   // Pasting into an xterm terminal is awkward on a phone (no paste affordance on
   // the on-screen keyboard); send the clipboard straight in instead.
+  //
+  // readText has no non-secure-context fallback the way copying does — reading
+  // the clipboard without an explicit paste gesture is exactly what browsers
+  // refuse. On plain HTTP this button used to fail silently, so say so instead:
+  // the sign-in code field below is the paste target that does work.
   async function pasteFromClipboard() {
     try {
       const text = await navigator.clipboard.readText();
       if (text) sendInput(text);
+      setPasteBlocked(false);
     } catch {
-      // clipboard read denied — nothing we can do without the OS prompt
+      setPasteBlocked(true);
+      setTimeout(() => setPasteBlocked(false), 4000);
     }
   }
 
@@ -328,12 +374,11 @@ export default function Terminal({
 
   async function copyAuthUrl() {
     if (!authUrl) return;
-    try {
-      await navigator.clipboard.writeText(authUrl);
+    // copyText, not navigator.clipboard: the Clipboard API only exists in a
+    // secure context, and this app is served over plain HTTP on the VPN.
+    if (await copyText(authUrl)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // clipboard blocked (rare over https) — the open link still works
     }
   }
 
@@ -351,11 +396,26 @@ export default function Terminal({
   // Leaving the session must not leave the microphone open.
   useEffect(() => () => recognition.current?.stop(), []);
 
+  // Font size changes must not re-create the terminal — that would drop the
+  // websocket and the scrollback with it. Resize in place and refit, which
+  // sends the new cols/rows on to tmux.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontSize = fontSize;
+    fitRef.current?.fit();
+    localStorage.setItem(FONT_KEY, String(fontSize));
+  }, [fontSize]);
+
   useEffect(() => {
     const el = ref.current!;
     const term = new Xterm({
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: storedFontSize(),
+      // Wide characters (CJK, and the box-drawing and emoji agent TUIs print)
+      // are measured by Unicode 6 rules by default, so anything wider than the
+      // table expects shifts every column after it.
+      allowProposedApi: true,
       fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace',
       theme: {
         background: "#0b0e12",
@@ -383,8 +443,24 @@ export default function Terminal({
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    fitRef.current = fit;
+    const unicode11 = new Unicode11Addon();
+    term.loadAddon(unicode11);
+    term.unicode.activeVersion = "11";
+    // URLs an agent prints are otherwise unselectable on a phone, where there
+    // is no cursor to drag across them.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        event.preventDefault();
+        window.open(uri, "_blank", "noopener,noreferrer");
+      }),
+    );
     term.open(el);
     fit.fit();
+    // On a desktop the terminal is the point of the screen, and it used to need
+    // a click before it would take a keystroke. Not on touch, where focusing
+    // would throw the on-screen keyboard up over the pane on arrival.
+    if (matchMedia("(pointer: fine)").matches) term.focus();
     termRef.current = term;
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -416,10 +492,12 @@ export default function Terminal({
       }, 400);
     };
     ws.onclose = (e) => {
-      // 4404 is the attach route saying the session no longer exists (ended or
-      // purged); no amount of reconnecting brings it back.
+      // Codes the attach route uses to say retrying is pointless: 4404 the
+      // session is gone (ended or purged), 4429 too many clients are already
+      // attached, 4500 the pty could not be started at all.
       if (!unmounted) {
-        if (e.code === 4404) setEnded(true);
+        if (e.code === 4404 || e.code === 4429 || e.code === 4500) setEnded(true);
+        setCloseCode(e.code);
         setDisconnected(true);
       }
     };
@@ -432,6 +510,23 @@ export default function Terminal({
     // the alternate screen is the ↑/↓ conversion we are replacing — unless the
     // app asked for mouse events, in which case xterm already sends it exactly
     // the wheel report it is waiting for.
+    // Ctrl+Shift+C/V is what a terminal uses for copy/paste, since plain Ctrl+C
+    // has to reach the agent as an interrupt.
+    term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== "keydown" || !ev.ctrlKey || !ev.shiftKey) return true;
+      const key = ev.key.toLowerCase();
+      if (key === "c") {
+        const selection = term.getSelection();
+        if (selection) void copyText(selection);
+        return false;
+      }
+      if (key === "v") {
+        void pasteFromClipboard();
+        return false;
+      }
+      return true;
+    });
+
     term.attachCustomWheelEventHandler((ev) => {
       if (term.modes.mouseTrackingMode !== "none") return true;
       const rows =
@@ -469,6 +564,8 @@ export default function Terminal({
     const input = term.onData((data) => {
       pendingScroll.current = 0;
       setScrolled(false);
+      // Disarm on whatever comes next, not only on a letter: arming and then
+      // typing a digit used to leave Ctrl silently armed for the next letter.
       if (ctrlArmed.current && /^[a-zA-Z]$/.test(data)) {
         ctrlArmed.current = false;
         setCtrl(false);
@@ -555,8 +652,16 @@ export default function Terminal({
         >
           ctrl
         </button>
-        <button onClick={() => tapKey("paste", pasteFromClipboard)} className={keyClass("paste")}>
-          paste
+        <button
+          onClick={() => tapKey("paste", pasteFromClipboard)}
+          title={
+            pasteBlocked
+              ? "the browser will not hand over the clipboard on this origin"
+              : "paste the clipboard into the terminal"
+          }
+          className={keyClass("paste", pasteBlocked ? "border-fail text-fail" : KEY_IDLE)}
+        >
+          {pasteBlocked ? "no clipboard" : "paste"}
         </button>
         {speechCtor() && (
           <button
@@ -593,11 +698,42 @@ export default function Terminal({
           <button
             key={k.label}
             onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+            title={k.title}
+            aria-label={k.title ?? k.label}
             className={keyClass(k.label)}
           >
             {k.label}
           </button>
         ))}
+        {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
+            for 80 — their boxes and diffs wrap into noise below that. */}
+        <button
+          onClick={() => tapKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
+          title="smaller text (more columns)"
+          aria-label="smaller text"
+          className={keyClass("a-")}
+        >
+          A−
+        </button>
+        <button
+          onClick={() => tapKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
+          title="larger text (fewer columns)"
+          aria-label="larger text"
+          className={keyClass("a+")}
+        >
+          A+
+        </button>
+        {/* iOS drops the on-screen keyboard whenever focus moves — to the file
+            picker, a key, or nothing at all — and there is no way back without
+            tapping the terminal body, which in copy mode means scrolling it. */}
+        <button
+          onClick={() => tapKey("kbd", () => termRef.current?.focus())}
+          title="show the keyboard"
+          aria-label="show the keyboard"
+          className={keyClass("kbd")}
+        >
+          ⌨
+        </button>
         {/* A page of history at a time — the same scrollback the drag gesture
             moves, not the PgUp/PgDn keys the agent would swallow. */}
         <button
@@ -630,14 +766,19 @@ export default function Terminal({
         {/* Two different situations behind one overlay before: a backend that
             will come back (retrying works, and does so on its own) and a
             session that is gone for good (retrying can only fail). Say which. */}
+        {/* A banner, not a full-pane overlay: the last thing the agent printed
+            is exactly what you want to read when the connection drops, and the
+            overlay used to cover it. */}
         {disconnected && (
           <button
             onClick={() => setAttempt((a) => a + 1)}
-            className="absolute inset-0 z-10 flex items-center justify-center px-6 text-center bg-term/80 font-mono text-[13px] text-muted"
+            className="absolute inset-x-0 bottom-0 z-10 border-t border-line bg-surface/95 px-3 py-2 text-left font-mono text-[12.5px] text-muted backdrop-blur"
           >
-            {ended
-              ? "this session has ended — start a new one with “resume” to pick the conversation up"
-              : "reconnecting — tap to retry now"}
+            {closeCode === 4429
+              ? "too many terminals open on this session — close one and tap to retry"
+              : ended
+                ? "this session has ended — start a new one with “resume” to pick the conversation up"
+                : "reconnecting — tap to retry now"}
           </button>
         )}
       </div>

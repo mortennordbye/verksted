@@ -1,8 +1,9 @@
 import { useState } from "react";
 import type { PrDiff, PullRequest, PullRequestDetail, MergeResult } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { useConfirm } from "../useConfirm";
 import { StatusChip } from "./StatusChip";
-import Sheet from "./Sheet";
+import Sheet, { focusIfPointerFine } from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
 
 const CHECK_CHIP = {
@@ -144,6 +145,7 @@ function PrSheet({
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [diff, setDiff] = useState<PrDiff | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
   const { data: pr, refresh } = usePoll<PullRequestDetail>(
     `/api/projects/${project}/prs/${number}`,
     30_000,
@@ -167,11 +169,14 @@ function PrSheet({
   const post = <T,>(op: string) =>
     api<T>(`/api/projects/${project}/prs/${number}/${op}`, { method: "POST" });
 
-  function merge() {
-    if (!confirm(`Squash-merge PR #${number} into ${pr?.baseRefName} and delete the branch?`)) {
-      return;
-    }
-    run(async () => {
+  async function merge() {
+    const ok = await confirm({
+      title: `Squash-merge PR #${number}?`,
+      body: `It merges into ${pr?.baseRefName} and the head branch is deleted.`,
+      action: "squash and merge",
+    });
+    if (!ok) return;
+    void run(async () => {
       const res = await post<MergeResult>("merge");
       // Merged, but something local did not go to plan — say so rather than
       // leaving a stale branch to be discovered later.
@@ -199,7 +204,7 @@ function PrSheet({
             onClick={merge}
             disabled={busy || !open}
             title={open ? "squash and delete the branch" : `already ${pr?.state.toLowerCase()}`}
-            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "working…" : open ? "⑃ squash merge" : (pr?.state.toLowerCase() ?? "…")}
           </button>
@@ -281,6 +286,7 @@ function PrSheet({
           onClose={() => setDiff(null)}
         />
       )}
+      {confirmDialog}
     </>
   );
 }
@@ -325,7 +331,7 @@ function CreatePrSheet({
     >
       {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
       <input
-        autoFocus
+        ref={focusIfPointerFine}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="title"
@@ -350,7 +356,7 @@ function CreatePrSheet({
       <button
         onClick={create}
         disabled={busy || !title.trim()}
-        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-[#16130a] hover:brightness-110 disabled:opacity-50"
+        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
       >
         {busy ? "pushing…" : "push and open pr"}
       </button>

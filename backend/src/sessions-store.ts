@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentName, CreatedSession, Session } from "../../shared/api.js";
@@ -115,13 +116,75 @@ async function readAll(): Promise<Meta[]> {
   return metas;
 }
 
+/**
+ * Write-temp-then-rename, because listSessions is a GET that writes and three
+ * pollers call it at once. A plain writeFile lets two writers interleave into
+ * truncated JSON, which readAll then skips silently — the session disappears
+ * from history for good. rename(2) is atomic within a filesystem, so a reader
+ * sees either the old file or the new one.
+ *
+ * The temp name cannot end in ".json", or readAll would try to parse it.
+ */
 async function writeMeta(meta: Meta): Promise<void> {
-  await fs.writeFile(metaPath(meta.id), JSON.stringify(meta, null, 2));
+  const target = metaPath(meta.id);
+  const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(tmp, JSON.stringify(meta, null, 2));
+    await fs.rename(tmp, target);
+  } catch (err) {
+    await fs.rm(tmp, { force: true });
+    throw err;
+  }
 }
 
-function toSession(meta: Meta, live: boolean, state: string | null): Session {
+/** Leftover temp files from a pod killed mid-write; called once at boot. */
+async function sweepTempMetas(): Promise<void> {
+  try {
+    const files = await fs.readdir(env.SESSIONS_DIR);
+    for (const f of files.filter((f) => f.endsWith(".tmp"))) {
+      await fs.rm(path.join(env.SESSIONS_DIR, f), { force: true });
+    }
+  } catch {
+    // Nothing to sweep, or the dir is unreadable — boot regardless.
+  }
+}
+
+async function readMeta(id: string): Promise<Meta | null> {
+  if (!SESSION_ID_RE.test(id)) return null;
+  try {
+    return JSON.parse(await fs.readFile(metaPath(id), "utf8")) as Meta;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Live tmux session names, or null when tmux could not be asked at all. Null
+ * means "unknown", and every caller has to treat it as such rather than as
+ * "nothing is running".
+ */
+async function liveNames(): Promise<Set<string> | null> {
+  try {
+    return new Set(await tmux.listSessions());
+  } catch {
+    return null;
+  }
+}
+
+/** Kill a tmux session that may not exist; absence is the desired end state. */
+async function killQuietly(name: string): Promise<void> {
+  try {
+    await tmux.killSession(name);
+  } catch {
+    // Already gone, or tmux is down and it is going with it.
+  }
+}
+
+async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
   const { cdpPort: _cdpPort, ...wire } = meta;
-  return { ...wire, status: !live ? "done" : state === "waiting" ? "waiting" : "running" };
+  const status = !live ? "done" : state === "waiting" ? "waiting" : "running";
+  const report = await readReport(meta.id);
+  return { ...wire, status, report, outcome: reportOutcome(report, live) };
 }
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
@@ -140,10 +203,18 @@ export async function cdpPortFor(id: string): Promise<number | null> {
 }
 
 export async function listSessions(project?: string): Promise<Session[]> {
-  const live = new Set(await tmux.listSessions());
+  const live = await liveNames();
   const metas = (await readAll()).filter((m) => !project || m.project === project);
   const out: Session[] = [];
   for (const m of metas) {
+    // tmux could not be asked. Report the last known state and sweep nothing:
+    // ending every session here would be wrong the moment tmux comes back, and
+    // it would fire a "finished" push per session on every poll until it does.
+    if (live === null) {
+      const wasLive = !m.endedAt;
+      out.push(await toSession(m, wasLive, wasLive ? await readState(m.id) : null));
+      continue;
+    }
     // Sweep: a session whose tmux died without going through DELETE gets its
     // end stamped the first time anyone lists it.
     if (!m.endedAt && !live.has(m.id)) {
@@ -153,22 +224,55 @@ export async function listSessions(project?: string): Promise<Session[]> {
     }
     // A shell companion must not outlive its agent session.
     if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
-      await tmux.killSession(`${m.id}-shell`);
+      await killQuietly(`${m.id}-shell`);
     }
-    out.push(toSession(m, live.has(m.id), live.has(m.id) ? await readState(m.id) : null));
+    out.push(await toSession(m, live.has(m.id), live.has(m.id) ? await readState(m.id) : null));
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function getSession(id: string): Promise<Session | null> {
-  if (!SESSION_ID_RE.test(id)) return null;
-  try {
-    const meta: Meta = JSON.parse(await fs.readFile(metaPath(id), "utf8"));
-    const live = new Set(await tmux.listSessions());
-    return toSession(meta, live.has(id), live.has(id) ? await readState(id) : null);
-  } catch {
-    return null;
+  const meta = await readMeta(id);
+  if (!meta) return null;
+  const live = await liveNames();
+  // Unknown liveness: fall back to what the metadata last recorded, the same
+  // way listSessions does, rather than reporting a live session as done.
+  const isLive = live === null ? !meta.endedAt : live.has(id);
+  return await toSession(meta, isLive, isLive ? await readState(id) : null);
+}
+
+/**
+ * What a session is asked to leave behind when it finishes.
+ *
+ * Only the agent knows whether "two PRs open" is fine or needs a person, so it
+ * writes the verdict itself and everything downstream reads it: "ok:" keeps the
+ * phone quiet, the other two push. Appended to the prompt rather than buried in
+ * a hook because the agent has to be told in words.
+ *
+ * Only scheduled runs are *told* this. An interactive session has no defined
+ * end, and injecting the instruction as its first prompt would make the agent
+ * answer a piece of bookkeeping before the user has said anything. Every
+ * session can still write the file — VK_REPORT_FILE is set for all of them —
+ * and any session that does now has its verdict read and surfaced, so asking
+ * an agent for a sign-off mid-session works without changing how sessions
+ * start.
+ */
+export const REPORT_CONTRACT =
+  '\n\nWhen you are done, write one line to the file at "$VK_REPORT_FILE": ' +
+  '"ok: <summary>" if nothing needs me, "attention: <summary>" if I have to act, ' +
+  'or "failed: <summary>" if you could not finish.';
+
+/** The three verdicts a report can open with, plus where it got to otherwise. */
+export function reportOutcome(
+  report: string | null,
+  live: boolean,
+): "ok" | "attention" | "failed" | "running" | "done" {
+  if (report) {
+    if (/^attention\b/i.test(report)) return "attention";
+    if (/^failed\b/i.test(report)) return "failed";
+    if (/^ok\b/i.test(report)) return "ok";
   }
+  return live ? "running" : "done";
 }
 
 export interface LaunchOptions {
@@ -185,6 +289,32 @@ export interface LaunchOptions {
    * a waiting session, which is exactly what the notifier pushes.
    */
   autoPermissions?: boolean;
+}
+
+/**
+ * Standing context for a project, prepended to whatever a session is asked to
+ * do. Lives in the repo at .verksted/context.md — the same hidden directory
+ * phone uploads use, which is already kept out of git via .git/info/exclude.
+ *
+ * The point is that the hub stops being stateless. Conventions, decisions and
+ * the shape of the repo are re-explained to every agent otherwise, and on a
+ * phone re-typing them is the expensive part.
+ *
+ * Read at launch rather than cached: editing the file should affect the next
+ * session, not the next restart.
+ */
+export const CONTEXT_PATH = ".verksted/context.md";
+
+async function projectContext(projectDir: string): Promise<string | null> {
+  try {
+    const text = await fs.readFile(path.join(projectDir, CONTEXT_PATH), "utf8");
+    const trimmed = text.trim();
+    // Bounded: it becomes part of an argv-delivered env var, and an accidental
+    // paste of a whole file should not push the real prompt out of the window.
+    return trimmed ? trimmed.slice(0, 8_000) : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -221,9 +351,13 @@ async function launchAgent(
   // gets it as an execFile argument, and the pane's shell only ever sees the
   // quoted expansion, so no character in it can be read as shell syntax.
   if (opts.prompt) {
-    extraEnv.VK_PROMPT = opts.prompt;
+    const context = await projectContext(projectDir);
+    extraEnv.VK_PROMPT = context
+      ? `${context}\n\n---\n\n${opts.prompt}`
+      : opts.prompt;
     command += ' "$VK_PROMPT"';
   }
+
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
 }
 
@@ -238,7 +372,14 @@ async function launchAgent(
  * which ends it as before.
  */
 export async function restoreSessions(log: Logger): Promise<void> {
-  const live = new Set(await tmux.listSessions());
+  await sweepTempMetas();
+  const live = await liveNames();
+  if (live === null) {
+    // Restoring on a guess would start a second agent for every session that is
+    // actually still running.
+    log.warn({}, "tmux unreachable at boot; skipping session restore");
+    return;
+  }
   for (const meta of await readAll()) {
     if (meta.endedAt || live.has(meta.id) || meta.agent !== "claude") continue;
     const conv = await readConv(meta.id);
@@ -254,51 +395,79 @@ export async function restoreSessions(log: Logger): Promise<void> {
   }
 }
 
-export async function createSession(
+/**
+ * Serializes createSession. The sequence number is read from the metadata on
+ * disk and written back by the same call, so two concurrent creates in one
+ * project both see the same highest seq and mint the same id: the second tmux
+ * new-session fails, and whichever metadata lands last wins. Creating a session
+ * is rare and already costs a git sync and a process spawn, so a plain queue is
+ * the right size of fix — the alternative, a lock file on the volume, buys
+ * nothing while there is one backend process.
+ */
+let createQueue: Promise<unknown> = Promise.resolve();
+
+function serialized<T>(fn: () => Promise<T>): Promise<T> {
+  const run = createQueue.then(fn, fn);
+  createQueue = run.catch(() => {});
+  return run;
+}
+
+export function createSession(
   project: string,
   projectDir: string,
   agent: AgentName,
   opts: LaunchOptions = {},
 ): Promise<CreatedSession> {
-  const extraEnv = await agentEnv();
-  // Start the agent from an up-to-date default branch. Reported back to the UI:
-  // it is a no-op on a worktree or a dirty tree, and the user has to know.
-  const sync = await syncDefaultBranch(projectDir, extraEnv);
-  const metas = await readAll();
-  const seq =
-    metas
-      .filter((m) => m.project === project)
-      .reduce((max, m) => Math.max(max, Number(m.id.split("-").at(-1))), 0) + 1;
-  const meta: Meta = {
-    id: `vk-${project}-${seq}`,
-    project,
-    agent,
-    title: opts.title?.trim() || `${agent}-${seq}`,
-    createdAt: new Date().toISOString(),
-    endedAt: null,
-    cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
-  };
-  // A purged session's id can be reused; drop any stale state from it.
-  await fs.rm(statePath(meta.id), { force: true });
-  await fs.rm(convPath(meta.id), { force: true });
-  await fs.rm(reportPath(meta.id), { force: true });
-  await launchAgent(
-    meta,
-    projectDir,
-    (opts.resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent],
-    opts,
-  );
-  await writeMeta(meta);
-  return { ...toSession(meta, true, null), sync };
+  return serialized(async () => {
+    const extraEnv = await agentEnv();
+    // Start the agent from an up-to-date default branch. Reported back to the
+    // UI: it is a no-op on a worktree or a dirty tree, and the user has to know.
+    const sync = await syncDefaultBranch(projectDir, extraEnv);
+    const metas = await readAll();
+    const seq =
+      metas
+        .filter((m) => m.project === project)
+        .reduce((max, m) => Math.max(max, Number(m.id.split("-").at(-1))), 0) + 1;
+    const meta: Meta = {
+      id: `vk-${project}-${seq}`,
+      project,
+      agent,
+      title: opts.title?.trim() || `${agent}-${seq}`,
+      createdAt: new Date().toISOString(),
+      endedAt: null,
+      cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
+    };
+    // A purged session's id can be reused; drop any stale state from it.
+    await fs.rm(statePath(meta.id), { force: true });
+    await fs.rm(convPath(meta.id), { force: true });
+    await fs.rm(reportPath(meta.id), { force: true });
+    // Metadata first: a tmux session the app has no record of is invisible in
+    // the UI and never reaped, so it can only be found with kubectl exec.
+    await writeMeta(meta);
+    try {
+      await launchAgent(
+        meta,
+        projectDir,
+        (opts.resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent],
+        opts,
+      );
+    } catch (err) {
+      // Nothing started, so leave no session behind for the UI to show as live.
+      await fs.rm(metaPath(meta.id), { force: true });
+      throw err;
+    }
+    return { ...(await toSession(meta, true, null)), sync };
+  });
 }
 
 /** Kill any live tmux sessions for a project and remove all its metadata files. */
 export async function deleteProjectSessions(project: string): Promise<void> {
-  const live = new Set(await tmux.listSessions());
   const metas = (await readAll()).filter((m) => m.project === project);
   for (const m of metas) {
-    if (live.has(m.id)) await tmux.killSession(m.id);
-    if (live.has(`${m.id}-shell`)) await tmux.killSession(`${m.id}-shell`);
+    // Unconditional: the metadata is about to go, so a tmux session that
+    // outlived it could never be found again.
+    await killQuietly(m.id);
+    await killQuietly(`${m.id}-shell`);
     await closeBrowser(m.id);
     await fs.rm(metaPath(m.id), { force: true });
     await fs.rm(statePath(m.id), { force: true });
@@ -310,29 +479,24 @@ export async function deleteProjectSessions(project: string): Promise<void> {
 export async function endSession(id: string): Promise<Session | null> {
   const session = await getSession(id);
   if (!session) return null;
-  if (session.status !== "done") await tmux.killSession(id);
-  const live = new Set(await tmux.listSessions());
-  if (live.has(`${id}-shell`)) await tmux.killSession(`${id}-shell`);
+  if (session.status !== "done") await killQuietly(id);
+  await killQuietly(`${id}-shell`);
   await closeBrowser(id);
-  const meta: Meta = { ...session, endedAt: session.endedAt ?? new Date().toISOString() };
-  await writeMeta({
-    id: meta.id,
-    project: meta.project,
-    agent: meta.agent,
-    title: meta.title,
-    createdAt: meta.createdAt,
-    endedAt: meta.endedAt,
-  });
-  return { ...meta, status: "done" };
+  const endedAt = session.endedAt ?? new Date().toISOString();
+  // Patch the stored metadata rather than rebuilding it from Session, which has
+  // had cdpPort stripped by toSession. Rebuilding dropped the reserved port on
+  // every end, so the pool leaked until nextCdpPort ran out and threw a bare 500.
+  const stored = await readMeta(id);
+  if (stored) await writeMeta({ ...stored, endedAt });
+  return { ...session, endedAt, status: "done" };
 }
 
 /** End the session (tmux + shell companion) and remove it from history. */
 export async function deleteSession(id: string): Promise<boolean> {
   const session = await getSession(id);
   if (!session) return false;
-  if (session.status !== "done") await tmux.killSession(id);
-  const live = new Set(await tmux.listSessions());
-  if (live.has(`${id}-shell`)) await tmux.killSession(`${id}-shell`);
+  if (session.status !== "done") await killQuietly(id);
+  await killQuietly(`${id}-shell`);
   await closeBrowser(id);
   await fs.rm(metaPath(id), { force: true });
   await fs.rm(statePath(id), { force: true });

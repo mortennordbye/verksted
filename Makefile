@@ -1,4 +1,8 @@
-.PHONY: setup dev up down test lint build run
+.PHONY: help setup dev up down test lint build run
+.DEFAULT_GOAL := help
+
+help: ## list these targets
+	@grep -hE '^[a-z-]+:.*?## ' $(MAKEFILE_LIST) | sort | awk -F':.*?## ' '{printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
 
 setup: ## build dev images and install deps (writes package-lock.json back to the host)
 	docker compose build
@@ -17,10 +21,10 @@ up: ## same as dev, but detached
 down: ## stop the dev stack
 	docker compose down
 
-test:
+test: ## vitest, backend and frontend
 	docker compose run --rm backend npm test
 
-lint:
+lint: ## tsc --noEmit across workspaces, then eslint
 	docker compose run --rm backend npm run lint
 
 build: ## production image

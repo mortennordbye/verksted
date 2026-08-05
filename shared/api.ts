@@ -23,6 +23,23 @@ export interface Session {
   createdAt: string;
   endedAt: string | null;
   status: "running" | "waiting" | "done";
+  /**
+   * The one-line verdict the agent wrote about its own work, or null when it
+   * wrote none. Scheduled runs have always been asked for this; every session
+   * is now, so a card can say what the agent concluded rather than only
+   * whether its tmux session is still alive.
+   */
+  report: string | null;
+  /** That verdict as one word, falling back to where the session got to. */
+  outcome: "ok" | "attention" | "failed" | "running" | "done";
+}
+
+/** The last lines a session printed, for answering it without a terminal. */
+export interface SessionCapture {
+  id: string;
+  text: string;
+  /** False when the session has ended; text is then empty. */
+  live: boolean;
 }
 
 export interface TreeNode {
@@ -33,9 +50,26 @@ export interface TreeNode {
   children?: TreeNode[];
 }
 
+/**
+ * The file tree, plus whether the walk ran out of budget. Without the flag a
+ * huge repo came back quietly missing files, which reads as "the file is not
+ * there" rather than "the tree stopped early".
+ */
+export interface Tree {
+  nodes: TreeNode[];
+  truncated: boolean;
+}
+
 export interface FileContent {
   path: string;
   content: string;
+  /**
+   * Version of the file as read. Send it back as `If-Match` on PUT and the save
+   * is rejected with 412 if anything wrote to the file meanwhile — the agent
+   * shares this working tree, so that is a normal thing to happen rather than
+   * an edge case.
+   */
+  etag: string;
 }
 
 export interface FileDiff {

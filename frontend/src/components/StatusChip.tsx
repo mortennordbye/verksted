@@ -29,11 +29,11 @@ export const AGENT_DOT: Record<string, string> = {
   codex: "bg-codex",
 };
 
-export function AgentTag({ agent, label }: { agent: string; label?: string }) {
+export function AgentTag({ agent }: { agent: string }) {
   return (
     <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted">
       <i className={`h-[7px] w-[7px] flex-none rounded-[2px] ${AGENT_DOT[agent] ?? "bg-faint"}`} />
-      {label ?? agent}
+      {agent}
     </span>
   );
 }

@@ -18,12 +18,29 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["apple-touch-icon.png"],
       manifest: {
+        // id pins the installed app's identity: without it the install is keyed
+        // on start_url, so changing that would strand the existing home-screen
+        // icon as a separate app.
+        id: "/",
         name: "verksted",
         short_name: "verksted",
-        description: "Self-hosted agent workbench",
+        description: "Self-hosted workbench for driving coding agents from a phone.",
         display: "standalone",
+        // Without scope, a navigation outside it drops out of the installed
+        // shell and into a browser tab.
+        scope: "/",
+        start_url: "/",
+        // Landscape is genuinely useful for the terminal, so no orientation
+        // lock — declared rather than left to chance.
+        orientation: "any",
         background_color: "#0f1216",
         theme_color: "#0f1216",
+        // Long-press the home-screen icon: the two screens worth reaching
+        // without going through the hub first.
+        shortcuts: [
+          { name: "Inbox", short_name: "Inbox", url: "/runs" },
+          { name: "Settings", short_name: "Settings", url: "/settings" },
+        ],
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
@@ -42,7 +59,10 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: "http://backend:8080",
-        changeOrigin: true,
+        // Forward the browser's own Host (dev is the only place the frontend
+        // and the API sit on different origins), so the backend's same-origin
+        // check sees Host and Origin agree. Fastify does not route on Host.
+        changeOrigin: false,
         ws: true,
       },
     },

@@ -1,5 +1,4 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
+import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -8,12 +7,14 @@ import { env } from "../env.js";
 import { branchOf, git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
-import { agentEnv } from "../settings-store.js";
-
-const exec = promisify(execFile);
+import { execEnv } from "../settings-store.js";
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
-const REPO_SHORTHAND_RE = /^[\w.-]+\/[\w.-]+$/;
+// Both halves must start alphanumeric: "-oX/y" would otherwise reach
+// `gh repo clone` as a flag rather than a repository. `--` is not an option
+// here — `gh repo clone <repo> [<dir>] [-- <gitflags>]` uses it to forward
+// flags to git clone, so a leading `--` would hide the repo name.
+const REPO_SHORTHAND_RE = /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/;
 
 /** Absolute paths of the linked worktrees attached to the repo at `dir`. */
 async function linkedWorktrees(dir: string): Promise<string[]> {
@@ -100,14 +101,18 @@ export default async function projectRoutes(app: FastifyInstance) {
           // dest is free
         }
         try {
-          // agentEnv so GH_TOKEN from the settings page authenticates gh —
+          // execEnv so GH_TOKEN from the settings page authenticates gh —
           // without it, cloning a private repo fails as unauthenticated.
           await exec("gh", ["repo", "clone", url, dest], {
             timeout: 120_000,
-            env: { ...process.env, ...(await agentEnv()) },
+            env: { ...process.env, ...(await execEnv()) },
           });
         } catch (err) {
           req.log.error(err, "clone failed");
+          // A half-cloned directory is still a directory, so the 409 check above
+          // would block every retry with "project already exists" and the only
+          // way out would be kubectl exec.
+          await fs.rm(dest, { recursive: true, force: true }).catch(() => {});
           return reply.code(502).send({ error: "clone failed" });
         }
         return reply.code(201).send({ name: repoName });
@@ -125,7 +130,14 @@ export default async function projectRoutes(app: FastifyInstance) {
         // dir is free
       }
       await fs.mkdir(dir);
-      await exec("git", ["-C", dir, "init", "-b", "main"]);
+      try {
+        await exec("git", ["-C", dir, "init", "-b", "main"]);
+      } catch (err) {
+        req.log.error(err, "init failed");
+        // Same reason as the clone above: an empty dir 409s every retry.
+        await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+        return reply.code(502).send({ error: "init failed" });
+      }
       return reply.code(201).send({ name });
     },
   );
