@@ -56,8 +56,11 @@ Three levels:
    only in v1; editing happens through the terminal. Modified files are
    marked in the tree.
 
-Top bar shows the WireGuard state; a footer on the hub shows pod facts (PVC
-usage, per-agent auth status, MCP server count).
+A footer on the hub shows pod facts (PVC usage, per-agent auth status, MCP
+server count). The top bar deliberately shows no WireGuard state: the app is
+only reachable through the tunnel, so a chip there can never say anything but
+"connected" to anyone able to read it. A tunnel that drops mid-session shows up
+as the connection banner instead.
 
 A clickable single-file HTML mock of all three screens exists (dark theme,
 monospace-forward, amber accent, agent colors: claude coral, gemini blue,
