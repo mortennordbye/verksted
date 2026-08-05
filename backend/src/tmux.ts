@@ -39,18 +39,47 @@ export function envArgs(vars: Record<string, string>): string[] {
   return Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 }
 
+/**
+ * The agent command is the session's own shell-command, not something typed
+ * into it afterwards.
+ *
+ * It used to be delivered with `send-keys` right after `new-session`, which
+ * races the pane shell's startup: keystrokes sent before the shell is reading
+ * are simply dropped, and the session then sits at an empty prompt with no
+ * agent in it and no sign of why.
+ *
+ * The trailing `exec` is what makes the two forms equivalent. Passing a bare
+ * command would end the tmux session the moment the agent exits, and that shell
+ * is load-bearing: it is how you restart a crashed agent in the same session,
+ * and it is what keeps a failed agent command on screen to be read instead of
+ * the session vanishing. Replacing the wrapper with the login shell keeps both.
+ *
+ * The command reaches `sh -c` exactly as before — it is built here, never from
+ * client input, and the only user text in it is `"$VK_PROMPT"`, a quoted
+ * expansion of a variable set through `-e`.
+ */
 export async function newSession(
   name: string,
   cwd: string,
   command: string,
   extraEnv: Record<string, string> = {},
 ): Promise<void> {
-  await exec("tmux", ["new-session", "-d", "-s", name, "-c", cwd, ...envArgs(extraEnv)], {
-    env: UTF8_ENV,
-  });
+  await exec(
+    "tmux",
+    [
+      "new-session",
+      "-d",
+      "-s",
+      name,
+      "-c",
+      cwd,
+      ...envArgs(extraEnv),
+      `${command}; exec "\${SHELL:-/bin/sh}"`,
+    ],
+    { env: UTF8_ENV },
+  );
   // The web UI draws its own bar; tmux's would just eat a row.
   await exec("tmux", ["set-option", "-g", "status", "off"]);
-  await exec("tmux", ["send-keys", "-t", name, command, "Enter"]);
 }
 
 /**
