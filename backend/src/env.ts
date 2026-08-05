@@ -25,6 +25,8 @@ export const env = {
   PORT: port,
   REPOS_DIR: process.env.REPOS_DIR ?? "/data/repos",
   SESSIONS_DIR: process.env.SESSIONS_DIR ?? "/data/sessions",
+  // One JSON file per recurring prompt (see schedules-store.ts).
+  SCHEDULES_DIR: process.env.SCHEDULES_DIR ?? "/data/schedules",
   // Absolute path to the built frontend; empty in dev, where Vite serves it.
   STATIC_DIR: process.env.STATIC_DIR ?? "",
   // Agent env vars set via the settings page persist here (on the PVC).

@@ -69,6 +69,31 @@ describe("PUT /api/settings", () => {
     expect(vars.MY_VAR).toBeUndefined();
   });
 
+  // The scheduler's kill switch shares the settings file, so writing one must
+  // never drop the other.
+  it("toggles the schedules pause without disturbing the stored vars", async () => {
+    await app.inject({ method: "PUT", url: "/api/settings", payload: { vars: { KEEP_ME: "x" } } });
+
+    let res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { schedulesPaused: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().schedulesPaused).toBe(true);
+    expect(JSON.parse(fs.readFileSync(settingsFile, "utf8")).vars.KEEP_ME).toBe("x");
+
+    res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { schedulesPaused: false },
+    });
+    expect(res.json().schedulesPaused).toBe(false);
+    expect(res.json().vars.find((v: { key: string }) => v.key === "KEEP_ME")).toBeTruthy();
+
+    await app.inject({ method: "PUT", url: "/api/settings", payload: { vars: { KEEP_ME: null } } });
+  });
+
   it("rejects ANTHROPIC_API_KEY", async () => {
     const res = await app.inject({
       method: "PUT",

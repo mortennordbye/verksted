@@ -42,13 +42,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(404).send({ error: "not found" });
       }
-      const session = await store.createSession(
-        req.params.name,
-        projectDir,
-        req.body.agent,
-        req.body.title,
-        req.body.resume,
-      );
+      const session = await store.createSession(req.params.name, projectDir, req.body.agent, {
+        title: req.body.title,
+        resume: req.body.resume,
+      });
       return reply.code(201).send(session);
     },
   );

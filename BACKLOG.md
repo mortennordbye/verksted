@@ -128,6 +128,80 @@ what unblocks it / where the code lives.
 - **Where:** `frontend/src/components/TopBar.tsx` (wg chip),
   `backend/src/routes/facts.ts` (extend)
 
+## Scheduled runs are unverified past the point they launch a session
+
+- **What:** `runSchedule` is covered only where it stops short — an unknown id,
+  and the store/route validation around it. The parts that matter in the pod
+  are untested: that a fired schedule really starts a claude session, that the
+  prompt arrives submitted rather than sitting in the input box, that
+  `--permission-mode auto` lets an unattended run get through `gh pr` calls
+  without stopping, and that the skip guard fires when the previous run is
+  still open. The prompt's shell-safety (it travels as `VK_PROMPT` and is only
+  ever a quoted expansion) was verified by hand against a real tmux session,
+  not in the suite.
+- **Why deferred:** Same wall as the other session tests — exercising it means
+  really spawning tmux and really starting an authenticated claude, and nothing
+  in the harness mocks `execFile`.
+- **Unblocked by:** The test-only fake-`tmux`-on-PATH idea from the
+  `restoreSessions` entry would cover the launch decision and the argv. The
+  auto-mode and submitted-prompt behaviour needs one real scheduled run in the
+  pod: point a schedule at a repo, hit "run now", confirm a session appears and
+  the agent is already working.
+- **Where:** `backend/src/scheduler.ts`, `backend/src/schedules-store.ts`,
+  `backend/src/routes/schedules.ts`, `backend/test/schedules.test.ts`
+
+## Event triggers: react to the repo, not only to the clock
+
+- **What:** Schedules fire on a cron. "Keep an eye on my repos" really means
+  reacting to a change — a PR opened, CI turning red, a review requested —
+  which today can only be approximated by a frequent cron that mostly finds
+  nothing and burns a session doing it.
+- **Why deferred:** It is a new subsystem (a `gh` poller, per-trigger
+  last-seen state so one event fires once, and its own failure modes), and
+  stacking it on a scheduler that has never yet fired in the pod would mean
+  debugging two unproven things at once. One hard constraint is already known:
+  the pod is WireGuard-only and cannot receive inbound, so GitHub webhooks are
+  out — it has to be polling built on `gh`.
+- **Unblocked by:** A week of real scheduled runs, so the launch path and the
+  report contract are known-good first.
+- **Where:** `backend/src/scheduler.ts` (the run path to reuse),
+  `backend/src/gh.ts` and `backend/src/routes/github.ts` (the PR/checks
+  queries), `backend/src/schedules-store.ts` (the record shape to extend)
+
+## Nothing checks that a scheduled run actually writes its report
+
+- **What:** The report loop is covered on the reading side — `readReport`
+  (first line, cap, path guard), `shouldNotify` (ok stays quiet, attention /
+  failed / no report push) and the schedule surfacing `lastReport`. What is
+  unverified is the writing side: that an agent handed `REPORT_CONTRACT`
+  reliably writes `$VK_REPORT_FILE` before it stops, and picks a sensible one
+  of the three words. If it forgets, the run falls back to the old "session
+  finished" push — noisier than intended, but nothing breaks.
+- **Why deferred:** It is a prompt-adherence question, not a code one; it can
+  only be answered by watching real runs.
+- **Unblocked by:** A week of real scheduled runs in the pod. If adherence is
+  poor, the fallback is a `Stop` hook that writes a default report when the
+  agent left none, so silence never masquerades as "ok".
+- **Where:** `backend/src/scheduler.ts` (`REPORT_CONTRACT`),
+  `backend/src/sessions-store.ts` (`readReport`), `backend/src/notifier.ts`
+  (`shouldNotify`)
+
+## Terminal dictation is unverified on a real iPhone
+
+- **What:** The mic key in the session toolbar uses the browser's own speech
+  recognition (`webkitSpeechRecognition`) and types the transcript into the
+  pane. Written against the documented API; never exercised on the device it
+  exists for. Unknown: whether iOS Safari prompts for the microphone in an
+  installed PWA the way it does in a tab, and whether one tap reliably captures
+  a whole spoken prompt or cuts off at the first pause.
+- **Why deferred:** Needs the app served over https on the phone, same wall as
+  the web-push verification above.
+- **Unblocked by:** Opening a session on the iPhone and dictating a sentence.
+  If utterances cut off too early, the fix is `continuous`/`interimResults`
+  with a stop button rather than one-shot capture.
+- **Where:** `frontend/src/components/Terminal.tsx` (`toggleDictation`,
+  `speechCtor`)
+
 ## Verify claude status hooks and the notification channels end to end
 
 - **What:** Claude sessions launch with `--settings <hooks file>` whose hooks

@@ -4,10 +4,11 @@ import { buildApp } from "./app.js";
 import { killAll } from "./browser.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
+import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
 // First boot on an empty volume.
-for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR]) {
+for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR, env.SCHEDULES_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -18,6 +19,7 @@ await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
 startNotifier(app.log);
 startMaintenance(app.log);
+await reloadSchedules(app.log);
 
 // Chromium children would outlive a dev-watch restart otherwise.
 for (const sig of ["SIGTERM", "SIGINT"] as const) {
