@@ -34,6 +34,14 @@ export interface Session {
   outcome: "ok" | "attention" | "failed" | "running" | "done";
 }
 
+/** The last lines a session printed, for answering it without a terminal. */
+export interface SessionCapture {
+  id: string;
+  text: string;
+  /** False when the session has ended; text is then empty. */
+  live: boolean;
+}
+
 export interface TreeNode {
   name: string;
   path: string;

@@ -94,6 +94,39 @@ export async function exitCopyMode(name: string): Promise<void> {
   }
 }
 
+/**
+ * Type text into a session's pane, as if it had come over the attach socket.
+ *
+ * "-l" is literal mode: without it tmux interprets the text as key names, so a
+ * prompt containing "Enter" or "C-c" would be read as keystrokes. The caller
+ * asks for a trailing Return separately, which is the only key this sends.
+ *
+ * The argv form means nothing here reaches a shell — but the text does reach
+ * the agent's stdin, which is exactly what the terminal websocket already
+ * allows, so this adds no capability beyond convenience.
+ */
+export async function sendText(name: string, text: string, enter: boolean): Promise<void> {
+  // Pane target, so the session part needs the trailing ":" — same as
+  // scrollHistory. Bare "=name" is read as a pane name and never resolves.
+  const target = `=${name}:`;
+  await exec("tmux", ["send-keys", "-t", target, "-l", "--", text], { timeout: 5_000 });
+  if (enter) {
+    await exec("tmux", ["send-keys", "-t", target, "Enter"], { timeout: 5_000 });
+  }
+}
+
+/** The last `lines` rows of a pane, as plain text. */
+export async function capturePane(name: string, lines: number): Promise<string> {
+  const { stdout } = await exec(
+    "tmux",
+    // -p to stdout, -J so a wrapped line comes back as one, -S -N for how far
+    // back to start.
+    ["capture-pane", "-p", "-J", "-t", `=${name}:`, "-S", `-${lines}`],
+    { timeout: 5_000, maxBuffer: 4 * 1024 * 1024, env: UTF8_ENV },
+  );
+  return stdout;
+}
+
 export async function killSession(name: string): Promise<void> {
   // "=" pins tmux to the exact name — never prefix-match e.g. a -shell sibling.
   await exec("tmux", ["kill-session", "-t", `=${name}`]);
