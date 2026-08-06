@@ -221,8 +221,12 @@ process env into tmux for the CLIs. To add a var: extend `env.ts` + `.env.exampl
 
 ```
 shared/api.ts         # wire types shared by backend and frontend (types only)
+runtime/              # shipped into the image, not part of the build
+├── SANDBOX.md        # what a session must know about its own environment
+└── vk                # `vk doctor` — the live version of the same thing
 backend/src/
 ├── index.ts          # bootstrap: env, fastify, routes, static serving
+├── sandbox-doc.ts    # points each agent's global memory file at SANDBOX.md
 ├── env.ts            # validated env, fail fast
 ├── paths.ts          # path-scoping helper — the security surface
 ├── tmux.ts           # execFile wrappers around tmux

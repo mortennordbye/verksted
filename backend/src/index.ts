@@ -4,6 +4,7 @@ import { buildApp } from "./app.js";
 import { killAll } from "./browser.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
+import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
@@ -13,6 +14,9 @@ for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR, env.SCHEDULES_DIR]) {
 }
 
 const app = await buildApp();
+// Before the sessions start: agents read their global memory file when a
+// session begins, so a restored session should already find the note there.
+await ensureSandboxNotes(app.log);
 // Before listening, not after: the first request to list sessions is also what
 // stamps a tmux-less session as done, and it must not beat the restore to them.
 await restoreSessions(app.log);

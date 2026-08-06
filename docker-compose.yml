@@ -55,6 +55,14 @@ services:
       DOCKER_TLS_CERTDIR: ""
     volumes:
       - dind_data:/var/lib/docker
+      # The same data volume the backend has, at the same path. Bind mounts are
+      # resolved by the daemon in its own filesystem, so without this a session
+      # running `docker compose up` in /data/repos/<project> gets an empty
+      # directory mounted over its source — silently, with no error. Mounting
+      # all of /data rather than just repos grants the session nothing extra:
+      # it can already read $HOME directly, and a privileged daemon is root on
+      # the node regardless of which paths are shared with it.
+      - data:/data
 
 volumes:
   node_modules_root:
