@@ -13,6 +13,7 @@ import scheduleRoutes from "./routes/schedules.js";
 import sshRoutes from "./routes/ssh.js";
 import pushRoutes from "./routes/push.js";
 import githubRoutes from "./routes/github.js";
+import assistantRoutes from "./routes/assistant.js";
 import attachRoutes from "./ws/attach.js";
 import browserRoutes from "./ws/browser.js";
 
@@ -65,6 +66,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(sshRoutes);
   await app.register(pushRoutes);
   await app.register(githubRoutes);
+  await app.register(assistantRoutes);
   await app.register(attachRoutes);
   await app.register(browserRoutes);
 

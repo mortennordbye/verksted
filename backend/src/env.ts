@@ -40,6 +40,8 @@ export const env = {
   SESSIONS_DIR: process.env.SESSIONS_DIR ?? "/data/sessions",
   // One JSON file per recurring prompt (see schedules-store.ts).
   SCHEDULES_DIR: process.env.SCHEDULES_DIR ?? "/data/schedules",
+  // The assistant's threads: one JSONL per conversation (see assistant.ts).
+  ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
   // Absolute path to the built frontend; empty in dev, where Vite serves it.
   STATIC_DIR: process.env.STATIC_DIR ?? "",
   // Agent env vars set via the settings page persist here (on the PVC).

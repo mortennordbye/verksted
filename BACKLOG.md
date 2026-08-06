@@ -86,19 +86,19 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
   `backend/src/sessions-store.ts` (`createSession`)
 
-## Mount the data PVC into the dind sidecar in the Homelab manifests
+## The dind sidecar's data mount has never been checked in the pod
 
-- **What:** Dev compose now mounts the data volume into the `dind` service at
-  `/data`, the same path the backend sees it, so a session's bind mounts resolve
-  to the real repo instead of an empty directory the daemon invents. The pod's
-  sidecar needs the same: the data PVC mounted at `/data`. Until it has one,
-  every `docker compose up` in a session mounts an empty source tree and the
-  failure is silent — the container starts and then cannot find the code.
-- **Why deferred:** Manifests live in the Homelab repo, not here.
-- **Unblocked by:** Adding the volumeMount to the sidecar and re-syncing, then
-  `vk doctor` in a pod session reporting the bind-mount probe ok.
-- **Where:** Homelab repo `k8s/talos/apps/`; this repo `docker-compose.yml`
-  (the `dind` service is the reference)
+- **What:** Both halves are merged — `docker-compose.yml` mounts the data volume
+  into the `dind` service at `/data`, and Homelab #550 does the same for the
+  pod's sidecar — but only the dev half has been exercised. Unverified in the
+  pod: that the PVC really mounts into the sidecar (ReadWriteOnce, now claimed
+  by two containers in one pod), and that a bind mount from a session then
+  reaches the same files across NFS rather than a stale or empty view.
+- **Why deferred:** Needs the ArgoCD sync and a session in the real pod.
+- **Unblocked by:** `vk doctor` in a pod session, in a repo that has files in
+  it, reporting the bind-mount probe ok.
+- **Where:** Homelab repo `k8s/talos/apps/verksted/deployment.yaml`; this repo
+  `runtime/vk`, `docker-compose.yml` (the `dind` service)
 
 ## File watching over the NFS PVC is unverified
 
@@ -324,3 +324,42 @@ what unblocks it / where the code lives.
 - **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
   runner against the present `npm ci` path.
 - **Where:** `.github/workflows/ci.yml` (the `test` job)
+
+## Assistant M1: verksted MCP server
+
+- **What:** The tools the assistant acts through — list projects, read sessions
+  and runs, start a session, open an issue. It wraps the REST API on localhost,
+  so it grants no capability the pod did not already have; the value is
+  ergonomic. Session creation must go through the existing
+  `MAX_LIVE_SESSIONS` ceiling rather than get its own.
+- **Why deferred:** The runtime shipped without it, so the assistant currently
+  runs on claude's default toolset with `--permission-mode auto` in
+  `REPOS_DIR` — meaning it can already read, write and run commands across every
+  repo, with nobody watching. That is the same trust the rest of the pod
+  operates on, but it is broader than this feature needs, and narrowing it is a
+  decision rather than a bug fix.
+- **Unblocked by:** Deciding what the assistant may do unattended — the honest
+  default is that it may read anything, act on the verksted API, and merge, but
+  not push to main — then expressing it as an allowlist alongside the MCP
+  server, the way `ensureMcpConfig` already wires the browser MCP.
+- **Where:** `backend/src/assistant.ts` (the `--permission-mode` argument),
+  `backend/src/claude-hooks.ts` (`ensureMcpConfig` is the pattern)
+
+## Assistant M1: open the assistant's conversation in a terminal
+
+- **What:** Headless claude records its conversation under `$HOME` exactly as
+  the TUI does, so a tmux session running `claude --resume <id>` picks up the
+  thread you were chatting to. This is what keeps the chat from being a dead end
+  when you want to drive.
+- **Why deferred:** The mechanism is verified — a chatted turn lands at
+  `/data/home/.claude/projects/-data-repos/<id>.jsonl`, which is exactly where
+  the interactive CLI looks for a conversation started in `REPOS_DIR`. What is
+  missing is somewhere to put the session: every session id is
+  `vk-<project>-<seq>` and the assistant belongs to no project, so this needs
+  the session model to admit a projectless session rather than just a new
+  endpoint.
+- **Unblocked by:** Deciding how a projectless session is named and listed, then
+  a route that starts tmux on `claude --resume <conversationId>` in `REPOS_DIR`.
+- **Where:** `backend/src/sessions-store.ts` (`SESSION_ID_RE`, `createSession`,
+  `launchAgent` already builds `claude --resume <id>` for restores),
+  `frontend/src/screens/Assistant.tsx` (where the button goes)

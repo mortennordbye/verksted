@@ -372,3 +372,38 @@ export type BrowserServerMsg =
   | { t: "frame"; data: string; w: number; h: number }
   | { t: "url"; url: string }
   | { t: "error"; message: string };
+
+/**
+ * One tool call the assistant made inside a turn. Kept as a summary rather than
+ * the full input: the chat draws these as chips, and a tool's arguments can be
+ * a whole file.
+ */
+export interface AssistantToolCall {
+  name: string;
+  /** Short human-readable argument, e.g. the path read or the command run. */
+  detail: string;
+}
+
+/** One turn in the assistant's thread. */
+export interface AssistantEntry {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** Tool calls the assistant made before saying this. Empty for user turns. */
+  tools: AssistantToolCall[];
+  at: string;
+  /** Set when the turn ended badly; the text then carries what went wrong. */
+  failed?: boolean;
+}
+
+export interface AssistantThread {
+  /**
+   * The claude conversation id, which verksted mints rather than parses: it is
+   * passed in with --session-id, so `claude --resume <id>` in a terminal lands
+   * on this same thread.
+   */
+  conversationId: string;
+  /** "thinking" while a turn is in flight; nothing can be sent until it is not. */
+  status: "idle" | "thinking";
+  entries: AssistantEntry[];
+}

@@ -9,7 +9,7 @@ import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
 // First boot on an empty volume.
-for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR, env.SCHEDULES_DIR]) {
+for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR, env.SCHEDULES_DIR, env.ASSISTANT_DIR]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 

@@ -4,6 +4,7 @@ import CommandPalette from "./components/CommandPalette";
 import ConnectionBanner from "./components/ConnectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner";
+import Assistant from "./screens/Assistant";
 import Hub from "./screens/Hub";
 import Inbox from "./screens/Inbox";
 import NotFound from "./screens/NotFound";
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="/" element={<Hub />} />
           <Route path="/p/:name" element={<Project />} />
           <Route path="/s/:id" element={<Session />} />
+          <Route path="/ai" element={<Assistant />} />
           <Route path="/runs" element={<Inbox />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
