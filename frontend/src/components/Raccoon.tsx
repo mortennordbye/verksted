@@ -20,13 +20,35 @@ export type RaccoonMood = "idle" | "thinking" | "speaking" | "listening";
  * The jaw band, as percentages from the top of the picture. MOUTH is the line
  * the mouth opens along, CHIN is the bottom of the lower jaw.
  *
- * These two numbers are the only thing tied to the image, and they are easy to
- * get wrong by eye — the first attempt put them over the neck, which opened a
- * gap in the collar. Measure rather than guess: overlay a translucent band on
- * the photo at a few ranges and look at which one covers the muzzle.
+ * These two numbers are the only thing tied to the image and they took four
+ * goes to get right, because every error looks fine until it moves. Too low and
+ * the gap opens in the shirt collar; too high and the cut runs through the nose,
+ * which is invisible while the mouth is shut and gives the raccoon two noses the
+ * moment it is not.
+ *
+ * Measure, do not estimate: overlay guide lines on the photo, magnify the
+ * muzzle, and read off where the nose ends. Then check it open, magnified,
+ * before believing it.
  */
-const MOUTH = 32;
-const CHIN = 37;
+const MOUTH = 35;
+const CHIN = 39;
+
+/**
+ * How far each band reaches up underneath the one above it.
+ *
+ * Bands that meet on an exact boundary show a hairline: a clip edge that does
+ * not land on a whole pixel antialiases, and two such edges over each other let
+ * the background through. Overlapping puts more photo behind every visible
+ * edge instead.
+ *
+ * The two are different sizes for a reason worth keeping. Under the body the
+ * overlap is free, because that edge never moves. Under the head it is not:
+ * whatever the jaw hides up there slides into view the moment it drops, and at
+ * 0.8 that was enough of the nose to give the raccoon a second one. A hairline
+ * is all that edge can afford.
+ */
+const BLEED_UNDER_HEAD = 0.25;
+const BLEED_UNDER_BODY = 0.8;
 
 export default function Raccoon({
   mood,
@@ -50,7 +72,7 @@ export default function Raccoon({
         alt=""
         draggable={false}
         className="block w-full"
-        style={{ clipPath: `inset(${CHIN}% 0 0 0)` }}
+        style={{ clipPath: `inset(${CHIN - BLEED_UNDER_BODY}% 0 0 0)` }}
       />
 
       {/* The jaw: the only part that moves. */}
@@ -58,8 +80,14 @@ export default function Raccoon({
         src="/raccoon.jpg"
         alt=""
         draggable={false}
-        className={`absolute inset-0 block w-full ${mood === "speaking" ? "animate-rc-chew" : ""}`}
-        style={{ clipPath: `inset(${MOUTH}% 0 ${100 - CHIN}% 0)` }}
+        // top-0 left-0 rather than inset-0: inset stretches the layer to the
+        // container's height, which can round to a pixel off the in-flow copy
+        // and put a seam where the bands meet. Left to itself, every layer is
+        // the same intrinsic size.
+        className={`absolute top-0 left-0 block w-full ${
+          mood === "speaking" ? "animate-rc-chew" : ""
+        }`}
+        style={{ clipPath: `inset(${MOUTH - BLEED_UNDER_HEAD}% 0 ${100 - CHIN}% 0)` }}
       />
 
       {/* Head, above the mouth. Last so it sits over the jaw as that drops. */}
@@ -67,7 +95,7 @@ export default function Raccoon({
         src="/raccoon.jpg"
         alt=""
         draggable={false}
-        className="absolute inset-0 block w-full"
+        className="absolute top-0 left-0 block w-full"
         style={{ clipPath: `inset(0 0 ${100 - MOUTH}% 0)` }}
       />
     </div>

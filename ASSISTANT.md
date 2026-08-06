@@ -405,11 +405,19 @@ and a dark gap opens where the mouth is. Clipping rather than three cropped
 files is what keeps the seams from drifting: all three are the same image at the
 same size, so they line up by construction at any scale.
 
-`MOUTH` and `CHIN` in `Raccoon.tsx` are the only numbers tied to the picture,
-and they are easy to get wrong by eye. Two goes at this put the band over the
-neck instead of the muzzle, which opened a gap in the shirt collar. Measure
-rather than guess: overlay a translucent band on the photo at a few ranges and
-look at which one covers the mouth.
+`MOUTH` and `CHIN` in `Raccoon.tsx` are the only numbers tied to the picture and
+they took four goes, because every wrong value looks fine until it moves. Too
+low and the gap opens in the shirt collar; too high and the cut runs through the
+nose, which is invisible with the mouth shut and gives the raccoon two noses the
+moment it is not. Measure rather than estimate: overlay guide lines, magnify the
+muzzle, read off where the nose ends, then check it _open_ and magnified before
+believing it.
+
+The bands also overlap slightly, because edges that meet exactly show a hairline
+where two antialiased clips let the background through. The overlap under the
+body can be generous since that edge never moves. The one under the head cannot:
+whatever the jaw hides up there slides into view the moment it drops, which is
+where the second nose came from.
 
 ## Keeping it off the usage meter
 
