@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { scheduledJobs } from "croner";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -155,6 +156,21 @@ describe("runSchedule", () => {
     expect(fake.subcommand("tmux", "new-session")).toHaveLength(1);
   });
 
+  it("starts one session when a tick and a run-now overlap", async () => {
+    // The "still open" guard reads lastSessionId, which is only written after
+    // createSession returns — and createSession syncs the default branch and
+    // spawns tmux first. Anything that fires inside that window reads the same
+    // stale "nothing is open" and starts a second agent in the same worktree.
+    const s = await schedule("check the open PRs");
+
+    const started = (
+      await Promise.all([scheduler.runSchedule(s.id, log), scheduler.runSchedule(s.id, log)])
+    ).filter(Boolean);
+
+    expect(fake.subcommand("tmux", "new-session")).toHaveLength(1);
+    expect(started).toHaveLength(1);
+  });
+
   it("records the reason rather than throwing when the project is gone", async () => {
     const s = await schedule("check the open PRs", "deleted-repo");
 
@@ -165,5 +181,31 @@ describe("runSchedule", () => {
 
   it("returns null for an id that no longer exists", async () => {
     expect(await scheduler.runSchedule("sch-deadbeef", log)).toBeNull();
+  });
+});
+
+describe("reloadSchedules", () => {
+  // Leave no timers behind for the next test to count.
+  afterEach(async () => {
+    for (const s of await store.listSchedules()) await store.deleteSchedule(s.id);
+    await scheduler.reloadSchedules(log);
+  });
+
+  it("leaves one timer per schedule, and no casualties, when two reloads overlap", async () => {
+    // A rebuild clears its map before an await and refills it after, so two
+    // overlapping calls both clear before either fills. The second one then
+    // tries to build timers the first has already built, croner refuses the
+    // duplicate names, and the rebuild swallows the refusals as unusable
+    // patterns — leaving the schedules running on the timers the *first* call
+    // built, which is the state the second call was reloading to replace.
+    await schedule("check the open PRs");
+    await schedule("check the failing runs");
+    const warnings: (string | undefined)[] = [];
+    const noisy = { info: () => {}, warn: (_err: unknown, msg?: string) => warnings.push(msg) };
+
+    await Promise.all([scheduler.reloadSchedules(noisy), scheduler.reloadSchedules(noisy)]);
+
+    expect(scheduledJobs).toHaveLength(2);
+    expect(warnings).toEqual([]);
   });
 });
