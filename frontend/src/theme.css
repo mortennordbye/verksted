@@ -32,10 +32,8 @@
   --animate-blink: blink 1.2s steps(1) infinite;
   --animate-pulse-run: pulse-run 1.6s ease-in-out infinite;
 
-  /* The raccoon's head, which comes apart at the mouth and flaps. */
-  --animate-rc-flap: rc-flap 0.34s ease-in-out infinite;
-  --animate-rc-sway: rc-sway 5s ease-in-out infinite;
-  --animate-rc-perk: rc-perk 1.6s ease-in-out infinite;
+  /* The raccoon's jaw, and nothing else about it. */
+  --animate-rc-chew: rc-chew 0.3s ease-in-out infinite;
 
   @keyframes blink {
     50% {
@@ -48,34 +46,15 @@
     }
   }
 
-  /* The flap. Rotation rather than a lift, so the jaw hinges at the back
-     instead of the whole head sliding upwards. */
-  @keyframes rc-flap {
+  /* Two per cent is the whole range: enough to open a mouth, little enough
+     that the chin does not slide down behind the collar. */
+  @keyframes rc-chew {
     0%,
     100% {
-      transform: translateY(0) rotate(0deg);
+      transform: translateY(0);
     }
     50% {
-      transform: translateY(-7%) rotate(-4deg);
-    }
-  }
-  /* Never entirely still: a frozen photo reads as a broken image. */
-  @keyframes rc-sway {
-    0%,
-    100% {
-      transform: rotate(0deg) translateY(0);
-    }
-    50% {
-      transform: rotate(-1.2deg) translateY(-0.6%);
-    }
-  }
-  @keyframes rc-perk {
-    0%,
-    100% {
-      transform: rotate(0deg);
-    }
-    50% {
-      transform: rotate(-3deg);
+      transform: translateY(2%);
     }
   }
 }
@@ -181,9 +160,7 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
   .animate-pulse-run,
-  .animate-rc-flap,
-  .animate-rc-sway,
-  .animate-rc-perk {
+  .animate-rc-chew {
     animation: none;
   }
 }

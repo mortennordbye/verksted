@@ -398,18 +398,18 @@ Measured on the same question, end to end:
 Off unless you turn it on, remembered per device, and reachable from the row
 above the thread. It is decoration and should be nobody's default.
 
-The head comes apart at the jaw and flaps while Gabriel talks, after the South
-Park Canadians. Two copies of the same picture are stacked exactly on top of
-each other and each clipped to one side of the line: the body stays put, the
-head hinges up. Clipping rather than two cropped files is what keeps the seam
-from drifting — both halves are the same image at the same size, so they line
-up by construction at any scale.
+Its jaw drops while Gabriel writes. Three copies of the same picture are stacked
+exactly on top of each other, each clipped to a horizontal band — head, jaw,
+body — and only the jaw band moves, so the ears and eyes stay perfectly still
+and a dark gap opens where the mouth is. Clipping rather than three cropped
+files is what keeps the seams from drifting: all three are the same image at the
+same size, so they line up by construction at any scale.
 
-`JAW` in `Raccoon.tsx` is the only number tied to the picture, and it sits just
-under the chin rather than through the mouth. That is the one place this differs
-from the cartoon it imitates: a photoreal muzzle sliced in half reads as
-gruesome rather than funny, while hinging the whole head off the collar gets the
-same joke and stays likeable. Swap the image and retune that one constant.
+`MOUTH` and `CHIN` in `Raccoon.tsx` are the only numbers tied to the picture,
+and they are easy to get wrong by eye. Two goes at this put the band over the
+neck instead of the muzzle, which opened a gap in the shirt collar. Measure
+rather than guess: overlay a translucent band on the photo at a few ranges and
+look at which one covers the mouth.
 
 ## Keeping it off the usage meter
 
