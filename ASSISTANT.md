@@ -305,11 +305,30 @@ Dictation uses the browser's own recogniser and the button only appears where it
 exists. On iOS it does not, and none is needed: the keyboard's mic types into
 the field the same way.
 
+## Defining it from the settings page
+
+Name, model, effort and standing orders are editable in the app and persist on
+the volume, so the thing you tune most often is not a redeploy. A name matters
+more than it sounds: without one it answers "Claude" when asked what it is
+called, which is the model's name and not this agent's.
+
+Standing orders go last in the prompt, after everything the code says, so they
+win by being the most recent instruction. They are also carried with every turn,
+which is why the field is capped at about a screenful.
+
 ## Keeping it off the usage meter
 
 The assistant summarises state and hands the real work to sessions, so it runs
-deliberately cheap: `haiku` at `low` effort, both overridable with
-`ASSISTANT_MODEL` and `ASSISTANT_EFFORT`.
+lean: `sonnet` at `low` effort, overridable from the settings page and, as a
+floor, by `ASSISTANT_MODEL` and `ASSISTANT_EFFORT`.
+
+It ran on `haiku` first and moved back up on evidence. Haiku escalated where
+sonnet diagnosed — asked for bash to inspect a broken image rather than reading
+the error it had already been given — and leaked the closing pleasantries the
+persona bans. The saving was not worth it once the round-trip work had landed:
+collapsing three lookups into one `status` call cut a turn from nine round trips
+to two, and that win is model-independent. This agent is a handful of short
+turns a day; the subscription goes on the sessions doing the engineering.
 
 The bigger lever turned out not to be tokens per call. **Every tool call is
 another model invocation carrying the entire conversation with it**, so the cost

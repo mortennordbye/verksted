@@ -124,7 +124,7 @@ describe("POST /api/assistant/messages", () => {
     await say("hello");
 
     const [argv] = fake.argvFor("claude");
-    expect(argv[argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
     expect(argv[argv.indexOf("--effort") + 1]).toBe("low");
   });
 

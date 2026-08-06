@@ -20,11 +20,16 @@ if (ntfyUrl && !/^https?:\/\//.test(ntfyUrl)) {
 // reasoning happens in the sessions it delegates to, not in the chat. Defaulting
 // it to a big model burns a subscription's usage on summarising a status blob.
 //
-// The one thing worth watching before lowering these further: its hardest job is
-// writing the prompt for a session it starts, and a vague prompt wastes a whole
-// session, which costs far more than every assistant turn in a day. If
-// delegation starts arriving underspecified, raise the model before the effort.
-const assistantModel = process.env.ASSISTANT_MODEL ?? "haiku";
+// Tried at haiku first, and moved back up on the evidence: it escalated where
+// sonnet diagnosed (asking for bash to inspect a broken image rather than
+// reading the error), and it leaked the closing pleasantries the persona bans.
+// The saving was not worth it either, once collapsing three lookups into one
+// status call had already cut a turn from nine round trips to two — that win is
+// model-independent, and this agent is a handful of short turns a day. The
+// subscription goes on the sessions doing the engineering, not on the chat.
+//
+// These are the floor, not the ceiling: the settings page overrides both.
+const assistantModel = process.env.ASSISTANT_MODEL ?? "sonnet";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const assistantEffort = process.env.ASSISTANT_EFFORT ?? "low";
 if (!EFFORTS.includes(assistantEffort)) {

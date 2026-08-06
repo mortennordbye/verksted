@@ -433,3 +433,13 @@ export interface MemoryList {
   /** Memories the budget pushed out of the injected block. */
   dropped: number;
 }
+
+/** The assistant's identity and settings, editable on the settings page. */
+export interface AssistantConfig {
+  /** What it calls itself. Empty means it has no name of its own. */
+  name: string;
+  model: string;
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Free text appended to its instructions: house style, standing orders. */
+  instructions: string;
+}

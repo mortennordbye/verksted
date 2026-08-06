@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import * as assistant from "../assistant.js";
+import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
 
 /**
  * The assistant's thread, and the one websocket that pushes it.
@@ -101,6 +102,36 @@ export default async function assistantRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "not found" });
     }
   });
+
+  app.get("/api/assistant/config", () => readAssistantConfig());
+
+  app.put<{
+    Body: { name?: string; model?: string; effort?: string; instructions?: string };
+  }>(
+    "/api/assistant/config",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            name: { type: "string", maxLength: 40 },
+            // Free text rather than an enum: model aliases come and go, and a
+            // settings page that cannot name a new one is worse than one that
+            // lets a typo through and says so on the next turn.
+            model: { type: "string", minLength: 1, maxLength: 60 },
+            effort: { enum: ["low", "medium", "high", "xhigh", "max"] },
+            // Every turn carries this, so it is capped at roughly a screenful.
+            instructions: { type: "string", maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      await writeAssistantConfig(req.body as Parameters<typeof writeAssistantConfig>[0]);
+      return readAssistantConfig();
+    },
+  );
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));
 

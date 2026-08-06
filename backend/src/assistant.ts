@@ -3,11 +3,11 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AssistantEntry, AssistantThread } from "../../shared/api.js";
-import { SYSTEM_PROMPT } from "./assistant-persona.js";
+import { systemPrompt } from "./assistant-persona.js";
 import { parseStream } from "./assistant-stream.js";
 import { env } from "./env.js";
 import { inject as injectMemory } from "./memory-store.js";
-import { agentEnv } from "./settings-store.js";
+import { agentEnv, readAssistantConfig } from "./settings-store.js";
 
 /**
  * The assistant: the one agent that is not a tmux session.
@@ -202,6 +202,7 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
   // --session-id names a new conversation, --resume continues one. Getting this
   // the wrong way round either loses the thread or fails outright, so it keys
   // off whether anything has been said in it before.
+  const config = await readAssistantConfig();
   const args = [
     "-p",
     withImages,
@@ -228,15 +229,15 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
     // Both default low: this agent summarises state and hands work off, and the
     // model doing the actual engineering is the one in the session it starts.
     "--model",
-    env.ASSISTANT_MODEL,
+    config.model,
     "--effort",
-    env.ASSISTANT_EFFORT,
+    config.effort,
     "--allowed-tools",
     ALLOWED_TOOLS.join(" "),
     "--disallowed-tools",
     DENIED_TOOLS.join(" "),
     "--append-system-prompt",
-    SYSTEM_PROMPT,
+    systemPrompt(config.name, config.instructions),
   ];
 
   const child = spawn("claude", args, {

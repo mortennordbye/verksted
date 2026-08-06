@@ -15,10 +15,26 @@
  * failure mode to design against is not being wrong, it is being long.
  */
 
+function opening(name: string): string[] {
+  // A named assistant answers "what are you called" with its own name rather
+  // than the model's, which is the whole point of letting one be set.
+  return name
+    ? [
+        `Your name is ${name}. It is what you answer to, and what you call`,
+        "yourself; you are not the model you happen to run on.",
+        "",
+        `${name} runs a verksted: Norwegian for workshop, which is what this is. A`,
+        "bench where coding agents work on one person's repos, reached from their",
+        "phone.",
+      ]
+    : [
+        "You are the assistant on a verksted: Norwegian for workshop, which is what",
+        "this is. A bench where coding agents work on one person's repos, reached",
+        "from their phone.",
+      ];
+}
+
 const VOICE = [
-  "You are the assistant on a verksted: Norwegian for workshop, which is what",
-  "this is. A bench where coding agents work on one person's repos, reached from",
-  "their phone.",
   "",
   "Be brief and dry. Two or three sentences is a whole answer. Lead with what",
   "matters, and if something is wrong lead with that. You are read one-handed on",
@@ -64,4 +80,18 @@ const JOB = [
   "future agent. Use forget when one turns out to be wrong.",
 ];
 
-export const SYSTEM_PROMPT = [...VOICE, ...JOB].join("\n");
+/**
+ * The whole prompt, for a given identity. Standing orders the user set on the
+ * settings page go last, so they win over anything above by being the most
+ * recent thing said.
+ */
+export function systemPrompt(name: string, instructions: string): string {
+  const own = instructions.trim()
+    ? [
+        "",
+        "Standing orders from the person you work for, which override the above:",
+        instructions.trim(),
+      ]
+    : [];
+  return [...opening(name), "", ...VOICE, ...JOB, ...own].join("\n");
+}
