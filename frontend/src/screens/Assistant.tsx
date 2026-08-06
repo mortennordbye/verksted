@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AssistantEntry, AssistantThread } from "../../../shared/api";
 import { api } from "../api";
+import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
 
@@ -76,6 +77,11 @@ export default function Assistant() {
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
   const [voiceMode, setVoiceMode] = useState(false);
+  // Off unless asked for, and remembered per device: it is decoration, and the
+  // people who want it want it every time.
+  const [showRaccoon, setShowRaccoon] = useState(
+    () => localStorage.getItem("vk.assistant.raccoon") === "1",
+  );
   const spokenRef = useRef<string | null>(null);
 
   // One socket for the life of the screen. It only ever carries whole threads,
@@ -194,17 +200,45 @@ export default function Assistant() {
   const turns = thread?.entries.filter((e) => e.role === "user").length ?? 0;
   const long = turns >= 15;
 
+  const mood: RaccoonMood = speaking
+    ? "speaking"
+    : listening
+      ? "listening"
+      : thinking || transcribing
+        ? "thinking"
+        : "idle";
+
   return (
     <div className="flex h-full flex-col">
       <TopBar crumb={["assistant"]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
+        {showRaccoon && (
+          <div className="flex flex-none justify-center pt-1 pb-2">
+            <Raccoon mood={mood} className="h-[132px] w-auto" />
+          </div>
+        )}
+
         {turns > 0 && (
           <div className="flex items-center gap-3 font-mono text-[11px] text-faint">
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
               {long && " · getting expensive to continue"}
             </span>
+            <button
+              onClick={() => {
+                const next = !showRaccoon;
+                setShowRaccoon(next);
+                localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
+              }}
+              title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
+              aria-pressed={showRaccoon}
+              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
+                showRaccoon ? "border-accent/50 text-accent" : "border-line text-muted"
+              }`}
+            >
+              raccoon
+            </button>
             <button
               onClick={() => void newThread()}
               disabled={thinking}

@@ -32,6 +32,15 @@
   --animate-blink: blink 1.2s steps(1) infinite;
   --animate-pulse-run: pulse-run 1.6s ease-in-out infinite;
 
+  /* The raccoon. Transforms are on `transform-box: fill-box` groups so each
+     part turns about its own centre rather than the SVG's origin. */
+  --animate-rc-sway: rc-sway 5s ease-in-out infinite;
+  --animate-rc-blink: rc-blink 5.2s ease-in-out infinite;
+  --animate-rc-talk: rc-talk 0.26s ease-in-out infinite;
+  --animate-rc-think: rc-think 2.4s ease-in-out infinite;
+  --animate-rc-perk: rc-perk 1.4s ease-in-out infinite;
+  --animate-rc-tail: rc-tail 3.4s ease-in-out infinite;
+
   @keyframes blink {
     50% {
       opacity: 0;
@@ -40,6 +49,64 @@
   @keyframes pulse-run {
     50% {
       box-shadow: 0 0 0 5px rgba(78, 201, 123, 0.14);
+    }
+  }
+
+  /* Breathing, so it never looks frozen. */
+  @keyframes rc-sway {
+    0%,
+    100% {
+      transform: translateY(0) rotate(-1deg);
+    }
+    50% {
+      transform: translateY(-2px) rotate(1deg);
+    }
+  }
+  /* Shut for a tenth of the cycle: any longer reads as sleepy. */
+  @keyframes rc-blink {
+    0%,
+    92%,
+    100% {
+      transform: scaleY(1);
+    }
+    95% {
+      transform: scaleY(0.08);
+    }
+  }
+  @keyframes rc-talk {
+    0%,
+    100% {
+      transform: scaleY(0.55);
+    }
+    50% {
+      transform: scaleY(1.35);
+    }
+  }
+  @keyframes rc-think {
+    0%,
+    100% {
+      transform: rotate(-4deg);
+    }
+    50% {
+      transform: rotate(4deg);
+    }
+  }
+  @keyframes rc-perk {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-3px);
+    }
+  }
+  @keyframes rc-tail {
+    0%,
+    100% {
+      transform: rotate(-6deg);
+    }
+    50% {
+      transform: rotate(10deg);
     }
   }
 }
@@ -144,9 +211,21 @@ select:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
-  .animate-pulse-run {
+  .animate-pulse-run,
+  .animate-rc-sway,
+  .animate-rc-blink,
+  .animate-rc-talk,
+  .animate-rc-think,
+  .animate-rc-perk,
+  .animate-rc-tail {
     animation: none;
   }
+}
+
+/* SVG parts turn about themselves, not about the corner of the drawing. */
+.rc-part {
+  transform-box: fill-box;
+  transform-origin: center;
 }
 
 /* "Has room for the side-by-side session layout." Width alone isn't enough: a
