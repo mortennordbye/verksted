@@ -120,6 +120,14 @@ describe("POST /api/assistant/messages", () => {
     expect(config.mcpServers.verksted.args).toEqual(["/etc/verksted/verksted-mcp.mjs"]);
   });
 
+  it("runs on the cheap settings, since the real work happens in the sessions it starts", async () => {
+    await say("hello");
+
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--model") + 1]).toBe("haiku");
+    expect(argv[argv.indexOf("--effort") + 1]).toBe("low");
+  });
+
   it("passes the prompt as its own argument, never through a shell", async () => {
     const nasty = 'merge "approved" PRs; then $(rm -rf /) `whoami`';
 

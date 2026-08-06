@@ -258,3 +258,54 @@ killable, already capped by `MAX_LIVE_SESSIONS`) rather than a force-push.
 The cost is real: it cannot fix a typo for you without starting a session. That
 is the right trade while it is young, and loosening later is a one-line change —
 much easier than tightening after habits have formed around it doing the work.
+
+## Personality, and what it costs
+
+The voice lives in `assistant-persona.ts`, apart from the runtime, because it is
+the file worth editing when the assistant says something annoying and nothing
+there should require understanding how a process is spawned.
+
+It is asked to be brief and dry, to lead with what is wrong, to have opinions
+and give them unprompted, and to skip the whole apparatus of assistant-speak:
+no opening pleasantry, no announcing what it is about to do, no summarising what
+it just did, no closing offer of further help, no emoji, no em dashes. The
+failure mode being designed against is not being wrong, it is being long — this
+is read one-handed on a phone by someone in the middle of something else.
+
+Every line of it is re-sent with every turn, so the persona is on a budget too:
+lines that only described it have been cut, and what is left either changes what
+it does or how it sounds.
+
+## Keeping it off the usage meter
+
+The assistant summarises state and hands the real work to sessions, so it runs
+deliberately cheap: `haiku` at `low` effort, both overridable with
+`ASSISTANT_MODEL` and `ASSISTANT_EFFORT`.
+
+The bigger lever turned out not to be tokens per call. **Every tool call is
+another model invocation carrying the entire conversation with it**, so the cost
+of a turn tracks round trips, not verbosity. Answering "what needs me today"
+used to take four calls across three separate lookups; a single `status` tool
+that returns the projects, the live sessions, what recently finished and the
+scheduled runs brought the same question down to one. Measured on the same
+prompt against the real CLI: **nine tool calls and 31s, down to two and 8.5s.**
+
+Two smaller ones, both compounding:
+
+- Tool results are not read once and dropped. They stay in the conversation and
+  are re-sent with every later turn, so pretty-printed JSON of every field is
+  paid for repeatedly. Each tool now answers in the fewest lines that still
+  carry the decision.
+- A long thread re-sends its whole history every turn. Nothing truncates it
+  automatically, because silently dropping the middle of a conversation is worse
+  than saying it is getting long, so the chat shows the turn count and offers a
+  new thread once it passes fifteen.
+
+What is _not_ solved: resuming a conversation re-sends it, and that is inherent.
+Prompt caching absorbs most of it, and beyond that the honest answer is to start
+a new thread when the subject changes.
+
+The thing to watch before economising further: the assistant's hardest job is
+writing the prompt for a session it starts, and a vague prompt wastes a whole
+session, which costs more than every assistant turn in a day. If delegation
+starts arriving underspecified, raise the model before the effort.

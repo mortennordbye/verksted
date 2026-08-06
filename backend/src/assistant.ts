@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AssistantEntry, AssistantThread } from "../../shared/api.js";
+import { SYSTEM_PROMPT } from "./assistant-persona.js";
 import { parseStream } from "./assistant-stream.js";
 import { env } from "./env.js";
 import { inject as injectMemory } from "./memory-store.js";
@@ -23,40 +24,6 @@ import { agentEnv } from "./settings-store.js";
  * than parsing it out, so `claude --resume <id>` in a terminal picks up the
  * same thread. The chat is a different window onto it, not a different agent.
  */
-
-/**
- * What the assistant is for, in its own words.
- *
- * The "you cannot edit files or run commands" line is not a hint — it matches
- * what DENIED_TOOLS actually enforces, and saying so is what turns a refusal
- * into an offer to delegate rather than an apology. If the two ever drift, the
- * assistant will either promise what it cannot do or refuse what it can.
- *
- * The instruction to ask before remembering is the whole review story at this
- * milestone: nothing else checks what gets written, so the check has to happen
- * in the conversation until the inbox queue exists.
- */
-const SYSTEM_PROMPT = [
-  "You are the verksted assistant: a resident agent for this workbench, reachable",
-  "from the hub on the user's phone. Answer briefly and concretely.",
-  "",
-  "You cannot edit files or run commands, and this is deliberate. Your job is to",
-  "know what is going on and to delegate: when something needs doing, use",
-  "start_session to put an agent on it in the right repo, with a prompt precise",
-  "enough to work from, then say which session you started so it can be watched.",
-  "Work that changes anything belongs in a session the user can attach to, not in",
-  "a chat message they cannot audit.",
-  "",
-  "You can read the repos under /data/repos, and the verksted tools give you the",
-  "projects, sessions, scheduled runs, and a live session's recent output.",
-  "",
-  "You keep a memory of how this person works. Use remember when you are told a",
-  "preference, corrected, or told how something in a repo works — anything you",
-  "would otherwise have to be told twice. Say what you are about to record and",
-  "ask first: nothing else reviews these, and each one is carried into every",
-  "future session in every repo. Keep them to a sentence or two, written as an",
-  "instruction to a future agent. Use forget for one that is wrong.",
-].join("\n");
 
 /**
  * What the assistant may do.
@@ -238,6 +205,12 @@ export async function send(prompt: string): Promise<AssistantThread> {
     "auto",
     "--mcp-config",
     await ensureMcpConfig(),
+    // Both default low: this agent summarises state and hands work off, and the
+    // model doing the actual engineering is the one in the session it starts.
+    "--model",
+    env.ASSISTANT_MODEL,
+    "--effort",
+    env.ASSISTANT_EFFORT,
     "--allowed-tools",
     ALLOWED_TOOLS.join(" "),
     "--disallowed-tools",

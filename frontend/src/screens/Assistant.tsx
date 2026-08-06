@@ -109,11 +109,41 @@ export default function Assistant() {
     await api("/api/assistant/stop", { method: "POST" }).catch(() => {});
   }
 
+  async function newThread() {
+    setThread(null);
+    await api("/api/assistant/new", { method: "POST" }).catch(() => {});
+  }
+
+  // Every turn re-sends the whole thread, so a long one gets steadily more
+  // expensive to continue. Nothing truncates it automatically — dropping the
+  // middle of a conversation silently is worse than saying it is getting long —
+  // so this is the nudge to start a fresh one when the subject has changed.
+  const turns = thread?.entries.filter((e) => e.role === "user").length ?? 0;
+  const long = turns >= 15;
+
   return (
     <div className="flex h-full flex-col">
       <TopBar crumb={["assistant"]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
+        {turns > 0 && (
+          <div className="flex items-center gap-3 font-mono text-[11px] text-faint">
+            <span>
+              {turns} turn{turns === 1 ? "" : "s"}
+              {long && " · getting expensive to continue"}
+            </span>
+            <button
+              onClick={() => void newThread()}
+              disabled={thinking}
+              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text disabled:opacity-40 ${
+                long ? "border-wait/50 text-wait" : "border-line text-muted"
+              }`}
+            >
+              new thread
+            </button>
+          </div>
+        )}
+
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 
         {thread?.entries.length === 0 && (

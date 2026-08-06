@@ -27,26 +27,59 @@ async function call(method, path, body) {
   return text ? JSON.parse(text) : null;
 }
 
+// Tool results are not read once and dropped: they stay in the conversation and
+// are re-sent with every later turn. Pretty-printed JSON of every field is
+// therefore a cost paid over and over for the rest of the thread, so each tool
+// answers in the fewest lines that still carry the decision. Raw JSON is one
+// `read_session_output` away when something genuinely needs it.
+const rows = (items, line) => (items.length ? items.map(line).join("\n") : "(none)");
+
 const TOOLS = [
   {
-    name: "list_projects",
+    name: "status",
     description:
-      "Every repo on the workbench, with its branch and how many sessions are running, waiting or done.",
+      "The whole workbench in one call: every repo, every session and what the scheduled runs did. Use this first for anything like 'what needs me' or 'what is running' — it answers in one round trip what three separate lookups would take three.",
     inputSchema: { type: "object", properties: {} },
-    run: () => call("GET", "/api/projects"),
-  },
-  {
-    name: "list_sessions",
-    description:
-      "Agent sessions across every project: which are running, which are waiting for input, and the one-line verdict each finished one wrote about itself.",
-    inputSchema: { type: "object", properties: {} },
-    run: () => call("GET", "/api/sessions"),
-  },
-  {
-    name: "list_runs",
-    description: "What the scheduled runs did while nobody was watching (the inbox).",
-    inputSchema: { type: "object", properties: {} },
-    run: () => call("GET", "/api/runs"),
+    run: async () => {
+      // One tool rather than three, because each tool call is another model
+      // invocation carrying the entire conversation with it. Round trips cost
+      // far more than the handful of lines saved by asking narrowly.
+      const [projects, sessions, runs] = await Promise.all([
+        call("GET", "/api/projects"),
+        call("GET", "/api/sessions"),
+        call("GET", "/api/runs"),
+      ]);
+      const live = sessions.filter((s) => s.status !== "done");
+      return [
+        "PROJECTS",
+        rows(
+          projects,
+          (p) =>
+            `${p.name}  ${p.branch}${p.dirty ? "  dirty" : ""}  ` +
+            `${p.running} running, ${p.waiting} waiting` +
+            `${p.worktreeOf ? `  (worktree of ${p.worktreeOf})` : ""}`,
+        ),
+        "",
+        "LIVE SESSIONS",
+        rows(live, (s) => `${s.id}  ${s.agent}  ${s.status}  ${s.title}`),
+        "",
+        // Finished sessions matter only for what they concluded, and only
+        // recently: the rest is history the user can open the inbox for.
+        "RECENTLY FINISHED",
+        rows(
+          sessions.filter((s) => s.status === "done" && s.report).slice(0, 8),
+          (s) => `${s.id}  ${s.outcome}  "${s.report}"`,
+        ),
+        "",
+        "SCHEDULED RUNS",
+        rows(
+          runs.slice(0, 8),
+          (r) =>
+            `${r.at?.slice(0, 16) ?? "?"}  ${r.scheduleName ?? r.scheduleId}  ${r.outcome}` +
+            `${r.error ? `  ${r.error}` : ""}${r.report ? `  "${r.report}"` : ""}`,
+        ),
+      ].join("\n");
+    },
   },
   {
     name: "read_session_output",
@@ -58,7 +91,9 @@ const TOOLS = [
       required: ["id"],
     },
     run: (a) =>
-      call("GET", `/api/sessions/${encodeURIComponent(a.id)}/capture?lines=${a.lines ?? 40}`),
+      call("GET", `/api/sessions/${encodeURIComponent(a.id)}/capture?lines=${a.lines ?? 40}`).then(
+        (r) => (r.live ? r.text : "that session has ended"),
+      ),
   },
   {
     name: "start_session",
@@ -79,13 +114,16 @@ const TOOLS = [
         agent: a.agent,
         ...(a.title ? { title: a.title } : {}),
         ...(a.prompt ? { prompt: a.prompt } : {}),
-      }),
+      }).then((s) => `started ${s.id} (${s.agent}) in ${s.project}`),
   },
   {
     name: "list_memories",
     description: "Everything currently remembered about how this person works.",
     inputSchema: { type: "object", properties: {} },
-    run: () => call("GET", "/api/memory"),
+    run: async () => {
+      const { memories, used, budget } = await call("GET", "/api/memory");
+      return `${rows(memories, (m) => `${m.slug}  [${m.type}/${m.scope}]  ${m.text}`)}\n\n${used} of ${budget} bytes used`;
+    },
   },
   {
     name: "remember",
@@ -108,7 +146,7 @@ const TOOLS = [
         ...(a.type ? { type: a.type } : {}),
         ...(a.scope ? { scope: a.scope } : {}),
         ...(a.source ? { source: a.source } : {}),
-      }),
+      }).then((m) => `remembered ${m.slug}`),
   },
   {
     name: "forget",
@@ -118,7 +156,8 @@ const TOOLS = [
       properties: { slug: { type: "string" } },
       required: ["slug"],
     },
-    run: (a) => call("DELETE", `/api/memory/${encodeURIComponent(a.slug)}`),
+    run: (a) =>
+      call("DELETE", `/api/memory/${encodeURIComponent(a.slug)}`).then(() => `forgot ${a.slug}`),
   },
 ];
 
@@ -172,7 +211,11 @@ async function handle(msg) {
       return send({
         jsonrpc: "2.0",
         id: msg.id,
-        result: { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] },
+        result: {
+          content: [
+            { type: "text", text: typeof result === "string" ? result : JSON.stringify(result) },
+          ],
+        },
       });
     } catch (err) {
       // isError rather than a JSON-RPC error: the model should see what went
