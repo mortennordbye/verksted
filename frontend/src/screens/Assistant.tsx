@@ -77,7 +77,6 @@ export default function Assistant() {
   // reading stops, so a whole exchange happens without touching the screen.
   const [voiceMode, setVoiceMode] = useState(false);
   const spokenRef = useRef<string | null>(null);
-  const [heard, setHeard] = useState<string | null>(null);
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
@@ -125,11 +124,8 @@ export default function Assistant() {
     }
   }
 
-  const speech = useSpeech((said) => {
-    setHeard(null);
-    void send(said);
-  });
-  const { listening, speaking } = speech;
+  const speech = useSpeech((said) => void send(said));
+  const { listening, speaking, transcribing } = speech;
 
   /**
    * Read the newest reply, then listen again. Keyed on the entry id so a
@@ -142,7 +138,7 @@ export default function Assistant() {
     if (spokenRef.current === last.id) return;
     spokenRef.current = last.id;
     speech.speak(last.text, () => {
-      if (voiceMode) speech.listen(setHeard);
+      if (voiceMode) void speech.listen();
     });
   }, [thread, voiceMode, thinking, speech]);
 
@@ -151,14 +147,13 @@ export default function Assistant() {
       setVoiceMode(false);
       speech.cancelSpeech();
       speech.stopListening();
-      setHeard(null);
       return;
     }
     // Turning it on is the user gesture iOS requires before it will ever speak,
     // so prime it here rather than on the first reply.
     setVoiceMode(true);
     spokenRef.current = thread?.entries.at(-1)?.id ?? null;
-    speech.listen(setHeard);
+    void speech.listen();
   }
 
   async function send(spoken?: string) {
@@ -246,7 +241,13 @@ export default function Assistant() {
               }`}
             />
             <span className="min-w-0 flex-1 truncate text-muted">
-              {heard || (listening ? "listening…" : speaking ? "speaking…" : "voice mode on")}
+              {listening
+                ? "listening…"
+                : transcribing
+                  ? "transcribing…"
+                  : speaking
+                    ? "speaking…"
+                    : "voice mode on"}
             </span>
             <button onClick={toggleVoice} className="flex-none text-faint hover:text-text">
               end
@@ -347,7 +348,7 @@ export default function Assistant() {
           )}
           {canListen() && !thinking && !voiceMode && (
             <button
-              onClick={() => (listening ? speech.stopListening() : speech.listen(setText))}
+              onClick={() => (listening ? speech.stopListening() : void speech.listen())}
               aria-label={listening ? "stop dictating" : "dictate"}
               title="dictate into the field"
               className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint ${

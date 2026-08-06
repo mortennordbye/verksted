@@ -293,7 +293,7 @@ correcting a wrong fact is exactly the moment you least want a conversation.
 Editing keeps the slug, since the slug is the filename and renaming would leave
 the old fact sitting alongside its correction.
 
-## Images and dictation
+## Voice
 
 An image is uploaded first and sent by name; the server chooses where it lands,
 so nothing the client says can point anywhere else. The agent then reads it off
@@ -301,9 +301,42 @@ disk with its own Read tool from a directory granted with `--add-dir`, which is
 why an attachment needs no new way of getting bytes into a prompt. Paste works
 on a desktop, the button works on a phone.
 
-Dictation uses the browser's own recogniser and the button only appears where it
-exists. On iOS it does not, and none is needed: the keyboard's mic types into
-the field the same way.
+Claude's own voice mode is not reachable from here. The CLI and the API take
+text and images, never audio, so there is no endpoint to route a spoken
+conversation through, and no package that can be installed to change that. The
+`/voice` command inside a session cannot work either, for a more basic reason:
+it would open _the pod's_ microphone, and the pod has none — a phone's mic
+cannot reach it, because the terminal websocket carries keystrokes, not sound.
+
+So the loop is assembled here. The browser records with `getUserMedia` and
+`MediaRecorder`, the pod transcribes with whisper.cpp, and the text is asked as
+an ordinary question. Replies are read back with `speechSynthesis`, which is
+universal and free and needs nothing on the pod. Turning voice mode on reads
+each answer out and reopens the microphone when it stops, so an exchange happens
+without touching the screen.
+
+Recording rather than the browser's own `SpeechRecognition` on purpose: that
+exists in two browsers, is unreliable on iOS, and ships the audio to Google or
+Apple to be understood, so it is both less portable _and_ no more private than
+doing it here. `getUserMedia` is everywhere.
+
+Two things the loop needs that are not obvious:
+
+- **Something has to decide you have stopped talking.** There is no button in
+  hands-free, so the recorder watches the level on the same stream it is
+  keeping and stops after about a second and a half of quiet — but only once it
+  has heard something, or it gives up on anyone who has not started yet.
+- **Whisper narrates its own silence,** and it picks its own words for it: an
+  empty clip is `[BLANK_AUDIO]`, a test tone came back as `(beep)`. Listing the
+  words it might choose is a losing game, so the rule is structural — whisper
+  brackets sounds and leaves speech bare, so a transcript with nothing outside
+  its brackets is a transcript of no speech, and the endpoint answers 422 rather
+  than asking the assistant to respond to nothing.
+
+Measured on the real thing: "What needs me today?" transcribes in about
+0.9 seconds. `base.en` is the smallest model that does that reliably; the larger
+ones are minutes of CPU per clip on a homelab node, which is not something you
+wait for mid-sentence. It costs about 150 MB of image.
 
 ## Defining it from the settings page
 

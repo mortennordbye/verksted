@@ -1,5 +1,28 @@
 # syntax=docker/dockerfile:1
 
+# ---------- whisper: speech to text on the pod, so voice never leaves the network ----------
+# Built in its own stage and copied in as two files: the compile needs cmake and
+# the whole source tree, none of which belongs in the image that ships.
+FROM debian:bookworm-slim AS whisper
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch v1.9.2 https://github.com/ggml-org/whisper.cpp /src \
+    # GGML_NATIVE=OFF: with it on, ggml compiles fp16 NEON intrinsics that gcc 12
+    # on aarch64 refuses to inline without an explicit -march, and the build dies.
+    # Off also means the binary does not assume the CPU that built it, which
+    # matters when this is built on an arm64 laptop and runs on an amd64 node.
+    && cmake -S /src -B /src/build -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF \
+       -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=OFF \
+    && cmake --build /src/build --config Release -j "$(nproc)" \
+    && test -x /src/build/bin/whisper-cli
+# base.en: the smallest model that transcribes a spoken sentence reliably. The
+# larger ones are minutes of CPU per clip on a homelab node, which is not a
+# thing you wait for mid-conversation.
+RUN curl -fsSL -o /ggml-base.en.bin \
+      https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin \
+    && test -s /ggml-base.en.bin
+
 # ---------- base: tmux + gh + agent CLIs + toolchains (shared by dev and runtime) ----------
 # python3/make/g++ also compile node-pty (no prebuilds).
 FROM node:22-slim AS base
@@ -70,6 +93,21 @@ COPY runtime/vk /usr/local/bin/vk
 # under tsx in dev and under node in the runtime image.
 COPY runtime/verksted-mcp.mjs /etc/verksted/verksted-mcp.mjs
 RUN chmod 0755 /usr/local/bin/vk
+
+# Speech to text for the assistant's voice mode. ffmpeg is what turns whatever
+# the browser recorded (webm/opus on Chrome, mp4/aac on Safari) into the 16 kHz
+# mono WAV whisper wants; libgomp is whisper-cli's only runtime dependency.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+# The whole build output directory: whisper-cli links half a dozen ggml shared
+# objects that live beside it, and cherry-picking them is how this broke once.
+COPY --from=whisper /src/build/bin/ /opt/whisper/
+COPY --from=whisper /ggml-base.en.bin /usr/local/share/whisper/ggml-base.en.bin
+RUN echo /opt/whisper > /etc/ld.so.conf.d/whisper.conf \
+    && ldconfig \
+    && ln -s /opt/whisper/whisper-cli /usr/local/bin/whisper-cli \
+    # Fails the build rather than the first person who tries to talk to it.
+    && whisper-cli --help >/dev/null
 
 # tmux draws no status bar; the web UI has its own. Its scrollback is also the
 # only one the browser terminal has (see tmux.ts scrollHistory), and 2000 lines

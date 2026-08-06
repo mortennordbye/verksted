@@ -3,47 +3,37 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /**
  * Talking to the assistant, and being talked back to.
  *
- * Both halves are the browser's own: SpeechRecognition for what you say,
- * speechSynthesis for what it answers. Claude's own voice mode is not reachable
- * from here — the CLI and the API take text and images, not audio — so a voice
- * conversation has to be assembled on this side of the wire. The upside is that
- * it costs nothing and needs no backend; the downside is that recognition is
- * only present in some browsers, which is why everything here is feature-tested
- * rather than assumed.
+ * Claude's own voice mode is not reachable from here: the CLI and the API take
+ * text and images, never audio, so a spoken question has to become text before
+ * it can be asked at all. This records it and the pod transcribes it.
+ *
+ * Recording rather than the browser's SpeechRecognition on purpose. Recognition
+ * exists in two browsers, is unreliable on iOS, and ships the audio to Google or
+ * Apple to be understood — so it is both less portable and no more private than
+ * doing it ourselves. getUserMedia and MediaRecorder are everywhere.
+ *
+ * Speaking back is still the browser's, because speechSynthesis is universal,
+ * free, and needs nothing on the pod.
  */
 
-interface SpeechAlternative {
-  transcript: string;
-}
-interface SpeechResult {
-  0: SpeechAlternative;
-  isFinal: boolean;
-}
-export interface SpeechEvent {
-  results: { [i: number]: SpeechResult; length: number };
-}
-export interface SpeechRecognitionLike {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: (e: SpeechEvent) => void;
-  onend: () => void;
-  onerror: () => void;
-  start: () => void;
-  stop: () => void;
-  abort: () => void;
-}
+/**
+ * How the end of a sentence is detected without a button: the level drops and
+ * stays down. Hands-free is the whole point, so something has to decide when
+ * you have stopped talking, and a pause is the only signal there is.
+ */
+const SILENCE_RMS = 0.012;
+const SILENCE_MS = 1400;
+const MAX_CLIP_MS = 30_000;
 
-function recogniser(): (new () => SpeechRecognitionLike) | undefined {
-  if (typeof window === "undefined") return undefined;
-  const w = window as unknown as {
-    SpeechRecognition?: new () => SpeechRecognitionLike;
-    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
-  };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition;
-}
+/**
+ * Recording needs a microphone and MediaRecorder, both of which are everywhere;
+ * this is a feature test rather than a browser test on purpose.
+ */
+export const canListen = (): boolean =>
+  typeof navigator !== "undefined" &&
+  !!navigator.mediaDevices?.getUserMedia &&
+  typeof MediaRecorder !== "undefined";
 
-export const canListen = (): boolean => recogniser() !== undefined;
 export const canSpeak = (): boolean => typeof window !== "undefined" && "speechSynthesis" in window;
 
 /**
@@ -64,53 +54,111 @@ export function speakable(text: string): string {
 export function useSpeech(onFinal: (said: string) => void) {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const stopRef = useRef<(() => void) | null>(null);
   // Held in a ref so restarting the microphone after a reply does not depend on
   // the callback identity being stable across renders.
   const onFinalRef = useRef(onFinal);
   onFinalRef.current = onFinal;
 
   const stopListening = useCallback(() => {
-    recognitionRef.current?.abort();
-    recognitionRef.current = null;
-    setListening(false);
+    stopRef.current?.();
   }, []);
 
   /**
-   * Listen until you stop talking, then hand over what was said.
+   * Record until the room goes quiet, then hand the clip to the pod.
    *
-   * continuous is off on purpose: the pause at the end of a sentence is the
-   * only "I am done" signal available without a button, and hands-free is the
-   * whole point of the mode this serves.
+   * The analyser runs off the same stream the recorder does, so the level being
+   * watched is the audio being kept — no second microphone, and no chance of
+   * stopping on silence that was never recorded.
    */
-  const listen = useCallback((onInterim?: (said: string) => void) => {
-    const Recognition = recogniser();
-    if (!Recognition) return;
-    recognitionRef.current?.abort();
-    const recognition = new Recognition();
-    recognition.lang = navigator.language || "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-    let final = "";
-    recognition.onresult = (e: SpeechEvent) => {
-      let said = "";
-      for (let i = 0; i < e.results.length; i++) said += e.results[i][0].transcript;
-      final = said;
-      onInterim?.(said);
-    };
-    recognition.onend = () => {
+  const listen = useCallback(async () => {
+    if (!canListen()) return;
+    stopRef.current?.();
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      // Refused, or no microphone. Nothing to recover: the button stays off.
       setListening(false);
-      recognitionRef.current = null;
-      const said = final.trim();
-      if (said) onFinalRef.current(said);
+      return;
+    }
+
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream);
+    const context = new AudioContext();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples = new Float32Array(analyser.fftSize);
+
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearInterval(timer);
+      clearTimeout(cap);
+      if (recorder.state !== "inactive") recorder.stop();
     };
-    recognition.onerror = () => {
+    stopRef.current = () => {
+      cancelled = true;
+      finish();
+    };
+    let cancelled = false;
+
+    let quietFor = 0;
+    let heardAnything = false;
+    const timer = setInterval(() => {
+      analyser.getFloatTimeDomainData(samples);
+      let sum = 0;
+      for (const v of samples) sum += v * v;
+      const rms = Math.sqrt(sum / samples.length);
+      if (rms > SILENCE_RMS) {
+        heardAnything = true;
+        quietFor = 0;
+      } else {
+        quietFor += 100;
+        // Only after something was actually said: otherwise it gives up
+        // instantly on someone who has not started yet.
+        if (heardAnything && quietFor >= SILENCE_MS) finish();
+      }
+    }, 100);
+    // A recorder left running because the level never dropped is a microphone
+    // left open indefinitely.
+    const cap = setTimeout(finish, MAX_CLIP_MS);
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size) chunks.push(e.data);
+    };
+    recorder.onstop = () => {
+      for (const track of stream.getTracks()) track.stop();
+      void context.close();
       setListening(false);
-      recognitionRef.current = null;
+      recorderRef.current = null;
+      stopRef.current = null;
+      if (cancelled || !heardAnything || !chunks.length) return;
+      const clip = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+      setTranscribing(true);
+      void fetch("/api/assistant/transcribe", {
+        method: "POST",
+        headers: { "content-type": clip.type },
+        body: clip,
+      })
+        .then(async (res) => {
+          if (!res.ok) return;
+          const { text } = (await res.json()) as { text: string };
+          if (text) onFinalRef.current(text);
+        })
+        .catch(() => {
+          // A failed transcription is silence as far as the caller is concerned.
+        })
+        .finally(() => setTranscribing(false));
     };
-    recognition.start();
+
+    recorder.start();
+    recorderRef.current = recorder;
     setListening(true);
-    recognitionRef.current = recognition;
   }, []);
 
   const cancelSpeech = useCallback(() => {
@@ -141,10 +189,10 @@ export function useSpeech(onFinal: (said: string) => void) {
   // the tab, not to this component.
   useEffect(() => {
     return () => {
-      recognitionRef.current?.abort();
+      stopRef.current?.();
       if (canSpeak()) speechSynthesis.cancel();
     };
   }, []);
 
-  return { listening, speaking, listen, stopListening, speak, cancelSpeech };
+  return { listening, speaking, transcribing, listen, stopListening, speak, cancelSpeech };
 }

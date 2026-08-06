@@ -3,6 +3,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import * as assistant from "../assistant.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
+import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
 
 /**
  * The assistant's thread, and the one websocket that pushes it.
@@ -102,6 +103,32 @@ export default async function assistantRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: "not found" });
     }
   });
+
+  /**
+   * A recorded clip in, text out. The browser records; the pod transcribes.
+   *
+   * 422 rather than 200-with-empty-string when nothing was said: a caller that
+   * cannot tell silence from a failed transcription will happily send "" to the
+   * assistant and wait for an answer to nothing.
+   */
+  app.post(
+    "/api/assistant/transcribe",
+    { bodyLimit: MAX_CLIP_BYTES },
+    async (req, reply): Promise<{ text: string } | void> => {
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return reply.code(415).send({ error: "raw audio body required" });
+      }
+      try {
+        const text = await transcribe(body);
+        if (!text) return reply.code(422).send({ error: "nothing was said" });
+        return { text };
+      } catch (err) {
+        req.log.error(err, "transcription failed");
+        return reply.code(502).send({ error: "could not transcribe that" });
+      }
+    },
+  );
 
   app.get("/api/assistant/config", () => readAssistantConfig());
 
