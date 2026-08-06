@@ -201,20 +201,21 @@ export default function Assistant() {
   const long = turns >= 15;
 
   /**
-   * The mouth moves for the whole reply, not only while it is read aloud —
-   * voice mode is usually off, and writing is the assistant talking.
+   * The mouth moves when there are words, and only then: while it is writing
+   * them, or while they are being read aloud. Thinking is not talking.
    *
-   * Deliberately the whole turn rather than just the moments text is arriving:
-   * keying it on the live text alone made the mouth stop, sway and stop again
-   * in the gap between the last token and the turn ending. Chattering through
-   * its own tool calls is both simpler and funnier than that flicker.
+   * An earlier version flapped for the whole turn, on the theory that the mouth
+   * stopping between the last token and the end of the turn would read as a
+   * stutter. It does not — thinking and idle draw the same gentle sway, so
+   * there was nothing to smooth over, and flapping before it had said anything
+   * just looked like it was chewing.
    */
   const mood: RaccoonMood = listening
     ? "listening"
-    : transcribing
-      ? "thinking"
-      : speaking || thinking || thread?.live
-        ? "speaking"
+    : speaking || thread?.live
+      ? "speaking"
+      : thinking || transcribing
+        ? "thinking"
         : "idle";
 
   return (
