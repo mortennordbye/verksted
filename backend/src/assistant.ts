@@ -25,40 +25,73 @@ import { agentEnv } from "./settings-store.js";
  */
 
 /**
- * How the assistant records something worth keeping.
+ * What the assistant is for, in its own words.
  *
- * Written as files with the ordinary Write tool rather than through a tool of
- * ours, because the store is meant to be plain text a person can edit in a
- * terminal — inventing a protocol for it would take that away and buy nothing.
- * The backend reads the same directory to build what every session is told.
+ * The "you cannot edit files or run commands" line is not a hint — it matches
+ * what DENIED_TOOLS actually enforces, and saying so is what turns a refusal
+ * into an offer to delegate rather than an apology. If the two ever drift, the
+ * assistant will either promise what it cannot do or refuse what it can.
  *
- * The instruction to ask first is the whole safety story at this milestone:
- * nothing here reviews what gets written, so the review has to happen in the
- * conversation until the inbox queue exists.
+ * The instruction to ask before remembering is the whole review story at this
+ * milestone: nothing else checks what gets written, so the check has to happen
+ * in the conversation until the inbox queue exists.
  */
-const MEMORY_INSTRUCTIONS = [
+const SYSTEM_PROMPT = [
   "You are the verksted assistant: a resident agent for this workbench, reachable",
-  "from the hub. You can read the projects under /data/repos, and the pod's own",
-  "API at http://127.0.0.1:8080/api (projects, sessions, schedules, runs).",
+  "from the hub on the user's phone. Answer briefly and concretely.",
   "",
-  "You keep a memory of how this person works, as one markdown file per fact in",
-  "/data/memory. To remember something, write /data/memory/<short-slug>.md:",
+  "You cannot edit files or run commands, and this is deliberate. Your job is to",
+  "know what is going on and to delegate: when something needs doing, use",
+  "start_session to put an agent on it in the right repo, with a prompt precise",
+  "enough to work from, then say which session you started so it can be watched.",
+  "Work that changes anything belongs in a session the user can attach to, not in",
+  "a chat message they cannot audit.",
   "",
-  "---",
-  "type: preference | project | reference",
-  "scope: global | <project name>",
-  "source: <how you learned it>",
-  "---",
+  "You can read the repos under /data/repos, and the verksted tools give you the",
+  "projects, sessions, scheduled runs, and a live session's recent output.",
   "",
-  "<the fact, in one or two sentences, written as an instruction to a future agent>",
-  "",
-  "Record a fact when you are told a preference, corrected, or told how something",
-  "in a repo works — anything you would otherwise have to be told twice. Say what",
-  "you are about to record and ask before writing it: nothing else reviews these,",
-  "and every one of them is carried into every future session in every repo.",
-  "Correct a wrong memory by rewriting its file; forget one by deleting it.",
-  "Keep them short. The whole store has a byte budget and the oldest fall off.",
+  "You keep a memory of how this person works. Use remember when you are told a",
+  "preference, corrected, or told how something in a repo works — anything you",
+  "would otherwise have to be told twice. Say what you are about to record and",
+  "ask first: nothing else reviews these, and each one is carried into every",
+  "future session in every repo. Keep them to a sentence or two, written as an",
+  "instruction to a future agent. Use forget for one that is wrong.",
 ].join("\n");
+
+/**
+ * What the assistant may do.
+ *
+ * `allowed` is an auto-approve list, not a restriction — anything left off it
+ * still exists and, under `--permission-mode auto`, is still up to a classifier.
+ * So the tools worth regretting are denied outright. What remains is: read the
+ * repos, and act through the verksted server, whose every endpoint is one the
+ * app already validates.
+ *
+ * Web tools are denied for a reason worth writing down: read access to repos
+ * that contain .env files, plus fetch, is how a prompt injection turns into
+ * exfiltration — and the harvester this is being built towards will eventually
+ * read text neither of us wrote.
+ */
+const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
+const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"];
+
+/** Where the MCP server the assistant acts through lives inside the image. */
+const MCP_CONFIG = {
+  mcpServers: {
+    verksted: {
+      command: "node",
+      args: ["/etc/verksted/verksted-mcp.mjs"],
+      env: { VK_API: `http://127.0.0.1:${env.PORT}` },
+    },
+  },
+};
+
+async function ensureMcpConfig(): Promise<string> {
+  const file = path.join(env.ASSISTANT_DIR, "mcp.json");
+  await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
+  await fs.writeFile(file, JSON.stringify(MCP_CONFIG, null, 2));
+  return file;
+}
 
 /** Where the active conversation id is remembered across restarts. */
 function currentPath(): string {
@@ -199,14 +232,18 @@ export async function send(prompt: string): Promise<AssistantThread> {
     "--verbose",
     ...(started.length ? ["--resume", conversationId] : ["--session-id", conversationId]),
     // Nobody is watching a headless run to approve a tool call, and a prompt it
-    // cannot answer is what the timeout below exists for.
+    // cannot answer is what the timeout below exists for. Safe here only
+    // because the tools worth regretting are denied outright below.
     "--permission-mode",
     "auto",
-    // Memory lives outside the working directory, so it has to be granted.
-    "--add-dir",
-    env.MEMORY_DIR,
+    "--mcp-config",
+    await ensureMcpConfig(),
+    "--allowed-tools",
+    ALLOWED_TOOLS.join(" "),
+    "--disallowed-tools",
+    DENIED_TOOLS.join(" "),
     "--append-system-prompt",
-    MEMORY_INSTRUCTIONS,
+    SYSTEM_PROMPT,
   ];
 
   const child = spawn("claude", args, {

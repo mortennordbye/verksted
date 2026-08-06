@@ -94,6 +94,32 @@ describe("POST /api/assistant/messages", () => {
     expect(argv[argv.indexOf("--session-id") + 1]).toMatch(CONV);
   });
 
+  it("denies the tools it should never have, and does not merely fail to allow them", async () => {
+    // The allow list is auto-approval, not restriction: anything left off it
+    // still exists and, in auto permission mode, is still a classifier's call.
+    // Denying is the only half that actually stops a tool, so the assistant's
+    // "it cannot edit files or run commands" claim rests entirely on this.
+    await say("hello");
+
+    const [argv] = fake.argvFor("claude");
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    for (const tool of ["Bash", "Edit", "Write", "WebFetch", "WebSearch"]) {
+      expect(denied).toContain(tool);
+    }
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__verksted");
+  });
+
+  it("gives the assistant the verksted tools to act through", async () => {
+    await say("hello");
+
+    const [argv] = fake.argvFor("claude");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: Record<string, { args: string[] }>;
+    };
+
+    expect(config.mcpServers.verksted.args).toEqual(["/etc/verksted/verksted-mcp.mjs"]);
+  });
+
   it("passes the prompt as its own argument, never through a shell", async () => {
     const nasty = 'merge "approved" PRs; then $(rm -rf /) `whoami`';
 

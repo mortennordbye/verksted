@@ -65,6 +65,10 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
 # global memory file here.
 COPY runtime/SANDBOX.md /etc/verksted/SANDBOX.md
 COPY runtime/vk /usr/local/bin/vk
+# The assistant's toolset (assistant.ts spawns it over stdio). Baked into the
+# image rather than resolved out of the build output, so the path is the same
+# under tsx in dev and under node in the runtime image.
+COPY runtime/verksted-mcp.mjs /etc/verksted/verksted-mcp.mjs
 RUN chmod 0755 /usr/local/bin/vk
 
 # tmux draws no status bar; the web UI has its own. Its scrollback is also the

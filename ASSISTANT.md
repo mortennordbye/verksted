@@ -1,14 +1,10 @@
 # The assistant
 
 **Status: M1 and M2 are built and work; M3–M4 are proposed.** The chat, the
-headless runtime behind it, the thread store, and explicit memory all exist and
-are verified end to end. What is not built is the part that learns _without
-being asked_ — the harvester and its review queue — and the MCP server that
-would narrow what the assistant may do. Both are in `BACKLOG.md`.
-
-The scoping gap matters and is not theoretical: the assistant runs on claude's
-default toolset with `--permission-mode auto`, plus write access to the memory
-directory.
+headless runtime behind it, the thread store, explicit memory, and the tools the
+assistant acts through all exist and are verified end to end. What is not built
+is the part that learns _without being asked_ — the harvester and its review
+queue. Both are in `BACKLOG.md`, in that order, and the order matters.
 
 ## What it is
 
@@ -168,15 +164,16 @@ the scope inline (`In Homelab: …`) costs a few words and reaches everything.
 
 ### How a fact gets written
 
-The assistant writes the file itself, with the ordinary Write tool, told where
-and in what shape by an appended system prompt and given access with
-`--add-dir`. No tool of ours in between: the store is meant to be plain text a
-person can edit in a terminal, and a protocol would take that away and buy
-nothing.
+Through the `remember` tool, which is the same validated endpoint the settings
+page uses. An earlier version had the assistant write the file directly with the
+Write tool; that went when Write did, and it was the right trade — the store is
+still plain markdown you can edit in a terminal, only the write path is
+validated now, and it gives the review queue somewhere obvious to sit.
 
-The backend never trusts the shape. Frontmatter is parsed forgivingly — a
+The backend never trusts the shape it reads back, because a person editing these
+by hand is a supported thing to do. Frontmatter is parsed forgivingly — a
 missing field costs that field, not the fact — and `created` falls back to the
-file's mtime, because the agent leaves it off as often as not and both the
+file's mtime, because it is the field most likely to be left off and both the
 ordering and the budget's eviction depend on having one.
 
 ### Compact
@@ -221,3 +218,43 @@ works.
 The four screens are mocked in verksted's own palette, in the same spirit as
 `mock.html`: the hub strip, the assistant screen, the inbox review queue and the
 memory list.
+
+## What the assistant may do
+
+Its tools are **Read, Grep, Glob, and the verksted MCP server** — nothing else.
+Bash, Edit, Write, the web tools and Task are denied outright.
+
+That is a narrower answer than this document originally proposed ("may merge,
+but not push to main"), and the reason is a reframe rather than a tightening.
+The question is not what permissions it should hold but what kind of thing it
+is: its job is to know what is going on and to start work, and none of that
+needs a shell. Where something must change, it calls `start_session` and the
+work happens in a tmux session with a terminal you can attach to, a status chip
+and a report — instead of inside a chat bubble with no trail.
+
+**The assistant delegates; it does not execute.**
+
+Three things follow from that, all of which matter more than the permission
+itself:
+
+- Denying is the half that works. An allow list is auto-approval, not
+  restriction: a tool left off it still exists and, under
+  `--permission-mode auto`, is still a classifier's call. So the tools worth
+  regretting are named in `--disallowed-tools`.
+- A Bash deny list would not have held. `git push` is also `git -C x push`, a
+  script, `sh -c "…"`. A tool allow list is a property you can state; a command
+  pattern list is a thing you maintain forever and trust anyway.
+- No web tools. Read access to repos containing `.env` files, plus fetch, is how
+  a prompt injection becomes exfiltration — and the harvester this is being
+  built towards will eventually read text neither of us wrote.
+
+This is not a security boundary, and it should not be described as one. Anyone
+on the tunnel can open a terminal session and do anything; the pod is
+deliberately wide open. What this limits is the blast radius of the assistant
+being _wrong_, which is a likelier failure than someone attacking you. The worst
+case becomes a bad memory (visible, deletable) or a spurious session (visible,
+killable, already capped by `MAX_LIVE_SESSIONS`) rather than a force-push.
+
+The cost is real: it cannot fix a typo for you without starting a session. That
+is the right trade while it is young, and loosening later is a one-line change —
+much easier than tightening after habits have formed around it doing the work.

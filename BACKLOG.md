@@ -325,26 +325,6 @@ what unblocks it / where the code lives.
   runner against the present `npm ci` path.
 - **Where:** `.github/workflows/ci.yml` (the `test` job)
 
-## Assistant M1: verksted MCP server
-
-- **What:** The tools the assistant acts through — list projects, read sessions
-  and runs, start a session, open an issue. It wraps the REST API on localhost,
-  so it grants no capability the pod did not already have; the value is
-  ergonomic. Session creation must go through the existing
-  `MAX_LIVE_SESSIONS` ceiling rather than get its own.
-- **Why deferred:** The runtime shipped without it, so the assistant currently
-  runs on claude's default toolset with `--permission-mode auto` in
-  `REPOS_DIR` — meaning it can already read, write and run commands across every
-  repo, with nobody watching. That is the same trust the rest of the pod
-  operates on, but it is broader than this feature needs, and narrowing it is a
-  decision rather than a bug fix.
-- **Unblocked by:** Deciding what the assistant may do unattended — the honest
-  default is that it may read anything, act on the verksted API, and merge, but
-  not push to main — then expressing it as an allowlist alongside the MCP
-  server, the way `ensureMcpConfig` already wires the browser MCP.
-- **Where:** `backend/src/assistant.ts` (the `--permission-mode` argument),
-  `backend/src/claude-hooks.ts` (`ensureMcpConfig` is the pattern)
-
 ## Assistant M1: open the assistant's conversation in a terminal
 
 - **What:** Headless claude records its conversation under `$HOME` exactly as
@@ -405,3 +385,21 @@ what unblocks it / where the code lives.
 - **Unblocked by:** Reaching the budget in real use, then a schedule that reads
   the store and rewrites it.
 - **Where:** `backend/src/memory-store.ts` (`BUDGET_BYTES`, `renderBlock`)
+
+## The assistant's MCP server is hand-rolled JSON-RPC
+
+- **What:** `runtime/verksted-mcp.mjs` implements the three MCP methods it needs
+  (initialize, tools/list, tools/call) directly, rather than using
+  `@modelcontextprotocol/sdk`. It works against the real CLI, but it is a
+  protocol implementation this repo now maintains, and it handles no MCP feature
+  beyond tools — no resources, prompts, or notifications.
+- **Why deferred:** The SDK would have to resolve from `node_modules` at a path
+  that differs between the tsx dev process and the built image, where the server
+  is a standalone file baked in next to `vk`. Hand-rolling three methods was the
+  smaller problem, but it is a deliberate exception to this repo's
+  prefer-a-library rule and should not quietly become the norm.
+- **Unblocked by:** Wanting anything beyond tools, or the protocol changing
+  under it — either is the point to reach for the SDK and solve the path problem
+  properly (a thin wrapper inside the build output, spawned with the same
+  runtime the backend is using).
+- **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)

@@ -25,6 +25,9 @@ export default tseslint.config(
       // program for them. shared/ is type-checked by both workspaces already.
       "shared/**",
       "eslint.config.js",
+      // Shipped into the image and run by node there, not built by either
+      // workspace — so no tsconfig project covers it.
+      "runtime/**",
     ],
   },
   js.configs.recommended,
