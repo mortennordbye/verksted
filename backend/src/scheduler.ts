@@ -52,11 +52,39 @@ function jitter(minutes: number): Promise<boolean> {
 }
 
 /**
+ * Schedules with a launch in flight.
+ *
+ * The "still open" check below reads lastSessionId, which is only written once
+ * createSession has returned — and createSession syncs the default branch and
+ * spawns tmux before it does. Anything firing inside that window (a tick, a
+ * "run now" pressed while one is already starting, a duplicate timer) reads the
+ * same stale "nothing is open" and starts a second agent in the same worktree.
+ *
+ * Added to synchronously, before the first await, so two calls in one turn of
+ * the event loop cannot both get past it.
+ */
+const starting = new Set<string>();
+
+/**
  * Start the schedule's session. Skipped while its previous run is still open:
  * a slow agent must not stack a new session on every tick, and two claude
  * sessions in one repo would fight over the working tree.
  */
 export async function runSchedule(id: string, log: Logger): Promise<Session | null> {
+  if (starting.has(id)) {
+    log.info(`schedule ${id} skipped: a run is already starting`);
+    await schedules.recordRun(id, { error: "a run is already starting" });
+    return null;
+  }
+  starting.add(id);
+  try {
+    return await launch(id, log);
+  } finally {
+    starting.delete(id);
+  }
+}
+
+async function launch(id: string, log: Logger): Promise<Session | null> {
   const schedule = await schedules.getSchedule(id);
   if (!schedule) return null;
   try {
@@ -97,8 +125,28 @@ export async function runSchedule(id: string, log: Logger): Promise<Session | nu
 /**
  * Rebuild every timer from the stored schedules. Called at boot and after any
  * change to them — cheap enough (a handful of records) not to need diffing.
+ *
+ * Serialized, because rebuild() clears the map before an await and fills it
+ * after. Two overlapping calls — two edits saved together, or one landing while
+ * the boot reload is still running — would therefore both clear the map before
+ * either had filled it, leaving the first call's Cron objects unreferenced and
+ * still firing. Nothing can stop them after that: the schedule ticks twice, and
+ * a schedule disabled by the very edit that triggered the reload keeps running,
+ * because runSchedule is reached through a timer that no longer exists as far
+ * as the map is concerned.
  */
-export async function reloadSchedules(log: Logger): Promise<void> {
+let reloading: Promise<void> = Promise.resolve();
+
+export function reloadSchedules(log: Logger): Promise<void> {
+  const run = reloading.then(
+    () => rebuild(log),
+    () => rebuild(log),
+  );
+  reloading = run.catch(() => {});
+  return run;
+}
+
+async function rebuild(log: Logger): Promise<void> {
   for (const job of jobs.values()) job.stop();
   jobs.clear();
   for (const cancel of [...waits]) cancel();
@@ -109,7 +157,9 @@ export async function reloadSchedules(log: Logger): Promise<void> {
       // includes one still sitting out its jitter.
       jobs.set(
         schedule.id,
-        new Cron(schedule.cron, { protect: true }, async () => {
+        // Named so croner registers it in its own scheduledJobs list, which is
+        // the only place a timer this map has lost track of would still show up.
+        new Cron(schedule.cron, { name: schedule.id, protect: true }, async () => {
           // The pause switch is read at fire time, not at reload: flipping it
           // has to stop the next tick without rebuilding every timer. "Run now"
           // deliberately ignores it — that one is somebody asking.

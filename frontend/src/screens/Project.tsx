@@ -99,6 +99,7 @@ export default function Project() {
   const [branching, setBranching] = useState(false);
   const [branch, setBranch] = useState("");
   const [branchBusy, setBranchBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"sessions" | "prs" | "actions" | "schedules">("sessions");
   const [confirm, confirmDialog] = useConfirm();
@@ -159,7 +160,12 @@ export default function Project() {
     }
   }
 
+  // Guarded like every other create here: the POST syncs the default branch
+  // before it starts anything, which is seconds of a sheet that still looks
+  // untouched. A second tap in that gap is a second agent in the same repo.
   async function newSession(agent: AgentName) {
+    if (starting) return;
+    setStarting(true);
     try {
       const session = await api<CreatedSession>(`/api/projects/${name}/sessions`, {
         method: "POST",
@@ -171,6 +177,8 @@ export default function Project() {
     } catch (e) {
       setError((e as Error).message);
       setPicking(false);
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -321,7 +329,8 @@ export default function Project() {
               <button
                 key={o.agent}
                 onClick={() => newSession(o.agent)}
-                className="flex items-center gap-[13px] rounded-[11px] border border-line bg-surface-2 px-3.5 py-[13px] text-left hover:border-faint"
+                disabled={starting}
+                className="flex items-center gap-[13px] rounded-[11px] border border-line bg-surface-2 px-3.5 py-[13px] text-left hover:border-faint disabled:opacity-50"
               >
                 <span className={`h-3 w-3 flex-none rounded-[3px] ${o.swatch}`} />
                 <span>
