@@ -311,7 +311,15 @@ cannot reach it, because the terminal websocket carries keystrokes, not sound.
 So the loop is assembled here. The browser records with `getUserMedia` and
 `MediaRecorder`, the pod transcribes with whisper.cpp, and the text is asked as
 an ordinary question. Replies are read back with `speechSynthesis`, which is
-universal and free and needs nothing on the pod. Turning voice mode on reads
+universal and free and needs nothing on the pod.
+
+The browser's default voice is whatever it found first, and usually the worst
+thing installed, so one is chosen instead: Siri and premium voices first, then
+Chrome's network-synthesised Google voices, then anything in the page's
+language. Which voices exist differs per device, so the override lives in
+`localStorage` rather than on the volume — a phone and a laptop want different
+answers and neither is wrong — and picking one reads a sample so you can hear it
+before committing. Turning voice mode on reads
 each answer out and reopens the microphone when it stops, so an exchange happens
 without touching the screen.
 
@@ -353,6 +361,37 @@ default, since a name deliberately removed should stay removed.
 Standing orders go last in the prompt, after everything the code says, so they
 win by being the most recent instruction. They are also carried with every turn,
 which is why the field is capped at about a screenful.
+
+## Making it feel fast
+
+Three things were slow, and only one of them was the model.
+
+**The answer was finished before anyone saw it.** The stream was buffered whole
+and parsed after the process exited, so a reply sat complete in memory while the
+turn wound down. It is now parsed as it arrives and each entry is pushed the
+moment it completes.
+
+**The model said nothing until the tools were done**, so streaming alone bought
+almost nothing: there was no text to stream for the first seven seconds.
+`--include-partial-messages` gives token deltas, which are carried on the thread
+as `live` and never stored — the finished entry replaces them moments later, and
+writing every token to an NFS volume would be a lot of disk for text with a
+half-second lifetime.
+
+**The real cost was a round trip nobody asked for.** With the full built-in tool
+set available, the CLI defers tool schemas and the model has to call
+`ToolSearch` to find the verksted tools before it can use them — an extra model
+call, every turn, before it could look at the workbench at all. Naming the three
+built-ins it actually needs with `--tools` removes it. That flag is also a
+stronger statement than the allow list, since a tool not named there does not
+exist to be approved.
+
+Measured on the same question, end to end:
+
+|                       | before | after |
+| --------------------- | ------ | ----- |
+| first words on screen | 7.5s   | 4.0s  |
+| turn complete         | 8.9s   | 5.3s  |
 
 ## Keeping it off the usage meter
 

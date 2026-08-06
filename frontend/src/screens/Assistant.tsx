@@ -97,7 +97,7 @@ export default function Assistant() {
   // Follow the conversation as it grows, the way a chat is expected to.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [thread?.entries.length, thread?.status]);
+  }, [thread?.entries.length, thread?.status, thread?.live]);
 
   const thinking = thread?.status === "thinking";
 
@@ -233,6 +233,17 @@ export default function Assistant() {
           <Turn key={e.id} entry={e} />
         ))}
 
+        {/* The sentence being written. Replaced by the stored entry the moment
+            the model finishes it, so it never appears twice. */}
+        {thread?.live && (
+          <div className="flex">
+            <div className="max-w-[82%] rounded-[14px] rounded-bl-[5px] border border-line bg-surface px-3 py-2 text-[14px] whitespace-pre-wrap">
+              {thread.live}
+              <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
+            </div>
+          </div>
+        )}
+
         {voiceMode && (
           <div className="flex items-center gap-2.5 rounded-[11px] border border-accent/40 bg-accent/[.06] px-3 py-2 font-mono text-[12px]">
             <span
@@ -255,7 +266,7 @@ export default function Assistant() {
           </div>
         )}
 
-        {thinking && (
+        {thinking && !thread?.live && (
           <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
             <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
             thinking…

@@ -107,6 +107,10 @@ describe("POST /api/assistant/messages", () => {
       expect(denied).toContain(tool);
     }
     expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__verksted");
+    // Stronger than either list: this is the set that exists. It is also what
+    // stops the CLI deferring tool schemas, which cost a whole ToolSearch round
+    // trip per turn before the assistant could look at anything.
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
   });
 
   it("gives the assistant the verksted tools to act through", async () => {

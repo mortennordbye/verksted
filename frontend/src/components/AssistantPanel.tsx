@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AssistantConfig } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import { VOICE_KEY, canSpeak, pickVoice, useVoices } from "../useSpeech";
 
 /**
  * Who the assistant is, and what it costs to run.
@@ -38,6 +39,28 @@ export default function AssistantPanel() {
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  const voices = useVoices();
+  const [voiceName, setVoiceName] = useState(() => localStorage.getItem(VOICE_KEY) ?? "");
+
+  /**
+   * Stored per device rather than on the volume: which voices exist depends on
+   * the machine doing the speaking, so a phone and a laptop want different
+   * answers and neither is wrong.
+   */
+  function chooseVoice(name: string) {
+    setVoiceName(name);
+    if (name) localStorage.setItem(VOICE_KEY, name);
+    else localStorage.removeItem(VOICE_KEY);
+    const voice = pickVoice(voices, name || undefined);
+    if (!voice) return;
+    const sample = new SpeechSynthesisUtterance("Nothing needs you. Everything is quiet.");
+    sample.voice = voice;
+    sample.lang = voice.lang;
+    sample.rate = 1.08;
+    speechSynthesis.cancel();
+    speechSynthesis.speak(sample);
   }
 
   const field =
@@ -96,6 +119,28 @@ export default function AssistantPanel() {
           placeholder="Standing orders. Anything here overrides how it normally behaves, and is carried with every turn, so keep it short."
           className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
         />
+
+        {canSpeak() && voices.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={voiceName}
+              onChange={(e) => chooseVoice(e.target.value)}
+              aria-label="voice"
+              className={`max-w-[280px] ${field}`}
+            >
+              <option value="">best available ({pickVoice(voices)?.name ?? "none"})</option>
+              {voices.map((v) => (
+                <option key={`${v.name}-${v.lang}`} value={v.name}>
+                  {v.name} · {v.lang}
+                  {v.localService ? "" : " · network"}
+                </option>
+              ))}
+            </select>
+            <span className="font-mono text-[11px] text-faint">
+              picking one reads a sample aloud
+            </span>
+          </div>
+        )}
 
         <div className="flex items-center gap-3">
           <button

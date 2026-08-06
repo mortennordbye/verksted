@@ -408,6 +408,12 @@ export interface AssistantThread {
   /** "thinking" while a turn is in flight; nothing can be sent until it is not. */
   status: "idle" | "thinking";
   entries: AssistantEntry[];
+  /**
+   * The reply being written right now, if one is. Never stored — it becomes an
+   * entry the moment the model finishes the sentence — so it only ever arrives
+   * over the socket, never from a plain GET.
+   */
+  live?: string;
 }
 
 export type MemoryType = "preference" | "project" | "reference";

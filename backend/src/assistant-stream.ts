@@ -54,70 +54,135 @@ export interface StreamResult {
 }
 
 /**
- * Fold a whole stream into entries. Text blocks within one assistant event are
- * joined; tool calls are attached to the entry they were requested in, so the
- * chat can draw "read 3 runs" above the sentence that used it.
+ * A stream being read as it arrives.
+ *
+ * Incremental rather than parse-at-the-end, because the CLI emits an assistant
+ * turn as soon as the model produces one and the process then carries on
+ * running tools — so buffering everything means the answer exists for several
+ * seconds before anybody is shown it. That wait was the slowest thing about
+ * talking to the assistant, and none of it was the model.
  */
-export function parseStream(raw: string): StreamResult {
-  const entries: Omit<AssistantEntry, "id" | "at">[] = [];
-  let conversationId: string | null = null;
-  let error: string | null = null;
-  let pendingTools: AssistantToolCall[] = [];
+export interface StreamState {
+  conversationId: string | null;
+  error: string | null;
+  pendingTools: AssistantToolCall[];
+  /** Bytes arrived since the last newline; a chunk boundary is not a line. */
+  buffer: string;
+  /**
+   * The sentence being written right now, assembled from text deltas. Never
+   * persisted: it is replaced by the finished entry moments later, and writing
+   * every keystroke to the volume would be a lot of NFS for nothing.
+   */
+  live: string;
+}
 
-  for (const line of raw.split("\n")) {
+export function newStreamState(): StreamState {
+  return { conversationId: null, error: null, pendingTools: [], buffer: "", live: "" };
+}
+
+type Entry = Omit<AssistantEntry, "id" | "at">;
+
+function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry | null {
+  const sessionId = event.session_id;
+  if (typeof sessionId === "string" && sessionId) state.conversationId = sessionId;
+
+  // Token-level deltas, which is what makes an answer appear as it is written
+  // rather than seconds later in one lump. The finished `assistant` event still
+  // follows and is what actually gets stored; this is only what to show while
+  // waiting for it.
+  if (event.type === "stream_event") {
+    const inner = event.event as { type?: string; delta?: { type?: string; text?: string } };
+    if (inner?.type === "content_block_delta" && inner.delta?.type === "text_delta") {
+      state.live += inner.delta.text ?? "";
+    }
+    return null;
+  }
+
+  if (event.type === "assistant") {
+    const message = event.message as { content?: ContentBlock[] } | undefined;
+    const blocks = Array.isArray(message?.content) ? message.content : [];
+    const text = blocks
+      .filter((b) => b.type === "text" && typeof b.text === "string")
+      .map((b) => b.text!.trim())
+      .filter(Boolean)
+      .join("\n\n");
+    for (const b of blocks) {
+      if (b.type === "tool_use" && typeof b.name === "string") {
+        state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
+      }
+    }
+    // A turn that is only tool calls carries its tools forward to whichever
+    // turn finally says something, rather than becoming an empty bubble.
+    if (text) {
+      const entry = { role: "assistant" as const, text, tools: state.pendingTools };
+      state.pendingTools = [];
+      state.live = "";
+      return entry;
+    }
+    // A tool-only turn: whatever was being written was the model thinking out
+    // loud towards the call, and the call is now the thing to show.
+    state.live = "";
+    return null;
+  }
+
+  if (event.type === "result") {
+    if (
+      event.is_error === true ||
+      (typeof event.subtype === "string" && event.subtype !== "success")
+    ) {
+      const detail =
+        typeof event.result === "string" && event.result.trim() ? event.result.trim() : null;
+      state.error =
+        detail ?? (typeof event.subtype === "string" ? event.subtype : "the run failed");
+    }
+  }
+  return null;
+}
+
+/**
+ * Feed a chunk of stdout; get back whatever entries completed inside it.
+ *
+ * A chunk is not a line: the last one is usually a fragment, so it is held
+ * until its newline arrives rather than parsed and thrown away as bad JSON.
+ */
+export function consumeChunk(chunk: string, state: StreamState): Entry[] {
+  state.buffer += chunk;
+  const lines = state.buffer.split("\n");
+  state.buffer = lines.pop() ?? "";
+  const out: Entry[] = [];
+  for (const line of lines) {
     const trimmed = line.trim();
     if (!trimmed) continue;
     let event: Record<string, unknown>;
     try {
       event = JSON.parse(trimmed) as Record<string, unknown>;
     } catch {
-      // Not JSON: a warning the CLI printed to stdout, or a partial line from a
-      // process that died mid-write. Neither is ours to interpret.
+      // Not JSON: a warning the CLI printed to stdout. Not ours to interpret.
       continue;
     }
-
-    const sessionId = event.session_id;
-    if (typeof sessionId === "string" && sessionId) conversationId = sessionId;
-
-    if (event.type === "assistant") {
-      const message = event.message as { content?: ContentBlock[] } | undefined;
-      const blocks = Array.isArray(message?.content) ? message.content : [];
-      const text = blocks
-        .filter((b) => b.type === "text" && typeof b.text === "string")
-        .map((b) => b.text!.trim())
-        .filter(Boolean)
-        .join("\n\n");
-      for (const b of blocks) {
-        if (b.type === "tool_use" && typeof b.name === "string") {
-          pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
-        }
-      }
-      // A turn that is only tool calls carries its tools forward to whichever
-      // turn finally says something, rather than becoming an empty bubble.
-      if (text) {
-        entries.push({ role: "assistant", text, tools: pendingTools });
-        pendingTools = [];
-      }
-      continue;
-    }
-
-    if (event.type === "result") {
-      if (
-        event.is_error === true ||
-        (typeof event.subtype === "string" && event.subtype !== "success")
-      ) {
-        const detail =
-          typeof event.result === "string" && event.result.trim() ? event.result.trim() : null;
-        error = detail ?? (typeof event.subtype === "string" ? event.subtype : "the run failed");
-      }
-    }
+    const entry = consumeEvent(event, state);
+    if (entry) out.push(entry);
   }
+  return out;
+}
 
-  // Tools with nothing said after them still happened, and a turn that used
-  // them and then died is more legible with them than without.
-  if (pendingTools.length) {
-    entries.push({ role: "assistant", text: "", tools: pendingTools });
+/**
+ * What is left when the process ends: anything in the buffer, plus tool calls
+ * nothing was ever said after — a turn that used them and then died is more
+ * legible with them than without.
+ */
+export function finishStream(state: StreamState): Entry[] {
+  const out = state.buffer.trim() ? consumeChunk("\n", state) : [];
+  if (state.pendingTools.length) {
+    out.push({ role: "assistant", text: "", tools: state.pendingTools });
+    state.pendingTools = [];
   }
+  return out;
+}
 
-  return { entries, conversationId, error };
+/** Fold a whole stream at once. The incremental path is what runs in anger. */
+export function parseStream(raw: string): StreamResult {
+  const state = newStreamState();
+  const entries = [...consumeChunk(raw, state), ...finishStream(state)];
+  return { entries, conversationId: state.conversationId, error: state.error };
 }

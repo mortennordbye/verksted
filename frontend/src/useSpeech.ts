@@ -42,6 +42,55 @@ export const canSpeak = (): boolean => typeof window !== "undefined" && "speechS
  * long answer read to the end is worse than one cut short — you can always look
  * at the screen.
  */
+/**
+ * Picking a voice, because the browser's default is whatever it found first and
+ * usually the worst thing installed. The good ones are not named consistently
+ * across platforms, so this ranks on the words vendors actually use for their
+ * better engines, and falls back to any voice in the page's language.
+ *
+ * Chrome's Google voices are network-synthesised and much better than its local
+ * ones; macOS and iOS ship Siri and premium voices that are better again. Hence
+ * the order.
+ */
+const VOICE_RANK = [/siri/i, /premium|enhanced|neural/i, /^google /i, /natural/i];
+
+export function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  preferred?: string,
+): SpeechSynthesisVoice | null {
+  if (!voices.length) return null;
+  if (preferred) {
+    const chosen = voices.find((v) => v.name === preferred);
+    if (chosen) return chosen;
+  }
+  const lang = (typeof navigator !== "undefined" ? navigator.language : "en") || "en";
+  const base = lang.split("-")[0];
+  const sameLanguage = voices.filter((v) => v.lang?.toLowerCase().startsWith(base.toLowerCase()));
+  const pool = sameLanguage.length ? sameLanguage : voices;
+  for (const pattern of VOICE_RANK) {
+    const hit = pool.find((v) => pattern.test(v.name));
+    if (hit) return hit;
+  }
+  // Nothing recognisable: a remote voice still beats a local one on Chrome.
+  return pool.find((v) => !v.localService) ?? pool[0];
+}
+
+/** Voices load asynchronously, and are an empty list until they do. */
+export function useVoices(): SpeechSynthesisVoice[] {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  useEffect(() => {
+    if (!canSpeak()) return;
+    const load = () => setVoices(speechSynthesis.getVoices());
+    load();
+    speechSynthesis.addEventListener("voiceschanged", load);
+    return () => speechSynthesis.removeEventListener("voiceschanged", load);
+  }, []);
+  return voices;
+}
+
+/** The chosen voice is per device: what is installed differs on each one. */
+export const VOICE_KEY = "vk.assistant.voice";
+
 export function speakable(text: string): string {
   return text
     .replace(/```[\s\S]*?```/g, " code block ")
@@ -172,7 +221,19 @@ export function useSpeech(onFinal: (said: string) => void) {
     if (!body) return onDone?.();
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(body);
-    utterance.rate = 1.05;
+    const voice = pickVoice(
+      speechSynthesis.getVoices(),
+      localStorage.getItem(VOICE_KEY) ?? undefined,
+    );
+    if (voice) {
+      utterance.voice = voice;
+      // Matching the voice's own language stops a British voice reading text
+      // tagged en-US in a flattened accent.
+      utterance.lang = voice.lang;
+    }
+    // Slightly quick: this is a status update, not an audiobook.
+    utterance.rate = 1.08;
+    utterance.pitch = 1;
     utterance.onend = () => {
       setSpeaking(false);
       onDone?.();
