@@ -67,6 +67,12 @@ export async function writeVars(vars: Record<string, string>): Promise<void> {
 }
 
 /**
+ * The messenger: what this thing does every day is tell you what needs you.
+ * Named to sit beside the cluster it runs on, which is Genesis.
+ */
+export const DEFAULT_NAME = "Gabriel";
+
+/**
  * The assistant's identity, with the deployment env as the fallback for the two
  * that cost money. Stored beside the agent vars because it is the same kind of
  * thing: something the person tunes from their phone, persisted on the volume,
@@ -75,7 +81,9 @@ export async function writeVars(vars: Record<string, string>): Promise<void> {
 export async function readAssistantConfig(): Promise<AssistantConfig> {
   const stored = (await read()).assistant ?? {};
   return {
-    name: stored.name ?? "",
+    // Nullish rather than falsy, so a name deliberately cleared stays cleared
+    // instead of springing back on the next read.
+    name: stored.name ?? DEFAULT_NAME,
     model: stored.model || env.ASSISTANT_MODEL,
     effort: stored.effort ?? (env.ASSISTANT_EFFORT as AssistantConfig["effort"]),
     instructions: stored.instructions ?? "",

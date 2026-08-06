@@ -308,9 +308,14 @@ the field the same way.
 ## Defining it from the settings page
 
 Name, model, effort and standing orders are editable in the app and persist on
-the volume, so the thing you tune most often is not a redeploy. A name matters
-more than it sounds: without one it answers "Claude" when asked what it is
-called, which is the model's name and not this agent's.
+the volume, so the thing you tune most often is not a redeploy.
+
+It is called **Gabriel** by default: the messenger, which is what you touch every
+day — it tells you what needs you before you ask. It sits beside the cluster it
+runs on, which is Genesis. A name matters more than it sounds: without one it
+answers "Claude" when asked what it is called, which is the model's name and not
+this agent's. Clearing the field leaves it nameless rather than restoring the
+default, since a name deliberately removed should stay removed.
 
 Standing orders go last in the prompt, after everything the code says, so they
 win by being the most recent instruction. They are also carried with every turn,

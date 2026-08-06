@@ -20,8 +20,9 @@ function opening(name: string): string[] {
   // than the model's, which is the whole point of letting one be set.
   return name
     ? [
-        `Your name is ${name}. It is what you answer to, and what you call`,
-        "yourself; you are not the model you happen to run on.",
+        `Your name is ${name}. It is what you answer to and what you call`,
+        "yourself: you are not the model you happen to be running on, and saying",
+        "the model's name when asked who you are is wrong.",
         "",
         `${name} runs a verksted: Norwegian for workshop, which is what this is. A`,
         "bench where coding agents work on one person's repos, reached from their",
