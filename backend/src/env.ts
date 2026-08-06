@@ -42,6 +42,8 @@ export const env = {
   SCHEDULES_DIR: process.env.SCHEDULES_DIR ?? "/data/schedules",
   // The assistant's threads: one JSONL per conversation (see assistant.ts).
   ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
+  // What verksted has learned: one markdown file per fact (see memory-store.ts).
+  MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
   // Absolute path to the built frontend; empty in dev, where Vite serves it.
   STATIC_DIR: process.env.STATIC_DIR ?? "",
   // Agent env vars set via the settings page persist here (on the PVC).

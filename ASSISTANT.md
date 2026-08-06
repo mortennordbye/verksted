@@ -1,10 +1,14 @@
 # The assistant
 
-**Status: M1 is built and works; M2–M4 are proposed.** The chat, the headless
-runtime behind it and the thread store exist. Memory — the half that makes it
-learn — does not. What is left of M1 is in `BACKLOG.md` under
-`Assistant M1:`, and matters: the assistant currently runs on claude's default
-toolset with `--permission-mode auto`, which is broader than this feature needs.
+**Status: M1 and M2 are built and work; M3–M4 are proposed.** The chat, the
+headless runtime behind it, the thread store, and explicit memory all exist and
+are verified end to end. What is not built is the part that learns _without
+being asked_ — the harvester and its review queue — and the MCP server that
+would narrow what the assistant may do. Both are in `BACKLOG.md`.
+
+The scoping gap matters and is not theoretical: the assistant runs on claude's
+default toolset with `--permission-mode auto`, plus write access to the memory
+directory.
 
 ## What it is
 
@@ -119,8 +123,14 @@ Three sources, in increasing order of ambition. Build them in this order.
 
 ### Review
 
-Proposed facts land in a queue on the inbox screen and become memory only when
-kept.
+**Not built yet, and it is the gap that matters most.** Explicit memory needs no
+queue, because you were in the conversation when the fact was written — the
+assistant is instructed to say what it is about to record and ask first, and
+that is the whole review at this milestone. Harvesting has no such moment, so it
+must not ship before this does.
+
+The design: proposed facts land in a queue on the inbox screen and become memory
+only when kept.
 
 This gate is not optional and not a nicety. Unreviewed automatic memory poisons
 itself: one wrong fact silently degrades every later session, and nothing in a
@@ -133,9 +143,9 @@ Cheap to build now. Expensive to retrofit after the first bad memory.
 
 ### Store
 
-One fact per file on the data volume, with frontmatter carrying its type
+One fact per file in `MEMORY_DIR`, with frontmatter carrying its type
 (preference, project, reference), its scope (global or a project name), and its
-provenance (which session and when). Plus an index file.
+provenance.
 
 That is the shape Claude Code's own memory directory uses, and it is worth
 copying rather than reinventing: one file per fact makes a bad one deletable
@@ -144,12 +154,30 @@ answerable.
 
 ### Inject
 
-Through the marker-block mechanism `sandbox-doc.ts` already implements:
+Through the marker-block mechanism `sandbox-doc.ts` already implements, into
+`~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. Text outside the markers stays
+yours, exactly as it does for the sandbox note, and the block disappears
+entirely when the last fact is forgotten.
 
-- global facts into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`
-- project facts into that project's `.verksted/context.md`
+**Everything goes into the global file, including project-scoped facts**, which
+is a deliberate departure from the original plan here. `.verksted/context.md` is
+only read for prompted runs, so project facts put there would never reach an
+interactive session; and the other candidate — a repo's own `CLAUDE.md` — is a
+committed file, which is no place for verksted's guesses about you. Labelling
+the scope inline (`In Homelab: …`) costs a few words and reaches everything.
 
-Text outside the markers stays yours, exactly as it does for the sandbox note.
+### How a fact gets written
+
+The assistant writes the file itself, with the ordinary Write tool, told where
+and in what shape by an appended system prompt and given access with
+`--add-dir`. No tool of ours in between: the store is meant to be plain text a
+person can edit in a terminal, and a protocol would take that away and buy
+nothing.
+
+The backend never trusts the shape. Frontmatter is parsed forgivingly — a
+missing field costs that field, not the fact — and `created` falls back to the
+file's mtime, because the agent leaves it off as often as not and both the
+ordering and the budget's eviction depend on having one.
 
 ### Compact
 
@@ -167,12 +195,12 @@ later problem to solve with evidence.
 Each is independently useful; stopping after any of them leaves something that
 works.
 
-- **M1 — the assistant.** The headless agent runtime, the message store and
-  stream, the chat screen, an MCP server over the verksted API, and the terminal
-  escape hatch. No learning yet, and already useful as a layer over the other
+- **M1 — the assistant.** ✅ except the MCP server and the terminal escape
+  hatch. The headless agent runtime, the message store and stream, and the chat
+  screen. No learning yet, and already useful as a layer over the other
   agents.
-- **M2 — explicit memory.** The store, remember/forget, and injection. The first
-  point at which it stops re-asking things.
+- **M2 — explicit memory.** ✅ The store, remember/forget, and injection. The
+  first point at which it stops re-asking things.
 - **M3 — harvest and review.** The nightly transcript pass and the inbox queue.
 - **M4 — outcomes and compaction.** Learning from what worked, and staying small.
 

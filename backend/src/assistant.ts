@@ -5,6 +5,7 @@ import path from "node:path";
 import type { AssistantEntry, AssistantThread } from "../../shared/api.js";
 import { parseStream } from "./assistant-stream.js";
 import { env } from "./env.js";
+import { inject as injectMemory } from "./memory-store.js";
 import { agentEnv } from "./settings-store.js";
 
 /**
@@ -22,6 +23,42 @@ import { agentEnv } from "./settings-store.js";
  * than parsing it out, so `claude --resume <id>` in a terminal picks up the
  * same thread. The chat is a different window onto it, not a different agent.
  */
+
+/**
+ * How the assistant records something worth keeping.
+ *
+ * Written as files with the ordinary Write tool rather than through a tool of
+ * ours, because the store is meant to be plain text a person can edit in a
+ * terminal — inventing a protocol for it would take that away and buy nothing.
+ * The backend reads the same directory to build what every session is told.
+ *
+ * The instruction to ask first is the whole safety story at this milestone:
+ * nothing here reviews what gets written, so the review has to happen in the
+ * conversation until the inbox queue exists.
+ */
+const MEMORY_INSTRUCTIONS = [
+  "You are the verksted assistant: a resident agent for this workbench, reachable",
+  "from the hub. You can read the projects under /data/repos, and the pod's own",
+  "API at http://127.0.0.1:8080/api (projects, sessions, schedules, runs).",
+  "",
+  "You keep a memory of how this person works, as one markdown file per fact in",
+  "/data/memory. To remember something, write /data/memory/<short-slug>.md:",
+  "",
+  "---",
+  "type: preference | project | reference",
+  "scope: global | <project name>",
+  "source: <how you learned it>",
+  "---",
+  "",
+  "<the fact, in one or two sentences, written as an instruction to a future agent>",
+  "",
+  "Record a fact when you are told a preference, corrected, or told how something",
+  "in a repo works — anything you would otherwise have to be told twice. Say what",
+  "you are about to record and ask before writing it: nothing else reviews these,",
+  "and every one of them is carried into every future session in every repo.",
+  "Correct a wrong memory by rewriting its file; forget one by deleting it.",
+  "Keep them short. The whole store has a byte budget and the oldest fall off.",
+].join("\n");
 
 /** Where the active conversation id is remembered across restarts. */
 function currentPath(): string {
@@ -165,6 +202,11 @@ export async function send(prompt: string): Promise<AssistantThread> {
     // cannot answer is what the timeout below exists for.
     "--permission-mode",
     "auto",
+    // Memory lives outside the working directory, so it has to be granted.
+    "--add-dir",
+    env.MEMORY_DIR,
+    "--append-system-prompt",
+    MEMORY_INSTRUCTIONS,
   ];
 
   const child = spawn("claude", args, {
@@ -216,6 +258,11 @@ export async function send(prompt: string): Promise<AssistantThread> {
       failed: true,
     });
   }
+
+  // The turn may have written or deleted a memory file directly, so what every
+  // other session is told is rebuilt from the directory rather than from a
+  // callback the agent would have had to remember to make.
+  await injectMemory();
 
   const thread = await readThread();
   for (const fn of listeners) fn(thread);

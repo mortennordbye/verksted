@@ -407,3 +407,27 @@ export interface AssistantThread {
   status: "idle" | "thinking";
   entries: AssistantEntry[];
 }
+
+export type MemoryType = "preference" | "project" | "reference";
+/** "global", or the name of the project the fact belongs to. */
+export type MemoryScope = string;
+
+/** One thing verksted has learned about how you work. */
+export interface Memory {
+  slug: string;
+  text: string;
+  type: MemoryType;
+  scope: MemoryScope;
+  /** Where it came from, which is the answer to "why does it think that?". */
+  source: string | null;
+  createdAt: string | null;
+}
+
+export interface MemoryList {
+  memories: Memory[];
+  /** Bytes carried into every session, against the budget. */
+  used: number;
+  budget: number;
+  /** Memories the budget pushed out of the injected block. */
+  dropped: number;
+}

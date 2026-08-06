@@ -363,3 +363,45 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`SESSION_ID_RE`, `createSession`,
   `launchAgent` already builds `claude --resume <id>` for restores),
   `frontend/src/screens/Assistant.tsx` (where the button goes)
+
+## Assistant M3: nothing harvests memories yet
+
+- **What:** Memory only fills up when you tell the assistant something in a
+  conversation you were present for. The half that learns without being asked —
+  a nightly pass over the transcripts of sessions that ended that day, proposing
+  facts — is not built, and must not be built before the review queue below is:
+  explicit memory needs no gate because you were there when it was written, and
+  harvested memory has no such moment.
+- **Why deferred:** M2 shipped first on purpose. Harvesting without review is
+  the version of this feature that quietly poisons itself.
+- **Unblocked by:** The review queue, then a schedule that reads
+  `$HOME/.claude/projects/<slug>/<conversation-id>.jsonl` for the sessions whose
+  ids are recorded in `<id>.conv`.
+- **Where:** `backend/src/memory-store.ts` (the store to write into),
+  `backend/src/sessions-store.ts` (`<id>.conv` is the join to a transcript)
+
+## Assistant M3: proposed memories have nowhere to be reviewed
+
+- **What:** A queue on the inbox screen where a proposed fact is kept or
+  dropped, and only becomes memory when kept. Needed before anything writes
+  memories on its own — including from repo content and PR text nobody here
+  wrote, which is one hop from a prompt-injection payload becoming permanent
+  context in every session.
+- **Why deferred:** Nothing proposes memories yet, so the queue would be empty.
+  It is the prerequisite for the entry above, not a follow-up to it.
+- **Unblocked by:** Deciding whether a proposal is a memory file with a
+  `status: proposed` field or a separate directory; the former keeps one store,
+  the latter keeps the injected block trivially correct.
+- **Where:** `backend/src/memory-store.ts`, `frontend/src/screens/Inbox.tsx`
+
+## Assistant M4: memory has a budget but no compaction
+
+- **What:** The store is capped at 8 KB of injected text and drops the oldest
+  facts past it, reporting how many in the API and on the settings page. What is
+  missing is the weekly pass that merges duplicates and drops facts contradicted
+  by newer ones, so the cap is currently a cliff rather than a prompt to tidy.
+- **Why deferred:** Premature until enough memories exist to need it; the
+  reporting was built first so the cliff is at least visible.
+- **Unblocked by:** Reaching the budget in real use, then a schedule that reads
+  the store and rewrites it.
+- **Where:** `backend/src/memory-store.ts` (`BUDGET_BYTES`, `renderBlock`)

@@ -4,12 +4,19 @@ import { buildApp } from "./app.js";
 import { killAll } from "./browser.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
+import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
 // First boot on an empty volume.
-for (const dir of [env.REPOS_DIR, env.SESSIONS_DIR, env.SCHEDULES_DIR, env.ASSISTANT_DIR]) {
+for (const dir of [
+  env.REPOS_DIR,
+  env.SESSIONS_DIR,
+  env.SCHEDULES_DIR,
+  env.ASSISTANT_DIR,
+  env.MEMORY_DIR,
+]) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
@@ -17,6 +24,9 @@ const app = await buildApp();
 // Before the sessions start: agents read their global memory file when a
 // session begins, so a restored session should already find the note there.
 await ensureSandboxNotes(app.log);
+// Memory is edited as files on the volume, so what sessions are told is rebuilt
+// from the directory at boot rather than trusted to be current.
+await injectMemory();
 // Before listening, not after: the first request to list sessions is also what
 // stamps a tmux-less session as done, and it must not beat the restore to them.
 await restoreSessions(app.log);

@@ -20,27 +20,40 @@ const START = "<!-- verksted:sandbox start -->";
 const END = "<!-- verksted:sandbox end -->";
 
 const BLOCK = [
-  START,
   "This machine is a verksted session container. The docker daemon is a sibling",
   "container, so bind mounts only resolve for paths under /data, and published",
   "ports do not answer on localhost. Read /etc/verksted/SANDBOX.md before running",
   "docker, docker compose, or a project's make targets, and run `vk doctor` to",
   "check the live topology.",
-  END,
 ].join("\n");
 
 /** Agent CLI -> its global memory file, relative to $HOME. */
-const MEMORY_FILES = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
+export const MEMORY_FILES = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 
-/** Replace the marked block, or append one, leaving the rest of the file alone. */
-export function mergeBlock(existing: string): string {
-  const from = existing.indexOf(START);
-  const to = existing.indexOf(END);
+/**
+ * Replace a marked block, or append one, leaving the rest of the file alone.
+ *
+ * Shared rather than private because memory writes a second block into the same
+ * files: two independent owners of two regions of a file the user also edits,
+ * which only works if both do the surgery the same way. An empty body removes
+ * the block, so a memory that is emptied leaves no stale heading behind.
+ */
+export function mergeMarked(existing: string, start: string, end: string, block: string): string {
+  const body = block.trim() ? `${start}\n${block.trim()}\n${end}` : "";
+  const from = existing.indexOf(start);
+  const to = existing.indexOf(end);
   if (from !== -1 && to > from) {
-    return existing.slice(0, from) + BLOCK + existing.slice(to + END.length);
+    const merged = existing.slice(0, from) + body + existing.slice(to + end.length);
+    return body ? merged : merged.replace(/\n{3,}/g, "\n\n").trimStart();
   }
-  const body = existing.trimEnd();
-  return body ? `${body}\n\n${BLOCK}\n` : `${BLOCK}\n`;
+  if (!body) return existing;
+  const before = existing.trimEnd();
+  return before ? `${before}\n\n${body}\n` : `${body}\n`;
+}
+
+/** Replace the sandbox block, or append one, leaving the rest of the file alone. */
+export function mergeBlock(existing: string): string {
+  return mergeMarked(existing, START, END, BLOCK);
 }
 
 interface Logger {
