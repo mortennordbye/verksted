@@ -32,14 +32,10 @@
   --animate-blink: blink 1.2s steps(1) infinite;
   --animate-pulse-run: pulse-run 1.6s ease-in-out infinite;
 
-  /* The raccoon. Transforms are on `transform-box: fill-box` groups so each
-     part turns about its own centre rather than the SVG's origin. */
+  /* The raccoon's head, which comes apart at the mouth and flaps. */
+  --animate-rc-flap: rc-flap 0.34s ease-in-out infinite;
   --animate-rc-sway: rc-sway 5s ease-in-out infinite;
-  --animate-rc-blink: rc-blink 5.2s ease-in-out infinite;
-  --animate-rc-talk: rc-talk 0.26s ease-in-out infinite;
-  --animate-rc-think: rc-think 2.4s ease-in-out infinite;
-  --animate-rc-perk: rc-perk 1.4s ease-in-out infinite;
-  --animate-rc-tail: rc-tail 3.4s ease-in-out infinite;
+  --animate-rc-perk: rc-perk 1.6s ease-in-out infinite;
 
   @keyframes blink {
     50% {
@@ -52,61 +48,34 @@
     }
   }
 
-  /* Breathing, so it never looks frozen. */
+  /* The flap. Rotation rather than a lift, so the jaw hinges at the back
+     instead of the whole head sliding upwards. */
+  @keyframes rc-flap {
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-7%) rotate(-4deg);
+    }
+  }
+  /* Never entirely still: a frozen photo reads as a broken image. */
   @keyframes rc-sway {
     0%,
     100% {
-      transform: translateY(0) rotate(-1deg);
+      transform: rotate(0deg) translateY(0);
     }
     50% {
-      transform: translateY(-2px) rotate(1deg);
-    }
-  }
-  /* Shut for a tenth of the cycle: any longer reads as sleepy. */
-  @keyframes rc-blink {
-    0%,
-    92%,
-    100% {
-      transform: scaleY(1);
-    }
-    95% {
-      transform: scaleY(0.08);
-    }
-  }
-  @keyframes rc-talk {
-    0%,
-    100% {
-      transform: scaleY(0.55);
-    }
-    50% {
-      transform: scaleY(1.35);
-    }
-  }
-  @keyframes rc-think {
-    0%,
-    100% {
-      transform: rotate(-4deg);
-    }
-    50% {
-      transform: rotate(4deg);
+      transform: rotate(-1.2deg) translateY(-0.6%);
     }
   }
   @keyframes rc-perk {
     0%,
     100% {
-      transform: translateY(0);
+      transform: rotate(0deg);
     }
     50% {
-      transform: translateY(-3px);
-    }
-  }
-  @keyframes rc-tail {
-    0%,
-    100% {
-      transform: rotate(-6deg);
-    }
-    50% {
-      transform: rotate(10deg);
+      transform: rotate(-3deg);
     }
   }
 }
@@ -212,20 +181,11 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
   .animate-pulse-run,
+  .animate-rc-flap,
   .animate-rc-sway,
-  .animate-rc-blink,
-  .animate-rc-talk,
-  .animate-rc-think,
-  .animate-rc-perk,
-  .animate-rc-tail {
+  .animate-rc-perk {
     animation: none;
   }
-}
-
-/* SVG parts turn about themselves, not about the corner of the drawing. */
-.rc-part {
-  transform-box: fill-box;
-  transform-origin: center;
 }
 
 /* "Has room for the side-by-side session layout." Width alone isn't enough: a

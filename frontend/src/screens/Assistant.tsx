@@ -215,30 +215,34 @@ export default function Assistant() {
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
         {showRaccoon && (
           <div className="flex flex-none justify-center pt-1 pb-2">
-            <Raccoon mood={mood} className="h-[132px] w-auto" />
+            <Raccoon mood={mood} className="w-[170px]" />
           </div>
         )}
 
-        {turns > 0 && (
-          <div className="flex items-center gap-3 font-mono text-[11px] text-faint">
+        {/* Always present: the raccoon toggle lives here, and gating the whole
+            row on having turns meant it did not exist on a fresh thread. */}
+        <div className="flex items-center gap-3 font-mono text-[11px] text-faint">
+          {turns > 0 && (
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
               {long && " · getting expensive to continue"}
             </span>
-            <button
-              onClick={() => {
-                const next = !showRaccoon;
-                setShowRaccoon(next);
-                localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
-              }}
-              title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
-              aria-pressed={showRaccoon}
-              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
-                showRaccoon ? "border-accent/50 text-accent" : "border-line text-muted"
-              }`}
-            >
-              raccoon
-            </button>
+          )}
+          <button
+            onClick={() => {
+              const next = !showRaccoon;
+              setShowRaccoon(next);
+              localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
+            }}
+            title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
+            aria-pressed={showRaccoon}
+            className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
+              showRaccoon ? "border-accent/50 text-accent" : "border-line text-muted"
+            }`}
+          >
+            raccoon
+          </button>
+          {turns > 0 && (
             <button
               onClick={() => void newThread()}
               disabled={thinking}
@@ -248,8 +252,8 @@ export default function Assistant() {
             >
               new thread
             </button>
-          </div>
-        )}
+          )}
+        </div>
 
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 

@@ -393,6 +393,24 @@ Measured on the same question, end to end:
 | first words on screen | 7.5s   | 4.0s  |
 | turn complete         | 8.9s   | 5.3s  |
 
+## The raccoon
+
+Off unless you turn it on, remembered per device, and reachable from the row
+above the thread. It is decoration and should be nobody's default.
+
+The head comes apart at the jaw and flaps while Gabriel talks, after the South
+Park Canadians. Two copies of the same picture are stacked exactly on top of
+each other and each clipped to one side of the line: the body stays put, the
+head hinges up. Clipping rather than two cropped files is what keeps the seam
+from drifting — both halves are the same image at the same size, so they line
+up by construction at any scale.
+
+`JAW` in `Raccoon.tsx` is the only number tied to the picture, and it sits just
+under the chin rather than through the mouth. That is the one place this differs
+from the cartoon it imitates: a photoreal muzzle sliced in half reads as
+gruesome rather than funny, while hinging the whole head off the collar gets the
+same joke and stays likeable. Swap the image and retune that one constant.
+
 ## Keeping it off the usage meter
 
 The assistant summarises state and hands the real work to sessions, so it runs
