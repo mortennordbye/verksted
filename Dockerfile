@@ -58,6 +58,15 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && chmod +x /usr/local/bin/agy \
     && /usr/local/bin/agy --version
 
+# What a session needs to know about its own environment, and a command that
+# reports the live version of it. The daemon is a sibling, so a bind mount of a
+# path it cannot see is mounted empty instead of failing — an agent that does
+# not know that loses an afternoon to it. sandbox-doc.ts points every agent's
+# global memory file here.
+COPY runtime/SANDBOX.md /etc/verksted/SANDBOX.md
+COPY runtime/vk /usr/local/bin/vk
+RUN chmod 0755 /usr/local/bin/vk
+
 # tmux draws no status bar; the web UI has its own. Its scrollback is also the
 # only one the browser terminal has (see tmux.ts scrollHistory), and 2000 lines
 # — the default — is a short afternoon of agent output.

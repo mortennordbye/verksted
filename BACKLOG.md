@@ -86,21 +86,45 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
   `backend/src/sessions-store.ts` (`createSession`)
 
-## Docker-in-pod: dind sidecar in the Homelab manifests
+## Mount the data PVC into the dind sidecar in the Homelab manifests
 
-- **What:** Sessions have the docker CLI + compose and expect a daemon at
-  DOCKER_HOST. Dev compose provides it (service `dind`); the k8s pod does not
-  yet. Needed: a `docker:28-dind` sidecar (privileged — accepted tradeoff,
-  single-user pod behind the VPN), its own PVC for /var/lib/docker, and
-  `DOCKER_HOST=tcp://127.0.0.1:2375` on the main container. Pruning is already
-  handled backend-side (`maintenance.ts`, daily). Sidecar shares the pod netns,
-  so agent-published ports appear on localhost — the session browser pane can
-  preview them directly.
-- **Why deferred:** Manifests live in the Homelab repo (milestone-1 cluster
-  work), not here.
-- **Unblocked by:** Milestone-1 deployment pass in the Homelab repo.
+- **What:** Dev compose now mounts the data volume into the `dind` service at
+  `/data`, the same path the backend sees it, so a session's bind mounts resolve
+  to the real repo instead of an empty directory the daemon invents. The pod's
+  sidecar needs the same: the data PVC mounted at `/data`. Until it has one,
+  every `docker compose up` in a session mounts an empty source tree and the
+  failure is silent — the container starts and then cannot find the code.
+- **Why deferred:** Manifests live in the Homelab repo, not here.
+- **Unblocked by:** Adding the volumeMount to the sidecar and re-syncing, then
+  `vk doctor` in a pod session reporting the bind-mount probe ok.
 - **Where:** Homelab repo `k8s/talos/apps/`; this repo `docker-compose.yml`
-  (`dind` service is the reference), `Dockerfile` (CLI install)
+  (the `dind` service is the reference)
+
+## File watching over the NFS PVC is unverified
+
+- **What:** With the sidecar mount above, a session can bind-mount its repo into
+  a dev container for hot reload. Whether inotify events cross the NFS volume
+  from the writing container to the watching one has never been checked in the
+  pod. If they do not, every watch-based dev server in a session needs polling,
+  and `SANDBOX.md` should say so as fact rather than as a caveat.
+- **Why deferred:** Needs the sidecar mount deployed first; unanswerable from a
+  laptop, where the data volume is local and inotify works.
+- **Unblocked by:** One session in the pod running a bind-mounted vite or tsx
+  watch and editing a file from the terminal.
+- **Where:** `runtime/SANDBOX.md` ("File watching")
+
+## agy has no global memory file wired to the sandbox note
+
+- **What:** `sandbox-doc.ts` points claude (`~/.claude/CLAUDE.md`) and codex
+  (`~/.codex/AGENTS.md`) at `/etc/verksted/SANDBOX.md` on boot. antigravity's
+  equivalent — whether it reads a global instructions file at all, and under
+  what name — is unverified, so agy sessions still start without the note and
+  will rediscover the sibling-daemon rule the hard way.
+- **Why deferred:** Same reason as agy's status hooks and MCP config: the config
+  mechanism needs confirming in the pod against a real authenticated CLI.
+- **Unblocked by:** Confirming what global instructions file agy reads, then
+  adding it to `MEMORY_FILES`.
+- **Where:** `backend/src/sandbox-doc.ts` (`MEMORY_FILES`)
 
 ## Milestone 4 remainder (per SPEC.md)
 

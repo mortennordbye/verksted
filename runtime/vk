@@ -1,0 +1,56 @@
+#!/bin/sh
+# verksted sandbox helper. `vk doctor` reports what this session's docker setup
+# actually is right now; /etc/verksted/SANDBOX.md explains why it is that way.
+#
+# The bind-mount probe is the point of the command: a daemon that cannot see the
+# working directory mounts an empty one instead of failing, so the only reliable
+# way to know is to ask the daemon what it sees.
+set -eu
+
+PROBE_IMAGE=busybox:stable
+
+usage() {
+  echo "usage: vk doctor    report this session's docker topology"
+  echo
+  echo "/etc/verksted/SANDBOX.md explains what the report means."
+}
+
+doctor() {
+  echo "cwd              $PWD"
+  echo "DOCKER_HOST      ${DOCKER_HOST:-unset}"
+
+  if ! server=$(docker version --format '{{.Server.Version}}' 2>/dev/null); then
+    echo "daemon           UNREACHABLE - no container work is possible here"
+    exit 1
+  fi
+  echo "daemon           reachable, docker $server (a sibling container, not this one)"
+
+  # Ports are published into the daemon's network namespace, so they answer on
+  # the daemon's host, which is only "localhost" when it shares this netns.
+  case "${DOCKER_HOST:-}" in
+    *://*)
+      host=${DOCKER_HOST#*://}
+      host=${host%%:*}
+      ;;
+    *) host=127.0.0.1 ;;
+  esac
+  echo "published ports  answer at $host:<port>"
+
+  here=$(ls -A . 2>/dev/null | wc -l | tr -d ' ')
+  there=$(docker run --rm -v "$PWD:/probe" "$PROBE_IMAGE" ls -A /probe 2>/dev/null | wc -l | tr -d ' ')
+  echo "bind-mount probe this container sees $here entries here, the daemon sees $there"
+  if [ "$here" -gt 0 ] && [ "$there" -eq 0 ]; then
+    echo "                 BROKEN: bind mounts of $PWD land empty. Only paths under"
+    echo "                 /data reach the daemon; see /etc/verksted/SANDBOX.md."
+    exit 1
+  fi
+  echo "                 ok: bind mounts of $PWD reach the daemon"
+}
+
+case "${1:-}" in
+  doctor) doctor ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
