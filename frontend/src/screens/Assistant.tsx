@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AssistantEntry, AssistantThread } from "../../../shared/api";
 import { api } from "../api";
 import TopBar from "../components/TopBar";
+import { canListen, canSpeak, useSpeech } from "../useSpeech";
 
 /**
  * The assistant's chat.
@@ -12,24 +13,6 @@ import TopBar from "../components/TopBar";
  * thread, so a send works even if the socket is down — the socket is what makes
  * a second device watching the same thread stay in step.
  */
-
-/**
- * The slice of the Web Speech API this uses. Typed here rather than pulled from
- * lib.dom: it is still vendor-prefixed in the browsers that have it, and absent
- * in the ones that do not, so the feature test below is the real contract.
- */
-interface SpeechEvent {
-  results: { [i: number]: { [j: number]: { transcript: string } }; length: number };
-}
-interface SpeechRecognitionLike {
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: (e: SpeechEvent) => void;
-  onend: () => void;
-  onerror: () => void;
-  start: () => void;
-  stop: () => void;
-}
 
 function ToolChip({ name, detail }: { name: string; detail: string }) {
   return (
@@ -88,15 +71,13 @@ export default function Assistant() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
-  const [listening, setListening] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const [canDictate] = useState(
-    () =>
-      typeof window !== "undefined" &&
-      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window),
-  );
+  // Hands-free: replies are read out, and the microphone reopens when the
+  // reading stops, so a whole exchange happens without touching the screen.
+  const [voiceMode, setVoiceMode] = useState(false);
+  const spokenRef = useRef<string | null>(null);
+  const [heard, setHeard] = useState<string | null>(null);
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
@@ -144,38 +125,46 @@ export default function Assistant() {
     }
   }
 
+  const speech = useSpeech((said) => {
+    setHeard(null);
+    void send(said);
+  });
+  const { listening, speaking } = speech;
+
   /**
-   * Dictation through the browser's own recogniser. Not every browser has it —
-   * iOS gives you the keyboard's mic button instead, which types into the field
-   * exactly the same way — so the button only appears where it will work.
+   * Read the newest reply, then listen again. Keyed on the entry id so a
+   * reconnecting socket redelivering the same thread cannot read it twice.
    */
-  function dictate() {
-    const Recognition =
-      (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike })
-        .SpeechRecognition ??
-      (window as unknown as { webkitSpeechRecognition?: new () => SpeechRecognitionLike })
-        .webkitSpeechRecognition;
-    if (!Recognition) return;
-    const recognition = new Recognition();
-    recognition.interimResults = true;
-    recognition.continuous = true;
-    const before = text ? `${text} ` : "";
-    recognition.onresult = (e: SpeechEvent) => {
-      let said = "";
-      for (let i = 0; i < e.results.length; i++) said += e.results[i][0].transcript;
-      setText(before + said);
-    };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
-    recognition.start();
-    setListening(true);
-    recognitionRef.current = recognition;
+  useEffect(() => {
+    if (!voiceMode || thinking) return;
+    const last = thread?.entries.at(-1);
+    if (!last || last.role !== "assistant" || !last.text) return;
+    if (spokenRef.current === last.id) return;
+    spokenRef.current = last.id;
+    speech.speak(last.text, () => {
+      if (voiceMode) speech.listen(setHeard);
+    });
+  }, [thread, voiceMode, thinking, speech]);
+
+  function toggleVoice() {
+    if (voiceMode) {
+      setVoiceMode(false);
+      speech.cancelSpeech();
+      speech.stopListening();
+      setHeard(null);
+      return;
+    }
+    // Turning it on is the user gesture iOS requires before it will ever speak,
+    // so prime it here rather than on the first reply.
+    setVoiceMode(true);
+    spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+    speech.listen(setHeard);
   }
 
-  async function send() {
-    const value = text.trim();
+  async function send(spoken?: string) {
+    const value = (spoken ?? text).trim();
     if ((!value && !pending.length) || thinking) return;
-    setText("");
+    if (!spoken) setText("");
     setError(null);
     try {
       setThread(
@@ -190,7 +179,7 @@ export default function Assistant() {
       setPending([]);
     } catch (e) {
       setError((e as Error).message);
-      setText(value);
+      if (!spoken) setText(value);
     }
   }
 
@@ -248,6 +237,22 @@ export default function Assistant() {
         {thread?.entries.map((e) => (
           <Turn key={e.id} entry={e} />
         ))}
+
+        {voiceMode && (
+          <div className="flex items-center gap-2.5 rounded-[11px] border border-accent/40 bg-accent/[.06] px-3 py-2 font-mono text-[12px]">
+            <span
+              className={`h-2 w-2 flex-none rounded-full ${
+                listening ? "animate-pulse bg-accent" : speaking ? "bg-run" : "bg-idle"
+              }`}
+            />
+            <span className="min-w-0 flex-1 truncate text-muted">
+              {heard || (listening ? "listening…" : speaking ? "speaking…" : "voice mode on")}
+            </span>
+            <button onClick={toggleVoice} className="flex-none text-faint hover:text-text">
+              end
+            </button>
+          </div>
+        )}
 
         {thinking && (
           <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
@@ -328,14 +333,24 @@ export default function Assistant() {
             aria-label="message the assistant"
             className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
           />
-          {canDictate && !thinking && (
+          {canSpeak() && canListen() && !thinking && (
             <button
-              onClick={() => {
-                if (listening) recognitionRef.current?.stop();
-                else dictate();
-              }}
+              onClick={toggleVoice}
+              aria-label={voiceMode ? "end voice mode" : "start voice mode"}
+              title="hands free: it reads replies out and listens again"
+              className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint ${
+                voiceMode ? "border-accent text-accent" : "border-line text-muted"
+              }`}
+            >
+              ((•))
+            </button>
+          )}
+          {canListen() && !thinking && !voiceMode && (
+            <button
+              onClick={() => (listening ? speech.stopListening() : speech.listen(setText))}
               aria-label={listening ? "stop dictating" : "dictate"}
-              className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint disabled:opacity-40 ${
+              title="dictate into the field"
+              className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint ${
                 listening ? "animate-pulse border-accent text-accent" : "border-line text-muted"
               }`}
             >
