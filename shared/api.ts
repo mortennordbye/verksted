@@ -394,6 +394,8 @@ export interface AssistantEntry {
   at: string;
   /** Set when the turn ended badly; the text then carries what went wrong. */
   failed?: boolean;
+  /** Upload names attached to a user turn, served from /api/assistant/uploads. */
+  images?: string[];
 }
 
 export interface AssistantThread {

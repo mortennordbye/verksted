@@ -67,6 +67,11 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(sshRoutes);
   await app.register(pushRoutes);
   await app.register(githubRoutes);
+  // Raw image bodies for the assistant's upload endpoint (the same shape the
+  // per-project upload uses; a phone has no clipboard to paste a screenshot from).
+  for (const mime of ["image/png", "image/jpeg", "image/gif", "image/webp"]) {
+    app.addContentTypeParser(mime, { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+  }
   await app.register(assistantRoutes);
   await app.register(memoryRoutes);
   await app.register(attachRoutes);

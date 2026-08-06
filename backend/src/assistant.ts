@@ -65,6 +65,11 @@ function currentPath(): string {
   return path.join(env.ASSISTANT_DIR, "current");
 }
 
+/** Where attached images land, outside any repo and readable by the agent. */
+export function uploadsDir(): string {
+  return path.join(env.ASSISTANT_DIR, "uploads");
+}
+
 function threadPath(conversationId: string): string {
   return path.join(env.ASSISTANT_DIR, `${conversationId}.jsonl`);
 }
@@ -180,19 +185,26 @@ export function stop(): boolean {
  * The prompt travels as an argv element, never through a shell, so nothing in
  * it can be read as syntax — the same rule the tmux path follows.
  */
-export async function send(prompt: string): Promise<AssistantThread> {
+export async function send(prompt: string, images: string[] = []): Promise<AssistantThread> {
   if (running) throw new Error("a turn is still running");
   const conversationId = await currentConversation();
   const started = await readEntries(conversationId);
 
-  await append(conversationId, { role: "user", text: prompt, tools: [] });
+  await append(conversationId, { role: "user", text: prompt, tools: [], images });
+
+  // Claude reads an image by path with its own Read tool, so an attachment is
+  // delivered as a line telling it where to look rather than as bytes on a
+  // wire it has no way to receive.
+  const withImages = images.length
+    ? `${prompt}\n\n${images.map((n) => `[image: ${path.join(uploadsDir(), n)}]`).join("\n")}`
+    : prompt;
 
   // --session-id names a new conversation, --resume continues one. Getting this
   // the wrong way round either loses the thread or fails outright, so it keys
   // off whether anything has been said in it before.
   const args = [
     "-p",
-    prompt,
+    withImages,
     "--output-format",
     "stream-json",
     // stream-json refuses to stream without it.
@@ -205,6 +217,14 @@ export async function send(prompt: string): Promise<AssistantThread> {
     "auto",
     "--mcp-config",
     await ensureMcpConfig(),
+    // Without this, MCP servers configured in $HOME join the ones here — and
+    // the allow list only auto-approves, so an unlisted server's tools would
+    // still be a classifier's call. The claim that this agent has exactly the
+    // verksted tools is only true with it.
+    "--strict-mcp-config",
+    // Images the user attached; the agent reads them from here by path.
+    "--add-dir",
+    uploadsDir(),
     // Both default low: this agent summarises state and hands work off, and the
     // model doing the actual engineering is the one in the session it starts.
     "--model",

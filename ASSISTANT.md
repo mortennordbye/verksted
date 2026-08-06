@@ -222,7 +222,15 @@ memory list.
 ## What the assistant may do
 
 Its tools are **Read, Grep, Glob, and the verksted MCP server** — nothing else.
-Bash, Edit, Write, the web tools and Task are denied outright.
+Bash, Edit, Write, the web tools and Task are denied outright, and
+`--strict-mcp-config` keeps it to the one server declared here.
+
+That last flag is load-bearing rather than tidy. Without it, the MCP servers
+connected to the _Claude account_ join the ones configured here — a Google Drive
+connector turned up in a live test and the assistant offered it — and since the
+allow list only auto-approves, an unlisted server's tools are still a
+classifier's call. Repo read access plus somebody's cloud storage is the same
+exfiltration shape the web tools were denied for.
 
 That is a narrower answer than this document originally proposed ("may merge,
 but not push to main"), and the reason is a reframe rather than a tightening.
@@ -275,6 +283,27 @@ is read one-handed on a phone by someone in the middle of something else.
 Every line of it is re-sent with every turn, so the persona is on a budget too:
 lines that only described it have been cut, and what is left either changes what
 it does or how it sounds.
+
+## Memory is editable by hand
+
+The settings page lists every fact with its type, scope and provenance, and lets
+you add, correct or forget any of them. That is not a convenience: a memory you
+can only change by arguing with a chatbot is one you will not fix, and
+correcting a wrong fact is exactly the moment you least want a conversation.
+Editing keeps the slug, since the slug is the filename and renaming would leave
+the old fact sitting alongside its correction.
+
+## Images and dictation
+
+An image is uploaded first and sent by name; the server chooses where it lands,
+so nothing the client says can point anywhere else. The agent then reads it off
+disk with its own Read tool from a directory granted with `--add-dir`, which is
+why an attachment needs no new way of getting bytes into a prompt. Paste works
+on a desktop, the button works on a phone.
+
+Dictation uses the browser's own recogniser and the button only appears where it
+exists. On iOS it does not, and none is needed: the keyboard's mic types into
+the field the same way.
 
 ## Keeping it off the usage meter
 

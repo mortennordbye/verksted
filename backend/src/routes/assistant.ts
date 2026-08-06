@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import * as assistant from "../assistant.js";
 
@@ -13,7 +15,7 @@ import * as assistant from "../assistant.js";
 export default async function assistantRoutes(app: FastifyInstance) {
   app.get("/api/assistant", () => assistant.readThread());
 
-  app.post<{ Body: { text: string } }>(
+  app.post<{ Body: { text: string; images?: string[] } }>(
     "/api/assistant/messages",
     {
       schema: {
@@ -23,7 +25,16 @@ export default async function assistantRoutes(app: FastifyInstance) {
           additionalProperties: false,
           // Long enough to paste an error into, short enough that a runaway
           // client cannot put a megabyte on the volume in one call.
-          properties: { text: { type: "string", minLength: 1, maxLength: 20_000 } },
+          properties: {
+            text: { type: "string", minLength: 1, maxLength: 20_000 },
+            // Names returned by the upload route, never paths: the server
+            // decides where they live, so nothing here can point elsewhere.
+            images: {
+              type: "array",
+              maxItems: 4,
+              items: { type: "string", pattern: "^[0-9a-f-]{36}\\.[a-z]{3,4}$" },
+            },
+          },
         },
       },
     },
@@ -31,7 +42,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
       const text = req.body.text.trim();
       if (!text) return reply.code(400).send({ error: "say something" });
       try {
-        return await assistant.send(text);
+        return await assistant.send(text, req.body.images ?? []);
       } catch (err) {
         // The only expected throw is "already running", which is a conflict
         // rather than a server fault: the client should wait, not retry.
@@ -43,6 +54,53 @@ export default async function assistantRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * An image from the phone, where there is no clipboard to paste from.
+   *
+   * Stored under a server-chosen uuid name and handed back by name only. The
+   * agent reads it from disk by path (it has Read and the directory is granted
+   * with --add-dir), so nothing about the file crosses into a prompt except
+   * where to find it.
+   */
+  app.post<{ Querystring: { type: string } }>(
+    "/api/assistant/uploads",
+    {
+      bodyLimit: 12 * 1024 * 1024,
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["type"],
+          additionalProperties: false,
+          properties: { type: { enum: ["png", "jpg", "jpeg", "gif", "webp"] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const body = req.body;
+      if (!Buffer.isBuffer(body) || body.length === 0) {
+        return reply.code(415).send({ error: "raw body required" });
+      }
+      const name = `${crypto.randomUUID()}.${req.query.type}`;
+      await fs.mkdir(assistant.uploadsDir(), { recursive: true });
+      await fs.writeFile(path.join(assistant.uploadsDir(), name), body);
+      return { name };
+    },
+  );
+
+  // Serving them back is what lets the chat show what was sent.
+  app.get<{ Params: { name: string } }>("/api/assistant/uploads/:name", async (req, reply) => {
+    if (!/^[0-9a-f-]{36}\.[a-z]{3,4}$/.test(req.params.name)) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    try {
+      const file = path.join(assistant.uploadsDir(), req.params.name);
+      const ext = path.extname(req.params.name).slice(1);
+      return reply.type(`image/${ext === "jpg" ? "jpeg" : ext}`).send(await fs.readFile(file));
+    } catch {
+      return reply.code(404).send({ error: "not found" });
+    }
+  });
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));
 
