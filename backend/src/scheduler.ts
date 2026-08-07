@@ -1,5 +1,6 @@
 import { Cron } from "croner";
 import type { Session } from "../../shared/api.js";
+import { env } from "./env.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
 import { REPORT_CONTRACT, createSession, getSession, listSessions } from "./sessions-store.js";
@@ -159,16 +160,20 @@ async function rebuild(log: Logger): Promise<void> {
         schedule.id,
         // Named so croner registers it in its own scheduledJobs list, which is
         // the only place a timer this map has lost track of would still show up.
-        new Cron(schedule.cron, { name: schedule.id, protect: true }, async () => {
-          // The pause switch is read at fire time, not at reload: flipping it
-          // has to stop the next tick without rebuilding every timer. "Run now"
-          // deliberately ignores it — that one is somebody asking.
-          if (await schedulesPaused()) {
-            log.info(`schedule ${schedule.id} skipped: schedules are paused`);
-            return;
-          }
-          if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
-        }),
+        new Cron(
+          schedule.cron,
+          { name: schedule.id, protect: true, timezone: env.TZ },
+          async () => {
+            // The pause switch is read at fire time, not at reload: flipping it
+            // has to stop the next tick without rebuilding every timer. "Run now"
+            // deliberately ignores it — that one is somebody asking.
+            if (await schedulesPaused()) {
+              log.info(`schedule ${schedule.id} skipped: schedules are paused`);
+              return;
+            }
+            if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
+          },
+        ),
       );
     } catch (err) {
       log.warn(err, `schedule ${schedule.id} has an unusable pattern "${schedule.cron}"`);

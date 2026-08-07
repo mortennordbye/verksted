@@ -28,8 +28,14 @@ RUN curl -fsSL -o /ggml-base.en.bin \
 FROM node:22-slim AS base
 # Without a UTF-8 locale tmux renders every multibyte glyph as "_" (TUI borders,
 # spinners, the Claude logo). C.UTF-8 ships with the base image.
+#
+# TZ because cron patterns are wall-clock time, and so is every timestamp an
+# agent reads inside a session. Left unset the container runs UTC, which fires
+# "0 7 * * *" two hours late for half the year without saying so. tzdata is
+# already in the base image; override with -e TZ for a bench somewhere else.
 ENV LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8
+    LC_ALL=C.UTF-8 \
+    TZ=Europe/Oslo
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tmux git curl wget ca-certificates openssh-client procps ripgrep less jq vim \
       python3 python3-pip python3-venv make g++ unzip \

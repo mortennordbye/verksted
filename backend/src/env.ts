@@ -36,6 +36,18 @@ if (!EFFORTS.includes(assistantEffort)) {
   fail(`ASSISTANT_EFFORT must be one of ${EFFORTS.join(", ")}, got "${assistantEffort}"`);
 }
 
+// A cron pattern is wall-clock time, so the pod's timezone is part of what a
+// schedule means: "0 7 * * *" is 07:00 where the person reading it lives, not
+// 07:00 UTC. The image sets TZ so a deployment that configures nothing is still
+// right, and croner is handed this explicitly rather than left to read ambient
+// process state — the two disagreeing is exactly the bug that is hard to see.
+const timezone = process.env.TZ || "Europe/Oslo";
+try {
+  new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+} catch {
+  fail(`TZ must be an IANA timezone name, got "${timezone}"`);
+}
+
 const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
 if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
   fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
@@ -81,4 +93,6 @@ export const env = {
   PUBLIC_URL: publicUrl,
   // Cross-origin allowlist; empty means same-origin only.
   ALLOWED_ORIGINS: allowedOrigins,
+  // IANA zone every cron pattern is read in (see above).
+  TZ: timezone,
 };
