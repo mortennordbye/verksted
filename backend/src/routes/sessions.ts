@@ -19,9 +19,20 @@ export default async function sessionRoutes(app: FastifyInstance) {
     return store.listSessions(req.params.name);
   });
 
+  // `prompt` and `autoPermissions` are what an unattended caller needs, and the
+  // assistant is one: it starts sessions nobody is watching yet. They were
+  // missing from this schema while the store already supported both, and
+  // fastify's ajv runs removeAdditional, so a prompt sent here was stripped in
+  // silence — the session came up at an empty input and sat there.
   app.post<{
     Params: { name: string };
-    Body: { agent: AgentName; title?: string; resume?: boolean };
+    Body: {
+      agent: AgentName;
+      title?: string;
+      resume?: boolean;
+      prompt?: string;
+      autoPermissions?: boolean;
+    };
   }>(
     "/api/projects/:name/sessions",
     {
@@ -34,6 +45,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
             agent: { enum: Object.keys(store.AGENT_COMMANDS) },
             title: { type: "string", maxLength: 120 },
             resume: { type: "boolean" },
+            // Same ceiling as a schedule's prompt: it travels the same way, as
+            // one env var handed to tmux.
+            prompt: { type: "string", minLength: 1, maxLength: 4000 },
+            autoPermissions: { type: "boolean" },
           },
         },
       },
@@ -48,6 +63,8 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const session = await store.createSession(req.params.name, projectDir, req.body.agent, {
         title: req.body.title,
         resume: req.body.resume,
+        prompt: req.body.prompt,
+        autoPermissions: req.body.autoPermissions,
       });
       return reply.code(201).send(session);
     },
