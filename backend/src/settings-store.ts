@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
+import type { AssistantConfig } from "../../shared/api.js";
 import { env } from "./env.js";
 
 /** Agent vars the settings page always lists (mirrors .env.example). */
@@ -22,6 +23,8 @@ export const VAR_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 interface Stored {
   vars?: Record<string, string>;
+  /** The assistant's identity; see assistant-persona.ts. */
+  assistant?: Partial<AssistantConfig>;
   /** Kill switch for the scheduler; see scheduler.ts. */
   schedulesPaused?: boolean;
 }
@@ -61,6 +64,35 @@ export async function readVars(): Promise<Record<string, string>> {
 
 export async function writeVars(vars: Record<string, string>): Promise<void> {
   await write({ vars });
+}
+
+/**
+ * The messenger: what this thing does every day is tell you what needs you.
+ * Named to sit beside the cluster it runs on, which is Genesis.
+ */
+export const DEFAULT_NAME = "Gabriel";
+
+/**
+ * The assistant's identity, with the deployment env as the fallback for the two
+ * that cost money. Stored beside the agent vars because it is the same kind of
+ * thing: something the person tunes from their phone, persisted on the volume,
+ * outliving the container.
+ */
+export async function readAssistantConfig(): Promise<AssistantConfig> {
+  const stored = (await read()).assistant ?? {};
+  return {
+    // Nullish rather than falsy, so a name deliberately cleared stays cleared
+    // instead of springing back on the next read.
+    name: stored.name ?? DEFAULT_NAME,
+    model: stored.model || env.ASSISTANT_MODEL,
+    effort: stored.effort ?? (env.ASSISTANT_EFFORT as AssistantConfig["effort"]),
+    instructions: stored.instructions ?? "",
+  };
+}
+
+export async function writeAssistantConfig(patch: Partial<AssistantConfig>): Promise<void> {
+  const current = (await read()).assistant ?? {};
+  await write({ assistant: { ...current, ...patch } });
 }
 
 export async function schedulesPaused(): Promise<boolean> {

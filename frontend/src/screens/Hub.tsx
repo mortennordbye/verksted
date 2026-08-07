@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { PodFacts, Project } from "../../../shared/api";
+import type { AssistantThread, PodFacts, Project } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -21,6 +21,11 @@ export default function Hub() {
 
   const running = projects?.reduce((n, p) => n + p.running, 0) ?? 0;
   const waiting = projects?.reduce((n, p) => n + p.waiting, 0) ?? 0;
+
+  // Polled rather than socketed: the strip only needs to be roughly current,
+  // and the hub already polls two other things.
+  const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
+  const lastSaid = assistant?.entries.filter((e) => e.text.trim()).at(-1)?.text;
 
   async function addProject() {
     const value = input.trim();
@@ -50,6 +55,28 @@ export default function Hub() {
     <>
       <TopBar />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
+        {/* Above the projects, because it is not one. In verksted's own amber
+            rather than a fourth agent colour: this agent is the app itself. */}
+        <Link
+          to="/ai"
+          className="mb-5 flex items-center gap-3 rounded-xl border border-accent/40 bg-surface bg-gradient-to-b from-accent/[.07] to-transparent to-[62%] px-[15px] py-3 hover:border-accent/70"
+        >
+          <span
+            className={`h-2 w-2 flex-none rounded-full ${
+              assistant?.status === "thinking" ? "animate-pulse bg-accent" : "bg-idle"
+            }`}
+          />
+          <span className="min-w-0 flex-1">
+            <span className="block font-mono text-[13.5px] font-semibold">assistant</span>
+            <span className="block truncate text-[12px] text-faint">
+              {assistant?.status === "thinking"
+                ? "working…"
+                : (lastSaid ?? "ask what needs you, or tell it something to remember")}
+            </span>
+          </span>
+          <span className="flex-none font-mono text-[13px] text-faint">→</span>
+        </Link>
+
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>
             <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">

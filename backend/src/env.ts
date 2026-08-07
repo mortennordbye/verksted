@@ -16,6 +16,26 @@ if (ntfyUrl && !/^https?:\/\//.test(ntfyUrl)) {
   fail(`NTFY_URL must be an http(s) topic URL, got "${ntfyUrl}"`);
 }
 
+// The assistant answers from a phone and mostly reads state back: the heavy
+// reasoning happens in the sessions it delegates to, not in the chat. Defaulting
+// it to a big model burns a subscription's usage on summarising a status blob.
+//
+// Tried at haiku first, and moved back up on the evidence: it escalated where
+// sonnet diagnosed (asking for bash to inspect a broken image rather than
+// reading the error), and it leaked the closing pleasantries the persona bans.
+// The saving was not worth it either, once collapsing three lookups into one
+// status call had already cut a turn from nine round trips to two — that win is
+// model-independent, and this agent is a handful of short turns a day. The
+// subscription goes on the sessions doing the engineering, not on the chat.
+//
+// These are the floor, not the ceiling: the settings page overrides both.
+const assistantModel = process.env.ASSISTANT_MODEL ?? "sonnet";
+const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const assistantEffort = process.env.ASSISTANT_EFFORT ?? "low";
+if (!EFFORTS.includes(assistantEffort)) {
+  fail(`ASSISTANT_EFFORT must be one of ${EFFORTS.join(", ")}, got "${assistantEffort}"`);
+}
+
 const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
 if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
   fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
@@ -40,6 +60,13 @@ export const env = {
   SESSIONS_DIR: process.env.SESSIONS_DIR ?? "/data/sessions",
   // One JSON file per recurring prompt (see schedules-store.ts).
   SCHEDULES_DIR: process.env.SCHEDULES_DIR ?? "/data/schedules",
+  // The assistant's threads: one JSONL per conversation (see assistant.ts).
+  ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
+  // What verksted has learned: one markdown file per fact (see memory-store.ts).
+  MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
+  // Model and reasoning effort for the assistant only; sessions are unaffected.
+  ASSISTANT_MODEL: assistantModel,
+  ASSISTANT_EFFORT: assistantEffort,
   // Absolute path to the built frontend; empty in dev, where Vite serves it.
   STATIC_DIR: process.env.STATIC_DIR ?? "",
   // Agent env vars set via the settings page persist here (on the PVC).

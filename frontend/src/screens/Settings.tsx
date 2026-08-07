@@ -10,6 +10,8 @@ import { api, usePoll } from "../api";
 import { copyText } from "../clipboard";
 import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
+import AssistantPanel from "../components/AssistantPanel";
+import MemoryPanel from "../components/MemoryPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import { StatusChip } from "../components/StatusChip";
 
@@ -148,6 +150,8 @@ export default function Settings() {
         </div>
 
         <Notifications />
+        <AssistantPanel />
+        <MemoryPanel />
         <SchedulesPanel />
         <SshKeys />
         <AppReset />
