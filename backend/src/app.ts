@@ -13,6 +13,8 @@ import scheduleRoutes from "./routes/schedules.js";
 import sshRoutes from "./routes/ssh.js";
 import pushRoutes from "./routes/push.js";
 import githubRoutes from "./routes/github.js";
+import assistantRoutes from "./routes/assistant.js";
+import memoryRoutes from "./routes/memory.js";
 import attachRoutes from "./ws/attach.js";
 import browserRoutes from "./ws/browser.js";
 
@@ -65,6 +67,26 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(sshRoutes);
   await app.register(pushRoutes);
   await app.register(githubRoutes);
+  // Raw image bodies for the assistant's upload endpoint (the same shape the
+  // per-project upload uses; a phone has no clipboard to paste a screenshot from).
+  // Recorded audio for the transcribe endpoint; the container type depends on
+  // the browser (webm/opus on Chrome, mp4/aac on Safari), and ffmpeg sniffs the
+  // real one anyway, so every one of them is taken as raw bytes.
+  for (const mime of [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/mpeg",
+    "audio/wav",
+  ]) {
+    app.addContentTypeParser(mime, { parseAs: "buffer" }, (_req, body, done) => done(null, body));
+  }
+  await app.register(assistantRoutes);
+  await app.register(memoryRoutes);
   await app.register(attachRoutes);
   await app.register(browserRoutes);
 

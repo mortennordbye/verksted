@@ -86,19 +86,19 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
   `backend/src/sessions-store.ts` (`createSession`)
 
-## Mount the data PVC into the dind sidecar in the Homelab manifests
+## The dind sidecar's data mount has never been checked in the pod
 
-- **What:** Dev compose now mounts the data volume into the `dind` service at
-  `/data`, the same path the backend sees it, so a session's bind mounts resolve
-  to the real repo instead of an empty directory the daemon invents. The pod's
-  sidecar needs the same: the data PVC mounted at `/data`. Until it has one,
-  every `docker compose up` in a session mounts an empty source tree and the
-  failure is silent — the container starts and then cannot find the code.
-- **Why deferred:** Manifests live in the Homelab repo, not here.
-- **Unblocked by:** Adding the volumeMount to the sidecar and re-syncing, then
-  `vk doctor` in a pod session reporting the bind-mount probe ok.
-- **Where:** Homelab repo `k8s/talos/apps/`; this repo `docker-compose.yml`
-  (the `dind` service is the reference)
+- **What:** Both halves are merged — `docker-compose.yml` mounts the data volume
+  into the `dind` service at `/data`, and Homelab #550 does the same for the
+  pod's sidecar — but only the dev half has been exercised. Unverified in the
+  pod: that the PVC really mounts into the sidecar (ReadWriteOnce, now claimed
+  by two containers in one pod), and that a bind mount from a session then
+  reaches the same files across NFS rather than a stale or empty view.
+- **Why deferred:** Needs the ArgoCD sync and a session in the real pod.
+- **Unblocked by:** `vk doctor` in a pod session, in a repo that has files in
+  it, reporting the bind-mount probe ok.
+- **Where:** Homelab repo `k8s/talos/apps/verksted/deployment.yaml`; this repo
+  `runtime/vk`, `docker-compose.yml` (the `dind` service)
 
 ## File watching over the NFS PVC is unverified
 
@@ -324,3 +324,82 @@ what unblocks it / where the code lives.
 - **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
   runner against the present `npm ci` path.
 - **Where:** `.github/workflows/ci.yml` (the `test` job)
+
+## Assistant M1: open the assistant's conversation in a terminal
+
+- **What:** Headless claude records its conversation under `$HOME` exactly as
+  the TUI does, so a tmux session running `claude --resume <id>` picks up the
+  thread you were chatting to. This is what keeps the chat from being a dead end
+  when you want to drive.
+- **Why deferred:** The mechanism is verified — a chatted turn lands at
+  `/data/home/.claude/projects/-data-repos/<id>.jsonl`, which is exactly where
+  the interactive CLI looks for a conversation started in `REPOS_DIR`. What is
+  missing is somewhere to put the session: every session id is
+  `vk-<project>-<seq>` and the assistant belongs to no project, so this needs
+  the session model to admit a projectless session rather than just a new
+  endpoint.
+- **Unblocked by:** Deciding how a projectless session is named and listed, then
+  a route that starts tmux on `claude --resume <conversationId>` in `REPOS_DIR`.
+- **Where:** `backend/src/sessions-store.ts` (`SESSION_ID_RE`, `createSession`,
+  `launchAgent` already builds `claude --resume <id>` for restores),
+  `frontend/src/screens/Assistant.tsx` (where the button goes)
+
+## Assistant M3: nothing harvests memories yet
+
+- **What:** Memory only fills up when you tell the assistant something in a
+  conversation you were present for. The half that learns without being asked —
+  a nightly pass over the transcripts of sessions that ended that day, proposing
+  facts — is not built, and must not be built before the review queue below is:
+  explicit memory needs no gate because you were there when it was written, and
+  harvested memory has no such moment.
+- **Why deferred:** M2 shipped first on purpose. Harvesting without review is
+  the version of this feature that quietly poisons itself.
+- **Unblocked by:** The review queue, then a schedule that reads
+  `$HOME/.claude/projects/<slug>/<conversation-id>.jsonl` for the sessions whose
+  ids are recorded in `<id>.conv`.
+- **Where:** `backend/src/memory-store.ts` (the store to write into),
+  `backend/src/sessions-store.ts` (`<id>.conv` is the join to a transcript)
+
+## Assistant M3: proposed memories have nowhere to be reviewed
+
+- **What:** A queue on the inbox screen where a proposed fact is kept or
+  dropped, and only becomes memory when kept. Needed before anything writes
+  memories on its own — including from repo content and PR text nobody here
+  wrote, which is one hop from a prompt-injection payload becoming permanent
+  context in every session.
+- **Why deferred:** Nothing proposes memories yet, so the queue would be empty.
+  It is the prerequisite for the entry above, not a follow-up to it.
+- **Unblocked by:** Deciding whether a proposal is a memory file with a
+  `status: proposed` field or a separate directory; the former keeps one store,
+  the latter keeps the injected block trivially correct.
+- **Where:** `backend/src/memory-store.ts`, `frontend/src/screens/Inbox.tsx`
+
+## Assistant M4: memory has a budget but no compaction
+
+- **What:** The store is capped at 8 KB of injected text and drops the oldest
+  facts past it, reporting how many in the API and on the settings page. What is
+  missing is the weekly pass that merges duplicates and drops facts contradicted
+  by newer ones, so the cap is currently a cliff rather than a prompt to tidy.
+- **Why deferred:** Premature until enough memories exist to need it; the
+  reporting was built first so the cliff is at least visible.
+- **Unblocked by:** Reaching the budget in real use, then a schedule that reads
+  the store and rewrites it.
+- **Where:** `backend/src/memory-store.ts` (`BUDGET_BYTES`, `renderBlock`)
+
+## The assistant's MCP server is hand-rolled JSON-RPC
+
+- **What:** `runtime/verksted-mcp.mjs` implements the three MCP methods it needs
+  (initialize, tools/list, tools/call) directly, rather than using
+  `@modelcontextprotocol/sdk`. It works against the real CLI, but it is a
+  protocol implementation this repo now maintains, and it handles no MCP feature
+  beyond tools — no resources, prompts, or notifications.
+- **Why deferred:** The SDK would have to resolve from `node_modules` at a path
+  that differs between the tsx dev process and the built image, where the server
+  is a standalone file baked in next to `vk`. Hand-rolling three methods was the
+  smaller problem, but it is a deliberate exception to this repo's
+  prefer-a-library rule and should not quietly become the norm.
+- **Unblocked by:** Wanting anything beyond tools, or the protocol changing
+  under it — either is the point to reach for the SDK and solve the path problem
+  properly (a thin wrapper inside the build output, spawned with the same
+  runtime the backend is using).
+- **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)

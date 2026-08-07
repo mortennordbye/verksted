@@ -372,3 +372,80 @@ export type BrowserServerMsg =
   | { t: "frame"; data: string; w: number; h: number }
   | { t: "url"; url: string }
   | { t: "error"; message: string };
+
+/**
+ * One tool call the assistant made inside a turn. Kept as a summary rather than
+ * the full input: the chat draws these as chips, and a tool's arguments can be
+ * a whole file.
+ */
+export interface AssistantToolCall {
+  name: string;
+  /** Short human-readable argument, e.g. the path read or the command run. */
+  detail: string;
+}
+
+/** One turn in the assistant's thread. */
+export interface AssistantEntry {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** Tool calls the assistant made before saying this. Empty for user turns. */
+  tools: AssistantToolCall[];
+  at: string;
+  /** Set when the turn ended badly; the text then carries what went wrong. */
+  failed?: boolean;
+  /** Upload names attached to a user turn, served from /api/assistant/uploads. */
+  images?: string[];
+}
+
+export interface AssistantThread {
+  /**
+   * The claude conversation id, which verksted mints rather than parses: it is
+   * passed in with --session-id, so `claude --resume <id>` in a terminal lands
+   * on this same thread.
+   */
+  conversationId: string;
+  /** "thinking" while a turn is in flight; nothing can be sent until it is not. */
+  status: "idle" | "thinking";
+  entries: AssistantEntry[];
+  /**
+   * The reply being written right now, if one is. Never stored — it becomes an
+   * entry the moment the model finishes the sentence — so it only ever arrives
+   * over the socket, never from a plain GET.
+   */
+  live?: string;
+}
+
+export type MemoryType = "preference" | "project" | "reference";
+/** "global", or the name of the project the fact belongs to. */
+export type MemoryScope = string;
+
+/** One thing verksted has learned about how you work. */
+export interface Memory {
+  slug: string;
+  text: string;
+  type: MemoryType;
+  scope: MemoryScope;
+  /** Where it came from, which is the answer to "why does it think that?". */
+  source: string | null;
+  createdAt: string | null;
+}
+
+export interface MemoryList {
+  memories: Memory[];
+  /** Bytes carried into every session, against the budget. */
+  used: number;
+  budget: number;
+  /** Memories the budget pushed out of the injected block. */
+  dropped: number;
+}
+
+/** The assistant's identity and settings, editable on the settings page. */
+export interface AssistantConfig {
+  /** What it calls itself. Empty means it has no name of its own. */
+  name: string;
+  model: string;
+  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  /** Free text appended to its instructions: house style, standing orders. */
+  instructions: string;
+}

@@ -32,6 +32,9 @@
   --animate-blink: blink 1.2s steps(1) infinite;
   --animate-pulse-run: pulse-run 1.6s ease-in-out infinite;
 
+  /* The raccoon's jaw, and nothing else about it. */
+  --animate-rc-chew: rc-chew 0.3s ease-in-out infinite;
+
   @keyframes blink {
     50% {
       opacity: 0;
@@ -40,6 +43,18 @@
   @keyframes pulse-run {
     50% {
       box-shadow: 0 0 0 5px rgba(78, 201, 123, 0.14);
+    }
+  }
+
+  /* Enough to open a mouth, little enough that the chin does not slide down
+     behind the collar. */
+  @keyframes rc-chew {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(2.6%);
     }
   }
 }
@@ -144,7 +159,8 @@ select:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
-  .animate-pulse-run {
+  .animate-pulse-run,
+  .animate-rc-chew {
     animation: none;
   }
 }
