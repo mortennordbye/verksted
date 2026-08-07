@@ -153,6 +153,179 @@ const TOOLS = [
       }).then((s) => `started ${s.id} (${s.agent}) in ${s.project}`),
   },
   {
+    name: "end_session",
+    description:
+      "End a session and leave it in history. Use it to tidy up after work you delegated, once you have checked it finished. Ask first if the session is still running: ending one kills the agent mid-task and whatever it had not written down is gone.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    // No purge: the metadata file is what the inbox and the run history read.
+    run: (a) =>
+      call("DELETE", `/api/sessions/${encodeURIComponent(a.id)}`).then(
+        (s) => `ended ${s.id}${s.report ? ` — it reported "${s.report}"` : ""}`,
+      ),
+  },
+  {
+    name: "list_prs",
+    description:
+      "Open pull requests in a repo, with their checks and review state. This is how you answer 'anything to merge' — dependabot bumps that are green and patch-level are the case worth raising unprompted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        state: { type: "string", enum: ["open", "all"] },
+        limit: { type: "integer" },
+      },
+      required: ["project"],
+    },
+    run: async (a) => {
+      const q = new URLSearchParams({
+        state: a.state ?? "open",
+        limit: String(a.limit ?? 20),
+      });
+      const prs = await call("GET", `/api/projects/${encodeURIComponent(a.project)}/prs?${q}`);
+      return rows(
+        prs,
+        (p) =>
+          `#${p.number}  ${p.title}  [${p.headRefName}]  checks:${p.checks}` +
+          `${p.reviewDecision ? `  ${p.reviewDecision.toLowerCase()}` : ""}` +
+          `${p.isDraft ? "  draft" : ""}  +${p.additions}-${p.deletions}  by ${p.author}`,
+      );
+    },
+  },
+  {
+    name: "pr_detail",
+    description:
+      "One pull request in full: its description, comments and changed files, and optionally the diff. Read this before recommending a merge — a patch-level bump is judged by looking at it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        number: { type: "integer" },
+        diff: { type: "boolean", description: "also fetch the patch itself" },
+      },
+      required: ["project", "number"],
+    },
+    run: async (a) => {
+      const base = `/api/projects/${encodeURIComponent(a.project)}/prs/${a.number}`;
+      const p = await call("GET", base);
+      const out = [
+        `#${p.number}  ${p.title}  [${p.headRefName} -> ${p.baseRefName}]  checks:${p.checks}`,
+        `by ${p.author}, updated ${local(p.updatedAt)}  ${p.url}`,
+        "",
+        p.body?.trim() ? p.body.trim().slice(0, 2_000) : "(no description)",
+        "",
+        "FILES",
+        rows(p.files, (f) => `${f.path}  +${f.additions}-${f.deletions}`),
+      ];
+      if (p.comments?.length) {
+        out.push(
+          "",
+          "COMMENTS",
+          rows(p.comments, (c) => `${c.author}: ${c.body.slice(0, 300)}`),
+        );
+      }
+      if (a.diff) {
+        const d = await call("GET", `${base}/diff`);
+        out.push("", "DIFF", d.diff, ...(d.truncated ? ["(truncated)"] : []));
+      }
+      return out.join("\n");
+    },
+  },
+  {
+    name: "merge_pr",
+    description:
+      "Squash-merge a pull request and delete its branch. This one is public and hard to undo, and it starts a deploy. Never call it without saying first which PR, what its checks say and that you are about to merge it, and getting an answer. Refuses a PR that is not open or not mergeable.",
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string" }, number: { type: "integer" } },
+      required: ["project", "number"],
+    },
+    run: (a) =>
+      call("POST", `/api/projects/${encodeURIComponent(a.project)}/prs/${a.number}/merge`).then(
+        (r) => `merged #${a.number}, now on ${r.branch}${r.detail ? ` (${r.detail})` : ""}`,
+      ),
+  },
+  {
+    name: "ci_runs",
+    description:
+      "Workflow runs for a repo, newest first — or one run's jobs when you pass an id. 'Did it build' is answerable from here without opening anything.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        id: { type: "integer", description: "one run, with its jobs" },
+        limit: { type: "integer" },
+      },
+      required: ["project"],
+    },
+    run: async (a) => {
+      const base = `/api/projects/${encodeURIComponent(a.project)}/runs`;
+      if (a.id === undefined) {
+        const runs = await call("GET", `${base}?limit=${a.limit ?? 20}`);
+        return rows(
+          runs,
+          (r) =>
+            `${r.id}  ${r.conclusion || r.status}  ${r.workflow}  [${r.branch}]  ` +
+            `${r.title.slice(0, 60)}  ${local(r.createdAt)}`,
+        );
+      }
+      const r = await call("GET", `${base}/${a.id}`);
+      return [
+        `${r.id}  ${r.conclusion || r.status}  ${r.workflow}  [${r.branch}]  ${r.url}`,
+        "",
+        "JOBS",
+        rows(r.jobs, (j) => {
+          const bad = (j.steps ?? []).filter((s) => s.conclusion === "failure");
+          return (
+            `${j.name}: ${j.conclusion || j.status}` +
+            (bad.length ? `  failed at ${bad.map((s) => s.name).join(", ")}` : "")
+          );
+        }),
+      ].join("\n");
+    },
+  },
+  {
+    name: "ci_log",
+    description:
+      "The log of a run's failing jobs — the failing steps only, not the whole build. Use it to say why something went red rather than that it did.",
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string" }, id: { type: "integer" } },
+      required: ["project", "id"],
+    },
+    run: (a) =>
+      call("GET", `/api/projects/${encodeURIComponent(a.project)}/runs/${a.id}/log`).then((r) =>
+        r.log ? `${r.log}${r.truncated ? "\n(truncated)" : ""}` : "no failing job logs on that run",
+      ),
+  },
+  {
+    name: "ci_rerun",
+    description:
+      "Re-run a workflow run, or cancel one in flight. Cheap and reversible — a re-run undoes a cancel — but it spends CI minutes, so do not loop on a test that keeps failing for the same reason.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        id: { type: "integer" },
+        action: { type: "string", enum: ["rerun", "rerun-failed", "cancel"] },
+      },
+      required: ["project", "id"],
+    },
+    run: (a) => {
+      const base = `/api/projects/${encodeURIComponent(a.project)}/runs/${a.id}`;
+      const action = a.action ?? "rerun";
+      if (action === "cancel") {
+        return call("POST", `${base}/cancel`).then(() => `cancelled run ${a.id}`);
+      }
+      return call("POST", `${base}/rerun`, action === "rerun-failed" ? { failed: true } : {}).then(
+        () => `re-running ${action === "rerun-failed" ? "the failed jobs of " : ""}run ${a.id}`,
+      );
+    },
+  },
+  {
     name: "list_schedules",
     description: "The recurring prompts: what runs, when it next fires, and how the last run went.",
     inputSchema: { type: "object", properties: {} },
@@ -251,6 +424,24 @@ const TOOLS = [
       call("DELETE", `/api/schedules/${encodeURIComponent(a.id)}`).then(
         () => `deleted schedule ${a.id}`,
       ),
+  },
+  {
+    name: "pause_schedules",
+    description:
+      "The kill switch: while it is on, no schedule fires on its cron. Call with no argument to report the current state. 'Run now' ignores it, so a paused bench can still be asked for something explicitly.",
+    inputSchema: {
+      type: "object",
+      properties: { paused: { type: "boolean" } },
+    },
+    // Scoped to the one flag on purpose. The same endpoint carries the agent
+    // env vars, and nothing here should be able to reach those.
+    run: async (a) => {
+      const s =
+        a.paused === undefined
+          ? await call("GET", "/api/settings")
+          : await call("PUT", "/api/settings", { schedulesPaused: a.paused });
+      return s.schedulesPaused ? "schedules are paused" : "schedules are running";
+    },
   },
   {
     name: "list_memories",
