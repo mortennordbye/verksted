@@ -38,7 +38,7 @@ function filePath(id: string): string {
 export function nextRun(cron: string, enabled: boolean): string | null {
   if (!enabled) return null;
   try {
-    return new Cron(cron).nextRun()?.toISOString() ?? null;
+    return new Cron(cron, { timezone: env.TZ }).nextRun()?.toISOString() ?? null;
   } catch {
     return null;
   }
@@ -47,7 +47,7 @@ export function nextRun(cron: string, enabled: boolean): string | null {
 /** True when croner can build a job from the pattern — the only cron check. */
 export function validCron(cron: string): boolean {
   try {
-    return new Cron(cron).nextRun() !== null;
+    return new Cron(cron, { timezone: env.TZ }).nextRun() !== null;
   } catch {
     return false;
   }

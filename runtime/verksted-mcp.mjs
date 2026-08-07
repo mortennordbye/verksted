@@ -34,6 +34,14 @@ async function call(method, path, body) {
 // `read_session_output` away when something genuinely needs it.
 const rows = (items, line) => (items.length ? items.map(line).join("\n") : "(none)");
 
+// Every timestamp crossing the API is UTC ISO, and the person reading the answer
+// lives in one place. TZ is set on the image, so this renders in the bench's own
+// zone: without it the assistant reports "05:00" for a schedule whose cron says
+// 07:00, and both numbers are right, which is the worst kind of wrong. sv-SE for
+// the format alone — it is the locale that spells a date "2026-08-10 07:00".
+const local = (iso) =>
+  iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "-";
+
 const TOOLS = [
   {
     name: "status",
@@ -75,7 +83,7 @@ const TOOLS = [
         rows(
           runs.slice(0, 8),
           (r) =>
-            `${r.at?.slice(0, 16) ?? "?"}  ${r.scheduleName ?? r.scheduleId}  ${r.outcome}` +
+            `${local(r.at)}  ${r.scheduleName ?? r.scheduleId}  ${r.outcome}` +
             `${r.error ? `  ${r.error}` : ""}${r.report ? `  "${r.report}"` : ""}`,
         ),
       ].join("\n");
@@ -96,9 +104,32 @@ const TOOLS = [
       ),
   },
   {
+    name: "repo_status",
+    description:
+      "Which files are changed in one repo, and whether each change is staged or untracked. Read-only. Use this to answer 'why is X dirty' rather than starting a session to run git for you.",
+    inputSchema: {
+      type: "object",
+      properties: { project: { type: "string" } },
+      required: ["project"],
+    },
+    run: async (a) => {
+      // The file tree's own endpoint. A partially staged file appears twice,
+      // once per side, which is a distinction worth keeping in the answer.
+      const { branch, files } = await call(
+        "GET",
+        `/api/projects/${encodeURIComponent(a.project)}/git`,
+      );
+      return [
+        `${a.project}  on ${branch}`,
+        "",
+        rows(files, (f) => `${f.status}  ${f.path}${f.staged ? "  (staged)" : ""}`),
+      ].join("\n");
+    },
+  },
+  {
     name: "start_session",
     description:
-      "Start an agent session in a project, optionally with a first prompt. This is how you do work that changes anything: you cannot edit files or run commands yourself, so delegate it to a session the user can watch, then say which session you started.",
+      "Start an agent session in a project, optionally with a first prompt. This is how you do work that changes anything: you cannot edit files or run commands yourself, so delegate it to a session the user can watch, then say which session you started. The prompt has to stand on its own — the session cannot see this conversation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -114,7 +145,112 @@ const TOOLS = [
         agent: a.agent,
         ...(a.title ? { title: a.title } : {}),
         ...(a.prompt ? { prompt: a.prompt } : {}),
+        // Nobody is attached to a session the assistant started, so the same
+        // reasoning as a scheduled run applies: routine calls are approved and
+        // the rest still stops, surfacing as a waiting session that pushes.
+        // Without this the session stalls on its first tool call in silence.
+        autoPermissions: true,
       }).then((s) => `started ${s.id} (${s.agent}) in ${s.project}`),
+  },
+  {
+    name: "list_schedules",
+    description: "The recurring prompts: what runs, when it next fires, and how the last run went.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => {
+      const schedules = await call("GET", "/api/schedules");
+      return rows(
+        schedules,
+        (s) =>
+          `${s.id}  ${s.name}  [${s.project}]  "${s.cron}"${s.enabled ? "" : "  (disabled)"}` +
+          `  next ${local(s.nextRunAt)}` +
+          `${s.lastError ? `  last error: ${s.lastError}` : ""}`,
+      );
+    },
+  },
+  {
+    name: "create_schedule",
+    description:
+      "Create a recurring prompt: on its cron a session starts in the project and is given the prompt, unattended. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        project: { type: "string" },
+        cron: { type: "string", description: "five-field cron, in the bench's timezone" },
+        prompt: { type: "string" },
+        enabled: { type: "boolean" },
+        jitterMinutes: {
+          type: "integer",
+          description: "spread the start over up to this many minutes",
+        },
+      },
+      required: ["name", "project", "cron", "prompt"],
+    },
+    run: (a) =>
+      call("POST", "/api/schedules", {
+        name: a.name,
+        project: a.project,
+        cron: a.cron,
+        prompt: a.prompt,
+        ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+        ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
+      }).then(
+        (s) =>
+          `created ${s.id} "${s.name}", next run ${s.enabled === false ? "never (disabled)" : local(s.nextRunAt)}`,
+      ),
+  },
+  {
+    name: "update_schedule",
+    description:
+      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { type: "string" },
+        name: { type: "string" },
+        cron: { type: "string" },
+        prompt: { type: "string" },
+        enabled: { type: "boolean" },
+        jitterMinutes: { type: "integer" },
+      },
+      required: ["id"],
+    },
+    run: (a) => {
+      const { id, ...patch } = a;
+      for (const k of Object.keys(patch)) if (patch[k] === undefined) delete patch[k];
+      return call("PATCH", `/api/schedules/${encodeURIComponent(id)}`, patch).then(
+        (s) =>
+          `updated ${s.id} "${s.name}", next run ${s.enabled ? local(s.nextRunAt) : "never (disabled)"}`,
+      );
+    },
+  },
+  {
+    name: "run_schedule",
+    description:
+      "Run a schedule now, without waiting for its cron. Refuses when its previous run is still open, and says so.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    run: (a) =>
+      call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`).then(
+        (s) => `started ${s.id} (${s.agent}) in ${s.project}`,
+      ),
+  },
+  {
+    name: "delete_schedule",
+    description:
+      "Remove a schedule for good. Its run history goes with it. Ask before using this — disabling with update_schedule is the reversible version.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+    },
+    run: (a) =>
+      call("DELETE", `/api/schedules/${encodeURIComponent(a.id)}`).then(
+        () => `deleted schedule ${a.id}`,
+      ),
   },
   {
     name: "list_memories",
