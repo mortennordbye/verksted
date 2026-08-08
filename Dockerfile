@@ -60,6 +60,15 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npx --yes playwright@1.61.1 install --with-deps chromium
 
+# uv, for projects that pin a Python this image does not ship. bookworm gives
+# 3.11; a project asking for 3.13 gets a standalone build fetched into uv's
+# cache on the first `uv venv --python 3.13`. That cache lives under HOME, which
+# is a volume, so it survives a restart and is not baked in here — one
+# interpreter per project, none of them in the image.
+RUN curl -fsSL https://astral.sh/uv/install.sh \
+      | env UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh \
+    && uv --version
+
 # Node as PID 1 never reaps chromium's orphans (zombie build-up); tini does.
 # Separate layer so it doesn't bust the chromium download cache above.
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
