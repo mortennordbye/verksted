@@ -391,21 +391,25 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`),
   `backend/src/sessions-store.ts` (where a hook would be installed)
 
-## The harvest has never read a real transcript
+## The harvest has only read scheduled-run transcripts, and nothing guards the shape
 
-- **What:** `transcripts.ts` is tested against hand-written JSONL in the shape
-  claude writes: a human turn is `origin.kind === "human"` with string content,
-  and everything else — model output, tool results, attachments — is excluded.
-  The fixture was read off a real transcript on the volume, but nothing in CI
-  reads one, so a future CLI release that renames `origin` or stops setting it
-  would silently harvest nothing (safe) or, if the shape changed the other way,
-  start including tool results (not safe).
-- **Why deferred:** Same class as the gh fixture entry above: catching it needs
-  a real claude run, which needs auth and a pod.
-- **Unblocked by:** A check that reads one real transcript from
-  `$HOME/.claude/projects/` in the pod and asserts at least one human turn comes
-  out and no tool result does. Worth pinning the claude version in the image and
-  re-checking on each bump.
+- **What:** Two halves, one now answered. `transcripts.ts` has been run against
+  real transcripts in the pod (2026-08-08): seven finished sessions, seven typed
+  turns, no model output and no tool results — the `origin.kind === "human"`
+  filter holds on real data. But all seven were *scheduled* sessions, where the
+  single human turn is the prompt verksted submitted, so the harvest has still
+  never read a conversation a person actually typed into, which is where the
+  durable facts are and where the judgement is hard. And nothing in CI reads a
+  real transcript, so a future CLI release renaming `origin` would silently
+  harvest nothing (safe) or, if the shape moved the other way, start including
+  tool results (not safe).
+- **Why deferred:** The first half needs interactive sessions to end and a night
+  to pass. The second is the same class as the gh fixture entry above.
+- **Unblocked by:** Reading the inbox after a day with real interactive work in
+  it, and judging whether what it proposed was worth keeping. For the shape
+  guard: a check that reads one real transcript from `$HOME/.claude/projects/`
+  in the pod and asserts a human turn comes out and no tool result does. Worth
+  pinning the claude version in the image and re-checking on each bump.
 - **Where:** `backend/src/transcripts.ts` (`promptsIn`),
   `backend/test/transcripts.test.ts`
 
@@ -453,22 +457,26 @@ what unblocks it / where the code lives.
   runtime the backend is using).
 - **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)
 
-## An unattended turn has never been watched fire on its own cron
+## An unattended turn has never fired from a cron tick, or pushed a phone
 
-- **What:** The assistant schedule kind is covered by tests against a fake
-  claude — the tool set it runs with, the fresh conversation per run, the reply
-  filed as the run's report, a failure recorded as an error. What no test can
-  cover is the real thing: a cron firing at 07:00 in the pod, a real model
-  answering, and the phone lighting up (or correctly staying dark when the
-  answer is "ok"). Notification suppression is in-memory, so a pod that
-  restarts between two firings will push a duplicate.
-- **Why deferred:** Needs a deployed pod, an authenticated CLI and a subscribed
-  device; the same gap as the entry above about scheduled runs generally.
-- **Unblocked by:** Creating an assistant schedule in the app, watching one tick
-  land in the inbox, and checking what the phone got. Then confirm the second
-  identical push inside six hours is suppressed.
-- **Where:** `backend/src/scheduler.ts` (`briefing`), `backend/src/assistant.ts`
-  (`runUnattended`), `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`)
+- **What:** The turn itself is now proven on the real pod. Both assistant
+  schedules were run on 2026-08-08 against a real authenticated CLI: the
+  briefing answered in 13.6s off `status` alone, the harvest in 7.3s, both
+  signed off `ok:` and both landed in the inbox beside the session runs. What
+  that did *not* exercise is the two paths a person cannot trigger by hand —
+  a **cron tick** firing them unattended (both were "run now"), and **notify**
+  actually reaching the phone, since an `ok` briefing is meant to stay silent
+  and correctly did. Suppression of a repeated push is likewise untested against
+  a real device, and is in-memory, so a pod restarting between two firings will
+  push a duplicate.
+- **Why deferred:** Needs a morning to pass, and needs something genuinely
+  worth interrupting for so that `notify` is reached on its own judgement.
+- **Unblocked by:** Reading the inbox after 07:00 and 03:00 and confirming two
+  runs appeared without anyone pressing anything. For the push half, the
+  quickest honest test is a schedule whose prompt says to notify unconditionally,
+  run twice inside six hours — the second should report itself suppressed.
+- **Where:** `backend/src/scheduler.ts` (`briefing`, the cron callback),
+  `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`)
 
 ## Old assistant threads can only be searched, never browsed
 
