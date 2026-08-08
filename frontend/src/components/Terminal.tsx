@@ -359,14 +359,19 @@ export default function Terminal({
   // paths into the prompt so the agent can read them. No Enter — the user writes
   // the rest of the message around them. One request per image, in the order
   // they were picked; whatever landed gets typed even if a later one fails.
+  //
+  // Also where a desktop paste lands (see the paste handler below), which is why
+  // the name has a fallback: a file off the clipboard can arrive nameless, and
+  // the upload route requires one.
   async function sendImages(files: File[]) {
     setUpload("busy");
     const paths: string[] = [];
     let failed = false;
     for (const f of files) {
+      const name = f.name || `pasted.${f.type.split("/")[1] ?? "png"}`;
       try {
         const res = await fetch(
-          `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(f.name)}`,
+          `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(name)}`,
           { method: "POST", headers: { "content-type": "application/octet-stream" }, body: f },
         );
         if (!res.ok) throw new Error(String(res.status));
@@ -381,6 +386,12 @@ export default function Terminal({
     // Bring the on-screen keyboard back; the picker took the focus away.
     if (!failed) termRef.current?.focus();
   }
+
+  // Same reason pasteFromClipboard is held in a ref: the terminal effect is set
+  // up once per connection, and this one closes over `project` and the upload
+  // state.
+  const sendImagesRef = useRef(sendImages);
+  sendImagesRef.current = sendImages;
 
   async function copyAuthUrl() {
     if (!authUrl) return;
@@ -571,6 +582,27 @@ export default function Terminal({
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
 
+    // Pasting a screenshot into a session. The agent's own ^V cannot do this:
+    // it reads the clipboard of the machine the CLI runs on, which is the pod,
+    // which has none — hence "no images in clipboard". The bytes are here, in
+    // the browser, and a paste gesture is the one way a page gets them without
+    // a secure context (navigator.clipboard.read is unavailable over plain
+    // HTTP). So: intercept the gesture and take the same route the phone
+    // picker does — upload, then type the path in for the agent to read.
+    //
+    // Capture, so this runs before xterm's own handler on the textarea beneath;
+    // a paste carrying only text is left alone and pastes as it always did.
+    const onPaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
+        f.type.startsWith("image/"),
+      );
+      if (!files.length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void sendImagesRef.current(files);
+    };
+    el.addEventListener("paste", onPaste, true);
+
     const input = term.onData((data) => {
       pendingScroll.current = 0;
       setScrolled(false);
@@ -604,6 +636,7 @@ export default function Terminal({
       clearTimeout(flashTimer.current);
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("paste", onPaste, true);
       ro.disconnect();
       input.dispose();
       ws.close();

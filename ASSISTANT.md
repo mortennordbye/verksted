@@ -221,16 +221,23 @@ memory list.
 
 ## What the assistant may do
 
-Its tools are **Read, Grep, Glob, and the verksted MCP server** — nothing else.
-Bash, Edit, Write, the web tools and Task are denied outright, and
+Its tools are **Read, Grep, Glob, WebFetch, WebSearch, and the verksted MCP
+server** — nothing else. Bash, Edit, Write and Task are denied outright, and
 `--strict-mcp-config` keeps it to the one server declared here.
+
+WebSearch is documented US-only, so from a pod that does not egress there it may
+come back empty; WebFetch has no such limit, and pointing the assistant at a URL
+is the path to rely on. Neither renders JavaScript — a page is fetched and
+converted to markdown, so a site that draws itself client-side yields little. If
+that turns out to matter, the session browser in `browser.ts` already runs a real
+Chromium and could be exposed as an MCP tool.
 
 That last flag is load-bearing rather than tidy. Without it, the MCP servers
 connected to the _Claude account_ join the ones configured here — a Google Drive
 connector turned up in a live test and the assistant offered it — and since the
 allow list only auto-approves, an unlisted server's tools are still a
-classifier's call. Repo read access plus somebody's cloud storage is the same
-exfiltration shape the web tools were denied for.
+classifier's call. Repo read access plus somebody's cloud storage is the shape
+worth refusing.
 
 That is a narrower answer than this document originally proposed ("may merge,
 but not push to main"), and the reason is a reframe rather than a tightening.
@@ -252,9 +259,18 @@ itself:
 - A Bash deny list would not have held. `git push` is also `git -C x push`, a
   script, `sh -c "…"`. A tool allow list is a property you can state; a command
   pattern list is a thing you maintain forever and trust anyway.
-- No web tools. Read access to repos containing `.env` files, plus fetch, is how
-  a prompt injection becomes exfiltration — and the harvester this is being
-  built towards will eventually read text neither of us wrote.
+- The web tools are the one place this was loosened, and knowingly. They were
+  denied because read access to repos containing `.env` files, plus fetch, is
+  how a prompt injection becomes exfiltration — and the harvester this is being
+  built towards will eventually read text neither of us wrote. That reasoning
+  did not stop being true; looking things up simply turned out to be part of the
+  job, and delegating a lookup to a whole session was the wrong shape. What the
+  deny list still holds is the half that matters: a page that talks the
+  assistant into something cannot get it to run anything, because it has no
+  shell and no writes. The prompt tells it to treat a fetched page the way it
+  treats a PR body — as text it reports on, never as instructions — which is a
+  mitigation, not a defence. Attaching a repo secret to an outbound URL is
+  possible today and nothing here would catch it.
 
 This is not a security boundary, and it should not be described as one. Anyone
 on the tunnel can open a terminal session and do anything; the pod is
