@@ -296,6 +296,25 @@ it just did, no closing offer of further help, no emoji, no em dashes. The
 failure mode being designed against is not being wrong, it is being long — this
 is read one-handed on a phone by someone in the middle of something else.
 
+Two more, both added after a live thread went fifteen turns and cost real money
+to reach an answer it had in turn three.
+
+It does not ask permission for anything that can be undone. Writing a memory,
+starting a session, fetching a page: it does them and says so in a line.
+Confirmation is reserved for the three things with no undo — `merge_pr`, ending
+a session that is still running, deleting a schedule. The thread that prompted
+this asked "shall I record that?" about facts it had just been told, twice, and
+each question is a whole turn carrying the whole conversation with it.
+
+And it looks things up about the person it works for, personal details included.
+It had refused to, on privacy grounds, when the person asking was the subject,
+about themselves, on their own single-user bench — then did the same lookup a
+turn later once they had typed the street name in themselves. That is not caution,
+it is a lecture followed by compliance, which is the worst of both. The line
+drawn instead is the subject rather than the topic: the user's own information
+is theirs to ask for; hunting the private details of some other private person
+is not something it does.
+
 Every line of it is re-sent with every turn, so the persona is on a budget too:
 lines that only described it have been cut, and what is left either changes what
 it does or how it sounds.
@@ -328,6 +347,15 @@ So the loop is assembled here. The browser records with `getUserMedia` and
 `MediaRecorder`, the pod transcribes with whisper.cpp, and the text is asked as
 an ordinary question. Replies are read back with `speechSynthesis`, which is
 universal and free and needs nothing on the pod.
+
+Being read to and talking are two switches, not one. Voice mode is the
+hands-free loop: it reads a reply and then reopens the microphone. **read
+aloud** only reads, whatever way the question was asked, which is the case that
+was missing — typing a question and then looking away. Wanting to hear the
+answer used to mean holding the microphone open, and an open mic while you type
+sends the reply twice. Turning it on speaks a one-word confirmation, because
+iOS will not speak outside a user gesture until it has spoken once; without that
+the switch appears to do nothing until the turn after next.
 
 The browser's default voice is whatever it found first, and usually the worst
 thing installed, so one is chosen instead: Siri and premium voices first, then

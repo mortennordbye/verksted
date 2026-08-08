@@ -77,6 +77,14 @@ export default function Assistant() {
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
   const [voiceMode, setVoiceMode] = useState(false);
+  // Read replies out without any of the rest of it. Voice mode answers "I want
+  // to talk to it"; this answers "I want to hear it", which is the case where
+  // you type a question and then look away. Kept apart because the coupling was
+  // the complaint: wanting to be read to meant having the microphone open.
+  // Remembered per device, like the raccoon — whoever wants it wants it always.
+  const [speakReplies, setSpeakReplies] = useState(
+    () => localStorage.getItem("vk.assistant.speak") === "1",
+  );
   // Off unless asked for, and remembered per device: it is decoration, and the
   // people who want it want it every time.
   const [showRaccoon, setShowRaccoon] = useState(
@@ -138,15 +146,40 @@ export default function Assistant() {
    * reconnecting socket redelivering the same thread cannot read it twice.
    */
   useEffect(() => {
-    if (!voiceMode || thinking) return;
+    if ((!voiceMode && !speakReplies) || thinking) return;
     const last = thread?.entries.at(-1);
     if (!last || last.role !== "assistant" || !last.text) return;
     if (spokenRef.current === last.id) return;
     spokenRef.current = last.id;
     speech.speak(last.text, () => {
+      // Only hands-free reopens the microphone. Reading a typed exchange aloud
+      // must not start listening, or the next thing typed competes with an open
+      // mic and the reply gets sent twice.
       if (voiceMode) void speech.listen();
     });
-  }, [thread, voiceMode, thinking, speech]);
+  }, [thread, voiceMode, speakReplies, thinking, speech]);
+
+  /**
+   * Read replies aloud, without opening the microphone.
+   *
+   * The short utterance on the way on is not a flourish: iOS will only speak
+   * from inside a user gesture until it has spoken once, so a silent switch
+   * would be a switch that does nothing until the turn after next. It also
+   * tells you the sound is on and which voice you are getting, before you have
+   * asked anything.
+   */
+  function toggleSpeakReplies() {
+    const next = !speakReplies;
+    setSpeakReplies(next);
+    localStorage.setItem("vk.assistant.speak", next ? "1" : "0");
+    if (next) {
+      // Whatever is already on screen has been read, or was never meant to be.
+      spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+      speech.speak("ok");
+    } else if (!voiceMode) {
+      speech.cancelSpeech();
+    }
+  }
 
   function toggleVoice() {
     if (voiceMode) {
@@ -252,6 +285,22 @@ export default function Assistant() {
           >
             raccoon
           </button>
+          {canSpeak() && (
+            <button
+              onClick={toggleSpeakReplies}
+              title={
+                speakReplies
+                  ? "stop reading replies aloud"
+                  : "read every reply aloud, including ones you typed"
+              }
+              aria-pressed={speakReplies}
+              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
+                speakReplies ? "border-accent/50 text-accent" : "border-line text-muted"
+              }`}
+            >
+              read aloud
+            </button>
+          )}
           {turns > 0 && (
             <button
               onClick={() => void newThread()}
