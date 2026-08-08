@@ -107,6 +107,43 @@ describe("POST /api/push/unsubscribe", () => {
   });
 });
 
+describe("POST /api/push/send", () => {
+  it("refuses a tap target that leaves the app", async () => {
+    // A notification renders outside anything this app controls, so an absolute
+    // link in one is a phishing link wearing verksted's name. Path-only, and a
+    // protocol-relative "//evil.example" is a link off-site too.
+    for (const url of ["https://evil.example", "//evil.example", "javascript:alert(1)", "evil"]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/push/send",
+        payload: { body: "hello", url },
+      });
+      expect(res.statusCode, url).toBe(400);
+    }
+  });
+
+  it("sends a message with an in-app path", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/push/send",
+      payload: { body: "the nightly run failed", url: "/inbox" },
+    });
+    expect(res.statusCode).toBe(200);
+    // .example cannot resolve, so the send fails — what matters here is that the
+    // route accepted the shape and reported the outcome rather than lying.
+    expect(res.json()).toMatchObject({ devices: 1, sent: 0, failed: 1 });
+  });
+
+  it("requires something to say", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/push/send",
+      payload: { title: "x" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe("POST /api/push/test", () => {
   it("reports a refused push instead of claiming it was sent", async () => {
     const res = await app.inject({ method: "POST", url: "/api/push/test" });

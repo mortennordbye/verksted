@@ -444,6 +444,60 @@ const TOOLS = [
     },
   },
   {
+    name: "notify",
+    description:
+      "Push a message to the user's phone. For when something wants them and they are not reading the chat: a scheduled run failed, a session has been blocked for an hour, main went red. Never for the answer to what they just asked — they are already looking at it — and never twice for the same thing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        body: { type: "string", description: "one line, the thing itself" },
+        title: { type: "string", description: "defaults to 'verksted'" },
+        url: {
+          type: "string",
+          description: "app path the notification opens, e.g. /s/<session id> or /inbox",
+        },
+      },
+      required: ["body"],
+    },
+    run: (a) =>
+      call("POST", "/api/push/send", {
+        body: a.body,
+        ...(a.title ? { title: a.title } : {}),
+        ...(a.url ? { url: a.url } : {}),
+      }).then((r) =>
+        r.devices === 0
+          ? "no device is subscribed to notifications, so nothing was sent"
+          : `pushed to ${r.sent} of ${r.devices} device(s)${r.error ? `: ${r.error}` : ""}`,
+      ),
+  },
+  {
+    name: "repo_diff",
+    description:
+      "The actual change in one file of one repo, as a diff. repo_status says which files moved; this says what moved in them, which is what answers 'what did that session do' without opening a terminal.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string" },
+        path: { type: "string", description: "repo-relative path, as repo_status prints it" },
+        staged: { type: "boolean", description: "the staged side of a partially staged file" },
+      },
+      required: ["project", "path"],
+    },
+    run: async (a) => {
+      const q = `path=${encodeURIComponent(a.path)}${a.staged ? "&staged=true" : ""}`;
+      const { diff } = await call(
+        "GET",
+        `/api/projects/${encodeURIComponent(a.project)}/diff?${q}`,
+      );
+      // A whole diff is re-sent with every later turn of the conversation, so a
+      // big one is a bill that keeps arriving. Enough to see the shape of it.
+      const lines = (diff ?? "").split("\n");
+      return lines.length > 200
+        ? `${lines.slice(0, 200).join("\n")}\n… ${lines.length - 200} more lines`
+        : diff || "(no change in that file)";
+    },
+  },
+  {
     name: "list_memories",
     description: "Everything currently remembered about how this person works.",
     inputSchema: { type: "object", properties: {} },
@@ -455,7 +509,7 @@ const TOOLS = [
   {
     name: "remember",
     description:
-      "Record one durable fact about how this person works, carried into every future session in every repo. Say what you are about to record and ask first. Keep it to a sentence or two, written as an instruction to a future agent.",
+      "Record one durable fact about how this person works, carried into every future session in every repo. Something you were just told needs no permission: write it and say in one line that you did. Keep it to a sentence or two, written as an instruction to a future agent.",
     inputSchema: {
       type: "object",
       properties: {

@@ -403,3 +403,22 @@ what unblocks it / where the code lives.
   properly (a thin wrapper inside the build output, spawned with the same
   runtime the backend is using).
 - **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)
+
+## The assistant has no unattended turn, so `notify` is half a feature
+
+- **What:** The `notify` tool pushes a line to the phone, but nothing runs the
+  assistant except a person typing at it: `assistant.send` has exactly one
+  caller, `POST /api/assistant/messages`. Schedules start tmux sessions, not
+  assistant turns. So the tool can only push to somebody who is already reading
+  the reply it arrived with, and the case it exists for — "the nightly run
+  failed and nobody was looking" — is still out of reach.
+- **Why deferred:** The tool is the small half. The other half is a scheduled
+  assistant turn, which needs decisions this milestone has not taken: whether a
+  turn spawned by cron shares the interactive conversation or gets its own, what
+  it costs to run one on a timer, and what stops a failing schedule from pushing
+  the same line every hour.
+- **Unblocked by:** Deciding the above, then giving `schedules-store` a schedule
+  kind that calls `assistant.send` instead of starting a session — the scheduler
+  already owns cron timers, the run log and `MAX_LIVE_SESSIONS`.
+- **Where:** `runtime/verksted-mcp.mjs` (`notify`), `backend/src/routes/push.ts`
+  (`POST /api/push/send`), `backend/src/scheduler.ts`, `backend/src/assistant.ts`

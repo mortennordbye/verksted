@@ -95,10 +95,12 @@ describe("the tool set", () => {
         "list_prs",
         "list_schedules",
         "merge_pr",
+        "notify",
         "pause_schedules",
         "pr_detail",
         "read_session_output",
         "remember",
+        "repo_diff",
         "repo_status",
         "run_schedule",
         "start_session",
@@ -166,5 +168,28 @@ describe("requests that carry a safety decision", () => {
       prompt: "look around",
       autoPermissions: true,
     });
+  });
+
+  it("pushes a notification through the endpoint that vets the link", async () => {
+    // The tool must not gain its own way to the push service: the tap target is
+    // restricted to a path inside the app, and that check lives on the route.
+    seen = [];
+
+    await callTool("notify", { body: "the nightly run failed", url: "/inbox" });
+
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe("/api/push/send");
+    expect(JSON.parse(seen[0].body)).toEqual({ body: "the nightly run failed", url: "/inbox" });
+  });
+
+  it("reads a diff without a path that could climb out of the repo", async () => {
+    seen = [];
+
+    await callTool("repo_diff", { project: "demo", path: "../../etc/passwd" });
+
+    // Encoded, not interpolated raw; the route's own realpath check is what
+    // actually refuses it, and this keeps the request arriving in one piece.
+    expect(seen[0].method).toBe("GET");
+    expect(seen[0].url).toBe("/api/projects/demo/diff?path=..%2F..%2Fetc%2Fpasswd");
   });
 });

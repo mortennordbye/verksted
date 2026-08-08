@@ -249,6 +249,18 @@ and a report — instead of inside a chat bubble with no trail.
 
 **The assistant delegates; it does not execute.**
 
+Two tools were added later, and one of them is honestly half a feature. `notify`
+pushes a line to the phone through `POST /api/push/send`, which is the same pair
+of channels the session notifier uses (ntfy and web push) and vets the tap target
+down to a path inside this app — a notification renders somewhere the app does
+not control, so an absolute URL in one is a phishing link wearing verksted's
+name. The limit is that nothing runs the assistant except a person typing at it:
+there is no scheduled turn, so today it can only push to someone who is already
+reading the reply. It is here because the moment an unattended turn exists, this
+is the half that makes it worth having. `repo_diff` is read-only and needs no
+such apology: `repo_status` says which files moved, and this says what moved in
+them.
+
 Three things follow from that, all of which matter more than the permission
 itself:
 

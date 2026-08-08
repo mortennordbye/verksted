@@ -1,6 +1,7 @@
 import type { Session } from "../../shared/api.js";
 import { env } from "./env.js";
 import * as push from "./push-store.js";
+import type { SendResult } from "./push-store.js";
 import * as store from "./sessions-store.js";
 
 type Status = Session["status"];
@@ -32,18 +33,27 @@ function body(s: Session, report: string | null): string {
   return report ?? (s.status === "waiting" ? "waiting for input" : "session finished");
 }
 
-async function ntfy(s: Session, report: string | null, log: Logger): Promise<void> {
+interface Announcement {
+  title: string;
+  body: string;
+  /** Where tapping it lands, as an app path. */
+  url: string;
+  tag?: string;
+  priority?: string;
+}
+
+async function ntfy(msg: Announcement, log: Logger): Promise<void> {
   if (!env.NTFY_URL) return;
   try {
     const res = await fetch(env.NTFY_URL, {
       method: "POST",
-      body: body(s, report),
+      body: msg.body,
       headers: {
-        "X-Title": `${s.title} · ${s.project}`,
-        "X-Tags": s.status === "waiting" ? "hourglass_flowing_sand" : "checkered_flag",
-        ...(s.status === "waiting" ? { "X-Priority": "high" } : {}),
-        // Tapping the push opens the session that wants attention.
-        ...(env.PUBLIC_URL ? { "X-Click": `${env.PUBLIC_URL}/s/${s.id}` } : {}),
+        "X-Title": msg.title,
+        ...(msg.tag ? { "X-Tags": msg.tag } : {}),
+        ...(msg.priority ? { "X-Priority": msg.priority } : {}),
+        // Tapping the push opens the thing that wants attention.
+        ...(env.PUBLIC_URL ? { "X-Click": `${env.PUBLIC_URL}${msg.url}` } : {}),
       },
       signal: AbortSignal.timeout(10_000),
     });
@@ -53,16 +63,30 @@ async function ntfy(s: Session, report: string | null, log: Logger): Promise<voi
   }
 }
 
-/** Both channels, independently: neither failing should silence the other. */
-async function notify(s: Session, report: string | null, log: Logger): Promise<void> {
-  await Promise.all([
-    ntfy(s, report, log),
-    // Tapping the notification opens the session that wants attention.
-    push.send(
-      { title: `${s.title} · ${s.project}`, body: body(s, report), url: `/s/${s.id}` },
-      log,
-    ),
+/**
+ * One message to every channel. Both are attempted independently: neither
+ * failing should silence the other, and ntfy is configured on some benches and
+ * not others.
+ */
+export async function announce(msg: Announcement, log: Logger): Promise<SendResult> {
+  const [, result] = await Promise.all([
+    ntfy(msg, log),
+    push.send({ title: msg.title, body: msg.body, url: msg.url }, log),
   ]);
+  return result;
+}
+
+async function notify(s: Session, report: string | null, log: Logger): Promise<void> {
+  await announce(
+    {
+      title: `${s.title} · ${s.project}`,
+      body: body(s, report),
+      url: `/s/${s.id}`,
+      tag: s.status === "waiting" ? "hourglass_flowing_sand" : "checkered_flag",
+      ...(s.status === "waiting" ? { priority: "high" } : {}),
+    },
+    log,
+  );
 }
 
 interface Logger {
