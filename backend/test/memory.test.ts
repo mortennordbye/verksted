@@ -35,7 +35,10 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  for (const f of fs.readdirSync(memoryDir)) fs.rmSync(path.join(memoryDir, f));
+  // recursive: the store now has a "proposed" subdirectory beside the facts.
+  for (const f of fs.readdirSync(memoryDir)) {
+    fs.rmSync(path.join(memoryDir, f), { recursive: true, force: true });
+  }
   fs.rmSync(path.join(home, ".claude"), { recursive: true, force: true });
 });
 
@@ -105,6 +108,28 @@ describe("what sessions are told", () => {
     expect(text).toContain("- Avoid em dashes.");
   });
 
+  it("puts who this person is above what it knows about the work", async () => {
+    // A flat list is a bag of facts; the split is what makes the block read as
+    // a briefing on somebody. Preferences are instructions and go first.
+    await store.save({ slug: "kargo", text: "Kargo promotes images.", type: "project" });
+    await store.save({ slug: "dashes", text: "Avoid em dashes.", type: "preference" });
+
+    const { text } = store.renderBlock(await store.list());
+
+    expect(text.indexOf("Who this person is")).toBeLessThan(text.indexOf("Avoid em dashes."));
+    expect(text.indexOf("Avoid em dashes.")).toBeLessThan(text.indexOf("learned about the work"));
+    expect(text.indexOf("learned about the work")).toBeLessThan(text.indexOf("Kargo promotes"));
+  });
+
+  it("omits a heading with nothing under it", async () => {
+    await store.save({ slug: "dashes", text: "Avoid em dashes.", type: "preference" });
+
+    const { text } = store.renderBlock(await store.list());
+
+    expect(text).toContain("Who this person is");
+    expect(text).not.toContain("learned about the work");
+  });
+
   it("drops the oldest rather than blowing the budget", async () => {
     const big = "x".repeat(900);
     for (let i = 0; i < 12; i++) {
@@ -134,6 +159,69 @@ describe("what sessions are told", () => {
     // "verksted knows nothing about you", which is worse than no block at all.
     expect(without).not.toContain("verksted:memory");
     expect(without).toContain("Always rebase.");
+  });
+});
+
+describe("the review queue", () => {
+  it("keeps a proposal out of what sessions are told until it is kept", async () => {
+    // The one property the whole harvest rests on. A proposed fact that leaked
+    // into the injected block would be an unreviewed memory in every session in
+    // every repo, which is the failure this queue exists to prevent.
+    await store.propose({ slug: "squash", text: "Merge with --squash.", type: "preference" });
+
+    expect(await store.list()).toEqual([]);
+    expect(store.renderBlock(await store.list()).text).toBe("");
+    expect((await store.listProposals()).map((p) => p.slug)).toEqual(["squash"]);
+
+    await store.keep("squash");
+
+    expect((await store.list()).map((m) => m.slug)).toEqual(["squash"]);
+    expect(store.renderBlock(await store.list()).text).toContain("Merge with --squash.");
+    expect(await store.listProposals()).toEqual([]);
+  });
+
+  it("leaves nothing behind when one is dropped", async () => {
+    await store.propose({ slug: "wrong", text: "Something it misread." });
+
+    expect(await store.dropProposal("wrong")).toBe(true);
+    expect(await store.listProposals()).toEqual([]);
+    expect(await store.list()).toEqual([]);
+    // Dropping the same thing twice is a 404, not a second success.
+    expect(await store.dropProposal("wrong")).toBe(false);
+  });
+
+  it("replaces its own proposal rather than stacking duplicates", async () => {
+    // A harvest run twice over the same day sees the same prompts again.
+    await store.propose({ slug: "squash", text: "Merge with --squash." });
+    await store.propose({ slug: "squash", text: "Merge with --squash --delete-branch." });
+
+    const proposals = await store.listProposals();
+    expect(proposals).toHaveLength(1);
+    expect(proposals[0].text).toBe("Merge with --squash --delete-branch.");
+  });
+
+  it("refuses to propose something already remembered", async () => {
+    await store.save({ slug: "squash", text: "Merge with --squash." });
+
+    await expect(store.propose({ slug: "squash", text: "Merge with --squash." })).rejects.toThrow(
+      /already remembered/,
+    );
+  });
+
+  it("cannot be talked into rewriting its own frontmatter", async () => {
+    // `source` is written by whatever proposed the fact. A newline in it would
+    // close the field and let the rest be read as further fields — a scope of
+    // "global" on a fact meant for one repo, silently.
+    await store.propose({
+      slug: "sneaky",
+      text: "A fact.",
+      scope: "Homelab",
+      source: "harvested\nscope: global",
+    });
+
+    const [proposal] = await store.listProposals();
+    expect(proposal.scope).toBe("Homelab");
+    expect(proposal.source).toBe("harvested scope: global");
   });
 });
 

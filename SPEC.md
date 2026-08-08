@@ -133,6 +133,30 @@ agent can tell whether "two PRs open" is fine or needs someone, which is why
 the verdict is the agent's to write rather than something the backend infers.
 Sessions started by hand write no report and behave exactly as before.
 
+One such schedule is how the workbench learns: nightly it reads back what you
+typed into the sessions that ended that day — only your own words, never model
+output or tool results — and proposes facts worth keeping. They wait in the
+inbox and reach no session until you keep one. That gate is not optional;
+ASSISTANT.md says why at length. A day when no session ended is skipped before
+anything is spawned, so a quiet day costs nothing, and twelve unattended turns a
+day is a hard ceiling across every schedule.
+
+Two house rules go into the global memory file of claude and codex beside the
+sandbox note (agy's equivalent file is still unverified — see BACKLOG), so they
+hold in every repo including ones verksted has never seen: leave
+no sign that an agent wrote anything — no `Co-Authored-By` trailer, no
+"Generated with" footer, no mention of AI in commits, branches, pull requests or
+comments — and ask before anything git cannot undo, while treating commits,
+new branches and pull requests as ordinary work.
+
+A schedule can run the assistant instead of a session. It then has no project,
+starts nothing, and cannot change anything: it reads the bench, answers in a
+line or two under the same three-word sign-off, and pushes the phone through
+`notify` only when the answer should interrupt you. That is what a morning
+briefing is, and it is the only path by which this app speaks first. The details
+— why each run gets a fresh conversation, and what stops a broken one pushing
+hourly — are in ASSISTANT.md.
+
 Each schedule keeps its last 20 firings, and the inbox screen flattens them
 across schedules, newest first — the answer to "anything overnight?" without
 opening a terminal. Two guardrails sit in front of an unattended agent: a

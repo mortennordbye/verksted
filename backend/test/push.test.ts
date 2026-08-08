@@ -142,6 +142,27 @@ describe("POST /api/push/send", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("does not push the same line twice in a row", async () => {
+    // The caller that made this necessary is a schedule: an unattended turn
+    // starts a fresh conversation every time, so it cannot remember pushing
+    // "main is red" an hour ago and would push it again on every tick.
+    const payload = { body: "main is red", url: "/inbox" };
+
+    const first = await app.inject({ method: "POST", url: "/api/push/send", payload });
+    const second = await app.inject({ method: "POST", url: "/api/push/send", payload });
+
+    expect(first.json().suppressed).toBeUndefined();
+    expect(second.json()).toMatchObject({ sent: 0, suppressed: true });
+    // Different news still gets through; it is the message that is deduped,
+    // not the caller.
+    const other = await app.inject({
+      method: "POST",
+      url: "/api/push/send",
+      payload: { body: "main is green again", url: "/inbox" },
+    });
+    expect(other.json().suppressed).toBeUndefined();
+  });
 });
 
 describe("POST /api/push/test", () => {

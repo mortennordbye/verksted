@@ -1,5 +1,6 @@
 import { Cron } from "croner";
-import type { Session } from "../../shared/api.js";
+import type { Schedule, Session } from "../../shared/api.js";
+import { runUnattended } from "./assistant.js";
 import { env } from "./env.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
@@ -14,6 +15,35 @@ import { schedulesPaused } from "./settings-store.js";
  * pod is already full, it is full.
  */
 const MAX_LIVE_SESSIONS = 6;
+
+/**
+ * How many unattended assistant turns may start in one day, across every
+ * schedule.
+ *
+ * The session ceiling above does not bind these: a briefing holds no tmux and
+ * no working tree, so nothing else would notice a schedule set to `* * * * *`
+ * quietly making 1440 model calls a day against a subscription. This is the
+ * backstop for that — not a budget for normal use, which is three or four.
+ *
+ * In memory, and reset by a restart. That is the right trade for a backstop:
+ * the failure it guards against is a runaway loop within one day, and a file on
+ * the volume to survive a reboot would be state kept for nothing.
+ */
+const MAX_UNATTENDED_PER_DAY = 12;
+let unattendedDay = "";
+let unattendedToday = 0;
+
+/** True when today's ceiling is already spent; counts the turn when it is not. */
+function overDailyCeiling(): boolean {
+  const day = new Date().toISOString().slice(0, 10);
+  if (day !== unattendedDay) {
+    unattendedDay = day;
+    unattendedToday = 0;
+  }
+  if (unattendedToday >= MAX_UNATTENDED_PER_DAY) return true;
+  unattendedToday++;
+  return false;
+}
 
 interface Logger {
   info: (msg: string) => void;
@@ -67,11 +97,18 @@ function jitter(minutes: number): Promise<boolean> {
 const starting = new Set<string>();
 
 /**
+ * What a firing produced. A session schedule starts an agent you can attach to;
+ * an assistant schedule produces a line of text and nothing else. Null is the
+ * third case, and the interesting one: it declined, and said why in the run log.
+ */
+export type RunOutcome = { session: Session } | { reply: string };
+
+/**
  * Start the schedule's session. Skipped while its previous run is still open:
  * a slow agent must not stack a new session on every tick, and two claude
  * sessions in one repo would fight over the working tree.
  */
-export async function runSchedule(id: string, log: Logger): Promise<Session | null> {
+export async function runSchedule(id: string, log: Logger): Promise<RunOutcome | null> {
   if (starting.has(id)) {
     log.info(`schedule ${id} skipped: a run is already starting`);
     await schedules.recordRun(id, { error: "a run is already starting" });
@@ -85,10 +122,55 @@ export async function runSchedule(id: string, log: Logger): Promise<Session | nu
   }
 }
 
-async function launch(id: string, log: Logger): Promise<Session | null> {
+/**
+ * Whether this tick should be dropped for want of anything to look at.
+ *
+ * A pass over what happened has nothing to read when nothing happened, and the
+ * turn that discovers that costs the same as one that finds something. The
+ * window matches what `recent_prompts` reads by default.
+ *
+ * Exported so the rule is testable on its own: it is consulted from inside a
+ * cron callback, which is the one place in this module a test cannot reach
+ * without waiting for a real minute to pass.
+ */
+export async function skipForIdle(schedule: Schedule): Promise<boolean> {
+  if (!schedule.skipWhenIdle) return false;
+  const since = Date.now() - 24 * 60 * 60_000;
+  return !(await listSessions()).some((s) => s.endedAt && Date.parse(s.endedAt) >= since);
+}
+
+/**
+ * An assistant firing: one unattended turn, and what it said is the report.
+ *
+ * None of the session ceilings apply — it starts no session, holds no tmux and
+ * touches no working tree. What bounds it instead is that only one unattended
+ * turn runs at a time, which `runUnattended` refuses past.
+ */
+async function briefing(id: string, schedule: Schedule, log: Logger): Promise<RunOutcome | null> {
+  if (overDailyCeiling()) {
+    await schedules.recordRun(id, {
+      error: `${MAX_UNATTENDED_PER_DAY} unattended turns already ran today`,
+    });
+    log.warn({ schedule: id }, `schedule ${id} skipped: daily unattended ceiling reached`);
+    return null;
+  }
+  const { text, failed } = await runUnattended(schedule.prompt);
+  if (failed || !text) {
+    const error = text || "the turn produced nothing";
+    await schedules.recordRun(id, { error });
+    log.warn({ schedule: id }, `assistant schedule ${id} failed: ${error}`);
+    return null;
+  }
+  await schedules.recordRun(id, { reply: text });
+  log.info(`assistant schedule ${id} replied`);
+  return { reply: text };
+}
+
+async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
   const schedule = await schedules.getSchedule(id);
   if (!schedule) return null;
   try {
+    if (schedule.kind === "assistant") return await briefing(id, schedule, log);
     const last = schedule.lastSessionId ? await getSession(schedule.lastSessionId) : null;
     if (last && last.status !== "done") {
       await schedules.recordRun(id, { error: `previous run ${last.id} is still open` });
@@ -113,7 +195,7 @@ async function launch(id: string, log: Logger): Promise<Session | null> {
     );
     await schedules.recordRun(id, { sessionId: session.id });
     log.info(`schedule ${id} started session ${session.id}`);
-    return session;
+    return { session };
   } catch (err) {
     // A deleted project, a tmux that would not start: record it for the UI
     // rather than letting it escape into an unhandled rejection.
@@ -169,6 +251,12 @@ async function rebuild(log: Logger): Promise<void> {
             // deliberately ignores it — that one is somebody asking.
             if (await schedulesPaused()) {
               log.info(`schedule ${schedule.id} skipped: schedules are paused`);
+              return;
+            }
+            // Beside the pause switch rather than inside runSchedule, because
+            // "run now" is somebody asking and is subject to neither.
+            if (await skipForIdle(schedule)) {
+              log.info(`schedule ${schedule.id} skipped: nothing ended in the last day`);
               return;
             }
             if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);

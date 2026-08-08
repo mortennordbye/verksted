@@ -42,9 +42,21 @@ const rows = (items, line) => (items.length ? items.map(line).join("\n") : "(non
 const local = (iso) =>
   iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "-";
 
+/**
+ * Set when this server was started for a turn a schedule fired, with nobody
+ * reading. Only the tools marked `unattended` are then offered at all — not
+ * merely left off an allow list, which is auto-approval rather than
+ * restriction, but absent from tools/list so there is nothing to approve.
+ *
+ * The marker is per tool and lives next to it, so adding a tool is the moment
+ * you decide whether it may run unwatched, and forgetting decides "no".
+ */
+const UNATTENDED = process.env.VK_UNATTENDED === "1";
+
 const TOOLS = [
   {
     name: "status",
+    unattended: true,
     description:
       "The whole workbench in one call: every repo, every session and what the scheduled runs did. Use this first for anything like 'what needs me' or 'what is running' — it answers in one round trip what three separate lookups would take three.",
     inputSchema: { type: "object", properties: {} },
@@ -91,6 +103,7 @@ const TOOLS = [
   },
   {
     name: "read_session_output",
+    unattended: true,
     description:
       "The last lines a live session printed. Use this to answer 'what is it doing' or 'why did it stop' without attaching a terminal.",
     inputSchema: {
@@ -105,6 +118,7 @@ const TOOLS = [
   },
   {
     name: "repo_status",
+    unattended: true,
     description:
       "Which files are changed in one repo, and whether each change is staged or untracked. Read-only. Use this to answer 'why is X dirty' rather than starting a session to run git for you.",
     inputSchema: {
@@ -169,6 +183,7 @@ const TOOLS = [
   },
   {
     name: "list_prs",
+    unattended: true,
     description:
       "Open pull requests in a repo, with their checks and review state. This is how you answer 'anything to merge' — dependabot bumps that are green and patch-level are the case worth raising unprompted.",
     inputSchema: {
@@ -197,6 +212,7 @@ const TOOLS = [
   },
   {
     name: "pr_detail",
+    unattended: true,
     description:
       "One pull request in full: its description, comments and changed files, and optionally the diff. Read this before recommending a merge — a patch-level bump is judged by looking at it.",
     inputSchema: {
@@ -250,6 +266,7 @@ const TOOLS = [
   },
   {
     name: "ci_runs",
+    unattended: true,
     description:
       "Workflow runs for a repo, newest first — or one run's jobs when you pass an id. 'Did it build' is answerable from here without opening anything.",
     inputSchema: {
@@ -289,6 +306,7 @@ const TOOLS = [
   },
   {
     name: "ci_log",
+    unattended: true,
     description:
       "The log of a run's failing jobs — the failing steps only, not the whole build. Use it to say why something went red rather than that it did.",
     inputSchema: {
@@ -327,6 +345,7 @@ const TOOLS = [
   },
   {
     name: "list_schedules",
+    unattended: true,
     description: "The recurring prompts: what runs, when it next fires, and how the last run went.",
     inputSchema: { type: "object", properties: {} },
     run: async () => {
@@ -334,7 +353,7 @@ const TOOLS = [
       return rows(
         schedules,
         (s) =>
-          `${s.id}  ${s.name}  [${s.project}]  "${s.cron}"${s.enabled ? "" : "  (disabled)"}` +
+          `${s.id}  ${s.name}  [${s.kind === "assistant" ? "you, unattended" : s.project}]  "${s.cron}"${s.enabled ? "" : "  (disabled)"}` +
           `  next ${local(s.nextRunAt)}` +
           `${s.lastError ? `  last error: ${s.lastError}` : ""}`,
       );
@@ -343,12 +362,16 @@ const TOOLS = [
   {
     name: "create_schedule",
     description:
-      "Create a recurring prompt: on its cron a session starts in the project and is given the prompt, unattended. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
+      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string" },
-        project: { type: "string" },
+        kind: {
+          enum: ["session", "assistant"],
+          description: "defaults to 'session'; 'assistant' needs no project",
+        },
+        project: { type: "string", description: "required for a session schedule" },
         cron: { type: "string", description: "five-field cron, in the bench's timezone" },
         prompt: { type: "string" },
         enabled: { type: "boolean" },
@@ -356,13 +379,20 @@ const TOOLS = [
           type: "integer",
           description: "spread the start over up to this many minutes",
         },
+        skipWhenIdle: {
+          type: "boolean",
+          description:
+            "assistant kind only: do not run at all on a day when no session ended. Set it for anything that looks back over what happened, so a quiet day costs nothing.",
+        },
       },
-      required: ["name", "project", "cron", "prompt"],
+      required: ["name", "cron", "prompt"],
     },
     run: (a) =>
       call("POST", "/api/schedules", {
         name: a.name,
-        project: a.project,
+        ...(a.kind ? { kind: a.kind } : {}),
+        ...(a.project ? { project: a.project } : {}),
+        ...(a.skipWhenIdle === undefined ? {} : { skipWhenIdle: a.skipWhenIdle }),
         cron: a.cron,
         prompt: a.prompt,
         ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
@@ -407,8 +437,10 @@ const TOOLS = [
       required: ["id"],
     },
     run: (a) =>
-      call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`).then(
-        (s) => `started ${s.id} (${s.agent}) in ${s.project}`,
+      call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`).then((r) =>
+        // An assistant schedule starts no session: what it said is the result,
+        // and it was said by you, a moment ago, in a conversation of its own.
+        r.reply ? `it ran and said: ${r.reply}` : `started ${r.id} (${r.agent}) in ${r.project}`,
       ),
   },
   {
@@ -445,6 +477,7 @@ const TOOLS = [
   },
   {
     name: "notify",
+    unattended: true,
     description:
       "Push a message to the user's phone. For when something wants them and they are not reading the chat: a scheduled run failed, a session has been blocked for an hour, main went red. Never for the answer to what they just asked — they are already looking at it — and never twice for the same thing.",
     inputSchema: {
@@ -465,13 +498,16 @@ const TOOLS = [
         ...(a.title ? { title: a.title } : {}),
         ...(a.url ? { url: a.url } : {}),
       }).then((r) =>
-        r.devices === 0
-          ? "no device is subscribed to notifications, so nothing was sent"
-          : `pushed to ${r.sent} of ${r.devices} device(s)${r.error ? `: ${r.error}` : ""}`,
+        r.suppressed
+          ? "not sent: the same notification already went out in the last few hours"
+          : r.devices === 0
+            ? "no device is subscribed to notifications, so nothing was sent"
+            : `pushed to ${r.sent} of ${r.devices} device(s)${r.error ? `: ${r.error}` : ""}`,
       ),
   },
   {
     name: "repo_diff",
+    unattended: true,
     description:
       "The actual change in one file of one repo, as a diff. repo_status says which files moved; this says what moved in them, which is what answers 'what did that session do' without opening a terminal.",
     inputSchema: {
@@ -498,7 +534,69 @@ const TOOLS = [
     },
   },
   {
+    name: "recent_prompts",
+    unattended: true,
+    description:
+      "What the user typed into sessions that ended in the last `hours` (default 24). Only their own words: no model replies, no tool output, no file contents. This is the material for learning how they work — corrections, preferences, how a repo is meant to be handled. One call covers every session, so do not ask per session.",
+    inputSchema: {
+      type: "object",
+      properties: { hours: { type: "integer", description: "look-back window, default 24" } },
+    },
+    run: async (a) => {
+      const q = a.hours ? `?hours=${encodeURIComponent(a.hours)}` : "";
+      const { sessions, truncated } = await call("GET", `/api/memory/material${q}`);
+      const body = rows(
+        sessions,
+        (s) => `${s.sessionId} [${s.project}]\n${s.prompts.map((p) => `  - ${p}`).join("\n")}`,
+      );
+      return truncated ? `${body}\n(there was more; the rest was left out)` : body;
+    },
+  },
+  {
+    name: "propose_memory",
+    unattended: true,
+    description:
+      "Propose a fact for the review queue. It is NOT remembered: it waits on the inbox until the user keeps or drops it, and reaches no session before then. This is the only way to record something they did not tell you directly in this conversation. Propose only what would change how a future agent acts, write it as an instruction, and say in `source` which session it came from. Do not propose something already remembered.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: { type: "string", description: "short-kebab-case name, also the filename" },
+        text: { type: "string" },
+        type: { enum: ["preference", "project", "reference"] },
+        scope: { type: "string", description: "'global', or a project name" },
+        source: { type: "string", description: "which session, and what was said" },
+      },
+      required: ["slug", "text"],
+    },
+    run: (a) =>
+      call("POST", "/api/memory/proposed", {
+        slug: a.slug,
+        text: a.text,
+        ...(a.type ? { type: a.type } : {}),
+        ...(a.scope ? { scope: a.scope } : {}),
+        ...(a.source ? { source: a.source } : {}),
+      }).then((m) => `proposed ${m.slug}, waiting for review in the inbox`),
+  },
+  {
+    name: "recall",
+    unattended: true,
+    description:
+      "Search what was said in earlier conversations with this person. Your own long-term recall: every thread is kept, and this is the only way back into one — you cannot read them as files. Use it when they refer to something decided before ('what did we say about the promotion'), or when a thread has been started fresh and the subject is not new. The current conversation is not searched, because you are already in it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "words that must all appear in the turn" },
+      },
+      required: ["query"],
+    },
+    run: async (a) => {
+      const { hits } = await call("GET", `/api/assistant/search?q=${encodeURIComponent(a.query)}`);
+      return rows(hits, (h) => `${local(h.at)}  ${h.role === "user" ? "them" : "you"}: ${h.text}`);
+    },
+  },
+  {
     name: "list_memories",
+    unattended: true,
     description: "Everything currently remembered about how this person works.",
     inputSchema: { type: "object", properties: {} },
     run: async () => {
@@ -542,6 +640,9 @@ const TOOLS = [
   },
 ];
 
+/** The tools this run may use. Filtered once, so list and call agree. */
+const offered = () => (UNATTENDED ? TOOLS.filter((t) => t.unattended) : TOOLS);
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -569,7 +670,7 @@ async function handle(msg) {
       jsonrpc: "2.0",
       id: msg.id,
       result: {
-        tools: TOOLS.map(({ name, description, inputSchema }) => ({
+        tools: offered().map(({ name, description, inputSchema }) => ({
           name,
           description,
           inputSchema,
@@ -579,7 +680,7 @@ async function handle(msg) {
   }
 
   if (msg.method === "tools/call") {
-    const tool = TOOLS.find((t) => t.name === msg.params?.name);
+    const tool = offered().find((t) => t.name === msg.params?.name);
     if (!tool) {
       return send({
         jsonrpc: "2.0",

@@ -16,6 +16,11 @@ interface StoredRun {
   at: string;
   sessionId: string | null;
   error: string | null;
+  /**
+   * What an assistant run replied. A session run has none: its verdict lives in
+   * the report file the session wrote, and is read back by id.
+   */
+  reply?: string | null;
 }
 
 /** The stored record; the rest of the wire type is derived on every read. */
@@ -53,17 +58,24 @@ export function validCron(cron: string): boolean {
   }
 }
 
+/** Every schedule written before assistant runs existed starts a session. */
+const kindOf = (s: Stored): Schedule["kind"] => (s.kind === "assistant" ? "assistant" : "session");
+
 async function toWire(s: Stored): Promise<Schedule> {
   const last = s.runs?.[0];
   return {
     ...s,
+    kind: kindOf(s),
     jitterMinutes: s.jitterMinutes ?? 0,
+    skipWhenIdle: s.skipWhenIdle ?? false,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
     lastRunAt: last?.at ?? null,
     lastSessionId: last?.sessionId ?? null,
     lastError: last?.error ?? null,
-    lastReport: last?.sessionId ? await readReport(last.sessionId) : null,
+    // An assistant run is its own report: there is no session to have written
+    // one, and what it said is the whole outcome.
+    lastReport: last?.reply ?? (last?.sessionId ? await readReport(last.sessionId) : null),
   };
 }
 
@@ -110,16 +122,23 @@ export async function getSchedule(id: string): Promise<Schedule | null> {
 
 export async function createSchedule(
   input: Pick<Schedule, "name" | "project" | "cron" | "prompt"> & {
+    kind?: Schedule["kind"];
     enabled?: boolean;
     jitterMinutes?: number;
+    skipWhenIdle?: boolean;
   },
 ): Promise<Schedule> {
+  const kind = input.kind ?? "session";
   const stored: Stored = {
     id: `sch-${randomUUID().replace(/-/g, "").slice(0, 8)}`,
     name: input.name,
-    project: input.project,
+    kind,
+    // An assistant schedule runs in no repo, and storing one it does not use
+    // would put a stale name in the UI and in every run it records.
+    project: kind === "assistant" ? "" : input.project,
     cron: input.cron,
     jitterMinutes: input.jitterMinutes ?? 0,
+    skipWhenIdle: input.skipWhenIdle ?? false,
     prompt: input.prompt,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
@@ -131,7 +150,9 @@ export async function createSchedule(
 
 export async function updateSchedule(
   id: string,
-  patch: Partial<Pick<Schedule, "name" | "cron" | "jitterMinutes" | "prompt" | "enabled">>,
+  patch: Partial<
+    Pick<Schedule, "name" | "cron" | "jitterMinutes" | "prompt" | "enabled" | "skipWhenIdle">
+  >,
 ): Promise<Schedule | null> {
   const stored = await readStored(id);
   if (!stored) return null;
@@ -149,7 +170,7 @@ export async function deleteSchedule(id: string): Promise<boolean> {
 /** Stamp the outcome of a run: the session it started, or why it started none. */
 export async function recordRun(
   id: string,
-  result: { sessionId?: string; error?: string },
+  result: { sessionId?: string; reply?: string; error?: string },
 ): Promise<void> {
   const stored = await readStored(id);
   if (!stored) return;
@@ -157,6 +178,7 @@ export async function recordRun(
     at: new Date().toISOString(),
     sessionId: result.sessionId ?? null,
     error: result.error ?? null,
+    reply: result.reply ?? null,
   };
   await write({ ...stored, runs: [run, ...(stored.runs ?? [])].slice(0, MAX_RUNS) });
 }
@@ -194,10 +216,11 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
     .slice(0, limit);
   const out: ScheduleRun[] = [];
   for (const { s, run } of rows) {
-    const report = run.sessionId ? await readReport(run.sessionId) : null;
+    const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
     out.push({
       scheduleId: s.id,
       schedule: s.name,
+      kind: kindOf(s),
       project: s.project,
       at: run.at,
       sessionId: run.sessionId,

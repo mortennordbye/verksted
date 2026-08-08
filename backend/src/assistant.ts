@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AssistantEntry, AssistantThread } from "../../shared/api.js";
-import { systemPrompt } from "./assistant-persona.js";
+import type { AssistantEntry, AssistantSearchHit, AssistantThread } from "../../shared/api.js";
+import { systemPrompt, unattendedPrompt } from "./assistant-persona.js";
 import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
 import { env } from "./env.js";
 import { inject as injectMemory } from "./memory-store.js";
@@ -45,6 +45,20 @@ import { agentEnv, readAssistantConfig } from "./settings-store.js";
  */
 const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "mcp__verksted"];
 /**
+ * The same, for a turn nobody is reading.
+ *
+ * The web goes, and knowingly. Fetching a page is how a prompt injection
+ * becomes exfiltration, and the only thing standing between the two today is
+ * that a person is looking at the reply — which is exactly what an unattended
+ * turn does not have. A briefing reads the bench, and the bench is local.
+ *
+ * The verksted tools are cut in the MCP server rather than here, because an
+ * allow list is auto-approval and a deny list of tool names is a thing this
+ * repo would have to maintain forever. Under VK_UNATTENDED the server does not
+ * offer the ones that change anything, so they do not exist to be approved.
+ */
+const UNATTENDED_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
+/**
  * The built-in tools that exist at all, which is a stronger statement than the
  * allow list: a tool not named here is not present to be approved.
  *
@@ -56,23 +70,33 @@ const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "mcp__ve
  * the full set against a steady 5s with this, and no ToolSearch call at all.
  */
 const BUILTIN_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
+const UNATTENDED_BUILTIN_TOOLS = ["Read", "Grep", "Glob"];
 const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task"];
+const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
 /** Where the MCP server the assistant acts through lives inside the image. */
-const MCP_CONFIG = {
-  mcpServers: {
-    verksted: {
-      command: "node",
-      args: ["/etc/verksted/verksted-mcp.mjs"],
-      env: { VK_API: `http://127.0.0.1:${env.PORT}` },
+function mcpConfig(unattended: boolean) {
+  return {
+    mcpServers: {
+      verksted: {
+        command: "node",
+        args: ["/etc/verksted/verksted-mcp.mjs"],
+        env: {
+          VK_API: `http://127.0.0.1:${env.PORT}`,
+          // Read by the server itself, which then offers only the tools that
+          // change nothing. The list lives next to the tool definitions, so
+          // adding a tool means deciding there whether it may run unwatched.
+          ...(unattended ? { VK_UNATTENDED: "1" } : {}),
+        },
+      },
     },
-  },
-};
+  };
+}
 
-async function ensureMcpConfig(): Promise<string> {
-  const file = path.join(env.ASSISTANT_DIR, "mcp.json");
+async function ensureMcpConfig(unattended: boolean): Promise<string> {
+  const file = path.join(env.ASSISTANT_DIR, unattended ? "mcp-unattended.json" : "mcp.json");
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
-  await fs.writeFile(file, JSON.stringify(MCP_CONFIG, null, 2));
+  await fs.writeFile(file, JSON.stringify(mcpConfig(unattended), null, 2));
   return file;
 }
 
@@ -86,18 +110,93 @@ export function uploadsDir(): string {
   return path.join(env.ASSISTANT_DIR, "uploads");
 }
 
-function threadPath(conversationId: string): string {
-  return path.join(env.ASSISTANT_DIR, `${conversationId}.jsonl`);
+/**
+ * Where a conversation's entries are mirrored.
+ *
+ * Unattended threads go in a subdirectory, and it is the same trick the review
+ * queue uses: `search` reads `*.jsonl` at the top level, and a subdirectory is
+ * not one. Without it, a nightly briefing and a nightly harvest would add some
+ * seven hundred threads a year to the set recall searches, all of them the
+ * machine talking to itself — recall is for conversations you had, and it reads
+ * every file in the directory on every call.
+ *
+ * This is only verksted's copy. Claude keeps its own under $HOME either way, so
+ * `claude --resume <id>` still opens a briefing exactly as before.
+ */
+function threadPath(conversationId: string, unattended = false): string {
+  return path.join(env.ASSISTANT_DIR, unattended ? "unattended" : "", `${conversationId}.jsonl`);
 }
 
 /** Conversation ids are uuids we generate; nothing else may name a file here. */
 const CONV_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
+ * Search the conversations that are not the current one.
+ *
+ * Every thread ever started is on the volume, and until now the only way back
+ * into one was to know its id. This is how "what did we decide about the Kargo
+ * promotion" is answerable without carrying a forty-turn thread forward: start
+ * a new one and let it look the old one up.
+ *
+ * The current conversation is deliberately excluded — it is already in the
+ * model's context, so a hit there would spend a result slot on something it can
+ * read by scrolling up.
+ *
+ * Substring matching, all words required, no index. The store is a few hundred
+ * kilobytes of text on a volume this pod owns; anything cleverer would be a
+ * database, which is the thing this app is built not to have.
+ */
+export async function search(query: string, limit = 8): Promise<AssistantSearchHit[]> {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const current = await currentConversation();
+  const files = await fs.readdir(env.ASSISTANT_DIR).catch(() => []);
+  const hits: AssistantSearchHit[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const conversationId = file.slice(0, -6);
+    if (!CONV_RE.test(conversationId) || conversationId === current) continue;
+    for (const entry of await readEntries(conversationId)) {
+      const text = entry.text.toLowerCase();
+      if (!words.every((w) => text.includes(w))) continue;
+      hits.push({
+        conversationId,
+        at: entry.at,
+        role: entry.role,
+        text: around(entry.text, entry.text.toLowerCase().indexOf(words[0])),
+      });
+    }
+  }
+  return hits.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+}
+
+/**
+ * The matching sentence rather than the whole turn: a hit is re-sent with every
+ * later turn of the conversation that asked for it, so a long answer quoted in
+ * full is paid for repeatedly.
+ */
+function around(text: string, at: number, before = 60, after = 260): string {
+  const from = Math.max(0, at - before);
+  const to = Math.min(text.length, at + after);
+  const cut = text
+    .slice(from, to)
+    .replace(/\s*\n\s*/g, " ")
+    .trim();
+  return `${from > 0 ? "…" : ""}${cut}${to < text.length ? "…" : ""}`;
+}
+
+/**
  * A turn in flight. Held in memory only: a pod restart mid-turn should come
  * back idle with the thread intact, not stuck thinking forever.
  */
-let running: { conversationId: string; child: ReturnType<typeof spawn> } | null = null;
+let running: { conversationId: string; child: ReturnType<typeof spawn> | null } | null = null;
+
+/**
+ * The same for an unattended turn, kept apart on purpose: a schedule firing
+ * must not refuse the person typing, and must not be refused by them. One of
+ * each may be in flight, and never two of either.
+ */
+let unattendedRunning = false;
 
 type Listener = (thread: AssistantThread) => void;
 const listeners = new Set<Listener>();
@@ -139,9 +238,9 @@ export async function newConversation(): Promise<string> {
   return id;
 }
 
-async function readEntries(conversationId: string): Promise<AssistantEntry[]> {
+async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
   try {
-    const raw = await fs.readFile(threadPath(conversationId), "utf8");
+    const raw = await fs.readFile(threadPath(conversationId, unattended), "utf8");
     const entries: AssistantEntry[] = [];
     for (const line of raw.split("\n")) {
       if (!line.trim()) continue;
@@ -165,10 +264,12 @@ async function readEntries(conversationId: string): Promise<AssistantEntry[]> {
 async function append(
   conversationId: string,
   entry: Omit<AssistantEntry, "id" | "at">,
+  unattended = false,
 ): Promise<AssistantEntry> {
   const full: AssistantEntry = { ...entry, id: randomUUID(), at: new Date().toISOString() };
-  await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
-  await fs.appendFile(threadPath(conversationId), `${JSON.stringify(full)}\n`);
+  const file = threadPath(conversationId, unattended);
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.appendFile(file, `${JSON.stringify(full)}\n`);
   return full;
 }
 
@@ -190,30 +291,45 @@ const TURN_TIMEOUT_MS = 10 * 60_000;
 
 /** Stop the turn in flight, if any. */
 export function stop(): boolean {
-  if (!running) return false;
+  // No child yet means the turn is between the guard and the spawn, which is a
+  // window of milliseconds; there is nothing to signal, so say so.
+  if (!running?.child) return false;
   running.child.kill("SIGTERM");
   return true;
 }
 
 /**
- * Run one turn: record what was asked, ask claude, record what came back.
+ * One turn against the CLI, in a given conversation.
+ *
+ * Shared by the chat and by a schedule firing, because the two differ in what
+ * they may do and who is told — not in how a turn is run. `unattended` is the
+ * only switch: it narrows the tools and changes what the prompt asks for.
  *
  * The prompt travels as an argv element, never through a shell, so nothing in
  * it can be read as syntax — the same rule the tmux path follows.
  */
-export async function send(prompt: string, images: string[] = []): Promise<AssistantThread> {
-  if (running) throw new Error("a turn is still running");
-  const conversationId = await currentConversation();
-  const started = await readEntries(conversationId);
-
-  await append(conversationId, { role: "user", text: prompt, tools: [], images });
+async function turn(o: {
+  conversationId: string;
+  prompt: string;
+  images: string[];
+  /** True to continue the conversation, false to name a new one. */
+  resume: boolean;
+  unattended: boolean;
+  onSpawn: (child: ReturnType<typeof spawn>) => void;
+  /** Called as entries land, and with the part-written reply between them. */
+  onChange: (live?: string) => void;
+}): Promise<void> {
+  const { conversationId, images, unattended } = o;
+  // What the thread held before this turn, so "it produced nothing" is a fact
+  // rather than a guess about how many entries a turn ought to add.
+  const before = (await readEntries(conversationId, unattended)).length;
 
   // Claude reads an image by path with its own Read tool, so an attachment is
   // delivered as a line telling it where to look rather than as bytes on a
   // wire it has no way to receive.
   const withImages = images.length
-    ? `${prompt}\n\n${images.map((n) => `[image: ${path.join(uploadsDir(), n)}]`).join("\n")}`
-    : prompt;
+    ? `${o.prompt}\n\n${images.map((n) => `[image: ${path.join(uploadsDir(), n)}]`).join("\n")}`
+    : o.prompt;
 
   // --session-id names a new conversation, --resume continues one. Getting this
   // the wrong way round either loses the thread or fails outright, so it keys
@@ -229,14 +345,14 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
     // Token deltas, so an answer appears as it is written. Without this the
     // first text arrives only when the whole turn is done.
     "--include-partial-messages",
-    ...(started.length ? ["--resume", conversationId] : ["--session-id", conversationId]),
+    ...(o.resume ? ["--resume", conversationId] : ["--session-id", conversationId]),
     // Nobody is watching a headless run to approve a tool call, and a prompt it
     // cannot answer is what the timeout below exists for. Safe here only
     // because the tools worth regretting are denied outright below.
     "--permission-mode",
     "auto",
     "--mcp-config",
-    await ensureMcpConfig(),
+    await ensureMcpConfig(unattended),
     // Without this, MCP servers configured in $HOME join the ones here — and
     // the allow list only auto-approves, so an unlisted server's tools would
     // still be a classifier's call. The claim that this agent has exactly the
@@ -252,13 +368,15 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
     "--effort",
     config.effort,
     "--tools",
-    BUILTIN_TOOLS.join(","),
+    (unattended ? UNATTENDED_BUILTIN_TOOLS : BUILTIN_TOOLS).join(","),
     "--allowed-tools",
-    ALLOWED_TOOLS.join(" "),
+    (unattended ? UNATTENDED_ALLOWED_TOOLS : ALLOWED_TOOLS).join(" "),
     "--disallowed-tools",
-    DENIED_TOOLS.join(" "),
+    (unattended ? UNATTENDED_DENIED_TOOLS : DENIED_TOOLS).join(" "),
     "--append-system-prompt",
-    systemPrompt(config.name, config.instructions),
+    unattended
+      ? unattendedPrompt(config.name, config.instructions)
+      : systemPrompt(config.name, config.instructions),
   ];
 
   const child = spawn("claude", args, {
@@ -266,8 +384,8 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
     env: { ...process.env, ...(await agentEnv()) },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  running = { conversationId, child };
-  void announce();
+  o.onSpawn(child);
+  o.onChange();
 
   // Entries are appended and announced the moment they complete, rather than
   // after the process exits: the model produces its first sentence while the
@@ -290,16 +408,16 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
         // visible as it lands. Throttled, since deltas arrive per token.
         if (state.live !== lastLive) {
           lastLive = state.live;
-          void announce(state.live);
+          o.onChange(state.live);
         }
         return;
       }
       // Serialised: appends are file writes, and two chunks arriving close
       // together must not interleave inside the thread file.
       queue = queue.then(async () => {
-        for (const entry of entries) await append(conversationId, entry);
+        for (const entry of entries) await append(conversationId, entry, unattended);
         lastLive = "";
-        await announce();
+        o.onChange();
       });
     });
     child.stderr?.on("data", (d: Buffer) => (err += d.toString()));
@@ -312,29 +430,61 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
     child.on("close", done);
   });
 
-  for (const entry of finishStream(state)) await append(conversationId, entry);
+  for (const entry of finishStream(state)) await append(conversationId, entry, unattended);
   const error = state.error;
-  const said = (await readEntries(conversationId)).length > started.length + 1;
-
-  running = null;
+  const said = (await readEntries(conversationId, unattended)).length > before;
 
   if (raw.timedOut) {
-    await append(conversationId, {
-      role: "assistant",
-      text: "That turn ran past ten minutes and was stopped. It was most likely waiting on a permission prompt nobody could answer.",
-      tools: [],
-      failed: true,
-    });
+    await append(
+      conversationId,
+      {
+        role: "assistant",
+        text: "That turn ran past ten minutes and was stopped. It was most likely waiting on a permission prompt nobody could answer.",
+        tools: [],
+        failed: true,
+      },
+      unattended,
+    );
   } else if (!said || error) {
     // stderr rather than a generic message: whatever the CLI complained about
     // is the only thing that will explain an empty turn.
     const detail = error ?? raw.err.trim().split("\n").slice(-3).join("\n");
-    await append(conversationId, {
-      role: "assistant",
-      text: detail || "That turn produced nothing.",
-      tools: [],
-      failed: true,
+    await append(
+      conversationId,
+      { role: "assistant", text: detail || "That turn produced nothing.", tools: [], failed: true },
+      unattended,
+    );
+  }
+}
+
+/**
+ * Run one turn of the chat: record what was asked, ask claude, record what came
+ * back. Everything the socket shows follows from the entries this appends.
+ */
+export async function send(prompt: string, images: string[] = []): Promise<AssistantThread> {
+  if (running) throw new Error("a turn is still running");
+  const conversationId = await currentConversation();
+  const resume = (await readEntries(conversationId)).length > 0;
+
+  await append(conversationId, { role: "user", text: prompt, tools: [], images });
+  // Held from here rather than from the spawn: a second POST arriving while the
+  // process is still starting would otherwise get past the guard above.
+  running = { conversationId, child: null };
+
+  try {
+    await turn({
+      conversationId,
+      prompt,
+      images,
+      resume,
+      unattended: false,
+      onSpawn: (child) => {
+        if (running) running.child = child;
+      },
+      onChange: (live) => void announce(live),
     });
+  } finally {
+    running = null;
   }
 
   // The turn may have written or deleted a memory file directly, so what every
@@ -345,4 +495,48 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
   const thread = await readThread();
   for (const fn of listeners) fn(thread);
   return thread;
+}
+
+/**
+ * A turn nobody asked for and nobody is reading: a schedule fired.
+ *
+ * Three decisions are baked in here, and they are the ones that were blocking
+ * this from existing at all.
+ *
+ * It gets a **fresh conversation every run**. Sharing the chat would mutate a
+ * thread the user is reading and re-send it every morning; keeping one thread
+ * per schedule would grow without bound, since every turn carries the whole
+ * history. A briefing is a standing question with no yesterday in it, so it
+ * costs one prompt. The thread still lands on the volume under its own id, so
+ * `claude --resume <id>` opens exactly what it did.
+ *
+ * It runs **beside** the chat rather than in front of it: its own guard, so a
+ * schedule firing while you are typing does not refuse you and is not refused.
+ * At most one of each, which is the ceiling worth having.
+ *
+ * And it may **read and notify, nothing else** — see the tool lists above.
+ */
+export async function runUnattended(prompt: string): Promise<{ text: string; failed: boolean }> {
+  if (unattendedRunning) throw new Error("an unattended turn is still running");
+  const conversationId = randomUUID();
+  unattendedRunning = true;
+  try {
+    await turn({
+      conversationId,
+      prompt,
+      images: [],
+      resume: false,
+      unattended: true,
+      onSpawn: () => {},
+      onChange: () => {},
+    });
+  } finally {
+    unattendedRunning = false;
+  }
+  // `failed` is only written on a turn that went wrong, so its absence means
+  // the turn was fine — and no entry at all means it produced nothing.
+  const last = (await readEntries(conversationId, true))
+    .filter((e) => e.role === "assistant")
+    .pop();
+  return { text: last?.text.trim() ?? "", failed: !last || last.failed === true };
 }

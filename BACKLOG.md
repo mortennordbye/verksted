@@ -113,18 +113,26 @@ what unblocks it / where the code lives.
   watch and editing a file from the terminal.
 - **Where:** `runtime/SANDBOX.md` ("File watching")
 
-## agy has no global memory file wired to the sandbox note
+## agy gets neither the sandbox note nor the house rules
 
-- **What:** `sandbox-doc.ts` points claude (`~/.claude/CLAUDE.md`) and codex
-  (`~/.codex/AGENTS.md`) at `/etc/verksted/SANDBOX.md` on boot. antigravity's
-  equivalent — whether it reads a global instructions file at all, and under
-  what name — is unverified, so agy sessions still start without the note and
-  will rediscover the sibling-daemon rule the hard way.
-- **Why deferred:** Same reason as agy's status hooks and MCP config: the config
-  mechanism needs confirming in the pod against a real authenticated CLI.
+- **What:** `sandbox-doc.ts` writes to claude (`~/.claude/CLAUDE.md`) and codex
+  (`~/.codex/AGENTS.md`). antigravity's equivalent — whether it reads a global
+  instructions file at all, and under what name — is unverified, so agy sessions
+  start without any of it.
+- **Why it matters more than it used to:** that file now carries the two house
+  rules as well as the sandbox note. An antigravity session is the one place on
+  this bench where "leave no sign an agent wrote this" and "ask before anything
+  irreversible" are not said at all — and memory-store.ts injects through the
+  same list, so a agy session is also told nothing verksted has learned. The
+  same three-way gap already exists for agy's status hooks and MCP config, so
+  this is one verification pass, not three.
+- **Why deferred:** Needs confirming in the pod against a real authenticated
+  CLI, and agy's headless auth is itself unverified (see the entry above).
 - **Unblocked by:** Confirming what global instructions file agy reads, then
-  adding it to `MEMORY_FILES`.
-- **Where:** `backend/src/sandbox-doc.ts` (`MEMORY_FILES`)
+  adding it to `MEMORY_FILES` — both blocks and memory follow automatically.
+  Until then, prefer claude or codex for anything that will commit.
+- **Where:** `backend/src/sandbox-doc.ts` (`MEMORY_FILES`),
+  `backend/src/memory-store.ts` (`inject`, same list)
 
 ## Milestone 4 remainder (per SPEC.md)
 
@@ -344,35 +352,76 @@ what unblocks it / where the code lives.
   `launchAgent` already builds `claude --resume <id>` for restores),
   `frontend/src/screens/Assistant.tsx` (where the button goes)
 
-## Assistant M3: nothing harvests memories yet
+## Nothing prunes the assistant's own directory
 
-- **What:** Memory only fills up when you tell the assistant something in a
-  conversation you were present for. The half that learns without being asked —
-  a nightly pass over the transcripts of sessions that ended that day, proposing
-  facts — is not built, and must not be built before the review queue below is:
-  explicit memory needs no gate because you were there when it was written, and
-  harvested memory has no such moment.
-- **Why deferred:** M2 shipped first on purpose. Harvesting without review is
-  the version of this feature that quietly poisons itself.
-- **Unblocked by:** The review queue, then a schedule that reads
-  `$HOME/.claude/projects/<slug>/<conversation-id>.jsonl` for the sessions whose
-  ids are recorded in `<id>.conv`.
-- **Where:** `backend/src/memory-store.ts` (the store to write into),
-  `backend/src/sessions-store.ts` (`<id>.conv` is the join to a transcript)
+- **What:** `maintenance.ts` reaps idle session browsers and docker debris.
+  Nothing touches `ASSISTANT_DIR`: every conversation ever held, every
+  unattended run's thread, and every image pasted or uploaded into the chat
+  stays on the volume for good. Today that is 8 threads and 716 KB, which is
+  nothing — but a nightly briefing and a nightly harvest add roughly 700 threads
+  a year on their own, and `search` reads every file at the top level on every
+  recall.
+- **Why deferred:** Deleting somebody's conversation history is a decision, not
+  a cleanup: the whole point of recall is that an old thread is still worth
+  something. Uploads are the easy half and were not worth a pass on their own.
+- **Unblocked by:** Deciding a retention rule worth having — likeliest is
+  "unattended threads older than 30 days go, chats stay, uploads older than 30
+  days go", since the subdirectory split now makes the two separable. Then a
+  daily sweep beside the docker prune.
+- **Where:** `backend/src/maintenance.ts`, `backend/src/assistant.ts`
+  (`threadPath`, `uploadsDir`)
 
-## Assistant M3: proposed memories have nowhere to be reviewed
+## The house rules are instructions, not enforcement
 
-- **What:** A queue on the inbox screen where a proposed fact is kept or
-  dropped, and only becomes memory when kept. Needed before anything writes
-  memories on its own — including from repo content and PR text nobody here
-  wrote, which is one hop from a prompt-injection payload becoming permanent
-  context in every session.
-- **Why deferred:** Nothing proposes memories yet, so the queue would be empty.
-  It is the prerequisite for the entry above, not a follow-up to it.
-- **Unblocked by:** Deciding whether a proposal is a memory file with a
-  `status: proposed` field or a separate directory; the former keeps one store,
-  the latter keeps the injected block trivially correct.
-- **Where:** `backend/src/memory-store.ts`, `frontend/src/screens/Inbox.tsx`
+- **What:** "Leave no sign an agent wrote this" and "ask before anything
+  irreversible" reach every agent through the global memory file, which is the
+  strongest instruction channel available and still only an instruction. A model
+  that ignores it leaves a `Co-Authored-By` trailer in history, and history is
+  the thing you cannot quietly fix later. Nothing checks after the fact.
+- **Why deferred:** The mechanical version is a `commit-msg` hook installed into
+  every repo verksted touches, which strips agent trailers and footers. That
+  writes into the user's own repos and their `.git` directories, which is a
+  bigger decision than it looks — a hook is invisible, survives verksted, and
+  surprises anyone else who clones the repo.
+- **Unblocked by:** Deciding whether verksted may write into `.git/hooks` (or
+  set `core.hooksPath` to a directory it owns), then a hook that drops any
+  trailer matching Claude/agent/AI and any "Generated with" footer. A cheaper
+  first step: have the assistant's `list_prs`/`pr_detail` flag a PR body that
+  carries one, so at least it is noticed.
+- **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`),
+  `backend/src/sessions-store.ts` (where a hook would be installed)
+
+## The harvest has never read a real transcript
+
+- **What:** `transcripts.ts` is tested against hand-written JSONL in the shape
+  claude writes: a human turn is `origin.kind === "human"` with string content,
+  and everything else — model output, tool results, attachments — is excluded.
+  The fixture was read off a real transcript on the volume, but nothing in CI
+  reads one, so a future CLI release that renames `origin` or stops setting it
+  would silently harvest nothing (safe) or, if the shape changed the other way,
+  start including tool results (not safe).
+- **Why deferred:** Same class as the gh fixture entry above: catching it needs
+  a real claude run, which needs auth and a pod.
+- **Unblocked by:** A check that reads one real transcript from
+  `$HOME/.claude/projects/` in the pod and asserts at least one human turn comes
+  out and no tool result does. Worth pinning the claude version in the image and
+  re-checking on each bump.
+- **Where:** `backend/src/transcripts.ts` (`promptsIn`),
+  `backend/test/transcripts.test.ts`
+
+## A harvest proposing the same rejected fact every night
+
+- **What:** Dropping a proposal leaves no trace, which is what makes the queue
+  feel clean. The cost is that nothing remembers the rejection: if the same
+  session's prompts are read again — a harvest run twice by hand, or a
+  look-back window widened past a day — the same fact is proposed again and has
+  to be dropped again. The nightly window makes this unlikely rather than
+  impossible.
+- **Why deferred:** The fix is a tombstone file per rejected slug, which is
+  state that exists only to remember a "no" and has to be pruned itself. Not
+  worth it before it is annoying in practice.
+- **Unblocked by:** Dropping the same proposal twice and being irritated by it.
+- **Where:** `backend/src/memory-store.ts` (`dropProposal`)
 
 ## Assistant M4: memory has a budget but no compaction
 
@@ -404,21 +453,34 @@ what unblocks it / where the code lives.
   runtime the backend is using).
 - **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)
 
-## The assistant has no unattended turn, so `notify` is half a feature
+## An unattended turn has never been watched fire on its own cron
 
-- **What:** The `notify` tool pushes a line to the phone, but nothing runs the
-  assistant except a person typing at it: `assistant.send` has exactly one
-  caller, `POST /api/assistant/messages`. Schedules start tmux sessions, not
-  assistant turns. So the tool can only push to somebody who is already reading
-  the reply it arrived with, and the case it exists for — "the nightly run
-  failed and nobody was looking" — is still out of reach.
-- **Why deferred:** The tool is the small half. The other half is a scheduled
-  assistant turn, which needs decisions this milestone has not taken: whether a
-  turn spawned by cron shares the interactive conversation or gets its own, what
-  it costs to run one on a timer, and what stops a failing schedule from pushing
-  the same line every hour.
-- **Unblocked by:** Deciding the above, then giving `schedules-store` a schedule
-  kind that calls `assistant.send` instead of starting a session — the scheduler
-  already owns cron timers, the run log and `MAX_LIVE_SESSIONS`.
-- **Where:** `runtime/verksted-mcp.mjs` (`notify`), `backend/src/routes/push.ts`
-  (`POST /api/push/send`), `backend/src/scheduler.ts`, `backend/src/assistant.ts`
+- **What:** The assistant schedule kind is covered by tests against a fake
+  claude — the tool set it runs with, the fresh conversation per run, the reply
+  filed as the run's report, a failure recorded as an error. What no test can
+  cover is the real thing: a cron firing at 07:00 in the pod, a real model
+  answering, and the phone lighting up (or correctly staying dark when the
+  answer is "ok"). Notification suppression is in-memory, so a pod that
+  restarts between two firings will push a duplicate.
+- **Why deferred:** Needs a deployed pod, an authenticated CLI and a subscribed
+  device; the same gap as the entry above about scheduled runs generally.
+- **Unblocked by:** Creating an assistant schedule in the app, watching one tick
+  land in the inbox, and checking what the phone got. Then confirm the second
+  identical push inside six hours is suppressed.
+- **Where:** `backend/src/scheduler.ts` (`briefing`), `backend/src/assistant.ts`
+  (`runUnattended`), `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`)
+
+## Old assistant threads can only be searched, never browsed
+
+- **What:** `recall` gives the agent its way back into an old conversation, and
+  there is no way for a person to have the same. Every thread is kept as JSONL
+  under `ASSISTANT_DIR` and the chat screen shows only the current one, so a
+  thread you abandoned is reachable by asking the assistant about it or by
+  `claude --resume <id>` in a terminal, and no other way.
+- **Why deferred:** The ask was recall for the agent, and that is what shipped.
+  A thread list is a screen, and screens are worth building once the store is
+  big enough that one is missed.
+- **Unblocked by:** Wanting to reread a thread yourself. The endpoint is nearly
+  there: `GET /api/assistant/search` already enumerates the files.
+- **Where:** `backend/src/assistant.ts` (`search`, `readEntries`),
+  `frontend/src/screens/Assistant.tsx`

@@ -243,6 +243,16 @@ export interface ReplaceResult {
 }
 
 /**
+ * What a schedule does when it fires.
+ *
+ * "session" starts a claude session in a project and submits the prompt.
+ * "assistant" runs one unattended assistant turn instead: no repo, no terminal,
+ * no writes — it reads the bench and answers, and reaches the phone through its
+ * notify tool when the answer needs somebody.
+ */
+export type ScheduleKind = "session" | "assistant";
+
+/**
  * A recurring prompt: on its cron the pod starts a claude session in the
  * project and submits the prompt, unattended (auto permission mode).
  */
@@ -250,6 +260,8 @@ export interface Schedule {
   id: string;
   /** Human label; also the title of the sessions it starts. */
   name: string;
+  kind: ScheduleKind;
+  /** The repo it runs in. Empty for an assistant schedule, which has none. */
   project: string;
   /** Five-field cron, read in the pod's timezone. */
   cron: string;
@@ -259,14 +271,23 @@ export interface Schedule {
    */
   jitterMinutes: number;
   prompt: string;
+  /**
+   * Assistant schedules only: don't run at all on a day when no session ended.
+   * A pass over what happened has nothing to read when nothing happened, and a
+   * turn that discovers that still costs a model call.
+   */
+  skipWhenIdle: boolean;
   enabled: boolean;
   createdAt: string;
   lastRunAt: string | null;
-  /** Session the last run started; null when it never ran or could not start. */
+  /** Session the last run started; null for an assistant run, which starts none. */
   lastSessionId: string | null;
   /** Why the last run started nothing; null when it did. */
   lastError: string | null;
-  /** The verdict the last run wrote for itself ("ok: …"); null when it wrote none. */
+  /**
+   * The verdict the last run wrote for itself ("ok: …"); null when it wrote
+   * none. For an assistant schedule this is what the turn replied.
+   */
   lastReport: string | null;
   /** Next fire time, computed on read; null when disabled. */
   nextRunAt: string | null;
@@ -281,12 +302,18 @@ export interface ScheduleRun {
   scheduleId: string;
   /** The schedule's name at the time of reading. */
   schedule: string;
+  kind: ScheduleKind;
+  /** Empty for an assistant run, which belongs to no repo. */
   project: string;
   at: string;
+  /** Null for an assistant run, which starts no session. */
   sessionId: string | null;
   /** Why it started nothing; null when it started a session. */
   error: string | null;
-  /** The verdict the run wrote for itself; null when it wrote none. */
+  /**
+   * The verdict the run wrote for itself; null when it wrote none. For an
+   * assistant run this is the reply itself.
+   */
   report: string | null;
   outcome: "ok" | "attention" | "failed" | "blocked" | "running" | "done";
 }
@@ -323,6 +350,8 @@ export interface PushTestResult {
   sent: number;
   failed: number;
   error?: string;
+  /** Set when the same message went out recently and this one was dropped. */
+  suppressed?: boolean;
 }
 
 /** An installed SSH key. Private halves are write-only and never leave the pod. */
@@ -414,6 +443,15 @@ export interface AssistantThread {
    * over the socket, never from a plain GET.
    */
   live?: string;
+}
+
+/** One turn from an older conversation, found by searching them. */
+export interface AssistantSearchHit {
+  conversationId: string;
+  at: string;
+  role: "user" | "assistant";
+  /** The matching turn, trimmed to the part around the match. */
+  text: string;
 }
 
 export type MemoryType = "preference" | "project" | "reference";

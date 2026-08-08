@@ -27,6 +27,52 @@ const BLOCK = [
   "check the live topology.",
 ].join("\n");
 
+const RULES_START = "<!-- verksted:house start -->";
+const RULES_END = "<!-- verksted:house end -->";
+
+/**
+ * The two standing rules, told to every agent in every repo.
+ *
+ * Here rather than in any repo's own CLAUDE.md for the same reason as the
+ * sandbox note: they are true of this bench, including in a project verksted
+ * has never seen, and a committed file is no place for one person's house
+ * style. A repo cloned tomorrow is covered without anyone remembering to add
+ * anything to it.
+ *
+ * **Attribution.** Every agent CLI here adds its own signature by default — a
+ * Co-Authored-By trailer on commits, a "Generated with" footer on pull requests
+ * — and git history is not something you can quietly correct later. Verksted
+ * writes no such thing itself; this is what stops the agents doing it.
+ *
+ * **Destruction.** These agents run in auto permission mode when a schedule
+ * starts them, which is what makes an unattended run possible at all: routine
+ * tool calls go through without anyone there. So the line between "routine" and
+ * "gone forever" has to be drawn in words, and it is drawn at what git cannot
+ * undo. Asking is not a dead end even at 03:00 — the session turns amber, the
+ * phone gets pushed, and the work waits rather than being guessed at.
+ */
+const HOUSE_RULES = [
+  "House rules on this bench, from the person who owns it. They hold in every",
+  "repo, including ones with no instructions of their own.",
+  "",
+  "**Leave no sign that an agent wrote anything.** No Co-Authored-By trailer for",
+  "Claude or any other agent, no 'Generated with' footer or badge, and no mention",
+  "of AI, an agent or an assistant anywhere it would persist: commit messages,",
+  "branch names, pull request titles and bodies, issue and review comments, and",
+  "code comments. Write as the person whose name is on the commit would write.",
+  "",
+  "**Ask before anything that cannot be undone.** Force-pushing; rewriting",
+  "published history (rebase, amend or reset --hard on a branch already pushed);",
+  "deleting a branch, tag, remote or release; discarding uncommitted work (git",
+  "checkout --, git restore, git clean, stash drop); dropping a database, a",
+  "volume or its data; and rm -rf outside a build directory. Stop and ask, even",
+  "when nobody appears to be watching — that is what turns the session amber and",
+  "reaches them.",
+  "",
+  "Committing, pushing a new branch, and opening a pull request are ordinary work",
+  "and need no permission.",
+].join("\n");
+
 /** Agent CLI -> its global memory file, relative to $HOME. */
 export const MEMORY_FILES = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
 
@@ -51,9 +97,9 @@ export function mergeMarked(existing: string, start: string, end: string, block:
   return before ? `${before}\n\n${body}\n` : `${body}\n`;
 }
 
-/** Replace the sandbox block, or append one, leaving the rest of the file alone. */
+/** Replace both verksted-owned blocks, leaving the rest of the file alone. */
 export function mergeBlock(existing: string): string {
-  return mergeMarked(existing, START, END, BLOCK);
+  return mergeMarked(mergeMarked(existing, START, END, BLOCK), RULES_START, RULES_END, HOUSE_RULES);
 }
 
 interface Logger {

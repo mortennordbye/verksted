@@ -1,9 +1,32 @@
 import { useState } from "react";
-import type { Memory, MemoryList, MemoryType } from "../../../shared/api";
+import type { Memory, MemoryList, MemoryType, Schedule } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import { focusIfPointerFine } from "./Sheet";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
+
+/**
+ * The nightly harvest, as a schedule like any other.
+ *
+ * It is set up from here rather than being built into the backend because it is
+ * nothing but an assistant schedule with a careful prompt: it shows up on the
+ * schedules list, its runs land in the inbox, and it can be paused, retimed or
+ * rewritten there like everything else. Matched by name, so pressing this twice
+ * cannot leave two.
+ */
+const HARVEST_NAME = "memory harvest";
+const HARVEST_PROMPT = [
+  "Read what I typed into the sessions that ended in the last day with recent_prompts,",
+  "and propose anything worth remembering with propose_memory.",
+  "",
+  "Worth remembering means it would change how a future agent acts: a preference, a",
+  "correction I made, or how something in one of my repos actually works. Not the",
+  "details of one task, not anything already in your memory. Write each one as an",
+  "instruction to a future agent and say in source which session it came from.",
+  "",
+  "Most days there is nothing, and proposing nothing is the right answer. Reply with",
+  'one line: "ok: nothing worth keeping" or "ok: proposed 2".',
+].join("\n");
 
 /** Slugs name files on the volume, so the server's rule is enforced here too. */
 function slugify(text: string): string {
@@ -156,8 +179,13 @@ function Row({
 
 export default function MemoryPanel() {
   const { data, refresh } = usePoll<MemoryList>("/api/memory", 30_000);
+  const { data: schedules, refresh: refreshSchedules } = usePoll<Schedule[]>(
+    "/api/schedules",
+    60_000,
+  );
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function forget(slug: string) {
     await api(`/api/memory/${slug}`, { method: "DELETE" }).catch(() => {});
@@ -165,6 +193,29 @@ export default function MemoryPanel() {
   }
 
   const pct = data ? Math.min(100, Math.round((data.used / data.budget) * 100)) : 0;
+  const harvest = (schedules ?? []).find((s) => s.kind === "assistant" && s.name === HARVEST_NAME);
+
+  async function startHarvesting() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await api("/api/schedules", {
+        method: "POST",
+        body: JSON.stringify({
+          name: HARVEST_NAME,
+          kind: "assistant",
+          cron: "0 3 * * *",
+          // A day when no session ended has nothing to harvest, so it does not
+          // run at all rather than paying a model call to find that out.
+          skipWhenIdle: true,
+          prompt: HARVEST_PROMPT,
+        }),
+      });
+      refreshSchedules();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="mt-8">
@@ -201,6 +252,30 @@ export default function MemoryPanel() {
           </div>
         </>
       )}
+
+      {/* Learning without being asked, and what it costs, stated plainly: the
+          harvest reads only what you typed, so a night of it is a few
+          kilobytes rather than a transcript. */}
+      <div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
+        <div className="flex-1 text-[13px] text-muted">
+          {harvest
+            ? harvest.enabled
+              ? "Learning nightly from what you typed into finished sessions. Anything it notices waits in the inbox until you keep it."
+              : "Nightly learning is paused. Resume it on the schedules list below."
+            : "It only learns what you tell it directly. Turn on the nightly pass and it will read back what you typed into finished sessions and propose what it noticed — nothing is remembered until you keep it in the inbox."}
+        </div>
+        {harvest ? (
+          <span className="font-mono text-[11px] text-faint">{harvest.cron}</span>
+        ) : (
+          <button
+            onClick={startHarvesting}
+            disabled={busy}
+            className="flex-none rounded-lg border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            learn nightly
+          </button>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2">
         {adding && (
