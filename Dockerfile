@@ -25,7 +25,7 @@ RUN curl -fsSL -o /ggml-base.en.bin \
 
 # ---------- base: tmux + gh + agent CLIs + toolchains (shared by dev and runtime) ----------
 # python3/make/g++ also compile node-pty (no prebuilds).
-FROM node:22-slim AS base
+FROM node:25-slim AS base
 # Without a UTF-8 locale tmux renders every multibyte glyph as "_" (TUI borders,
 # spinners, the Claude logo). C.UTF-8 ships with the base image.
 #
@@ -148,7 +148,7 @@ WORKDIR /app
 
 # ---------- build: compile frontend + backend, prod deps for backend ----------
 # Same node base as runtime so node-pty's compiled .node binary matches the ABI.
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
