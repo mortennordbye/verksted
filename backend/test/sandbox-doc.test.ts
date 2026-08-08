@@ -35,6 +35,43 @@ describe("mergeBlock", () => {
   });
 });
 
+describe("the house rules", () => {
+  it("tells every agent to leave no sign that one wrote anything", () => {
+    // Every agent CLI here signs its own work by default, and git history is
+    // not something you can quietly correct later. This block is the only thing
+    // that stops it, and it has to reach repos verksted has never seen — which
+    // is why it lives in the global memory file rather than in any CLAUDE.md.
+    const merged = mergeBlock("");
+
+    expect(merged).toContain("Co-Authored-By");
+    expect(merged).toContain("Generated with");
+    expect(merged).toMatch(/commit messages/);
+    expect(merged).toMatch(/pull request titles and bodies/);
+  });
+
+  it("tells every agent to ask before anything that cannot be undone", () => {
+    // Scheduled sessions run in auto permission mode, so the line between
+    // routine and gone-forever has to be drawn in words.
+    const merged = mergeBlock("");
+
+    for (const forbidden of ["Force-pushing", "reset --hard", "git clean", "rm -rf"]) {
+      expect(merged, forbidden).toContain(forbidden);
+    }
+    // And the ordinary half, or an agent that asks about every commit is
+    // useless in exactly the unattended runs this is written for.
+    expect(merged).toContain("need no permission");
+  });
+
+  it("keeps the two blocks separate, so neither rewrite disturbs the other", () => {
+    const merged = mergeBlock("Mine.\n");
+
+    expect(merged.split("verksted:sandbox start")).toHaveLength(2);
+    expect(merged.split("verksted:house start")).toHaveLength(2);
+    expect(mergeBlock(merged)).toBe(merged);
+    expect(merged).toContain("Mine.");
+  });
+});
+
 describe("ensureSandboxNotes", () => {
   it("writes the pointer into every agent's global memory file", async () => {
     const home = tmpHome();

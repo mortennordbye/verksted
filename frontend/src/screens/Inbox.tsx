@@ -1,6 +1,7 @@
+import { useState } from "react";
 import { Link } from "react-router";
-import type { ScheduleRun, Session } from "../../../shared/api";
-import { agoLabel, usePoll } from "../api";
+import type { Memory, ScheduleRun, Session } from "../../../shared/api";
+import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
 import WaitingSession from "../components/WaitingSession";
@@ -30,10 +31,33 @@ const OUTCOME: Record<ScheduleRun["outcome"], { kind: "run" | "wait" | "fail" | 
 export default function Inbox() {
   const { data: sessions } = usePoll<Session[]>("/api/sessions", 8_000);
   const { data: runs } = usePoll<ScheduleRun[]>("/api/runs", 15_000);
+  const { data: proposed, refresh: refreshProposed } = usePoll<{ proposals: Memory[] }>(
+    "/api/memory/proposed",
+    30_000,
+  );
+  const [busy, setBusy] = useState<string | null>(null);
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
+  const proposals = proposed?.proposals ?? [];
+  // Proposals count: they are the one thing here that arrives with nothing to
+  // announce it, and a queue nobody looks at is a learning loop that stalls at
+  // the review step. Lighter than blocked work, but it does want you.
   const needsYou =
     waiting.length +
+    proposals.length +
     (runs ?? []).filter((r) => r.outcome === "attention" || r.outcome === "failed").length;
+
+  async function review(slug: string, keep: boolean) {
+    if (busy) return;
+    setBusy(slug);
+    try {
+      await api(keep ? `/api/memory/proposed/${slug}/keep` : `/api/memory/proposed/${slug}`, {
+        method: keep ? "POST" : "DELETE",
+      });
+      refreshProposed();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <>
@@ -50,8 +74,8 @@ export default function Inbox() {
               : "nothing needs you"}
         </h1>
         <div className="mb-6 text-sm text-muted">
-          Agents blocked on a decision, then every firing of every schedule. A run signs off with
-          one line; that line is what the phone got.
+          Agents blocked on a decision, memories waiting to be kept or dropped, then every firing of
+          every schedule. A run signs off with one line; that line is what the phone got.
         </div>
 
         {waiting.length > 0 && (
@@ -62,6 +86,58 @@ export default function Inbox() {
             <div className="mb-7 flex flex-col gap-2">
               {waiting.map((s) => (
                 <WaitingSession key={s.id} session={s} />
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* The gate. Nothing harvested reaches a session until it is kept here,
+            which is the only thing standing between an automatic memory and a
+            wrong fact quietly degrading every later session. */}
+        {proposals.length > 0 && (
+          <>
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Proposed memories
+            </div>
+            <div className="mb-1.5 text-[13px] text-muted">
+              Noticed in sessions that ended recently. Kept ones are told to every agent in every
+              repo from then on; dropped ones leave no trace.
+            </div>
+            <div className="mb-7 flex flex-col gap-2">
+              {proposals.map((p) => (
+                <div
+                  key={p.slug}
+                  className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5"
+                >
+                  <div className="text-[13.5px]">
+                    {p.scope !== "global" && <span className="text-faint">In {p.scope}: </span>}
+                    {p.text}
+                  </div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                    <StatusChip kind="idle" label={p.type} />
+                    {/* Provenance is the answer to "why does it think that?",
+                        and this is the moment the question gets asked. */}
+                    {p.source && (
+                      <span className="font-mono text-[11px] text-faint">{p.source}</span>
+                    )}
+                    <span className="ml-auto flex gap-2">
+                      <button
+                        onClick={() => review(p.slug, true)}
+                        disabled={busy !== null}
+                        className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                      >
+                        keep
+                      </button>
+                      <button
+                        onClick={() => review(p.slug, false)}
+                        disabled={busy !== null}
+                        className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                      >
+                        drop
+                      </button>
+                    </span>
+                  </div>
+                </div>
               ))}
             </div>
           </>
@@ -79,12 +155,18 @@ export default function Inbox() {
               <div className="flex flex-wrap items-center gap-2.5">
                 <StatusChip kind={OUTCOME[r.outcome].kind} label={r.outcome} />
                 <span className="font-mono text-[12.5px]">{r.schedule}</span>
-                <Link
-                  to={`/p/${r.project}`}
-                  className="font-mono text-[11px] text-faint hover:text-accent"
-                >
-                  {r.project}
-                </Link>
+                {/* An assistant run belongs to no repo, so there is nowhere to
+                    link: what it is gets said instead. */}
+                {r.kind === "assistant" ? (
+                  <span className="font-mono text-[11px] text-faint">the assistant</span>
+                ) : (
+                  <Link
+                    to={`/p/${r.project}`}
+                    className="font-mono text-[11px] text-faint hover:text-accent"
+                  >
+                    {r.project}
+                  </Link>
+                )}
                 <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(r.at)}</span>
               </div>
               <div className="mt-1.5 text-[12.5px] text-muted">

@@ -33,10 +33,10 @@ const REPLIES: Record<string, unknown> = {
 };
 
 /** One JSON-RPC round trip, with a fresh process each time. */
-function rpc(request: object): Promise<Record<string, unknown>> {
+function rpc(request: object, env: Record<string, string> = {}): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [SERVER], {
-      env: { ...process.env, VK_API: api },
+      env: { ...process.env, VK_API: api, ...env },
       stdio: ["pipe", "pipe", "inherit"],
     });
     let out = "";
@@ -50,6 +50,9 @@ function rpc(request: object): Promise<Record<string, unknown>> {
     child.stdin.end(`${JSON.stringify(request)}\n`);
   });
 }
+
+/** What the backend sets for a turn a schedule fired, with nobody reading. */
+const VK_UNATTENDED = { VK_UNATTENDED: "1" };
 
 const callTool = (name: string, args: object = {}) =>
   rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } });
@@ -98,7 +101,10 @@ describe("the tool set", () => {
         "notify",
         "pause_schedules",
         "pr_detail",
+        "propose_memory",
         "read_session_output",
+        "recall",
+        "recent_prompts",
         "remember",
         "repo_diff",
         "repo_status",
@@ -121,6 +127,61 @@ describe("the tool set", () => {
     for (const forbidden of ["commit", "discard", "reset", "stage", "checkout", "write", "file"]) {
       expect(names, forbidden).not.toContain(forbidden);
     }
+  });
+
+  it("offers nothing that changes anything when nobody is reading", async () => {
+    // A schedule fires this server with VK_UNATTENDED set. The point of cutting
+    // the tools here rather than in an allow list is that they are absent from
+    // tools/list — under --permission-mode auto an unlisted tool still exists
+    // and is still a classifier's call, but one that was never offered is not.
+    const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, VK_UNATTENDED)) as {
+      result: { tools: { name: string }[] };
+    };
+
+    expect(res.result.tools.map((t) => t.name).sort()).toEqual(
+      [
+        "ci_log",
+        "ci_runs",
+        "list_memories",
+        "list_prs",
+        "list_schedules",
+        "notify",
+        "pr_detail",
+        // Writes to the review queue, never to memory — which is exactly why it
+        // is the one write an unwatched turn may do.
+        "propose_memory",
+        "read_session_output",
+        "recall",
+        "recent_prompts",
+        "repo_diff",
+        "repo_status",
+        "status",
+      ].sort(),
+    );
+  });
+
+  it("cannot remember anything unwatched, only propose", async () => {
+    // The gate the whole harvest rests on: a turn nobody read must not be able
+    // to put a fact into every future session without a person keeping it.
+    const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, VK_UNATTENDED)) as {
+      result: { tools: { name: string }[] };
+    };
+
+    const names = res.result.tools.map((t) => t.name);
+    expect(names).not.toContain("remember");
+    expect(names).not.toContain("forget");
+    expect(names).toContain("propose_memory");
+  });
+
+  it("refuses to run a tool it did not offer, rather than only hiding it", async () => {
+    // tools/list and tools/call must agree: a model that knows the name from an
+    // earlier turn, or guesses it, must not get through anyway.
+    const res = (await rpc(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "start_session" } },
+      VK_UNATTENDED,
+    )) as { error?: { message: string } };
+
+    expect(res.error?.message).toContain("no such tool");
   });
 });
 

@@ -130,6 +130,26 @@ export default async function assistantRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * Older conversations, searched. The assistant's own long-term recall: it
+   * cannot read the thread files (they are outside every directory it is
+   * granted), so this endpoint is the only way back into what was said before.
+   */
+  app.get<{ Querystring: { q: string } }>(
+    "/api/assistant/search",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["q"],
+          additionalProperties: false,
+          properties: { q: { type: "string", minLength: 2, maxLength: 200 } },
+        },
+      },
+    },
+    async (req) => ({ hits: await assistant.search(req.query.q) }),
+  );
+
   app.get("/api/assistant/config", () => readAssistantConfig());
 
   app.put<{

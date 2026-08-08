@@ -92,7 +92,7 @@ async function readState(id: string): Promise<string | null> {
 export const CONV_ID_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 /** The recorded conversation id, or null when absent or not a plausible id. */
-async function readConv(id: string): Promise<string | null> {
+export async function readConv(id: string): Promise<string | null> {
   try {
     const conv = (await fs.readFile(convPath(id), "utf8")).trim();
     return CONV_ID_RE.test(conv) ? conv : null;

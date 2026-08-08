@@ -48,7 +48,10 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  for (const f of fs.readdirSync(assistantDir)) fs.rmSync(path.join(assistantDir, f));
+  // recursive: unattended threads live in a subdirectory beside the chats.
+  for (const f of fs.readdirSync(assistantDir)) {
+    fs.rmSync(path.join(assistantDir, f), { recursive: true, force: true });
+  }
   fake.reset();
   fake.reply("claude", "-p", { stdout: run("Two things need you.") });
 });
@@ -204,5 +207,61 @@ describe("the thread", () => {
     expect(after).not.toBe(before);
     expect((await app.inject({ url: "/api/assistant" })).json().entries).toEqual([]);
     expect(fs.existsSync(path.join(assistantDir, `${before}.jsonl`))).toBe(true);
+  });
+});
+
+describe("recall", () => {
+  it("finds a turn from a thread that has been left behind", async () => {
+    // The whole point: starting a new thread is how a long conversation is kept
+    // affordable, and it must not be how something said in it is lost.
+    fake.reply("claude", "-p", { stdout: run("Kargo promotes it on merge to main.") });
+    await say("how does the homelab promotion work?");
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+
+    const res = await app.inject({ url: "/api/assistant/search?q=promotion" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hits).toHaveLength(1);
+    expect(res.json().hits[0].text).toContain("how does the homelab promotion work?");
+  });
+
+  it("does not search the conversation it is already in", async () => {
+    // A hit there would spend a result on something already in the context.
+    await say("something about promotion");
+
+    expect((await app.inject({ url: "/api/assistant/search?q=promotion" })).json().hits).toEqual(
+      [],
+    );
+  });
+
+  it("does not search what the machine said to itself", async () => {
+    // Briefings and harvests are conversations too, and there will be hundreds
+    // of them. Recall is for conversations the user had.
+    fs.mkdirSync(path.join(assistantDir, "unattended"), { recursive: true });
+    fs.writeFileSync(
+      path.join(assistantDir, "unattended", "11111111-2222-3333-4444-555555555555.jsonl"),
+      `${JSON.stringify({
+        id: "x",
+        role: "assistant",
+        text: "ok: nothing needs you, promotion is quiet",
+        tools: [],
+        at: new Date().toISOString(),
+      })}\n`,
+    );
+
+    expect((await app.inject({ url: "/api/assistant/search?q=promotion" })).json().hits).toEqual(
+      [],
+    );
+  });
+
+  it("requires every word, so a query narrows rather than widens", async () => {
+    await say("the kargo promotion");
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+
+    const hits = async (q: string) =>
+      (await app.inject({ url: `/api/assistant/search?q=${encodeURIComponent(q)}` })).json().hits;
+
+    expect(await hits("kargo promotion")).toHaveLength(1);
+    expect(await hits("kargo rollback")).toEqual([]);
   });
 });

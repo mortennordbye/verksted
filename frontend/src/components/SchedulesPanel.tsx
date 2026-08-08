@@ -50,6 +50,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   );
   const [draft, setDraft] = useState({
     name: "",
+    // A schedule that runs the assistant belongs to no repo, so the choice only
+    // exists on the global list; inside a project it is always that project's.
+    kind: "session" as Schedule["kind"],
     project: "",
     cron: "0 8 * * 1-5",
     jitterMinutes: 0,
@@ -76,14 +79,18 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     }
   }
 
+  const assistantDraft = !project && draft.kind === "assistant";
+
   const add = () =>
     run(async () => {
+      const { project: drafted, ...rest } = draft;
       await api("/api/schedules", {
         method: "POST",
-        body: JSON.stringify({
-          ...draft,
-          project: project ?? draft.project ?? projects?.[0]?.name,
-        }),
+        body: JSON.stringify(
+          assistantDraft
+            ? { ...rest, kind: "assistant" }
+            : { ...rest, kind: "session", project: project ?? drafted ?? projects?.[0]?.name },
+        ),
       });
       setDraft({ ...draft, name: "", prompt: "" });
     });
@@ -93,8 +100,15 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   const runNow = (s: Schedule) =>
     run(async () => {
-      await api(`/api/schedules/${s.id}/run`, { method: "POST" });
-      setNote(`started a session for "${s.name}"`);
+      const result = await api<{ reply?: string }>(`/api/schedules/${s.id}/run`, {
+        method: "POST",
+        // An assistant run answers only when the turn is done, which is a whole
+        // model call away; the default 15s would give up on a working request.
+        timeoutMs: s.kind === "assistant" ? 11 * 60_000 : undefined,
+      });
+      // An assistant run has no session to open, so the reply is the only thing
+      // there is to show — and waiting for it is the whole point of pressing it.
+      setNote(result.reply ?? `started a session for "${s.name}"`);
     });
 
   const [confirm, confirmDialog] = useConfirm();
@@ -156,7 +170,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           <div key={s.id} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
             <div className="flex flex-wrap items-center gap-2.5">
               <span className="font-mono text-[12.5px]">{s.name}</span>
-              {!project && <span className="font-mono text-[11px] text-faint">{s.project}</span>}
+              {!project && (
+                <span className="font-mono text-[11px] text-faint">
+                  {s.kind === "assistant" ? "the assistant" : s.project}
+                </span>
+              )}
               <StatusChip
                 kind={s.enabled ? "run" : "idle"}
                 label={s.enabled ? whenLabel(s.nextRunAt) : "paused"}
@@ -187,6 +205,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-faint">
               <span>{s.cron}</span>
               {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
+              {s.skipWhenIdle && <span>skips a day when nothing ended</span>}
               <span>last run {agoLabel(s.lastRunAt)}</span>
               {s.lastSessionId && (
                 <Link to={`/s/${s.lastSessionId}`} className="text-muted hover:text-accent">
@@ -258,11 +277,24 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             />
             {!project && (
               <select
-                value={draft.project || projects?.[0]?.name || ""}
-                onChange={(e) => setDraft((d) => ({ ...d, project: e.target.value }))}
-                aria-label="project"
+                value={
+                  draft.kind === "assistant"
+                    ? "assistant"
+                    : draft.project || projects?.[0]?.name || ""
+                }
+                onChange={(e) =>
+                  setDraft((d) =>
+                    e.target.value === "assistant"
+                      ? { ...d, kind: "assistant" }
+                      : { ...d, kind: "session", project: e.target.value },
+                  )
+                }
+                aria-label="where it runs"
                 className={field}
               >
+                {/* One control, because "which repo" and "the assistant
+                    instead of a repo" are the same question asked once. */}
+                <option value="assistant">the assistant (no repo)</option>
                 {(projects ?? []).map((p) => (
                   <option key={p.name} value={p.name}>
                     {p.name}
@@ -302,7 +334,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           <textarea
             value={draft.prompt}
             onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
-            placeholder="Check the open pull requests and merge any that are approved and green."
+            placeholder={
+              assistantDraft
+                ? "What needs me today? Anything red, stuck, or waiting on me."
+                : "Check the open pull requests and merge any that are approved and green."
+            }
             rows={3}
             aria-label="prompt"
             className={`w-full resize-y ${field}`}
@@ -310,7 +346,10 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           <button
             onClick={add}
             disabled={
-              busy || !draft.name.trim() || !draft.prompt.trim() || (!project && !projects?.length)
+              busy ||
+              !draft.name.trim() ||
+              !draft.prompt.trim() ||
+              (!project && !assistantDraft && !projects?.length)
             }
             className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
@@ -327,6 +366,14 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         or "failed: …" — which shows up here and is what the phone gets. A run that reports itself
         ok stays silent.
       </div>
+      {!project && (
+        <div className="mt-2.5 text-[13px] text-muted">
+          A schedule set to the assistant runs it instead of starting a session: no repo, no
+          terminal, and no way to change anything — it reads the bench, answers in a line or two,
+          and pushes your phone only when something should interrupt you. The answer lands in the
+          inbox either way, and the same notification is not repeated within a few hours.
+        </div>
+      )}
       {confirmDialog}
     </>
   );

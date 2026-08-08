@@ -24,11 +24,13 @@ export default async function scheduleRoutes(app: FastifyInstance) {
   app.post<{
     Body: {
       name: string;
-      project: string;
+      kind?: "session" | "assistant";
+      project?: string;
       cron: string;
       prompt: string;
       enabled?: boolean;
       jitterMinutes?: number;
+      skipWhenIdle?: boolean;
     };
   }>(
     "/api/schedules",
@@ -36,29 +38,43 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       schema: {
         body: {
           type: "object",
-          required: ["name", "project", "cron", "prompt"],
+          // project is required for a session schedule only, which the handler
+          // enforces: an assistant schedule runs in no repo.
+          required: ["name", "cron", "prompt"],
           additionalProperties: false,
           properties: {
             name: NAME,
+            kind: { enum: ["session", "assistant"] },
             project: { type: "string", minLength: 1, maxLength: 200 },
             cron: CRON,
             prompt: PROMPT,
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
+            skipWhenIdle: { type: "boolean" },
           },
         },
       },
     },
     async (req, reply) => {
-      try {
-        resolveInsideRepos(req.body.project);
-      } catch {
-        return reply.code(404).send({ error: "not found" });
+      const kind = req.body.kind ?? "session";
+      if (kind === "session") {
+        if (!req.body.project) {
+          return reply.code(400).send({ error: "a session schedule needs a project" });
+        }
+        try {
+          resolveInsideRepos(req.body.project);
+        } catch {
+          return reply.code(404).send({ error: "not found" });
+        }
       }
       if (!store.validCron(req.body.cron)) {
         return reply.code(400).send({ error: `not a cron pattern: ${req.body.cron}` });
       }
-      const schedule = await store.createSchedule(req.body);
+      const schedule = await store.createSchedule({
+        ...req.body,
+        kind,
+        project: req.body.project ?? "",
+      });
       await reloadSchedules(app.log);
       return reply.code(201).send(schedule);
     },
@@ -74,6 +90,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       prompt?: string;
       enabled?: boolean;
       jitterMinutes?: number;
+      skipWhenIdle?: boolean;
     };
   }>(
     "/api/schedules/:id",
@@ -88,6 +105,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             prompt: PROMPT,
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
+            skipWhenIdle: { type: "boolean" },
           },
         },
       },
@@ -112,15 +130,16 @@ export default async function scheduleRoutes(app: FastifyInstance) {
   });
 
   // Run now. Same path as a tick, so it reports the same refusals — notably
-  // that the previous run is still open.
+  // that the previous run is still open. An assistant schedule answers with
+  // what it said instead of with a session, since it starts none.
   app.post<{ Params: { id: string } }>("/api/schedules/:id/run", async (req, reply) => {
     const schedule = await store.getSchedule(req.params.id);
     if (!schedule) return reply.code(404).send({ error: "not found" });
-    const session = await runSchedule(schedule.id, app.log);
-    if (!session) {
+    const outcome = await runSchedule(schedule.id, app.log);
+    if (!outcome) {
       const after = await store.getSchedule(schedule.id);
       return reply.code(409).send({ error: after?.lastError ?? "could not start a session" });
     }
-    return reply.code(201).send(session);
+    return reply.code(201).send("session" in outcome ? outcome.session : { reply: outcome.reply });
   });
 }

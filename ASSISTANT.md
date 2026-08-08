@@ -1,10 +1,11 @@
 # The assistant
 
-**Status: M1 and M2 are built and work; M3–M4 are proposed.** The chat, the
-headless runtime behind it, the thread store, explicit memory, and the tools the
-assistant acts through all exist and are verified end to end. What is not built
-is the part that learns _without being asked_ — the harvester and its review
-queue. Both are in `BACKLOG.md`, in that order, and the order matters.
+**Status: M1–M3 are built and work; M4 is proposed.** The chat, the headless
+runtime behind it, the thread store, explicit memory, recall over old threads,
+the tools the assistant acts through, a schedule that runs it with nobody
+watching, and the learning loop — review queue first, then the nightly harvest —
+all exist and are verified end to end. What is left is M4: learning from whether
+work turned out well, and compacting the store as it fills.
 
 ## What it is
 
@@ -110,32 +111,80 @@ Three sources, in increasing order of ambition. Build them in this order.
 
 - **Explicit.** "Remember that ..." The assistant writes a fact. Unglamorous,
   exact, and the only source that needs no judgement.
-- **Harvest.** A nightly schedule reads the transcripts of sessions that ended
-  that day and proposes durable facts. This is where learning-without-effort
-  comes from, and it is the source that makes the review gate mandatory.
+- **Harvest.** A nightly schedule reads back what you typed into the sessions
+  that ended that day and proposes durable facts. This is where
+  learning-without-effort comes from, and it is the source that makes the review
+  gate mandatory. See below: what it may read is the whole design.
 - **Outcome.** Schedule reports (`ok` / `attention` / `failed`) and whether a PR
   was merged or closed. Ground truth about whether work was any good, already
   recorded, currently unused.
 
+#### The harvest reads only what you typed
+
+One decision carries this whole feature, and it is doing two jobs at once.
+
+A coding session's transcript is megabytes — file reads, diffs, whole test runs
+— and feeding one to a model nightly would cost more than everything else here
+put together. What a person types is a few hundred bytes a session, so a night's
+harvest is a few kilobytes and **one tool call**, not one per session. That is
+the cost control, and it is why this is affordable to leave on.
+
+It is also the injection defence. The stated fear about harvesting was that a
+payload in a dependency's changelog becomes permanent context in every session.
+Text like that arrives in tool _results_; it is never something you typed.
+Claude Code tags each entry with its origin, so this is a property of the record
+rather than a guess: `origin.kind === "human"` with string content is the person
+at the keyboard, and a tool result is `type: "user"` with structured content and
+no such origin. Both halves are required — the origin check separates a person
+from a tool result wearing the user role, the string check separates typed words
+from attachments.
+
+That does not make harvesting safe on its own, and it is not claimed to. The
+review queue is what does that. What this means is that the text being
+summarised is text you wrote yourself.
+
+The harvester itself is not a new runtime path: it is an **assistant schedule**
+with a careful prompt, using two tools that only exist unattended-safe —
+`recent_prompts` to read the material and `propose_memory` to queue a fact.
+It appears on the schedules list, its runs land in the inbox, and it can be
+paused, retimed or rewritten like anything else. Set it up from the memory panel
+on the settings page; the button exists because the prompt is the part worth
+getting right, not because the schedule is special.
+
+Its prompt says the null answer is the usual one. Most days there is nothing
+worth keeping, and a harvest that proposes nothing costs two round trips on
+`sonnet` at `low`.
+
 ### Review
 
-**Not built yet, and it is the gap that matters most.** Explicit memory needs no
-queue, because you were in the conversation when the fact was written — the
-assistant is instructed to say what it is about to record and ask first, and
-that is the whole review at this milestone. Harvesting has no such moment, so it
-must not ship before this does.
-
-The design: proposed facts land in a queue on the inbox screen and become memory
-only when kept.
+Proposed facts land in a queue on the inbox screen and become memory only when
+kept. Explicit memory skips it, because you were in the conversation when the
+fact was written; harvesting has no such moment, which is why the queue was
+built first and the harvester second.
 
 This gate is not optional and not a nicety. Unreviewed automatic memory poisons
 itself: one wrong fact silently degrades every later session, and nothing in a
-bad answer points back at the fact that caused it. It is also the only real
-defence once a harvester starts reading repo content and PR text that you did
-not write — a prompt-injection payload in a dependency's changelog is otherwise
-one hop from being permanent context in every session.
+bad answer points back at the fact that caused it.
 
-Cheap to build now. Expensive to retrofit after the first bad memory.
+**A separate directory, not a `status: proposed` field.** That was the open
+question and the directory wins. A field keeps one store but makes every reader
+responsible for filtering, and one reader that forgets puts an unreviewed fact
+into every session in every repo. `MEMORY_DIR/proposed/` has nothing to forget:
+`list()` reads `*.md` at the top level and a subdirectory is not one. The test
+that matters asserts exactly this — a proposal is absent from the injected block
+until it is kept.
+
+The queue is keyed by slug, so a harvest that runs twice over the same day
+replaces its own proposal instead of stacking duplicates, and proposing
+something already remembered is refused rather than queued.
+
+**A proposal is the one thing in the inbox that arrives with nothing to announce
+it.** A blocked session pushes the phone; a scheduled run writes a report. A
+harvested memory appears at 03:00 with neither, so without a count on the inbox
+icon the loop simply stalls at the review step and the harvest may as well not
+have run. The count sits on the icon in every screen's top bar and in the
+inbox's own headline. It is polled every two minutes, because it changes once a
+night.
 
 ### Store
 
@@ -161,6 +210,20 @@ only read for prompted runs, so project facts put there would never reach an
 interactive session; and the other candidate — a repo's own `CLAUDE.md` — is a
 committed file, which is no place for verksted's guesses about you. Labelling
 the scope inline (`In Homelab: …`) costs a few words and reaches everything.
+
+The block is in two halves, and the order is the point. Who this person is and
+how they want things done comes first, because it is what an agent should read
+before it decides how to answer anything; what verksted has learned about the
+work — repo mechanics, references — is material to use and sits underneath.
+Hermes-style, where a `USER.md` is a separate file from a `MEMORY.md`; the same
+split, in one block, since one block is what the marker mechanism carries. A
+flat list of facts is not the same thing as knowing somebody, and the difference
+costs two lines.
+
+The headings are reserved against the byte budget before any fact is fitted,
+rather than added afterwards. Otherwise a full store overshoots by the size of
+its own headings and the number reported on the settings page is a number that
+lies.
 
 ### How a fact gets written
 
@@ -198,7 +261,14 @@ works.
   agents.
 - **M2 — explicit memory.** ✅ The store, remember/forget, and injection. The
   first point at which it stops re-asking things.
-- **M3 — harvest and review.** The nightly transcript pass and the inbox queue.
+- **M2.5 — it reaches you, and it remembers the thread.** ✅ The unattended
+  turn, its narrowed tool set and its notification suppression; recall over old
+  conversations; the user model at the top of the injected block. Not a
+  milestone in the original plan: this is the half of "personal" that is about
+  being reached rather than about being told.
+- **M3 — harvest and review.** ✅ The review queue on the inbox, and the nightly
+  pass over what you typed into finished sessions. The point at which it starts
+  learning without being asked.
 - **M4 — outcomes and compaction.** Learning from what worked, and staying small.
 
 ## Risks to decide before M1
@@ -249,17 +319,15 @@ and a report — instead of inside a chat bubble with no trail.
 
 **The assistant delegates; it does not execute.**
 
-Two tools were added later, and one of them is honestly half a feature. `notify`
-pushes a line to the phone through `POST /api/push/send`, which is the same pair
-of channels the session notifier uses (ntfy and web push) and vets the tap target
-down to a path inside this app — a notification renders somewhere the app does
-not control, so an absolute URL in one is a phishing link wearing verksted's
-name. The limit is that nothing runs the assistant except a person typing at it:
-there is no scheduled turn, so today it can only push to someone who is already
-reading the reply. It is here because the moment an unattended turn exists, this
-is the half that makes it worth having. `repo_diff` is read-only and needs no
-such apology: `repo_status` says which files moved, and this says what moved in
-them.
+Two tools were added later. `notify` pushes a line to the phone through
+`POST /api/push/send`, which is the same pair of channels the session notifier
+uses (ntfy and web push) and vets the tap target down to a path inside this app
+— a notification renders somewhere the app does not control, so an absolute URL
+in one is a phishing link wearing verksted's name. It was half a feature until
+the unattended turn below existed, because nothing ran the assistant except a
+person typing at it, and pushing to somebody already reading the reply is not
+worth a tool. `repo_diff` is read-only and needs no such apology: `repo_status`
+says which files moved, and this says what moved in them.
 
 Three things follow from that, all of which matter more than the permission
 itself:
@@ -294,6 +362,154 @@ killable, already capped by `MAX_LIVE_SESSIONS`) rather than a force-push.
 The cost is real: it cannot fix a typo for you without starting a session. That
 is the right trade while it is young, and loosening later is a one-line change —
 much easier than tightening after habits have formed around it doing the work.
+
+## The turn nobody asked for
+
+Until this existed the assistant was something you opened. A schedule can now
+run it instead of starting a session — `kind: "assistant"` on a schedule, no
+project, and on its cron it answers a standing question and pushes your phone if
+the answer needs you. That is the difference between a chat box and something
+that tells you main went red while you were asleep.
+
+Four decisions, each of which was blocking it:
+
+- **A fresh conversation every run.** Sharing the chat would mutate a thread you
+  are reading and re-send it every morning; one thread per schedule would grow
+  without bound, because every turn carries the whole history with it. A
+  briefing is a standing question with no yesterday in it, so it costs exactly
+  one prompt. The thread still lands on the volume under its own id, so
+  `claude --resume <id>` opens precisely what ran.
+- **It runs beside the chat, not in front of it.** Its own guard: a schedule
+  firing while you are typing does not refuse you and is not refused. At most
+  one of each.
+- **It can read and notify, and nothing else.** Not "is discouraged from" —
+  cannot. The built-in set drops to Read, Grep and Glob, and the verksted tools
+  are cut in the MCP server itself under `VK_UNATTENDED`, so `start_session`,
+  `merge_pr`, `remember` and the rest are absent from `tools/list` rather than
+  merely left off an allow list. That distinction is the whole reason it is done
+  there: under `--permission-mode auto` an unlisted tool still exists and is
+  still a classifier's call, and a tool that was never offered is not.
+- **The web goes too**, which is the one that is a real loss. Fetching a page is
+  the exfiltration half of a prompt injection, and the only thing between the
+  two today is that a person is reading the reply — which is exactly what this
+  run does not have. A briefing reads the bench, and the bench is local.
+
+`remember` is denied here for a reason worth stating separately: a turn nobody
+watched writing a permanent fact into every future session is the poisoning case
+the review queue was designed to catch, and the review queue is not built. When
+it is, this is the flag to revisit first.
+
+**What stops a broken schedule pushing the same line every hour.** Nothing in
+the prompt could, because a fresh conversation cannot remember what the last one
+sent. So `POST /api/push/send` drops a notification identical to one sent in the
+last six hours and says so in the tool's result. Six hours is long enough that a
+standing problem interrupts once a morning and short enough that something still
+broken tomorrow says so again. It is in memory: a restart losing it costs one
+duplicate push, and a file on the volume for it would be state this app
+otherwise does not keep.
+
+The reply lands in the inbox either way, coloured by the same `ok:` /
+`attention:` / `failed:` sign-off every scheduled session is asked for — so
+silence is free, and `notify` is reserved for what should interrupt you now.
+
+## What it costs on a quiet day
+
+Three guards, because a thing that runs on a timer forever is a thing that has
+to be cheap when there is nothing to do.
+
+**A quiet day costs nothing at all.** The harvest is created with
+`skipWhenIdle`, and a schedule with that set does not run on a day when no
+session ended. Checked before the process is spawned, not inside the turn — the
+point is not to make the model call — and beside the pause switch rather than in
+`runSchedule`, so pressing "run now" is still somebody asking and runs anyway.
+A weekend costs zero.
+
+**A working day costs about two model calls.** The harvest is one tool call
+(`recent_prompts` covers every session at once, so there is no per-session round
+trip) and one answer, on `sonnet` at `low`, over a payload of a few kilobytes.
+That is a structural claim about the shape of the turn rather than a measured
+one: what is measured is that the material is a few kilobytes, because only
+typed words go into it.
+
+**Nothing can run away.** Twelve unattended turns a day, across every schedule,
+then it refuses and records why. The session ceiling does not bind these — a
+briefing holds no tmux and no working tree — so without this a schedule saved as
+`* * * * *` would quietly make 1440 model calls a day and nothing would notice.
+Normal use is three or four. It is in memory and a restart resets it, which is
+the right trade for a backstop against a loop inside one day.
+
+The thing that would actually cost real money is unchanged and worth restating:
+the assistant's hardest job is writing the prompt for a session it starts, and a
+vague prompt wastes a whole session, which costs more than every assistant turn
+in a week.
+
+## Two rules the agents here are given
+
+Not the assistant — the agents that do the work, in every repo, including ones
+verksted has never seen. They go into the same global memory file as the sandbox
+note, under their own marker, for the same reason: they are true of this bench
+rather than of any repo, and a committed `CLAUDE.md` is no place for one
+person's house style. A repo cloned tomorrow is covered without anyone
+remembering.
+
+**Claude and codex, not antigravity.** `MEMORY_FILES` is
+`~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, because those are the two global
+instruction files that have been confirmed; agy's equivalent is unverified, so
+an antigravity session gets neither these rules nor the sandbox note. That was
+already a backlog entry about the sandbox note, and it costs more now — an agy
+session is the one place on this bench where "no attribution" and "ask before
+anything irreversible" are not said at all.
+
+**Leave no sign that an agent wrote anything.** Every agent CLI here signs its
+own work by default — a `Co-Authored-By` trailer on commits, a "Generated with"
+footer on pull requests — and git history is not something you can quietly
+correct later. The rule covers everything that persists: commit messages, branch
+names, PR titles and bodies, issue and review comments, code comments. Verksted
+writes no such thing itself, and never did; this is what stops the agents doing
+it.
+
+**Ask before anything that cannot be undone.** Force-pushing, rewriting pushed
+history, deleting a branch or tag or release, discarding uncommitted work,
+dropping a database or a volume, `rm -rf` outside a build directory. Committing,
+pushing a new branch and opening a pull request are explicitly ordinary and need
+no permission — without that half, an agent that asks about every commit is
+useless in exactly the unattended runs this is written for.
+
+Asking is not a dead end at 03:00. A scheduled session runs in auto permission
+mode precisely so routine calls go through unattended; a question turns the
+session amber, pushes the phone, and leaves the work waiting rather than guessed
+at. That mechanism already existed — this is what points it at the right things.
+
+The assistant itself is a weaker case and needs no rule: it has no shell, no
+Edit and no Write, so the only irreversible things in its reach are `merge_pr`,
+ending a live session and deleting a schedule, and the persona already requires
+it to ask before each.
+
+## Recall
+
+Every conversation ever started is on the volume, and until now the only way
+back into one was to know its id. `recall` searches them: all words must appear,
+newest first, and the current conversation is skipped because it is already in
+the context and a hit there would spend a result on something it can reach by
+scrolling up.
+
+This is what makes "start a new thread when the subject changes" — the honest
+answer to context cost, above — survivable. A new thread is not a new
+relationship, and the persona says so in those words.
+
+Substring matching, no index. The store is a few hundred kilobytes of text on a
+volume this pod owns; anything cleverer is a database, which is the thing this
+app is built not to have.
+
+**Unattended threads are not searched, and are not even in the directory.** A
+briefing and a harvest are conversations too, and between them they would add
+some seven hundred threads a year, all of them the machine talking to itself.
+They go in a subdirectory, which is the same trick the review queue uses: the
+search reads `*.jsonl` at the top level and a subdirectory is not one, so there
+is no filter to forget. Without it recall would fill with "ok: nothing needs
+you", and — since every file is read on every call — get slower forever. Claude
+keeps its own copy under `$HOME` regardless, so `claude --resume <id>` still
+opens a briefing exactly as before.
 
 ## Personality, and what it costs
 

@@ -24,6 +24,31 @@ const subscription = {
   },
 };
 
+/**
+ * How long the same notification stays suppressed.
+ *
+ * This endpoint has exactly one caller — the assistant's `notify` tool — and
+ * the caller that made it necessary is a schedule: an unattended turn starts a
+ * fresh conversation every time, so it cannot remember pushing "main is red" an
+ * hour ago and will happily push it again on every tick. Long enough that a
+ * standing problem interrupts once a morning rather than once an hour, short
+ * enough that a thing still broken tomorrow says so again.
+ *
+ * In memory on purpose: a restart losing this costs one duplicate push, and a
+ * file on the volume for it would be state this app otherwise does not keep.
+ */
+const REPEAT_WINDOW_MS = 6 * 60 * 60_000;
+const recentPushes = new Map<string, number>();
+
+/** True when this exact message went out inside the window; stamps it if not. */
+function repeated(key: string, now = Date.now()): boolean {
+  for (const [k, at] of recentPushes) if (now - at > REPEAT_WINDOW_MS) recentPushes.delete(k);
+  const last = recentPushes.get(key);
+  if (last !== undefined && now - last <= REPEAT_WINDOW_MS) return true;
+  recentPushes.set(key, now);
+  return false;
+}
+
 export default async function pushRoutes(app: FastifyInstance) {
   app.get("/api/push", async (): Promise<PushStatus> => ({
     publicKey: await push.publicKey(),
@@ -88,16 +113,17 @@ export default async function pushRoutes(app: FastifyInstance) {
       },
     },
     async (req): Promise<PushTestResult> => {
-      const result = await announce(
-        {
-          title: req.body.title ?? "verksted",
-          body: req.body.body,
-          url: req.body.url ?? "/",
-          tag: "bell",
-        },
-        app.log,
-      );
-      return { devices: await push.deviceCount(), ...result };
+      const message = {
+        title: req.body.title ?? "verksted",
+        body: req.body.body,
+        url: req.body.url ?? "/",
+        tag: "bell" as const,
+      };
+      const devices = await push.deviceCount();
+      if (repeated(`${message.title}\n${message.body}\n${message.url}`)) {
+        return { devices, sent: 0, failed: 0, suppressed: true };
+      }
+      return { devices, ...(await announce(message, app.log)) };
     },
   );
 
