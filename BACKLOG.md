@@ -396,7 +396,7 @@ what unblocks it / where the code lives.
 - **What:** Two halves, one now answered. `transcripts.ts` has been run against
   real transcripts in the pod (2026-08-08): seven finished sessions, seven typed
   turns, no model output and no tool results — the `origin.kind === "human"`
-  filter holds on real data. But all seven were *scheduled* sessions, where the
+  filter holds on real data. But all seven were _scheduled_ sessions, where the
   single human turn is the prompt verksted submitted, so the harvest has still
   never read a conversation a person actually typed into, which is where the
   durable facts are and where the judgement is hard. And nothing in CI reads a
@@ -463,7 +463,7 @@ what unblocks it / where the code lives.
   schedules were run on 2026-08-08 against a real authenticated CLI: the
   briefing answered in 13.6s off `status` alone, the harvest in 7.3s, both
   signed off `ok:` and both landed in the inbox beside the session runs. What
-  that did *not* exercise is the two paths a person cannot trigger by hand —
+  that did _not_ exercise is the two paths a person cannot trigger by hand —
   a **cron tick** firing them unattended (both were "run now"), and **notify**
   actually reaching the phone, since an `ok` briefing is meant to stay silent
   and correctly did. Suppression of a repeated push is likewise untested against
