@@ -103,14 +103,29 @@ describe("POST /api/assistant/messages", () => {
 
     const [argv] = fake.argvFor("claude");
     const denied = argv[argv.indexOf("--disallowed-tools") + 1];
-    for (const tool of ["Bash", "Edit", "Write", "WebFetch", "WebSearch"]) {
+    for (const tool of ["Bash", "Edit", "Write", "Task"]) {
       expect(denied).toContain(tool);
     }
     expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__verksted");
     // Stronger than either list: this is the set that exists. It is also what
     // stops the CLI deferring tool schemas, which cost a whole ToolSearch round
     // trip per turn before the assistant could look at anything.
-    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,WebFetch,WebSearch");
+  });
+
+  it("can read the web, deliberately, since it is asked to look things up", async () => {
+    // This was denied until it was asked for; the exfiltration reasoning behind
+    // that (repo read access plus fetch) is still true and written down in
+    // ASSISTANT.md. Asserted so re-adding the deny is a decision, not a merge.
+    await say("hello");
+
+    const [argv] = fake.argvFor("claude");
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    const allowed = argv[argv.indexOf("--allowed-tools") + 1];
+    for (const tool of ["WebFetch", "WebSearch"]) {
+      expect(denied).not.toContain(tool);
+      expect(allowed).toContain(tool);
+    }
   });
 
   it("gives the assistant the verksted tools to act through", async () => {

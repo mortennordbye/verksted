@@ -31,15 +31,19 @@ import { agentEnv, readAssistantConfig } from "./settings-store.js";
  * `allowed` is an auto-approve list, not a restriction — anything left off it
  * still exists and, under `--permission-mode auto`, is still up to a classifier.
  * So the tools worth regretting are denied outright. What remains is: read the
- * repos, and act through the verksted server, whose every endpoint is one the
- * app already validates.
+ * repos, read the web, and act through the verksted server, whose every
+ * endpoint is one the app already validates.
  *
- * Web tools are denied for a reason worth writing down: read access to repos
- * that contain .env files, plus fetch, is how a prompt injection turns into
- * exfiltration — and the harvester this is being built towards will eventually
- * read text neither of us wrote.
+ * The web tools were denied here until asked for, and the reason is still true:
+ * read access to repos that contain .env files, plus fetch, is the shape a
+ * prompt injection needs to become exfiltration — and the harvester this is
+ * being built towards will eventually read text neither of us wrote. What
+ * changed is that reading the web is now part of the job. Nothing here defends
+ * against that; what limits it is that the assistant cannot run a shell, so a
+ * page that talks it into something still has to go through tools whose every
+ * effect is visible in the UI.
  */
-const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
+const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch", "mcp__verksted"];
 /**
  * The built-in tools that exist at all, which is a stronger statement than the
  * allow list: a tool not named here is not present to be approved.
@@ -48,11 +52,11 @@ const ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
  * the full built-in set available, the CLI defers the tool schemas and the
  * model has to call ToolSearch to find the verksted ones first — an entire
  * extra round trip, on every turn, before it can even look at the workbench.
- * Naming three tools removes it: measured over the same question, 18.5s with
+ * Naming a short list removes it: measured over the same question, 18.5s with
  * the full set against a steady 5s with this, and no ToolSearch call at all.
  */
-const BUILTIN_TOOLS = ["Read", "Grep", "Glob"];
-const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"];
+const BUILTIN_TOOLS = ["Read", "Grep", "Glob", "WebFetch", "WebSearch"];
+const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task"];
 
 /** Where the MCP server the assistant acts through lives inside the image. */
 const MCP_CONFIG = {
