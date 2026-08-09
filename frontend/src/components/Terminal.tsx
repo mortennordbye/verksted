@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
 import { copyText } from "../clipboard";
+import Sheet from "./Sheet";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
@@ -117,12 +118,16 @@ function speechCtor(): (new () => Recognition) | null {
 /**
  * Special keys for touch screens, where the on-screen keyboard lacks them.
  *
- * `row` is which tier the key sits in. Everything used to live in one
- * horizontal scroller about twenty-five controls long: two thirds of it was off
- * the edge of a phone, the only way to it was a drag directly above a terminal
- * that also scrolls, and nothing on screen said there was more. Row 1 is what
- * you press while answering an agent and always fits without scrolling; row 2
- * is everything else, one tap away behind `more`.
+ * `row` is which tier the key sits in. Row 1 is what you press while answering
+ * an agent: it is always on screen and always fits one line. Row 2 is
+ * everything else, one tap away in the `more` sheet.
+ *
+ * The split exists because these keys compete with the terminal for a phone
+ * screen. They were one horizontal scroller of twenty-five controls, which put
+ * two thirds of them off the edge behind a drag gesture nothing advertised;
+ * then two stacked tiers, which is how four rows of keys came to sit above a
+ * terminal with two lines left. A sheet costs the same tap the tier did and
+ * takes none of the terminal.
  */
 const KEYS: { label: string; seq: string; title?: string; row: 1 | 2 }[] = [
   { label: "esc", seq: "\x1b", row: 1 },
@@ -148,9 +153,6 @@ const KEYS: { label: string; seq: string; title?: string; row: 1 | 2 }[] = [
   { label: "home", seq: "\x1b[H", title: "start of line", row: 2 },
   { label: "end", seq: "\x1b[F", title: "end of line", row: 2 },
 ];
-
-/** Whether the second key row is open, remembered per device. */
-const KEYS_KEY = "vk.term.moreKeys";
 
 // Toolbar key styling. Tap feedback matters more here than it looks: on a phone
 // these keys are the whole keyboard, and a press that leaves no mark reads as a
@@ -203,7 +205,7 @@ export default function Terminal({
   // Sticky Ctrl: the next typed letter is sent as its control code.
   const ctrlArmed = useRef(false);
   const [ctrl, setCtrl] = useState(false);
-  const [moreKeys, setMoreKeys] = useState(() => localStorage.getItem(KEYS_KEY) === "1");
+  const [moreKeys, setMoreKeys] = useState(false);
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // Consecutive failed reconnects (the backoff), and whether the server told us
@@ -297,6 +299,18 @@ export default function Terminal({
     run();
     press(id);
     termRef.current?.focus();
+  }
+
+  /**
+   * The same, for a key in the `more` sheet — which does not refocus.
+   *
+   * Nothing here needs the terminal focused (input goes down the websocket),
+   * and focusing it from inside a modal sheet summons the on-screen keyboard
+   * under the sheet, taking away the room the keys are standing in.
+   */
+  function sheetKey(id: string, run: () => void) {
+    run();
+    press(id);
   }
 
   /** Class list for a toolbar key: idle look unless pressed or already lit. */
@@ -687,54 +701,71 @@ export default function Terminal({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Above the terminal, not below: on a phone the on-screen keyboard
           overlays the bottom of the box and would hide a bottom key row. */}
-      <div className="hidden flex-none flex-col gap-1 border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
-        {/* Wraps rather than scrolls: a key that is off the edge of the screen
-            is a key that does not exist, and this row is the whole keyboard. */}
-        <div className="flex flex-wrap gap-1">
-          {/* First, and it doubles as the readout for a status line the on-screen
+      {/* One row, and it wraps rather than scrolls: a key that is off the edge
+          of the screen is a key that does not exist. */}
+      <div className="hidden flex-none flex-wrap gap-1 border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
+        {/* First, and it doubles as the readout for a status line the on-screen
             keyboard covers. */}
+        <button
+          onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
+          title="cycle permission mode (shift+tab)"
+          className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
+        >
+          {mode?.label ?? "mode"}
+        </button>
+        {KEYS.filter((k) => k.row === 1).map((k) => (
           <button
-            onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
-            title="cycle permission mode (shift+tab)"
-            className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
+            key={k.label}
+            onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+            title={k.title}
+            aria-label={k.title ?? k.label}
+            className={keyClass(k.label)}
           >
-            {mode?.label ?? "mode"}
+            {k.label}
           </button>
-          {KEYS.filter((k) => k.row === 1).map((k) => (
-            <button
-              key={k.label}
-              onClick={() => tapKey(k.label, () => sendInput(k.seq))}
-              title={k.title}
-              aria-label={k.title ?? k.label}
-              className={keyClass(k.label)}
-            >
-              {k.label}
-            </button>
-          ))}
-          {/* Never sends anything, so it does not go through tapKey's input path
-            — but it still refocuses the terminal, or opening the drawer would
-            drop the on-screen keyboard on iOS. */}
-          <button
-            onClick={() => {
-              const next = !moreKeys;
-              setMoreKeys(next);
-              localStorage.setItem(KEYS_KEY, next ? "1" : "0");
-              press("more");
-              termRef.current?.focus();
-            }}
-            aria-expanded={moreKeys}
-            title={moreKeys ? "fewer keys" : "more keys, paste, mic, text size"}
-            className={keyClass("more", moreKeys || ctrl || listening ? KEY_LIT : KEY_IDLE)}
-          >
-            {moreKeys ? "less" : "more"}
-          </button>
-        </div>
+        ))}
+        {/* Never sends anything, so it does not go through tapKey's input
+            path. It does not refocus the terminal either: the sheet it opens
+            is modal, and summoning the on-screen keyboard underneath it is
+            how you end up unable to see the keys you just asked for. */}
+        <button
+          onClick={() => {
+            setMoreKeys(true);
+            press("more");
+          }}
+          aria-haspopup="dialog"
+          aria-expanded={moreKeys}
+          title="more keys, paste, mic, text size"
+          className={keyClass("more", ctrl || listening ? KEY_LIT : KEY_IDLE)}
+        >
+          more
+        </button>
+        {/* Lives in the bar rather than the sheet so the picker survives the
+            sheet closing — iOS reports the chosen files on a later tick. */}
+        <input
+          ref={picker}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            e.target.value = "";
+            if (files.length) void sendImages(files);
+          }}
+        />
+      </div>
 
-        {moreKeys && (
-          <div className="flex flex-wrap gap-1 border-t border-line pt-1">
+      {moreKeys && (
+        <Sheet
+          title="keys"
+          sub="what the on-screen keyboard has not got"
+          onClose={() => setMoreKeys(false)}
+        >
+          <div className="flex flex-wrap gap-1.5">
             <button
               onClick={() =>
-                tapKey("ctrl", () => {
+                sheetKey("ctrl", () => {
                   ctrlArmed.current = !ctrlArmed.current;
                   setCtrl(ctrlArmed.current);
                 })
@@ -744,7 +775,7 @@ export default function Terminal({
               ctrl
             </button>
             <button
-              onClick={() => tapKey("paste", pasteFromClipboard)}
+              onClick={() => sheetKey("paste", pasteFromClipboard)}
               title={
                 pasteBlocked
                   ? "the browser will not hand over the clipboard on this origin"
@@ -756,7 +787,7 @@ export default function Terminal({
             </button>
             {speechCtor() && (
               <button
-                onClick={() => tapKey("mic", toggleDictation)}
+                onClick={() => sheetKey("mic", toggleDictation)}
                 title="dictate into the terminal"
                 className={keyClass("mic", listening ? KEY_LIT : KEY_IDLE)}
               >
@@ -773,22 +804,10 @@ export default function Terminal({
             >
               {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
             </button>
-            <input
-              ref={picker}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                e.target.value = "";
-                if (files.length) void sendImages(files);
-              }}
-            />
             {KEYS.filter((k) => k.row === 2).map((k) => (
               <button
                 key={k.label}
-                onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+                onClick={() => sheetKey(k.label, () => sendInput(k.seq))}
                 title={k.title}
                 aria-label={k.title ?? k.label}
                 className={keyClass(k.label)}
@@ -796,57 +815,71 @@ export default function Terminal({
                 {k.label}
               </button>
             ))}
-            {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
-            for 80 — their boxes and diffs wrap into noise below that. */}
-            <button
-              onClick={() => tapKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
-              title="smaller text (more columns)"
-              aria-label="smaller text"
-              className={keyClass("a-")}
-            >
-              A−
-            </button>
-            <button
-              onClick={() => tapKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
-              title="larger text (fewer columns)"
-              aria-label="larger text"
-              className={keyClass("a+")}
-            >
-              A+
-            </button>
-            {/* iOS drops the on-screen keyboard whenever focus moves — to the file
-            picker, a key, or nothing at all — and there is no way back without
-            tapping the terminal body, which in copy mode means scrolling it. */}
-            <button
-              onClick={() => tapKey("kbd", () => termRef.current?.focus())}
-              title="show the keyboard"
-              aria-label="show the keyboard"
-              className={keyClass("kbd")}
-            >
-              kbd
-            </button>
             {/* A page of history at a time — the same scrollback the drag gesture
             moves, not the PgUp/PgDn keys the agent would swallow.
 
             Labelled in words rather than ⌨ ⇞ ⇟: no mono font here ships those
             three, so each came from a fallback and rendered as an empty box. */}
             <button
-              onClick={() => tapKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
+              onClick={() => sheetKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
               title="scroll back"
               className={keyClass("pgup")}
             >
               pg↑
             </button>
             <button
-              onClick={() => tapKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
+              onClick={() => sheetKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
               title="scroll forward"
               className={keyClass("pgdn")}
             >
               pg↓
             </button>
+            {/* iOS drops the on-screen keyboard whenever focus moves — to the
+            file picker, a key, or nothing at all — and there is no way back
+            without tapping the terminal body, which in copy mode means
+            scrolling it. Closes the sheet first: it is asking for the keyboard,
+            which needs the space this is standing in. */}
+            <button
+              onClick={() => {
+                setMoreKeys(false);
+                termRef.current?.focus();
+              }}
+              title="show the keyboard"
+              aria-label="show the keyboard"
+              className={keyClass("kbd")}
+            >
+              kbd
+            </button>
           </div>
-        )}
-      </div>
+
+          {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
+              for 80 — their boxes and diffs wrap into noise below that. Given
+              their own row with the current size shown, because two unlabelled
+              A's in a row of two dozen keys never said what they sized. */}
+          <div className="mt-3 flex items-center gap-1.5 border-t border-line pt-3">
+            <span className="mr-auto text-[13px] text-muted">text size</span>
+            <button
+              onClick={() => sheetKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
+              title="smaller text (more columns)"
+              aria-label="smaller text"
+              className={keyClass("a-")}
+            >
+              A−
+            </button>
+            <span className="w-[52px] text-center font-mono text-[12px] text-faint">
+              {fontSize}px
+            </span>
+            <button
+              onClick={() => sheetKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
+              title="larger text (fewer columns)"
+              aria-label="larger text"
+              className={keyClass("a+")}
+            >
+              A+
+            </button>
+          </div>
+        </Sheet>
+      )}
       <div className="relative min-h-0 flex-1">
         <div ref={ref} className="absolute inset-0 p-2" />
         {scrolled && !disconnected && (
