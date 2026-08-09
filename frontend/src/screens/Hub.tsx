@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router";
 import type { AssistantThread, PodFacts, Project, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
-import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
+import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 function gb(bytes: number): string {
@@ -26,8 +26,46 @@ const OUTCOME: Record<string, { kind: "run" | "wait" | "fail" | "idle"; label: s
  * between the metadata file, tmux and the websocket, which makes it worth
  * showing and worth copying, but it was never what the session is about.
  */
-function SessionCard({ session, urgent }: { session: Session; urgent?: boolean }) {
+function SessionCard({
+  session,
+  urgent,
+  compact,
+}: {
+  session: Session;
+  urgent?: boolean;
+  compact?: boolean;
+}) {
   const chip = OUTCOME[session.outcome] ?? OUTCOME.done;
+  // One line: the mark, where it is, what it is, and how it went. The id and
+  // the age are what a card has room for and a row does not — both are on the
+  // session screen, and neither is why you are scanning this list.
+  if (compact) {
+    return (
+      <Link
+        to={`/s/${session.id}`}
+        className={`tap flex items-center gap-2.5 rounded-lg border px-3 py-2 transition ${
+          urgent
+            ? "border-wait/30 bg-wait/8 hover:border-wait/60"
+            : "border-line bg-surface hover:border-accent-pastel"
+        }`}
+      >
+        <AgentMark agent={session.agent} />
+        <span className="sr-only">{session.agent}</span>
+        <span className="max-w-[7.5rem] flex-none truncate text-[11px] font-semibold tracking-[.06em] text-faint uppercase">
+          {session.project}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-[-.014em]">
+          {session.title}
+        </span>
+        {/* First thing to go on a narrow phone: the band it is in already says
+            roughly when, and the title is what must not be truncated. */}
+        <span className="hidden flex-none text-[11.5px] text-faint min-[420px]:block">
+          {agoLabel(session.endedAt ?? session.createdAt)}
+        </span>
+        <StatusChip kind={urgent ? "wait" : chip.kind} label={urgent ? "answer" : chip.label} />
+      </Link>
+    );
+  }
   return (
     <Link
       to={`/s/${session.id}`}
@@ -106,6 +144,25 @@ function Stat({
   );
 }
 
+const COLS_ROOMY = "grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))]";
+const COLS_COMPACT = "grid-cols-[repeat(auto-fill,minmax(min(420px,100%),1fr))]";
+
+/**
+ * List density, remembered per device.
+ *
+ * A phone starts compact: the roomy card is 86px, which is four sessions to a
+ * screen, and this list exists to be scanned. Anything with room for the
+ * side-by-side session layout starts roomy — the same test `desk` makes, since
+ * a landscape phone is wide enough to fool a width-only check.
+ */
+const DENSITY_KEY = "vk.hub.compact";
+
+function initialCompact(): boolean {
+  const stored = localStorage.getItem(DENSITY_KEY);
+  if (stored !== null) return stored === "1";
+  return !matchMedia("(min-width: 800px) and (min-height: 540px)").matches;
+}
+
 function Band({
   title,
   count,
@@ -138,6 +195,7 @@ export default function Hub() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [compact, setCompact] = useState(initialCompact);
 
   // The hub sorts by what a session wants from you rather than by which repo it
   // belongs to, so it reads the flat feed and lets the project be a label on the
@@ -259,12 +317,28 @@ export default function Hub() {
                 : `${projects?.length ?? 0} repo${projects?.length === 1 ? "" : "s"}`}
             </div>
           </div>
-          <button
-            onClick={() => setAdding(true)}
-            className="tap flex-none rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong"
-          >
-            + add project
-          </button>
+          <div className="flex flex-none items-center gap-2">
+            <button
+              onClick={() => {
+                const next = !compact;
+                setCompact(next);
+                localStorage.setItem(DENSITY_KEY, next ? "1" : "0");
+              }}
+              aria-pressed={compact}
+              title={compact ? "roomier session rows" : "one line per session"}
+              className={`tap flex-none rounded-lg border px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong ${
+                compact ? "border-accent/50 text-accent" : "border-line bg-surface text-muted"
+              }`}
+            >
+              compact
+            </button>
+            <button
+              onClick={() => setAdding(true)}
+              className="tap flex-none rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong"
+            >
+              + add project
+            </button>
+          </div>
         </div>
 
         {sessions === null && (
@@ -272,7 +346,9 @@ export default function Hub() {
             {[0, 1].map((i) => (
               <div
                 key={i}
-                className="h-[86px] animate-pulse rounded-xl border border-line bg-surface"
+                className={`animate-pulse rounded-xl border border-line bg-surface ${
+                  compact ? "h-[38px]" : "h-[86px]"
+                }`}
               />
             ))}
           </div>
@@ -283,25 +359,27 @@ export default function Hub() {
         <Band title="Needs a decision" count={needsYou.length}>
           <div className="grid gap-2">
             {needsYou.map((s) => (
-              <SessionCard key={s.id} session={s} urgent />
+              <SessionCard key={s.id} session={s} urgent compact={compact} />
             ))}
           </div>
         </Band>
 
         {/* The quiet bands go multi-column instead, so a wide screen stops being
-            one very long column of things that need nothing. */}
+            one very long column of things that need nothing. A compact row is
+            four things on one line, so it needs a wider column than a card
+            whose fields are stacked. */}
         <Band title="Running" count={live.length}>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-2">
+          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
             {live.map((s) => (
-              <SessionCard key={s.id} session={s} />
+              <SessionCard key={s.id} session={s} compact={compact} />
             ))}
           </div>
         </Band>
 
         <Band title="Recently finished" count={finished.length}>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-2">
+          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
             {finished.map((s) => (
-              <SessionCard key={s.id} session={s} />
+              <SessionCard key={s.id} session={s} compact={compact} />
             ))}
           </div>
         </Band>
