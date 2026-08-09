@@ -40,7 +40,15 @@ session persistence.
   reconciled by ArgoCD.
 - Access exclusively over WireGuard. Never exposed publicly: the pod holds
   agent credentials and can push code.
-- No chat UI. The terminal is the interface to the agents.
+- No chat UI in place of the terminal. The terminal is how an agent is driven,
+  and nothing is reimplemented on top of it — no message protocol, no shadow
+  session state. A session can also be _read_ as a conversation, which is a
+  second view of the same tmux session rather than a second way to run one: it
+  parses the transcript the agent already writes to disk, so it costs a file
+  read and cannot drift from what actually happened. It earns its place on a
+  phone, where 40 columns of TUI redraw is a bad way to find out what an agent
+  said, and on a finished session, whose terminal is gone but whose transcript
+  is not.
 
 ## Product shape
 
@@ -54,7 +62,9 @@ Three levels:
 3. Session: file tree of the repo plus terminal. Desktop: split pane. Mobile:
    tabs or swipe between full-screen tree and terminal. Tree is browse/view
    only in v1; editing happens through the terminal. Modified files are
-   marked in the tree.
+   marked in the tree. The main pane switches between the terminal and the
+   same session read as a conversation; the chat view is the only one that
+   still works after the session has ended.
 
 A footer on the hub shows pod facts (PVC usage, per-agent auth status, MCP
 server count). The top bar deliberately shows no WireGuard state: the app is

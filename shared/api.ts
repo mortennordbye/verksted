@@ -71,6 +71,42 @@ export interface SessionCapture {
   live: boolean;
 }
 
+/** One thing the agent did, shown as a chip rather than its output. */
+export interface ChatToolCall {
+  name: string;
+  /** The one argument worth reading: a command, a path, a pattern. */
+  detail: string;
+  /** Its result came back an error. */
+  failed?: boolean;
+}
+
+/** One turn of a session, read back out of the agent's own transcript. */
+export interface ChatMessage {
+  /** The transcript's uuid for the entry, stable across polls. */
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  /** What it did on the way to saying this. Empty for user turns. */
+  tools: ChatToolCall[];
+  at: string;
+}
+
+/**
+ * A session as a conversation instead of a terminal.
+ *
+ * Read from the transcript the agent already writes, so this costs a file read
+ * and nothing else — no second model, no replay, no tokens.
+ */
+export interface SessionChat {
+  /** Null when there is no transcript: another agent, or it has not started one. */
+  conversationId: string | null;
+  messages: ChatMessage[];
+  /** Tool calls made since the last thing it said — work in flight. */
+  pending: ChatToolCall[];
+  /** The window did not reach the start of the conversation. */
+  truncated: boolean;
+}
+
 export interface TreeNode {
   name: string;
   path: string;

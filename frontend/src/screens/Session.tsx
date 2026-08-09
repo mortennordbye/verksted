@@ -16,6 +16,7 @@ import { diffLineClass } from "../diff";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
+import ChatPane from "../components/ChatPane";
 import BrowserPane from "../components/BrowserPane";
 import FileTree from "../components/FileTree";
 import GitPanel from "../components/GitPanel";
@@ -93,6 +94,10 @@ function useVisualViewport() {
 
 const SIDE_KEY = "vk.session.sideWidth";
 const RATIO_KEY = "vk.session.ratio";
+const VIEW_KEY = "vk.session.view";
+
+/** What can occupy a pane. "chat" and "agent" are two views of the same one. */
+type View = "chat" | "agent" | "shell" | "browser";
 
 /** A persisted layout number, clamped — localStorage is user-editable. */
 function storedNumber(key: string, fallback: number, min: number, max: number): number {
@@ -132,6 +137,15 @@ export default function Session() {
     setShell(p === "shell");
     setBrowser(p === "browser");
   }
+  /**
+   * Whether the main pane shows the conversation or the terminal. Remembered
+   * per device: whichever one a person reads in, they read in it every time,
+   * and it used to reset on every navigation between sessions.
+   */
+  const [main, setMain] = useState<"agent" | "chat">(() =>
+    localStorage.getItem(VIEW_KEY) === "chat" ? "chat" : "agent",
+  );
+  useEffect(() => localStorage.setItem(VIEW_KEY, main), [main]);
   const [full, setFull] = useState(false);
   // Sidebar width and the split ratio are per-device preferences that used to
   // reset on every navigation between sessions.
@@ -235,6 +249,31 @@ export default function Session() {
   }
 
   const live = session != null && session.status !== "done";
+  // Only claude writes the transcript the chat view reads back.
+  const hasChat = session?.agent === "claude";
+  const chatView = hasChat && main === "chat";
+
+  /** The views this session can show, in the order the pickers list them. */
+  const views: View[] = [
+    ...(hasChat ? (["chat"] as const) : []),
+    "agent",
+    ...(live ? (["shell", "browser"] as const) : []),
+  ];
+  const viewLabel = (v: View) =>
+    v === "agent" ? (live ? (session?.agent ?? "agent") : "terminal") : v;
+  // "chat" and "agent" share the main pane, so which of them is on is `main`.
+  const viewOn = (v: View) =>
+    v === "chat" || v === "agent"
+      ? active === "agent" && chatView === (v === "chat")
+      : active === v;
+  const pickView = (v: View) => {
+    if (v === "chat" || v === "agent") {
+      pick("agent");
+      setMain(v);
+    } else {
+      pick(v);
+    }
+  };
 
   // hljs escapes the source; the produced HTML is only span tags with classes.
   const highlighted = useMemo(() => {
@@ -317,24 +356,18 @@ export default function Session() {
               <Tab on={pane === "tree"} onClick={() => setPane("tree")}>
                 files
               </Tab>
-              {live ? (
-                (["agent", "shell", "browser"] as const).map((p) => (
-                  <Tab
-                    key={p}
-                    on={pane === "term" && active === p}
-                    onClick={() => {
-                      setPane("term");
-                      pick(p);
-                    }}
-                  >
-                    {p === "agent" ? (session?.agent ?? "agent") : p}
-                  </Tab>
-                ))
-              ) : (
-                <Tab on={pane === "term"} onClick={() => setPane("term")}>
-                  terminal
+              {views.map((v) => (
+                <Tab
+                  key={v}
+                  on={pane === "term" && viewOn(v)}
+                  onClick={() => {
+                    setPane("term");
+                    pickView(v);
+                  }}
+                >
+                  {viewLabel(v)}
                 </Tab>
-              )}
+              ))}
             </div>
             {session && (
               // Doubles as the actions trigger: two separate controls plus the
@@ -476,27 +509,52 @@ export default function Session() {
               <div
                 className={`${full ? "flex" : "hidden desk:flex"} flex-none items-center gap-2.5 border-b border-line bg-surface px-3.5 py-[9px] font-mono text-[11.5px] text-faint`}
               >
-                <span className="hidden text-muted desk:inline">tmux · {session?.id ?? "…"}</span>
-                {live && (
-                  // Mobile: one pane at a time, these switch between them.
-                  <span role="group" aria-label="pane" className="flex gap-1.5 desk:hidden">
-                    {(["agent", "shell", "browser"] as const).map((p) => (
-                      <button
-                        key={p}
-                        aria-pressed={active === p}
-                        onClick={() => pick(p)}
-                        className={`rounded-[5px] border px-2 py-0.5 ${
-                          active === p
-                            ? "border-accent bg-surface-2 text-text"
-                            : "border-line text-muted"
-                        }`}
-                      >
-                        {p === "agent" ? (session?.agent ?? "agent") : p}
-                      </button>
-                    ))}
-                  </span>
-                )}
+                <span className="hidden text-muted desk:inline">
+                  {chatView ? "chat" : "tmux"} · {session?.id ?? "…"}
+                </span>
+                {/* Mobile: one pane at a time, these switch between them. Kept
+                    for full screen, which hides the strip above the box. */}
+                <span role="group" aria-label="pane" className="flex gap-1.5 desk:hidden">
+                  {views.map((v) => (
+                    <button
+                      key={v}
+                      aria-pressed={viewOn(v)}
+                      onClick={() => pickView(v)}
+                      className={`rounded-[5px] border px-2 py-0.5 ${
+                        viewOn(v)
+                          ? "border-accent bg-surface-2 text-text"
+                          : "border-line text-muted"
+                      }`}
+                    >
+                      {viewLabel(v)}
+                    </button>
+                  ))}
+                </span>
                 <span className="ml-auto flex items-center gap-2">
+                  {hasChat && (
+                    // The one control this whole view is for: the same session,
+                    // read instead of driven.
+                    <span
+                      role="group"
+                      aria-label="main pane view"
+                      className="hidden gap-1.5 desk:flex"
+                    >
+                      {(["chat", "agent"] as const).map((v) => (
+                        <button
+                          key={v}
+                          aria-pressed={chatView === (v === "chat")}
+                          onClick={() => setMain(v)}
+                          className={`rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${
+                            chatView === (v === "chat")
+                              ? "border-accent bg-surface-2 text-text"
+                              : "border-line text-muted"
+                          }`}
+                        >
+                          {v === "chat" ? "chat" : "terminal"}
+                        </button>
+                      ))}
+                    </span>
+                  )}
                   {live && (
                     <span className="hidden gap-2 desk:flex">
                       <button
@@ -522,77 +580,82 @@ export default function Session() {
                   <span className="hidden desk:inline">{session?.agent}</span>
                 </span>
               </div>
-              {session &&
-                (live ? (
-                  <div ref={splitBox} className="flex min-h-0 flex-1 flex-col desk:flex-row">
-                    <div
-                      className={`${active === "agent" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell || browser ? "desk:flex-none" : ""}`}
-                      style={shell || browser ? { flexBasis: `${ratio}%` } : undefined}
-                    >
+              {session && (
+                <div ref={splitBox} className="flex min-h-0 flex-1 flex-col desk:flex-row">
+                  <div
+                    className={`${active === "agent" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell || browser ? "desk:flex-none" : ""}`}
+                    style={shell || browser ? { flexBasis: `${ratio}%` } : undefined}
+                  >
+                    {/* The transcript outlives tmux, so an ended session has a
+                          conversation to read even though it has no terminal. */}
+                    {chatView ? (
+                      <ChatPane session={session} />
+                    ) : live ? (
                       <Terminal sessionId={session.id} project={session.project} />
+                    ) : (
+                      <div className="flex flex-1 items-center justify-center font-mono text-[13px] text-faint">
+                        session ended {session.endedAt ? agoLabel(session.endedAt) : ""}
+                      </div>
+                    )}
+                  </div>
+                  {(shell || browser) && (
+                    // The WAI-ARIA window splitter pattern again; see the sidebar
+                    // separator above.
+                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
+                    <div
+                      onPointerDown={(e) => {
+                        dragging.current = true;
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                      }}
+                      onPointerMove={(e) => {
+                        if (!dragging.current || !splitBox.current) return;
+                        const box = splitBox.current.getBoundingClientRect();
+                        const pct = ((e.clientX - box.left) / box.width) * 100;
+                        setRatio(Math.min(80, Math.max(20, pct)));
+                      }}
+                      onPointerUp={(e) => {
+                        dragging.current = false;
+                        e.currentTarget.releasePointerCapture(e.pointerId);
+                      }}
+                      onDoubleClick={() => setRatio(50)}
+                      onKeyDown={(e) => {
+                        if (e.key === "ArrowLeft") setRatio((r) => Math.max(20, r - 2));
+                        else if (e.key === "ArrowRight") setRatio((r) => Math.min(80, r + 2));
+                        else if (e.key === "Home") setRatio(50);
+                        else return;
+                        e.preventDefault();
+                      }}
+                      // A 6px drag target was the only way to move this, which
+                      // is no way at all without a mouse.
+                      role="separator"
+                      aria-orientation="vertical"
+                      aria-label="resize the agent pane"
+                      aria-valuenow={Math.round(ratio)}
+                      aria-valuemin={20}
+                      aria-valuemax={80}
+                      // Being focusable is what makes the splitter usable without a mouse.
+                      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+                      tabIndex={0}
+                      title="drag to resize · double-click to reset · arrow keys"
+                      className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
+                    />
+                  )}
+                  {shell && (
+                    <div
+                      className={`${active === "shell" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex`}
+                    >
+                      <Terminal sessionId={session.id} project={session.project} shell />
                     </div>
-                    {(shell || browser) && (
-                      // The WAI-ARIA window splitter pattern again; see the sidebar
-                      // separator above.
-                      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-                      <div
-                        onPointerDown={(e) => {
-                          dragging.current = true;
-                          e.currentTarget.setPointerCapture(e.pointerId);
-                        }}
-                        onPointerMove={(e) => {
-                          if (!dragging.current || !splitBox.current) return;
-                          const box = splitBox.current.getBoundingClientRect();
-                          const pct = ((e.clientX - box.left) / box.width) * 100;
-                          setRatio(Math.min(80, Math.max(20, pct)));
-                        }}
-                        onPointerUp={(e) => {
-                          dragging.current = false;
-                          e.currentTarget.releasePointerCapture(e.pointerId);
-                        }}
-                        onDoubleClick={() => setRatio(50)}
-                        onKeyDown={(e) => {
-                          if (e.key === "ArrowLeft") setRatio((r) => Math.max(20, r - 2));
-                          else if (e.key === "ArrowRight") setRatio((r) => Math.min(80, r + 2));
-                          else if (e.key === "Home") setRatio(50);
-                          else return;
-                          e.preventDefault();
-                        }}
-                        // A 6px drag target was the only way to move this, which
-                        // is no way at all without a mouse.
-                        role="separator"
-                        aria-orientation="vertical"
-                        aria-label="resize the agent pane"
-                        aria-valuenow={Math.round(ratio)}
-                        aria-valuemin={20}
-                        aria-valuemax={80}
-                        // Being focusable is what makes the splitter usable without a mouse.
-                        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-                        tabIndex={0}
-                        title="drag to resize · double-click to reset · arrow keys"
-                        className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
-                      />
-                    )}
-                    {shell && (
-                      <div
-                        className={`${active === "shell" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex`}
-                      >
-                        <Terminal sessionId={session.id} project={session.project} shell />
-                      </div>
-                    )}
-                    {browser && (
-                      <div
-                        className={`${active === "browser" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell ? "desk:border-l desk:border-line" : ""}`}
-                      >
-                        <BrowserPane sessionId={session.id} />
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-1 items-center justify-center font-mono text-[13px] text-faint">
-                    session ended {session.endedAt ? agoLabel(session.endedAt) : ""}
-                  </div>
-                ))}
+                  )}
+                  {browser && (
+                    <div
+                      className={`${active === "browser" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell ? "desk:border-l desk:border-line" : ""}`}
+                    >
+                      <BrowserPane sessionId={session.id} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </main>
