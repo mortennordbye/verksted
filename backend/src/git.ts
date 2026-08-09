@@ -1,7 +1,7 @@
 import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { BranchSync } from "../../shared/api.js";
+import type { BranchSync, SessionWork } from "../../shared/api.js";
 
 /**
  * Raw stdout, untrimmed. Porcelain -z output can legitimately begin with a
@@ -77,6 +77,50 @@ export async function branchOf(repoDir: string): Promise<string> {
     } catch {
       return "?";
     }
+  }
+}
+
+/** HEAD's commit, or null on anything that is not a repo with a commit in it. */
+export async function headCommit(repoDir: string): Promise<string | null> {
+  try {
+    return await git(repoDir, ["rev-parse", "HEAD"]);
+  } catch {
+    return null;
+  }
+}
+
+/** Commits on the current branch that its upstream has not; null without one. */
+async function unpushed(repoDir: string): Promise<number | null> {
+  try {
+    return Number(await git(repoDir, ["rev-list", "--count", "@{u}..HEAD"]));
+  } catch {
+    // No upstream configured: nothing has ever pushed this branch, and there is
+    // no count to give — which the UI says in words rather than as a number.
+    return null;
+  }
+}
+
+/**
+ * How far the repo moved from `from`, for showing beside a finished session.
+ *
+ * Null when the measurement cannot be trusted rather than a zeroed one: `from`
+ * unreachable means the branch was reset, or the session ended somewhere with
+ * no path back to where it began, and "0 commits" would be a claim rather than
+ * an answer.
+ */
+export async function workSince(repoDir: string, from: string): Promise<SessionWork | null> {
+  try {
+    const range = `${from}..HEAD`;
+    const changed = await git(repoDir, ["diff", "--name-only", range]);
+    return {
+      commits: Number(await git(repoDir, ["rev-list", "--count", range])),
+      files: changed ? changed.split("\n").length : 0,
+      dirty: parsePorcelainZ(await gitRaw(repoDir, ["status", "--porcelain=v1", "-z"])).length,
+      unpushed: await unpushed(repoDir),
+      branch: await branchOf(repoDir),
+    };
+  } catch {
+    return null;
   }
 }
 

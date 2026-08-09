@@ -183,6 +183,45 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
   `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
 
+## A run's evidence is counts, with no way to read the diff behind them
+
+- **What:** An inbox row now says "3 commits · 2 files · 3 unpushed on main"
+  under the sign-off. What it cannot do is show the change: there is no
+  commit-range diff endpoint, only per-file working-tree diffs
+  (`GET /api/projects/:name/diff?path=`) and PR diffs. So the row answers "did
+  it do anything" but not "what did it do", and reading that still means opening
+  the session's terminal.
+- **Why deferred:** A range diff is a new endpoint plus a review screen, and the
+  size question a phone makes real — a night's work can be megabytes, so it
+  needs paging or per-file selection rather than one blob. The counts are the
+  useful part and stand on their own.
+- **Unblocked by:** Wanting to review an overnight run from the phone rather
+  than judge it by its numbers. `startCommit` is already stored on the session
+  metadata, so the range is there; what is missing is the endpoint and the view.
+- **Where:** `backend/src/sessions-store.ts` (`Meta.startCommit`,
+  `captureWork`), `backend/src/git.ts` (`workSince`),
+  `backend/src/routes/files.ts` (the per-file diff route to extend),
+  `frontend/src/screens/Inbox.tsx` (`workLabel`)
+
+## What a session's work counts is the repo's movement, not the session's
+
+- **What:** `workSince` measures from the commit HEAD was on when the session
+  started to where it is when the session is first seen finished. A second
+  session committing in the same repo over the same window is counted in the
+  first one's row.
+- **Why deferred:** Git records who authored a commit, not which agent session
+  produced it, so attribution would mean tagging commits as they are made — a
+  hook installed into the user's repos, which is the same decision the house
+  rules entry below is waiting on. On a bench where the scheduler refuses to
+  overlap a schedule with itself, the overlap is rare enough to state rather
+  than engineer around.
+- **Unblocked by:** Two sessions in one repo producing a row that misleads in
+  practice. The cheap half-fix is to record the end commit as well and show the
+  range, so at least the row can be checked.
+- **Where:** `backend/src/git.ts` (`workSince`),
+  `backend/src/sessions-store.ts` (`captureWork`), `shared/api.ts`
+  (`SessionWork`, where the caveat is written down)
+
 ## Event triggers: react to the repo, not only to the clock
 
 - **What:** Schedules fire on a cron. "Keep an eye on my repos" really means

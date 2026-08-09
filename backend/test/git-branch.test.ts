@@ -174,3 +174,86 @@ describe("syncDefaultBranch", () => {
     });
   });
 });
+
+describe("workSince", () => {
+  // Its own clone, so committing here cannot disturb the shared repo the
+  // describes above check out and reset.
+  let dir: string;
+  let start: string;
+
+  beforeAll(async () => {
+    dir = path.join(reposDir, "work");
+    execFileSync("git", ["clone", remoteDir, dir], { stdio: "pipe" });
+    const { headCommit } = await import("../src/git.js");
+    start = (await headCommit(dir))!;
+  });
+
+  function commit(name: string, body = name) {
+    fs.writeFileSync(path.join(dir, name), body);
+    run(dir, "add", "-A");
+    run(dir, "commit", "-m", name);
+  }
+
+  it("has nothing to report on a session that changed nothing", async () => {
+    const { workSince } = await import("../src/git.js");
+    expect(await workSince(dir, start)).toEqual({
+      commits: 0,
+      files: 0,
+      dirty: 0,
+      unpushed: 0,
+      branch: "main",
+    });
+  });
+
+  it("counts the commits, the files they touched, and what no remote has", async () => {
+    const { workSince } = await import("../src/git.js");
+    commit("b.txt");
+    commit("c.txt");
+    // A second commit to a file already counted: the run touched two files, not
+    // three, which is what a "3 commits, 2 files" row is claiming.
+    commit("b.txt", "again");
+
+    const work = await workSince(dir, start);
+
+    expect(work).toEqual({ commits: 3, files: 2, dirty: 0, unpushed: 3, branch: "main" });
+  });
+
+  it("counts what was left uncommitted separately from what was committed", async () => {
+    const { workSince } = await import("../src/git.js");
+    fs.writeFileSync(path.join(dir, "d.txt"), "not staged");
+    fs.writeFileSync(path.join(dir, "a.txt"), "modified");
+
+    const work = await workSince(dir, start);
+
+    expect(work!.dirty).toBe(2);
+    expect(work!.commits).toBe(3);
+    run(dir, "restore", "a.txt");
+    fs.rmSync(path.join(dir, "d.txt"));
+  });
+
+  it("stops counting as unpushed once the branch is pushed", async () => {
+    const { workSince } = await import("../src/git.js");
+    run(dir, "push", "origin", "main");
+
+    expect((await workSince(dir, start))!.unpushed).toBe(0);
+  });
+
+  it("says nothing at all rather than zero when it cannot measure", async () => {
+    // A commit no longer reachable — the branch was reset, or the session ended
+    // somewhere with no path back. "0 commits" would be a claim, not an answer.
+    const { workSince } = await import("../src/git.js");
+    expect(await workSince(dir, "0".repeat(40))).toBeNull();
+  });
+
+  it("has no upstream to compare against on a branch that was never pushed", async () => {
+    const { workSince } = await import("../src/git.js");
+    run(dir, "switch", "-c", "local-only");
+    commit("e.txt");
+
+    const work = await workSince(dir, start);
+
+    expect(work!.unpushed).toBeNull();
+    expect(work!.branch).toBe("local-only");
+    run(dir, "switch", "main");
+  });
+});

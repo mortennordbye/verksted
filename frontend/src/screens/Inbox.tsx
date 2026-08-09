@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Memory, ScheduleRun, Session } from "../../../shared/api";
+import type { Memory, ScheduleRun, Session, SessionWork } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { StatusChip } from "../components/StatusChip";
@@ -15,6 +15,26 @@ const OUTCOME: Record<ScheduleRun["outcome"], { kind: "run" | "wait" | "fail" | 
   running: { kind: "run" },
   done: { kind: "idle" },
 };
+
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
+
+/**
+ * What the repo has to show for a run, in one line under its sign-off. A run
+ * that said "ok: tidied the PRs" and left nothing behind is the case worth
+ * seeing, so "no changes" is stated rather than left blank.
+ */
+function workLabel(w: SessionWork): string {
+  const parts: string[] = [];
+  if (w.commits) parts.push(plural(w.commits, "commit"));
+  if (w.files) parts.push(plural(w.files, "file"));
+  if (w.dirty) parts.push(`${w.dirty} uncommitted`);
+  // Work that has not left the volume is the part worth flagging: no remote has
+  // it, so the PVC is the only copy.
+  if (w.unpushed) parts.push(`${plural(w.unpushed, "commit")} unpushed`);
+  else if (w.unpushed === null && w.commits) parts.push("no upstream");
+  if (parts.length === 0) return `no changes on ${w.branch}`;
+  return `${parts.join(" · ")} on ${w.branch}`;
+}
 
 /**
  * Everything that wants you, in one place.
@@ -172,6 +192,9 @@ export default function Inbox() {
               <div className="mt-1.5 text-[12.5px] text-muted">
                 {r.report ?? r.error ?? "no sign-off"}
               </div>
+              {r.work && (
+                <div className="mt-1 font-mono text-[11px] text-faint">{workLabel(r.work)}</div>
+              )}
               {r.sessionId && (
                 <Link
                   to={`/s/${r.sessionId}`}
