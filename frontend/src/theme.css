@@ -91,13 +91,19 @@
   /* Not from the site. A dot for a session that is doing nothing, so it is
      meant to recede. */
   --color-idle: #4a4a4a;
-  /* Which CLI, not brand: three hues that stay clear of the green, the copper
-     and the red the states have taken. Codex uses the site's --info; the other
-     two have no counterpart there. The letter in the mark is what actually
-     tells them apart, so these only have to not collide. */
-  --color-claude: #c8aaf5;
-  --color-antigravity: #a3b6f5;
-  --color-codex: #59a8c2;
+  /* Which CLI, and now in its own brand's hue: claude orange, antigravity
+     Google blue, codex the monochrome OpenAI reads as on a dark ground. Three
+     arbitrary hues meant the mark had to be learned; these are recognised.
+
+     Claude's #d97757 cannot be used literally — it lands between --color-wait
+     (#bf9752) and --color-fail (#d18c82), so a claude badge would read as a
+     state chip in a list that carries both. The separation is chroma rather
+     than hue: the states are deliberately muted pastels, so an agent mark is
+     the saturated one. Same reason antigravity is Google's blue 400 and not
+     #4285f4, which measures 4.6:1 behind a 10.5px letter. */
+  --color-claude: #f08a4b;
+  --color-antigravity: #74a7f7;
+  --color-codex: #c3ccd2;
   /* Was a fourth near-black. Matching --color-bg stops the terminal reading as
      a panel sitting on a different theme. */
   --color-term: #0a0a0a;

@@ -36,15 +36,23 @@ const AGENT_MARK: Record<string, { letter: string; className: string }> = {
   codex: { letter: "X", className: "text-codex bg-codex/15" },
 };
 
-export function AgentTag({ agent }: { agent: string }) {
+/** The square on its own, for rows too tight to spell the agent out. */
+export function AgentMark({ agent }: { agent: string }) {
   const mark = AGENT_MARK[agent] ?? { letter: "?", className: "text-faint bg-surface-2" };
   return (
+    <i
+      title={agent}
+      className={`flex h-[18px] w-[18px] flex-none items-center justify-center rounded-md font-mono text-[10.5px] font-medium not-italic ${mark.className}`}
+    >
+      {mark.letter}
+    </i>
+  );
+}
+
+export function AgentTag({ agent }: { agent: string }) {
+  return (
     <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted">
-      <i
-        className={`flex h-[18px] w-[18px] flex-none items-center justify-center rounded-md font-mono text-[10.5px] font-medium not-italic ${mark.className}`}
-      >
-        {mark.letter}
-      </i>
+      <AgentMark agent={agent} />
       {agent}
     </span>
   );
