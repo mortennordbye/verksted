@@ -69,25 +69,47 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
           ←
         </button>
       )}
+      {/* The mark is a dot with a halo, carried over from the northlight header,
+          rather than the mono lockup and blinking block it replaces — that read
+          as a CLI that happens to have a web page. The dot is the accent, so it
+          follows a palette swap without being touched.
+
+          On a sub-screen the wordmark drops and the dot goes on alone as the
+          way home. The app's own name is the one thing you already know; the
+          bar's job there is to say which project you are in, and "verksted"
+          sitting where the project should be actively got in the way of it. */}
       <Link
         to="/"
-        className="flex flex-none items-center font-mono text-[15px] font-semibold tracking-wide"
+        aria-label={back !== undefined ? "home" : undefined}
+        className="flex flex-none items-center gap-2 text-[16px] font-bold tracking-[-0.03em]"
       >
-        verksted
-        <span className="ml-1 inline-block h-4 w-2 animate-blink bg-accent" />
+        <span className="relative h-[9px] w-[9px] flex-none rounded-full bg-accent">
+          <span className="absolute -inset-[5px] rounded-full bg-accent/15" />
+        </span>
+        {back === undefined && "verksted"}
       </Link>
       {crumb && crumb.length > 0 && (
-        // A phone gets the last crumb only — it is the sole place the session
-        // name shows there, since the session screen drops its own title row to
+        // First and last survive a phone. The first is the project, which is
+        // the answer to "where am I"; the last is the session, which is the
+        // answer to "which one" — and on the session screen it is the only
+        // place the title shows, since that screen drops its own title row to
         // give the terminal the height back.
-        <div className="flex min-w-0 items-center gap-1.5 font-mono text-[13px] text-muted">
+        <div className="flex min-w-0 items-center gap-2">
           {crumb.map((c, i) => (
             <span
               key={c}
-              className={`${i < crumb.length - 1 ? "hidden min-[800px]:flex" : "flex"} min-w-0 items-center gap-1.5`}
+              className={`${
+                i === 0 || i === crumb.length - 1 ? "flex" : "hidden min-[800px]:flex"
+              } min-w-0 items-center gap-2`}
             >
-              <span className="text-faint">/</span>
-              <b className="overflow-hidden font-medium text-ellipsis whitespace-nowrap text-text">
+              {i > 0 && <span className="flex-none text-faint">/</span>}
+              <b
+                className={`overflow-hidden text-ellipsis whitespace-nowrap ${
+                  i === 0
+                    ? "text-[15px] font-semibold tracking-[-.02em] text-text"
+                    : "font-mono text-[13px] font-normal text-muted"
+                }`}
+              >
                 {c}
               </b>
             </span>

@@ -1,14 +1,17 @@
+/* The state colours are pastels now, so the old /5 wash was invisible against
+   #0b0b0e. Radius is northlight's 6px tag rather than a pill, and the label is
+   sans: mono on every chip was most of what made the app read as a terminal. */
 const styles = {
-  run: "text-run border-run/30 bg-run/5",
-  wait: "text-wait border-wait/30 bg-wait/5",
-  fail: "text-fail border-fail/30 bg-fail/5",
-  idle: "text-muted border-line",
+  run: "text-run border-run/25 bg-run/12",
+  wait: "text-wait border-wait/25 bg-wait/12",
+  fail: "text-fail border-fail/25 bg-fail/12",
+  idle: "text-faint border-line bg-surface-2",
 } as const;
 
 export function StatusChip({ kind, label }: { kind: keyof typeof styles; label: string }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 font-mono text-[11px] ${styles[kind]}`}
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap ${styles[kind]}`}
     >
       {label}
     </span>
@@ -23,16 +26,25 @@ export function StatusDot({ running }: { running: boolean }) {
   );
 }
 
-export const AGENT_DOT: Record<string, string> = {
-  claude: "bg-claude",
-  antigravity: "bg-antigravity",
-  codex: "bg-codex",
+/* A letter in a tinted square rather than a bare coloured dot. Three dots cost
+   three hues the palette has to spend on nothing else, and at 7px the three
+   were told apart by colour alone — which left nothing for anyone who cannot
+   use it, and nothing if the palette ever goes monochrome. */
+const AGENT_MARK: Record<string, { letter: string; className: string }> = {
+  claude: { letter: "C", className: "text-claude bg-claude/15" },
+  antigravity: { letter: "A", className: "text-antigravity bg-antigravity/15" },
+  codex: { letter: "X", className: "text-codex bg-codex/15" },
 };
 
 export function AgentTag({ agent }: { agent: string }) {
+  const mark = AGENT_MARK[agent] ?? { letter: "?", className: "text-faint bg-surface-2" };
   return (
-    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] text-muted">
-      <i className={`h-[7px] w-[7px] flex-none rounded-[2px] ${AGENT_DOT[agent] ?? "bg-faint"}`} />
+    <span className="inline-flex items-center gap-1.5 text-[12.5px] text-muted">
+      <i
+        className={`flex h-[18px] w-[18px] flex-none items-center justify-center rounded-md font-mono text-[10.5px] font-medium not-italic ${mark.className}`}
+      >
+        {mark.letter}
+      </i>
       {agent}
     </span>
   );
