@@ -12,6 +12,7 @@ function s(id: string, status: Session["status"]): Session {
     endedAt: null,
     report: null,
     outcome: "running" as const,
+    work: null,
     status,
   };
 }

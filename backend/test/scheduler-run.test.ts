@@ -201,6 +201,26 @@ describe("runSchedule", () => {
     expect(started).toHaveLength(1);
   });
 
+  it("carries what the run left in the repo onto its inbox row", async () => {
+    // The evidence behind the sign-off: a run that reports itself ok and
+    // committed nothing is the case this is for.
+    const s = await schedule("check the open PRs");
+    const session = await sessionFrom(s.id);
+    // Its tmux session is gone, so the next list sweep ends it and measures.
+    fake.reply("tmux", "ls", { stdout: "" });
+
+    const run = (await store.listRuns()).find((r) => r.sessionId === session!.id);
+
+    expect(run!.work).toEqual({
+      commits: 0,
+      files: 0,
+      dirty: 0,
+      // The test repo has no remote, so there is no upstream to count against.
+      unpushed: null,
+      branch: "main",
+    });
+  });
+
   it("records the reason rather than throwing when the project is gone", async () => {
     const s = await schedule("check the open PRs", "deleted-repo");
 

@@ -32,6 +32,35 @@ export interface Session {
   report: string | null;
   /** That verdict as one word, falling back to where the session got to. */
   outcome: "ok" | "attention" | "failed" | "running" | "done";
+  /**
+   * What it left in the repo. Null while it runs — this is measured once, when
+   * the session is first seen finished — and null for a session that started
+   * somewhere that is not a git repo.
+   */
+  work: SessionWork | null;
+}
+
+/**
+ * The repo's movement while a session held it, so a run's one-line verdict can
+ * be checked against what it actually did.
+ *
+ * "While it held it" rather than "what it did": these are measured from the
+ * commit HEAD was on when the session started, so a second session committing
+ * in the same repo over the same window is counted here too. On a bench where
+ * the scheduler refuses to overlap a schedule with itself that is rare, and the
+ * alternative — attributing commits to a session — is not something git records.
+ */
+export interface SessionWork {
+  /** Commits added to HEAD since the session started. */
+  commits: number;
+  /** Files those commits touched. */
+  files: number;
+  /** Files left with uncommitted changes. */
+  dirty: number;
+  /** Commits the upstream branch has not got; null when there is no upstream. */
+  unpushed: number | null;
+  /** The branch it ended on. */
+  branch: string;
 }
 
 /** The last lines a session printed, for answering it without a terminal. */
@@ -324,6 +353,12 @@ export interface ScheduleRun {
    */
   report: string | null;
   outcome: "ok" | "attention" | "failed" | "blocked" | "running" | "done";
+  /**
+   * What the run left in the repo, once its session has finished — the evidence
+   * behind the sign-off. Null for an assistant run, which touches nothing, and
+   * for a run still going.
+   */
+  work: SessionWork | null;
 }
 
 export interface SettingVar {

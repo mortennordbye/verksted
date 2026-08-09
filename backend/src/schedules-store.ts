@@ -233,6 +233,7 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
   const out: ScheduleRun[] = [];
   for (const { s, run } of rows) {
     const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
+    const session = run.sessionId ? sessions.get(run.sessionId) : undefined;
     out.push({
       scheduleId: s.id,
       schedule: s.name,
@@ -242,7 +243,8 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
       sessionId: run.sessionId,
       error: run.error,
       report,
-      outcome: outcome(run, report, run.sessionId ? sessions.get(run.sessionId) : undefined),
+      outcome: outcome(run, report, session),
+      work: session?.work ?? null,
     });
   }
   return out;
