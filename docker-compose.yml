@@ -48,7 +48,7 @@ services:
   # Docker daemon for the sessions (agents building/running containers).
   # Privileged is inherent to dind; in prod this becomes a pod sidecar.
   dind:
-    image: docker:28-dind
+    image: docker:29-dind
     privileged: true
     environment:
       # Plain tcp on 2375, pod/compose-network only — no TLS cert dance.
