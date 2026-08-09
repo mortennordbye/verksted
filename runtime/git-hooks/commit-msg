@@ -1,0 +1,58 @@
+#!/bin/sh
+# Strip AI attribution from every commit made inside a session.
+#
+# CLAUDE.md bans AI attribution in git history, but that is an instruction to an
+# agent, and an instruction is not a guarantee: one `Co-authored-by: Claude` got
+# through and was enough for GitHub to list "claude" in the repository's
+# Contributors panel. Removing it afterwards meant rewriting 47 commits and a
+# force-push. This makes it impossible instead of merely forbidden.
+#
+# Installed system-wide (git config --system core.hooksPath), so it covers every
+# agent — claude, codex, agy — in every repo under REPOS_DIR, not just the ones
+# that happen to have a hook of their own.
+set -eu
+
+msg_file="$1"
+
+# Drops the two trailers, then any blank lines they left stranded at the end.
+# POSIX awk rather than python3 or sed -i: a commit hook that fails is a commit
+# an agent cannot make, so this leans on what is guaranteed to be present.
+tmp_file="$msg_file.verksted-tmp"
+awk '
+  tolower($0) ~ /^claude-session:/            { next }
+  tolower($0) ~ /^co-authored-by:.*claude/    { next }
+  tolower($0) ~ /^generated with.*claude/     { next }
+  { lines[++n] = $0 }
+  END {
+    while (n > 0 && lines[n] ~ /^[ \t]*$/) n--
+    for (i = 1; i <= n; i++) print lines[i]
+  }
+' "$msg_file" > "$tmp_file"
+mv "$tmp_file" "$msg_file"
+
+# core.hooksPath is global and replaces, rather than adds to, whatever the repo
+# would have run. Without this a project's own commit-msg hook (or husky's)
+# stops firing the moment it is cloned into a session, silently and with no
+# error — so chain to both and preserve the exit status.
+git_dir=$(git rev-parse --git-dir 2>/dev/null || true)
+top_level=$(git rev-parse --show-toplevel 2>/dev/null || true)
+self=$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")
+
+run_chained() {
+  hook=$1
+  if [ -z "$hook" ] || [ ! -x "$hook" ]; then
+    return 0
+  fi
+  # git-dir/hooks resolves back here when a repo sets its own hooksPath to ours.
+  if [ "$hook" = "$self" ]; then
+    return 0
+  fi
+  "$hook" "$msg_file"
+}
+
+if [ -n "$git_dir" ]; then
+  run_chained "$git_dir/hooks/commit-msg"
+fi
+if [ -n "$top_level" ]; then
+  run_chained "$top_level/.husky/commit-msg"
+fi

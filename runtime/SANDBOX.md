@@ -56,3 +56,9 @@ a project's README says "open http://localhost:PORT".
   Anything written outside `/data` is gone with the container.
 - **Never set `ANTHROPIC_API_KEY`.** It silently overrides Claude Max
   subscription auth and bills per token.
+- **Commit messages are filtered.** A system-wide `commit-msg` hook strips AI
+  attribution — `Claude-Session:`, a `Co-authored-by:` naming Claude — from
+  every commit in every repo here. Do not add them back; the history and the
+  GitHub contributors list are meant to name the human author alone. The hook
+  chains to a repo's own `commit-msg` and to `.husky/commit-msg`, so a project's
+  linting still runs and can still reject a message.
