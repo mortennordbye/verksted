@@ -1,0 +1,46 @@
+# Hands the routine half of dependency maintenance to CI.
+#
+# Dependabot raises two kinds of PR: version updates on the weekly schedule in
+# dependabot.yml, and security updates the moment an advisory lands against
+# something in the lockfile. This queues both for merge as soon as the `test`
+# job passes, so long as the change is not a major.
+#
+# `--auto` is the whole safety story: it does not merge, it asks GitHub to merge
+# once required checks pass. The ruleset on main makes `test` required, so a red
+# build leaves the PR sitting open rather than landing. Without that ruleset this
+# workflow would merge on contact — if branch protection is ever removed, remove
+# this too.
+#
+# Majors are excluded deliberately. That includes the rare security fix that only
+# ships in a major; those stay open for a human, which is the right call when the
+# fix and a breaking change arrive together.
+name: dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Reads the semver level out of Dependabot's own commit metadata rather
+      # than parsing the PR title. For a grouped PR this reports the highest
+      # bump in the group, so one major holds back the whole group.
+      #
+      # Deliberately no `alert-lookup: true`: it would tell us whether a PR
+      # closes an advisory, but only via a PAT that has to be created, scoped
+      # and rotated by hand. Security fixes are patch or minor releases in
+      # practice, so the semver gate already covers them.
+      - uses: dependabot/fetch-metadata@v3
+        id: meta
+
+      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

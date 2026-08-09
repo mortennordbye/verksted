@@ -81,6 +81,15 @@ export default tseslint.config(
       // The command palette input is the one place autofocus is correct: the
       // dialog exists to be typed into.
       "jsx-a11y/no-autofocus": "warn",
+      // New in eslint-plugin-react-hooks 7, which folds in the React Compiler
+      // rules. Both flag deliberate idioms here: the latest-ref pattern (a ref
+      // assigned during render so an effect can read a fresh callback without
+      // re-subscribing) and effects that seed state on mount. Each site is
+      // commented where it stands. Same treatment as the jsx-a11y rules above
+      // — real findings, but a refactor rather than an attribute, so they warn
+      // instead of blocking CI. Tracked in BACKLOG.md.
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
     },
   },
   {
