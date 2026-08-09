@@ -238,34 +238,124 @@ async function rebuild(log: Logger): Promise<void> {
     try {
       // protect: croner skips a tick whose predecessor is still running — which
       // includes one still sitting out its jitter.
-      jobs.set(
-        schedule.id,
-        // Named so croner registers it in its own scheduledJobs list, which is
-        // the only place a timer this map has lost track of would still show up.
-        new Cron(
-          schedule.cron,
-          { name: schedule.id, protect: true, timezone: env.TZ },
-          async () => {
-            // The pause switch is read at fire time, not at reload: flipping it
-            // has to stop the next tick without rebuilding every timer. "Run now"
-            // deliberately ignores it — that one is somebody asking.
-            if (await schedulesPaused()) {
-              log.info(`schedule ${schedule.id} skipped: schedules are paused`);
-              return;
-            }
-            // Beside the pause switch rather than inside runSchedule, because
-            // "run now" is somebody asking and is subject to neither.
-            if (await skipForIdle(schedule)) {
-              log.info(`schedule ${schedule.id} skipped: nothing ended in the last day`);
-              return;
-            }
-            if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
-          },
-        ),
+      // Named so croner registers it in its own scheduledJobs list, which is
+      // the only place a timer this map has lost track of would still show up.
+      const job = new Cron(
+        schedule.cron,
+        { name: schedule.id, protect: true, timezone: env.TZ },
+        () => fire(schedule, log),
       );
+      jobs.set(schedule.id, job);
+      catchUp(schedule, job, log);
     } catch (err) {
       log.warn(err, `schedule ${schedule.id} has an unusable pattern "${schedule.cron}"`);
     }
   }
   log.info(`scheduler: ${jobs.size} active schedule(s)`);
+}
+
+/** One firing of a timer: everything a tick does once the clock has spoken. */
+async function fire(schedule: Schedule, log: Logger): Promise<void> {
+  // Stamped first, and regardless of what the checks below decide. Every one of
+  // them is the schedule declining on purpose, and a boot that could not tell
+  // those from a tick nobody was up for would re-run them.
+  await schedules.stampFired(schedule.id);
+  // The pause switch is read at fire time, not at reload: flipping it has to
+  // stop the next tick without rebuilding every timer. "Run now" deliberately
+  // ignores it — that one is somebody asking.
+  if (await schedulesPaused()) {
+    log.info(`schedule ${schedule.id} skipped: schedules are paused`);
+    return;
+  }
+  // Beside the pause switch rather than inside runSchedule, because "run now"
+  // is somebody asking and is subject to neither.
+  if (await skipForIdle(schedule)) {
+    log.info(`schedule ${schedule.id} skipped: nothing ended in the last day`);
+    return;
+  }
+  if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
+}
+
+/**
+ * How late a tick may be and still be worth running. A 07:00 briefing read at
+ * 07:20 is the morning's; the same one at lunchtime is yesterday's news, and
+ * tomorrow's is coming anyway.
+ */
+const CATCH_UP_WITHIN_MS = 60 * 60_000;
+
+/**
+ * When this process came up. A tick due after it was not missed for want of a
+ * pod — this one was here — so it was dropped by croner's `protect` (a run
+ * still going, jitter included) or by a reload replacing the timers mid-tick.
+ * Both are deliberate, and re-running them is exactly the stacking the ceilings
+ * elsewhere in this file exist to prevent.
+ */
+const startedAt = Date.now();
+
+/** What a boot should do about a tick a schedule may have missed. */
+export type Catchup = "nothing" | "catch up" | "too late";
+
+/**
+ * The rule, on its own so it is testable without waiting for a real minute to
+ * pass — the same reason skipForIdle is exported.
+ *
+ * `due` is the first cron occurrence after the schedule last fired, and `after`
+ * the one following it, which is the schedule's own interval measured at the
+ * point it matters. A schedule that has never fired has nothing to compare
+ * against and is left alone: that is a schedule added moments ago, and — the
+ * first time this ships — every schedule there is.
+ */
+export function missedTick(
+  lastFiredAt: string | null,
+  due: Date | null,
+  after: Date | null,
+  now: number,
+): Catchup {
+  if (!lastFiredAt || !due) return "nothing";
+  const at = due.getTime();
+  if (at > now || at >= startedAt) return "nothing";
+  // Half the interval, so a frequent schedule waits for the tick it is about to
+  // get rather than firing one a minute ahead of it.
+  const window = after
+    ? Math.min(CATCH_UP_WITHIN_MS, (after.getTime() - at) / 2)
+    : CATCH_UP_WITHIN_MS;
+  return now - at <= window ? "catch up" : "too late";
+}
+
+/**
+ * Run, or write off, the tick this schedule missed while the pod was down.
+ *
+ * Timers live only in memory and are rebuilt from the stored records at boot,
+ * so a restart spanning 07:00 loses that firing with nothing left to say it
+ * ever should have happened. That silence is the real cost: an unattended run
+ * that reports itself ok is *meant* to leave the inbox quiet, so a scheduler
+ * that never fired reads exactly like a night when all was well.
+ *
+ * Not awaited by the rebuild that starts it — a catch-up sits out its jitter
+ * and then runs an agent, and the schedules behind it in the loop should not
+ * wait for that to get their timers.
+ */
+function catchUp(schedule: Schedule, job: Cron, log: Logger): void {
+  const last = schedule.lastFiredAt;
+  const due = last ? job.nextRun(new Date(last)) : null;
+  const verdict = missedTick(last, due, due && job.nextRun(due), Date.now());
+  if (verdict === "nothing") return;
+
+  const at = due!.toISOString();
+  if (verdict === "too late") {
+    log.warn({ schedule: schedule.id }, `schedule ${schedule.id} missed its ${at} tick`);
+    // Stamped as well as recorded, so the tick is accounted for: without it a
+    // pod that keeps restarting would report the same missed tick every boot
+    // until it had pushed the schedule's real history out of the run list.
+    // Strictly after the record, never beside it: both rewrite the same file
+    // from what they read, so in parallel the later write drops the other's.
+    void schedules
+      .recordRun(schedule.id, { error: `missed while the pod was down (due ${at})` })
+      .then(() => schedules.stampFired(schedule.id))
+      .catch((err) => log.warn(err, `recording ${schedule.id}'s missed tick failed`));
+    return;
+  }
+
+  log.info(`schedule ${schedule.id} catching up on its ${at} tick`);
+  void fire(schedule, log).catch((err) => log.warn(err, `catch-up for ${schedule.id} failed`));
 }

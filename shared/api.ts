@@ -280,6 +280,14 @@ export interface Schedule {
   enabled: boolean;
   createdAt: string;
   lastRunAt: string | null;
+  /**
+   * When the timer last fired, whether or not the firing started anything, and
+   * null until it first does. Distinct from lastRunAt, which is when a run was
+   * last *recorded*: a tick dropped for the pause switch or an idle day records
+   * nothing and still fired. The gap between this and the cron is how a boot
+   * tells a tick the pod was down for from one it deliberately skipped.
+   */
+  lastFiredAt: string | null;
   /** Session the last run started; null for an assistant run, which starts none. */
   lastSessionId: string | null;
   /** Why the last run started nothing; null when it did. */
