@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentName, SessionCapture } from "../../../shared/api.js";
+import type { AgentName, SessionCapture, SessionChat } from "../../../shared/api.js";
+import { DEFAULT_WINDOW, MAX_WINDOW, readChat } from "../chat.js";
 import { resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
+import { transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
 
 export default async function sessionRoutes(app: FastifyInstance) {
@@ -162,6 +164,51 @@ export default async function sessionRoutes(app: FastifyInstance) {
         req.log.error(err, "capture-pane failed");
         return reply.code(502).send({ error: "could not read the session" });
       }
+    },
+  );
+
+  /**
+   * The session as a conversation rather than a terminal.
+   *
+   * Unlike capture, this outlives the session: the transcript is on the volume,
+   * so a run that finished last week can still be read back. See chat.ts for
+   * what is kept and why this costs nothing but a file read.
+   *
+   * `since` is the last timestamp the caller holds, so a poll that finds
+   * nothing new answers with an empty list instead of the window again.
+   */
+  app.get<{ Params: { id: string }; Querystring: { bytes?: number; since?: string } }>(
+    "/api/sessions/:id/chat",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            bytes: {
+              type: "integer",
+              minimum: 1_000,
+              maximum: MAX_WINDOW,
+              default: DEFAULT_WINDOW,
+            },
+            since: { type: "string", maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply): Promise<SessionChat | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      const conversationId = await store.readConv(req.params.id);
+      let file: string | null = null;
+      if (conversationId) {
+        try {
+          file = transcriptPath(resolveInsideRepos(session.project), conversationId);
+        } catch {
+          // The project has been deleted; there is no cwd to derive a path from.
+        }
+      }
+      return readChat(file, conversationId, { bytes: req.query.bytes, since: req.query.since });
     },
   );
 }

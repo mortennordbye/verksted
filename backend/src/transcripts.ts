@@ -51,7 +51,7 @@ export interface SessionPrompts {
  * slashes turned into dashes>/<conversation id>.jsonl. Verified against the
  * real thing rather than derived from documentation.
  */
-function transcriptPath(repoDir: string, conversationId: string): string {
+export function transcriptPath(repoDir: string, conversationId: string): string {
   const home = process.env.HOME ?? "/data/home";
   const slug = repoDir.replace(/\//g, "-");
   return path.join(home, ".claude", "projects", slug, `${conversationId}.jsonl`);
