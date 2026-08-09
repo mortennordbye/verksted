@@ -77,7 +77,7 @@ export function runReplace(
     }, timeoutMs);
 
     worker.on("message", (result: ReplaceResult) => finish(() => resolve(result)));
-    worker.on("error", (err) => finish(() => reject(err)));
+    worker.on("error", (err: Error) => finish(() => reject(err)));
     worker.on("exit", (code) =>
       finish(() => reject(new Error(`replace worker exited with ${code}`))),
     );

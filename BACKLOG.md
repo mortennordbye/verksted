@@ -569,3 +569,43 @@ what unblocks it / where the code lives.
   a `type: "image"` branch plus an endpoint to serve the bytes.
 - **Where:** `backend/src/chat.ts` (`parseTranscript`),
   `frontend/src/components/ChatPane.tsx` (`Turn`)
+
+## eslint-plugin-jsx-a11y is unmaintained and pinned to ESLint 10 by an override
+
+- **What:** The toolchain runs ESLint 10, but `eslint-plugin-jsx-a11y` declares
+  a peer range that stops at ESLint 9 and has not published since October 2024.
+  An `overrides` entry in the root `package.json` forces the peer to resolve so
+  the install succeeds. The plugin was probed under ESLint 10 and its rules do
+  fire correctly (errors and warnings both), so this is a stale declaration
+  rather than a real incompatibility — but it is still an unblessed override on
+  an abandoned package.
+- **Why deferred:** The alternatives are worse today: staying on ESLint 9 holds
+  the whole lint toolchain back, and swapping the plugin out is a rules-and-
+  config change nobody asked for as part of a dependency bump.
+- **Unblocked by:** jsx-a11y publishing a release with an ESLint 10 peer range —
+  then delete the `overrides` block. If it stays abandoned through the ESLint 11
+  cycle, replace it instead; the config only leans on `flatConfigs.recommended`
+  plus six rule overrides, so the surface to port is small.
+- **Where:** `package.json` (`overrides`), `eslint.config.js` (the
+  `jsx-a11y` block)
+
+## React Compiler lint rules from react-hooks 7 warn instead of erroring
+
+- **What:** `eslint-plugin-react-hooks` 7 folds in the React Compiler rules, and
+  two of them fire on the existing frontend: `react-hooks/refs` (5 sites) and
+  `react-hooks/set-state-in-effect` (5 sites). Both are set to `warn` so CI is
+  not blocked, matching how the jsx-a11y findings above them are already
+  handled.
+- **Why deferred:** Every site is a deliberate, commented idiom — the latest-ref
+  pattern (a ref assigned during render so an effect reads a fresh callback
+  without re-subscribing) and effects that seed state on mount. Fixing them is a
+  behavioural refactor of hooks that currently work, which is well outside a
+  dependency upgrade.
+- **Unblocked by:** Wanting the React Compiler to be able to optimise these
+  components, which is when the rules stop being advisory. Take the `refs` sites
+  first: those have a mechanical fix (assign in an effect) where the
+  `set-state-in-effect` ones need the effect restructured.
+- **Where:** `frontend/src/useDismissOnBack.ts`, `frontend/src/useSpeech.ts`,
+  `frontend/src/components/Terminal.tsx`, `frontend/src/components/ChatPane.tsx`,
+  `frontend/src/components/AssistantPanel.tsx`,
+  `frontend/src/components/CommandPalette.tsx`, `frontend/src/api.ts`

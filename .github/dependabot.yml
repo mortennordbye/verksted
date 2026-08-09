@@ -1,22 +1,43 @@
 # The Dockerfile pins versions and the lockfile pins the rest, so nothing moves
 # without a PR. Weekly rather than daily: this is one person's homelab, and a
 # daily drip is noise that gets ignored.
+#
+# Nothing here schedules security updates. Those are a repository setting
+# ("Dependabot security updates"), they ignore this file's interval, and they
+# arrive as soon as an advisory matches the lockfile. This file only shapes the
+# routine version updates.
+#
+# Grouping is tuned for dependabot-auto-merge.yml: anything below a major lands
+# on its own once CI is green, so the goal is few PRs rather than granular ones.
+# Majors are excluded from the groups so each arrives alone and readable, which
+# is what a human is going to review.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 10
     groups:
       # One PR for the routine bumps; anything major still arrives on its own.
       minor-and-patch:
         update-types: [minor, patch]
+
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    groups:
+      docker-minor-and-patch:
+        update-types: [minor, patch]
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      # Action majors are usually a runner-version bump and little else, but
+      # they are still majors, so they stay out of the group and out of
+      # auto-merge.
+      actions-minor-and-patch:
+        update-types: [minor, patch]
