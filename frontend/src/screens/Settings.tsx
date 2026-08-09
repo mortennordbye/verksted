@@ -55,10 +55,17 @@ export default function Settings() {
     <>
       <TopBar back="/" crumb={["settings"]} />
       <main className="mx-auto max-w-[760px] px-[18px] pt-[22px] pb-[60px]">
-        <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-          Settings
+        <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Settings</h1>
+        <div className="mb-6 text-sm text-muted">
+          What the pod runs on your behalf, how it reaches you, and what the agents are given.
         </div>
-        <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Environment</h1>
+        <SchedulesPanel />
+        <Notifications />
+        <AssistantPanel />
+        <MemoryPanel />
+        <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+          Environment
+        </div>
         <div className="mb-6 text-sm text-muted">
           Variables reach the agent CLIs inside new tmux sessions. Values are write-only: the page
           shows where a variable is defined, never what it contains.
@@ -148,11 +155,6 @@ export default function Settings() {
           Settings-page values persist on the data volume and take precedence over deployment env
           vars. Changes apply to sessions started afterwards.
         </div>
-
-        <Notifications />
-        <AssistantPanel />
-        <MemoryPanel />
-        <SchedulesPanel />
         <SshKeys />
         <AppReset />
       </main>

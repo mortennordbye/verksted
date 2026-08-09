@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -21,6 +21,8 @@ import BrowserPane from "../components/BrowserPane";
 import FileTree from "../components/FileTree";
 import GitPanel from "../components/GitPanel";
 import SearchPanel from "../components/SearchPanel";
+import PrPanel from "../components/PrPanel";
+import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
 import { useConfirm } from "../useConfirm";
@@ -39,27 +41,6 @@ interface Viewed {
   path: string;
   content: string;
   kind: "text" | "diff" | "image";
-}
-
-/** Phone pane tab: one strip picks files / agent / shell / browser. */
-function Tab({ on, onClick, children }: { on: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    // A pressed toggle button, not role="tab". The ARIA tabs pattern requires
-    // each tab to point at its panel with aria-controls, and these panels are
-    // deliberately unmounted while unselected so their polls do not run — so
-    // aria-controls would name an element that is not in the document, which
-    // reads worse than never claiming the pattern. aria-pressed says the one
-    // thing that actually matters here: which of these is on.
-    <button
-      aria-pressed={on}
-      onClick={onClick}
-      className={`flex-none rounded-lg border px-3 py-1.5 font-mono text-[12.5px] ${
-        on ? "border-accent bg-surface-2 text-text" : "border-line bg-surface text-muted"
-      }`}
-    >
-      {children}
-    </button>
-  );
 }
 
 /**
@@ -99,6 +80,24 @@ const VIEW_KEY = "vk.session.view";
 /** What can occupy a pane. "chat" and "agent" are two views of the same one. */
 type View = "chat" | "agent" | "shell" | "browser";
 
+/**
+ * The side pane's tabs. The key labels the desktop strip, where five of them
+ * share a sidebar; the label and hint are for the phone's picker, which has
+ * room to say what each one is.
+ *
+ * Pull requests and runs are the same panels the project screen carries. A
+ * session is where the work that produces a PR actually happens, so needing to
+ * leave it to see whether CI passed was the wrong way round.
+ */
+const SIDES = [
+  { key: "files", label: "files", hint: "browse and edit the repo" },
+  { key: "git", label: "git", hint: "what has changed, staged and committed" },
+  { key: "search", label: "search", hint: "grep the repo" },
+  { key: "prs", label: "pull requests", hint: "open PRs, their diffs, and merging" },
+  { key: "runs", label: "actions", hint: "workflow runs, and the log of a failing job" },
+] as const;
+type Side = (typeof SIDES)[number]["key"];
+
 /** A persisted layout number, clamped — localStorage is user-editable. */
 function storedNumber(key: string, fallback: number, min: number, max: number): number {
   const n = Number(localStorage.getItem(key));
@@ -123,7 +122,7 @@ export default function Session() {
     8_000,
   );
   const [pane, setPane] = useState<"tree" | "term">("term");
-  const [side, setSide] = useState<"files" | "git" | "search">("files");
+  const [side, setSide] = useState<Side>("files");
   // Companion panes next to the agent terminal; on desktop all three can
   // share the screen, on mobile exactly one is visible at a time.
   const [shell, setShell] = useState(false);
@@ -150,6 +149,13 @@ export default function Session() {
   // Sidebar width and the split ratio are per-device preferences that used to
   // reset on every navigation between sessions.
   const [sideWidth, setSideWidth] = useState(() => storedNumber(SIDE_KEY, 250, 160, 640));
+  /**
+   * Floor for the column. The PR and run panels came from a full-width screen;
+   * at the 250px default every run row wrapped to four lines. Applied as a
+   * minimum rather than a resize, so the stored width survives switching tabs.
+   */
+  const sideMin = side === "prs" || side === "runs" ? 340 : 160;
+  const sideShown = Math.max(sideWidth, sideMin);
   const sideDrag = useRef(false);
 
   useEffect(() => localStorage.setItem(SIDE_KEY, String(sideWidth)), [sideWidth]);
@@ -163,6 +169,7 @@ export default function Session() {
     return () => removeEventListener("keydown", onKey);
   }, [full]);
   const [menu, setMenu] = useState(false);
+  const [picker, setPicker] = useState(false);
   // Agent-pane share of the split, in %. Adjusted by dragging the divider.
   const [ratio, setRatio] = useState(() => storedNumber(RATIO_KEY, 50, 20, 80));
   useEffect(() => localStorage.setItem(RATIO_KEY, String(ratio)), [ratio]);
@@ -274,6 +281,21 @@ export default function Session() {
       pick(v);
     }
   };
+  const viewHint = (v: View) =>
+    v === "chat"
+      ? "the conversation, without the terminal"
+      : v === "agent"
+        ? live
+          ? "the agent's tmux session"
+          : "the terminal, read only"
+        : v === "shell"
+          ? "a plain shell in the repo"
+          : "the session's headless browser";
+  /** What the phone's pane button says it is showing. */
+  const currentPaneLabel =
+    pane === "tree"
+      ? (SIDES.find((sd) => sd.key === side)?.label ?? "files")
+      : viewLabel(views.find(viewOn) ?? "agent");
 
   // hljs escapes the source; the produced HTML is only span tags with classes.
   const highlighted = useMemo(() => {
@@ -349,26 +371,39 @@ export default function Session() {
             </div>
           )}
 
-          {/* Phone: one strip for every pane. Desktop shows the sidebar and the
-              terminal side by side instead, and picks companions in the box. */}
+          {/* Phone: one control for every pane. Desktop shows the sidebar and
+              the terminal side by side instead, and picks companions in the box.
+
+              This was a row of tabs in a horizontal scroller. A claude session
+              carries five of them, which on a 390px screen meant the last two
+              were off the edge and reachable only by dragging a strip two
+              buttons tall — a gesture nothing on the page advertised, sitting
+              directly above a terminal that also scrolls. One button that says
+              what you are looking at, opening a list, costs one tap and hides
+              nothing. */}
           <div className="mb-2 flex flex-none items-center gap-1.5 desk:hidden">
-            <div role="group" aria-label="pane" className="flex min-w-0 gap-1.5 overflow-x-auto">
-              <Tab on={pane === "tree"} onClick={() => setPane("tree")}>
-                files
-              </Tab>
-              {views.map((v) => (
-                <Tab
-                  key={v}
-                  on={pane === "term" && viewOn(v)}
-                  onClick={() => {
-                    setPane("term");
-                    pickView(v);
-                  }}
-                >
-                  {viewLabel(v)}
-                </Tab>
-              ))}
-            </div>
+            <button
+              onClick={() => setPicker(true)}
+              aria-haspopup="dialog"
+              aria-expanded={picker}
+              className="tap flex min-w-0 flex-none items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13.5px] font-semibold hover:border-line-strong"
+            >
+              <span className="truncate">{currentPaneLabel}</span>
+              <svg
+                viewBox="0 0 24 24"
+                width="13"
+                height="13"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="flex-none text-faint"
+                aria-hidden="true"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
             {session && (
               // Doubles as the actions trigger: two separate controls plus the
               // tabs don't fit a phone width, and the sheet repeats the status.
@@ -401,10 +436,10 @@ export default function Session() {
 
           <div
             className="grid min-h-0 flex-1 items-stretch gap-3 desk:items-start desk:grid-cols-[var(--side)_1fr]"
-            style={{ "--side": `${sideWidth}px` } as React.CSSProperties}
+            style={{ "--side": `${sideShown}px` } as React.CSSProperties}
           >
             <div
-              className={`${pane === "tree" ? "flex" : "hidden desk:flex"} relative min-h-0 flex-col desk:h-[calc(var(--vvh,100dvh)-200px)]`}
+              className={`${pane === "tree" ? "flex" : "hidden desk:flex"} relative min-h-0 min-w-0 flex-col desk:h-[calc(var(--vvh,100dvh)-200px)]`}
             >
               {/* The sidebar was a fixed 250px: deep trees scrolled inside it
                   while a wide monitor sat empty. Absolutely positioned on the
@@ -423,25 +458,25 @@ export default function Session() {
                 onPointerMove={(e) => {
                   if (!sideDrag.current) return;
                   const left = e.currentTarget.parentElement!.getBoundingClientRect().left;
-                  setSideWidth(Math.min(640, Math.max(160, e.clientX - left)));
+                  setSideWidth(Math.min(640, Math.max(sideMin, e.clientX - left)));
                 }}
                 onPointerUp={(e) => {
                   sideDrag.current = false;
                   e.currentTarget.releasePointerCapture(e.pointerId);
                 }}
-                onDoubleClick={() => setSideWidth(250)}
+                onDoubleClick={() => setSideWidth(Math.max(250, sideMin))}
                 onKeyDown={(e) => {
-                  if (e.key === "ArrowLeft") setSideWidth((w) => Math.max(160, w - 16));
+                  if (e.key === "ArrowLeft") setSideWidth((w) => Math.max(sideMin, w - 16));
                   else if (e.key === "ArrowRight") setSideWidth((w) => Math.min(640, w + 16));
-                  else if (e.key === "Home") setSideWidth(250);
+                  else if (e.key === "Home") setSideWidth(Math.max(250, sideMin));
                   else return;
                   e.preventDefault();
                 }}
                 role="separator"
                 aria-orientation="vertical"
                 aria-label="resize the sidebar"
-                aria-valuenow={sideWidth}
-                aria-valuemin={160}
+                aria-valuenow={sideShown}
+                aria-valuemin={sideMin}
                 aria-valuemax={640}
                 // Being focusable is what makes the splitter usable without a mouse.
                 // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
@@ -449,8 +484,12 @@ export default function Session() {
                 title="drag to resize · double-click to reset · arrow keys"
                 className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
               />
-              <div role="group" aria-label="side panel" className="mb-2 flex flex-none gap-1.5">
-                {(["files", "git", "search"] as const).map((t) => (
+              <div
+                role="group"
+                aria-label="side panel"
+                className="mb-2 flex flex-none flex-wrap gap-1.5"
+              >
+                {SIDES.map(({ key: t }) => (
                   <button
                     key={t}
                     aria-pressed={side === t}
@@ -490,6 +529,27 @@ export default function Session() {
               )}
               {side === "search" && session && (
                 <SearchPanel project={session.project} onOpenFile={openFile} />
+              )}
+              {/* Both scroll on their own: the side column is a fixed height on
+                  desktop, and a PR list with its diffs is taller than it. */}
+              {side === "prs" && session && (
+                <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                  <PrPanel
+                    project={session.project}
+                    // A checkout or a merge moves the working tree this session
+                    // is sitting in, so the git strip and the file tree are both
+                    // stale the moment it returns.
+                    onChanged={() => {
+                      refreshGit();
+                      refreshTree();
+                    }}
+                  />
+                </div>
+              )}
+              {side === "runs" && session && (
+                <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+                  <ActionsPanel project={session.project} />
+                </div>
               )}
             </div>
 
@@ -660,6 +720,68 @@ export default function Session() {
           </div>
         </main>
       </div>
+
+      {picker && (
+        <Sheet title="view" sub="what this pane shows" onClose={() => setPicker(false)}>
+          <div className="flex flex-col gap-2">
+            {[
+              ...SIDES.map((sd) => ({
+                key: sd.key,
+                label: sd.label,
+                hint: sd.hint,
+                on: pane === "tree" && side === sd.key,
+                go: () => {
+                  setPane("tree");
+                  setSide(sd.key);
+                },
+              })),
+              ...views.map((v) => ({
+                key: v,
+                label: viewLabel(v),
+                hint: viewHint(v),
+                on: pane === "term" && viewOn(v),
+                go: () => {
+                  setPane("term");
+                  pickView(v);
+                },
+              })),
+            ].map((o) => (
+              <button
+                key={o.key}
+                aria-pressed={o.on}
+                onClick={() => {
+                  o.go();
+                  setPicker(false);
+                }}
+                className={`tap flex w-full items-center gap-3 rounded-lg border px-3.5 py-3 text-left ${
+                  o.on ? "border-accent bg-accent-tint" : "border-line hover:border-line-strong"
+                }`}
+              >
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-semibold">{o.label}</span>
+                  <span className="block text-[12.5px] text-faint">{o.hint}</span>
+                </span>
+                {o.on && (
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="16"
+                    height="16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    className="flex-none text-accent"
+                    aria-hidden="true"
+                  >
+                    <path d="m5 13 4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
 
       {menu && session && (
         <Sheet

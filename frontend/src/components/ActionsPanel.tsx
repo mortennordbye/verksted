@@ -66,17 +66,20 @@ function RunRow({ run, onClick }: { run: WorkflowRun; onClick: () => void }) {
     >
       <StatusDot running={live} />
       <div className="min-w-0 flex-1">
-        <div className="overflow-hidden text-[13.5px] text-ellipsis whitespace-nowrap">
-          {run.title}
-        </div>
-        <div className="mt-0.5 flex items-center gap-2.5 font-mono text-[12px] text-faint">
+        {/* Two lines, and a wrapping meta row: this panel is now also rendered
+            in the session's side column, where one clipped line is not enough
+            of a commit title and the meta spilled out under the chip. */}
+        <div className="line-clamp-2 text-[13.5px]">{run.title}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[12px] text-faint">
           <span>{run.workflow}</span>
           <span className="min-w-0 truncate">⎇ {run.branch}</span>
           <span>{run.event}</span>
           <span className="whitespace-nowrap">{agoLabel(run.createdAt)}</span>
         </div>
       </div>
-      <StatusChip kind={chip.kind} label={chip.label} />
+      <span className="flex-none">
+        <StatusChip kind={chip.kind} label={chip.label} />
+      </span>
     </button>
   );
 }

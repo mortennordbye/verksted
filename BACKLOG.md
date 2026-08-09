@@ -642,3 +642,63 @@ what unblocks it / where the code lives.
   `typescript` devDependency), `package.json` (`overrides`, where a
   `typescript` entry would go and currently must not), `eslint.config.js`
   (`recommendedTypeChecked`, the rules that need the TS 6 API)
+
+## The palette's light half is not ported
+
+- **What:** `theme.css` carries only the dark column of nordbye.it's palette.
+  The site is a light-and-dark system; here `color-scheme` is still pinned to
+  `dark` and every token holds a single value.
+- **Why deferred:** Light mode is not a token swap. It is every screen at once,
+  plus the xterm.js theme, plus the native controls the `color-scheme` line was
+  added to fix, plus a mode toggle and where its choice is stored. The hub
+  rework did not need it and shipping half of it would have left screens
+  rendering one mode's text on the other's ground.
+- **Unblocked by:** Deciding whether the terminal screen stays dark in light
+  mode (it should), then converting the tokens to `light-dark()` pairs and
+  walking every screen in both modes the way the blog's phase 7 audit did.
+- **Where:** `frontend/src/theme.css` (`@theme`, the `color-scheme: dark` rule),
+  `frontend/src/components/Terminal.tsx` (xterm palette). The source is
+  nordbye.it's own light column: `--bg` `#f9fbf9`, `--surface` `#f0f5f1`,
+  `--fg` `#1a201b`, `--accent` `#378144`, `--accent-ink` `#fff`
+
+## Mono labels still carry the terminal look on the screens outside the hub
+
+- **What:** The shared pieces are done — `StatusChip` and `AgentTag` changed
+  once and every screen picked it up — but Project, Session, Inbox, Settings and
+  the panels still set `font-mono` on prose: headings, counts, button labels and
+  empty states. Mono is meant to be left for terminal output, paths, session ids
+  and key hints.
+- **Why deferred:** The brief was the hub. Sweeping five more screens in the
+  same pass would have made the diff impossible to review against the one screen
+  the design was actually decided on.
+- **Unblocked by:** Nothing external. Grep `font-mono` under
+  `frontend/src/screens` and `frontend/src/components` and judge each one
+  against that rule; roughly 40 sites.
+- **Where:** `frontend/src/screens/{Project,Session,Inbox,Settings}.tsx`,
+  `frontend/src/components/*Panel.tsx`
+
+## No sheet can be opened under `make dev`
+
+- **What:** Every overlay that uses `Sheet` — the session actions menu, the pane
+  picker, add-project — opens and closes again within the same tick in the dev
+  server. Nothing is visibly wrong; the sheet simply never appears. Production
+  builds are unaffected.
+- **Why it happens:** `useDismissOnBack` pushes a history entry when the overlay
+  opens and calls `history.back()` in its cleanup, so that closing by any other
+  route does not leave an entry for Back to swallow. React StrictMode
+  deliberately mounts, unmounts and remounts every effect in development, so the
+  cleanup fires immediately after the first mount; the `popstate` that
+  `history.back()` produces is then caught by the listener the second mount has
+  already registered, which calls `onClose`. Confirmed in the browser: one
+  `popstate` arrives per open, and `history.length` is unchanged afterwards.
+- **Why deferred:** The obvious guards are wrong. The cleanup cannot tell a
+  StrictMode teardown from a real close, and the hook is the Android Back
+  behaviour for four overlays, so a careless fix trades an invisible dev
+  annoyance for Back leaving the session and dropping the terminal websocket.
+- **Unblocked by:** Deciding the approach. Either survive remounts by tracking
+  the pushed entry outside React (a module-level ref keyed by overlay), or drop
+  the `history.back()` in cleanup and tolerate one dead Back press. Verify by
+  opening a sheet in `make dev` and in `make run`, and by checking Android Back
+  still closes the sheet rather than leaving the screen.
+- **Where:** `frontend/src/useDismissOnBack.ts` (`useDismissOnBack`),
+  `frontend/src/components/Sheet.tsx`, `frontend/src/main.tsx` (`StrictMode`)

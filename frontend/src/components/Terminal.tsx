@@ -114,31 +114,43 @@ function speechCtor(): (new () => Recognition) | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-/** Special keys for touch screens, where the on-screen keyboard lacks them. */
-const KEYS: { label: string; seq: string; title?: string }[] = [
-  { label: "esc", seq: "\x1b" },
-  // carriage return — submits the claude prompt / a pasted sign-in code
-  { label: "enter", seq: "\r" },
-  // A newline without submitting: how you write a second line into a claude
-  // prompt, and unreachable from an on-screen keyboard otherwise.
-  { label: "⏎+", seq: "\x1b\r", title: "newline without sending" },
+/**
+ * Special keys for touch screens, where the on-screen keyboard lacks them.
+ *
+ * `row` is which tier the key sits in. Everything used to live in one
+ * horizontal scroller about twenty-five controls long: two thirds of it was off
+ * the edge of a phone, the only way to it was a drag directly above a terminal
+ * that also scrolls, and nothing on screen said there was more. Row 1 is what
+ * you press while answering an agent and always fits without scrolling; row 2
+ * is everything else, one tap away behind `more`.
+ */
+const KEYS: { label: string; seq: string; title?: string; row: 1 | 2 }[] = [
+  { label: "esc", seq: "\x1b", row: 1 },
   // Permission prompts are the single most common thing to answer from a
   // phone, and both answers are one tap away here.
-  { label: "y", seq: "y", title: "answer yes" },
-  { label: "n", seq: "n", title: "answer no" },
-  { label: "/", seq: "/" },
-  { label: "tab", seq: "\t" },
-  { label: "^C", seq: "\x03" },
-  { label: "^D", seq: "\x04", title: "end of input" },
-  { label: "^R", seq: "\x12", title: "reverse history search" },
-  { label: "^L", seq: "\x0c", title: "clear screen" },
-  { label: "↑", seq: "\x1b[A" },
-  { label: "↓", seq: "\x1b[B" },
-  { label: "←", seq: "\x1b[D" },
-  { label: "→", seq: "\x1b[C" },
-  { label: "home", seq: "\x1b[H", title: "start of line" },
-  { label: "end", seq: "\x1b[F", title: "end of line" },
+  { label: "y", seq: "y", title: "answer yes", row: 1 },
+  { label: "n", seq: "n", title: "answer no", row: 1 },
+  // carriage return — submits the claude prompt / a pasted sign-in code
+  { label: "enter", seq: "\r", row: 1 },
+  { label: "↑", seq: "\x1b[A", row: 1 },
+  { label: "^C", seq: "\x03", row: 1 },
+  { label: "tab", seq: "\t", row: 2 },
+  // A newline without submitting: how you write a second line into a claude
+  // prompt, and unreachable from an on-screen keyboard otherwise.
+  { label: "⏎+", seq: "\x1b\r", title: "newline without sending", row: 2 },
+  { label: "/", seq: "/", row: 2 },
+  { label: "↓", seq: "\x1b[B", row: 2 },
+  { label: "←", seq: "\x1b[D", row: 2 },
+  { label: "→", seq: "\x1b[C", row: 2 },
+  { label: "^D", seq: "\x04", title: "end of input", row: 2 },
+  { label: "^R", seq: "\x12", title: "reverse history search", row: 2 },
+  { label: "^L", seq: "\x0c", title: "clear screen", row: 2 },
+  { label: "home", seq: "\x1b[H", title: "start of line", row: 2 },
+  { label: "end", seq: "\x1b[F", title: "end of line", row: 2 },
 ];
+
+/** Whether the second key row is open, remembered per device. */
+const KEYS_KEY = "vk.term.moreKeys";
 
 // Toolbar key styling. Tap feedback matters more here than it looks: on a phone
 // these keys are the whole keyboard, and a press that leaves no mark reads as a
@@ -146,7 +158,7 @@ const KEYS: { label: string; seq: string; title?: string }[] = [
 // the same look for a moment after release, which is what makes a quick tap
 // visible at all.
 const KEY =
-  "tap flex-none items-center justify-center rounded-md border px-2.5 py-1 font-mono text-[12px] transition-colors";
+  "tap flex-none items-center justify-center rounded-md border px-2 py-1 font-mono text-[12px] transition-colors";
 const KEY_PRESS = "active:border-accent active:bg-accent/25 active:text-accent";
 const KEY_IDLE = "border-line text-muted";
 const KEY_LIT = "border-accent bg-accent/25 text-accent";
@@ -191,6 +203,7 @@ export default function Terminal({
   // Sticky Ctrl: the next typed letter is sent as its control code.
   const ctrlArmed = useRef(false);
   const [ctrl, setCtrl] = useState(false);
+  const [moreKeys, setMoreKeys] = useState(() => localStorage.getItem(KEYS_KEY) === "1");
   const [disconnected, setDisconnected] = useState(false);
   const [attempt, setAttempt] = useState(0);
   // Consecutive failed reconnects (the backoff), and whether the server told us
@@ -674,125 +687,165 @@ export default function Terminal({
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Above the terminal, not below: on a phone the on-screen keyboard
           overlays the bottom of the box and would hide a bottom key row. */}
-      <div className="hidden flex-none gap-1 overflow-x-auto border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
-        {/* First in the row so it survives the overflow scroll: this doubles as
-            the readout for a status line the keyboard covers. */}
-        <button
-          onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
-          title="cycle permission mode (shift+tab)"
-          className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
-        >
-          {mode?.label ?? "mode"}
-        </button>
-        <button
-          onClick={() =>
-            tapKey("ctrl", () => {
-              ctrlArmed.current = !ctrlArmed.current;
-              setCtrl(ctrlArmed.current);
-            })
-          }
-          className={keyClass("ctrl", ctrl ? KEY_LIT : KEY_IDLE)}
-        >
-          ctrl
-        </button>
-        <button
-          onClick={() => tapKey("paste", pasteFromClipboard)}
-          title={
-            pasteBlocked
-              ? "the browser will not hand over the clipboard on this origin"
-              : "paste the clipboard into the terminal"
-          }
-          className={keyClass("paste", pasteBlocked ? "border-fail text-fail" : KEY_IDLE)}
-        >
-          {pasteBlocked ? "no clipboard" : "paste"}
-        </button>
-        {speechCtor() && (
+      <div className="hidden flex-none flex-col gap-1 border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
+        {/* Wraps rather than scrolls: a key that is off the edge of the screen
+            is a key that does not exist, and this row is the whole keyboard. */}
+        <div className="flex flex-wrap gap-1">
+          {/* First, and it doubles as the readout for a status line the on-screen
+            keyboard covers. */}
           <button
-            onClick={() => tapKey("mic", toggleDictation)}
-            title="dictate into the terminal"
-            className={keyClass("mic", listening ? KEY_LIT : KEY_IDLE)}
+            onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
+            title="cycle permission mode (shift+tab)"
+            className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
           >
-            {listening ? "◉ mic" : "mic"}
+            {mode?.label ?? "mode"}
           </button>
-        )}
-        <button
-          onClick={() => {
-            press("img");
-            picker.current?.click();
-          }}
-          disabled={upload === "busy"}
-          className={keyClass("img", upload === "failed" ? "border-wait text-wait" : KEY_IDLE)}
-        >
-          {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
-        </button>
-        <input
-          ref={picker}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            const files = Array.from(e.target.files ?? []);
-            e.target.value = "";
-            if (files.length) void sendImages(files);
-          }}
-        />
-        {KEYS.map((k) => (
+          {KEYS.filter((k) => k.row === 1).map((k) => (
+            <button
+              key={k.label}
+              onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+              title={k.title}
+              aria-label={k.title ?? k.label}
+              className={keyClass(k.label)}
+            >
+              {k.label}
+            </button>
+          ))}
+          {/* Never sends anything, so it does not go through tapKey's input path
+            — but it still refocuses the terminal, or opening the drawer would
+            drop the on-screen keyboard on iOS. */}
           <button
-            key={k.label}
-            onClick={() => tapKey(k.label, () => sendInput(k.seq))}
-            title={k.title}
-            aria-label={k.title ?? k.label}
-            className={keyClass(k.label)}
+            onClick={() => {
+              const next = !moreKeys;
+              setMoreKeys(next);
+              localStorage.setItem(KEYS_KEY, next ? "1" : "0");
+              press("more");
+              termRef.current?.focus();
+            }}
+            aria-expanded={moreKeys}
+            title={moreKeys ? "fewer keys" : "more keys, paste, mic, text size"}
+            className={keyClass("more", moreKeys || ctrl || listening ? KEY_LIT : KEY_IDLE)}
           >
-            {k.label}
+            {moreKeys ? "less" : "more"}
           </button>
-        ))}
-        {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
+        </div>
+
+        {moreKeys && (
+          <div className="flex flex-wrap gap-1 border-t border-line pt-1">
+            <button
+              onClick={() =>
+                tapKey("ctrl", () => {
+                  ctrlArmed.current = !ctrlArmed.current;
+                  setCtrl(ctrlArmed.current);
+                })
+              }
+              className={keyClass("ctrl", ctrl ? KEY_LIT : KEY_IDLE)}
+            >
+              ctrl
+            </button>
+            <button
+              onClick={() => tapKey("paste", pasteFromClipboard)}
+              title={
+                pasteBlocked
+                  ? "the browser will not hand over the clipboard on this origin"
+                  : "paste the clipboard into the terminal"
+              }
+              className={keyClass("paste", pasteBlocked ? "border-fail text-fail" : KEY_IDLE)}
+            >
+              {pasteBlocked ? "no clipboard" : "paste"}
+            </button>
+            {speechCtor() && (
+              <button
+                onClick={() => tapKey("mic", toggleDictation)}
+                title="dictate into the terminal"
+                className={keyClass("mic", listening ? KEY_LIT : KEY_IDLE)}
+              >
+                {listening ? "◉ mic" : "mic"}
+              </button>
+            )}
+            <button
+              onClick={() => {
+                press("img");
+                picker.current?.click();
+              }}
+              disabled={upload === "busy"}
+              className={keyClass("img", upload === "failed" ? "border-wait text-wait" : KEY_IDLE)}
+            >
+              {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
+            </button>
+            <input
+              ref={picker}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                e.target.value = "";
+                if (files.length) void sendImages(files);
+              }}
+            />
+            {KEYS.filter((k) => k.row === 2).map((k) => (
+              <button
+                key={k.label}
+                onClick={() => tapKey(k.label, () => sendInput(k.seq))}
+                title={k.title}
+                aria-label={k.title ?? k.label}
+                className={keyClass(k.label)}
+              >
+                {k.label}
+              </button>
+            ))}
+            {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
             for 80 — their boxes and diffs wrap into noise below that. */}
-        <button
-          onClick={() => tapKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
-          title="smaller text (more columns)"
-          aria-label="smaller text"
-          className={keyClass("a-")}
-        >
-          A−
-        </button>
-        <button
-          onClick={() => tapKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
-          title="larger text (fewer columns)"
-          aria-label="larger text"
-          className={keyClass("a+")}
-        >
-          A+
-        </button>
-        {/* iOS drops the on-screen keyboard whenever focus moves — to the file
+            <button
+              onClick={() => tapKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
+              title="smaller text (more columns)"
+              aria-label="smaller text"
+              className={keyClass("a-")}
+            >
+              A−
+            </button>
+            <button
+              onClick={() => tapKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
+              title="larger text (fewer columns)"
+              aria-label="larger text"
+              className={keyClass("a+")}
+            >
+              A+
+            </button>
+            {/* iOS drops the on-screen keyboard whenever focus moves — to the file
             picker, a key, or nothing at all — and there is no way back without
             tapping the terminal body, which in copy mode means scrolling it. */}
-        <button
-          onClick={() => tapKey("kbd", () => termRef.current?.focus())}
-          title="show the keyboard"
-          aria-label="show the keyboard"
-          className={keyClass("kbd")}
-        >
-          ⌨
-        </button>
-        {/* A page of history at a time — the same scrollback the drag gesture
-            moves, not the PgUp/PgDn keys the agent would swallow. */}
-        <button
-          onClick={() => tapKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
-          title="scroll back"
-          className={keyClass("pgup")}
-        >
-          ⇞
-        </button>
-        <button
-          onClick={() => tapKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
-          title="scroll forward"
-          className={keyClass("pgdn")}
-        >
-          ⇟
-        </button>
+            <button
+              onClick={() => tapKey("kbd", () => termRef.current?.focus())}
+              title="show the keyboard"
+              aria-label="show the keyboard"
+              className={keyClass("kbd")}
+            >
+              kbd
+            </button>
+            {/* A page of history at a time — the same scrollback the drag gesture
+            moves, not the PgUp/PgDn keys the agent would swallow.
+
+            Labelled in words rather than ⌨ ⇞ ⇟: no mono font here ships those
+            three, so each came from a fallback and rendered as an empty box. */}
+            <button
+              onClick={() => tapKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
+              title="scroll back"
+              className={keyClass("pgup")}
+            >
+              pg↑
+            </button>
+            <button
+              onClick={() => tapKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
+              title="scroll forward"
+              className={keyClass("pgdn")}
+            >
+              pg↓
+            </button>
+          </div>
+        )}
       </div>
       <div className="relative min-h-0 flex-1">
         <div ref={ref} className="absolute inset-0 p-2" />

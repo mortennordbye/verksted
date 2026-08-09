@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { AssistantThread, PodFacts, Project } from "../../../shared/api";
+import type { AssistantThread, PodFacts, Project, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -8,6 +8,126 @@ import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
+}
+
+/** How a finished session's own verdict maps onto a chip. */
+const OUTCOME: Record<string, { kind: "run" | "wait" | "fail" | "idle"; label: string }> = {
+  ok: { kind: "run", label: "ok" },
+  attention: { kind: "wait", label: "needs a look" },
+  failed: { kind: "fail", label: "failed" },
+  done: { kind: "idle", label: "done" },
+  running: { kind: "run", label: "running" },
+};
+
+/**
+ * One session as a row you can act on.
+ *
+ * The title leads and the tmux id sits under it in mono: the id is the join key
+ * between the metadata file, tmux and the websocket, which makes it worth
+ * showing and worth copying, but it was never what the session is about.
+ */
+function SessionCard({ session, urgent }: { session: Session; urgent?: boolean }) {
+  const chip = OUTCOME[session.outcome] ?? OUTCOME.done;
+  return (
+    <Link
+      to={`/s/${session.id}`}
+      className={`tap flex items-center gap-3 rounded-xl border p-3.5 transition hover:-translate-y-px ${
+        urgent
+          ? "border-wait/30 bg-wait/8 hover:border-wait/60"
+          : "border-line bg-surface hover:border-accent-pastel"
+      }`}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="mb-0.5 block text-[11.5px] font-semibold tracking-[.06em] text-faint uppercase">
+          {session.project}
+        </span>
+        <span className="block truncate text-[15px] font-semibold tracking-[-.014em]">
+          {session.title}
+        </span>
+        <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <AgentTag agent={session.agent} />
+          <span className="font-mono text-[11.5px] text-faint">{session.id}</span>
+          <span className="text-[12.5px] text-faint">
+            {agoLabel(session.endedAt ?? session.createdAt)}
+          </span>
+        </span>
+      </span>
+      <span className="flex-none">
+        {urgent ? (
+          <span className="rounded-lg bg-accent px-3 py-2 text-[13px] font-semibold text-on-accent">
+            Answer
+          </span>
+        ) : (
+          <StatusChip kind={chip.kind} label={chip.label} />
+        )}
+      </span>
+    </Link>
+  );
+}
+
+/**
+ * One number from the pod, with a meter when it is a share of something.
+ *
+ * The meter turns amber past three quarters and red past nine tenths: a disk
+ * that is nearly full is the one fact on this strip worth interrupting for, and
+ * a bar that is always the same colour never says so.
+ */
+function Stat({
+  label,
+  value,
+  fraction,
+}: {
+  label: string;
+  value: string;
+  fraction?: number | null;
+}) {
+  const pct = fraction == null ? null : Math.min(100, Math.max(0, fraction * 100));
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
+        {label}
+      </div>
+      <div className="truncate text-[15px] font-semibold tabular-nums">{value}</div>
+      {pct != null && (
+        <div
+          className="mt-2 h-[3px] overflow-hidden rounded-full bg-surface-2"
+          role="img"
+          aria-label={`${Math.round(pct)}% used`}
+        >
+          <div
+            className={`h-full rounded-full ${
+              pct >= 90 ? "bg-fail" : pct >= 75 ? "bg-wait" : "bg-muted"
+            }`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Band({
+  title,
+  count,
+  children,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  if (count === 0) return null;
+  return (
+    <section className="mb-6">
+      <div className="mb-2.5 flex items-center gap-2.5">
+        <h2 className="text-[15px] font-semibold tracking-[-.02em]">{title}</h2>
+        <span className="rounded-full bg-surface-2 px-2 text-[12px] font-semibold text-faint">
+          {count}
+        </span>
+        <span className="h-px flex-1 bg-line" />
+      </div>
+      {children}
+    </section>
+  );
 }
 
 export default function Hub() {
@@ -19,13 +139,27 @@ export default function Hub() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const running = projects?.reduce((n, p) => n + p.running, 0) ?? 0;
-  const waiting = projects?.reduce((n, p) => n + p.waiting, 0) ?? 0;
+  // The hub sorts by what a session wants from you rather than by which repo it
+  // belongs to, so it reads the flat feed and lets the project be a label on the
+  // row. /api/projects is still needed below, for the repos with no session.
+  const { data: sessions } = usePoll<Session[]>("/api/sessions");
+  const needsYou = sessions?.filter((s) => s.status === "waiting") ?? [];
+  const live = sessions?.filter((s) => s.status === "running") ?? [];
+  // Capped: the tail of finished sessions is the inbox's job, not the hub's.
+  // Sorted by when they ended, not by when they started, which is what the feed
+  // arrives in — a long session begun on Monday can finish after a short one
+  // begun on Tuesday, and under "recently finished" that read as scrambled.
+  const finished = (sessions?.filter((s) => s.status === "done") ?? [])
+    .slice()
+    .sort((a, b) => (b.endedAt ?? b.createdAt).localeCompare(a.endedAt ?? a.createdAt))
+    .slice(0, 6);
+  const running = live.length;
+  const waiting = needsYou.length;
 
   // Polled rather than socketed: the strip only needs to be roughly current,
-  // and the hub already polls two other things.
+  // and the hub already polls two other things. Only the status is read now —
+  // the strip explains what the assistant is instead of quoting it.
   const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
-  const lastSaid = assistant?.entries.filter((e) => e.text.trim()).at(-1)?.text;
 
   async function addProject() {
     const value = input.trim();
@@ -55,53 +189,129 @@ export default function Hub() {
     <>
       <TopBar />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
-        {/* Above the projects, because it is not one. In verksted's own amber
-            rather than a fourth agent colour: this agent is the app itself. */}
+        {/* Above the projects, because it is not one. In the accent rather than
+            a fourth agent colour: this agent is the app itself. */}
         <Link
           to="/ai"
-          className="mb-5 flex items-center gap-3 rounded-xl border border-accent/40 bg-surface bg-gradient-to-b from-accent/[.07] to-transparent to-[62%] px-[15px] py-3 hover:border-accent/70"
+          // Flat tint rather than the gradient that was here: northlight rules
+          // gradients out, and the tint is the same treatment its featured card
+          // gets, which is what this strip is.
+          className="mb-5 flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
         >
-          <span
-            className={`h-2 w-2 flex-none rounded-full ${
-              assistant?.status === "thinking" ? "animate-pulse bg-accent" : "bg-idle"
-            }`}
-          />
+          <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-accent/15 text-accent">
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4.2-.9L3 20.5l1.6-4.4A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
+            </svg>
+          </span>
           <span className="min-w-0 flex-1">
-            <span className="block font-mono text-[13.5px] font-semibold">assistant</span>
-            <span className="block truncate text-[12px] text-faint">
-              {assistant?.status === "thinking"
-                ? "working…"
-                : (lastSaid ?? "ask what needs you, or tell it something to remember")}
+            <span className="mb-0.5 flex items-center gap-2">
+              <span className="text-[14.5px] font-semibold tracking-[-.02em]">Assistant</span>
+              {assistant?.status === "thinking" && (
+                <span className="flex items-center gap-1.5 text-[12px] text-accent">
+                  <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                  working
+                </span>
+              )}
+            </span>
+            {/* Says what the thing is, rather than the last line it happened to
+                say. A truncated half-sentence out of an old thread told you
+                nothing about why you would open it. */}
+            <span className="block text-[12.5px] text-faint">
+              Ask what needs you, or tell it something to remember. It reads your projects, sessions
+              and runs, and needs no repo or terminal to answer.
             </span>
           </span>
-          <span className="flex-none font-mono text-[13px] text-faint">→</span>
+          <span className="flex-none pt-1 text-[13px] text-faint">→</span>
         </Link>
 
-        <div className="mb-5 flex items-end justify-between gap-4">
+        {/* Stacked on a phone: the headline is a sentence that wraps to two
+            lines there, and a button held at its right edge ends up floating
+            beside the wrap. */}
+        <div className="mb-5 flex flex-col items-start gap-3 min-[480px]:flex-row min-[480px]:items-end min-[480px]:justify-between min-[480px]:gap-4">
           <div>
-            <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-              Projects
-            </div>
-            <h1 className="mb-1 text-[21px] font-semibold tracking-tight">
-              {projects ? `${projects.length} repo${projects.length === 1 ? "" : "s"}` : "…"}
+            {/* "All quiet" is a claim, and until the feed lands it is one this
+                screen cannot make — it read as an answer on every open, a beat
+                before the waiting sessions appeared underneath it. Same reason
+                the projects grid below gets skeletons rather than an empty
+                grid. */}
+            <h1 className="mb-1 text-[22px] font-bold tracking-[-.03em]">
+              {sessions === null
+                ? "…"
+                : waiting > 0
+                  ? `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
+                  : running > 0
+                    ? `${running} session${running === 1 ? "" : "s"} running`
+                    : "All quiet"}
             </h1>
             <div className="text-sm text-muted">
-              {running + waiting > 0
-                ? [
-                    running > 0 && `${running} session${running === 1 ? "" : "s"} running`,
-                    waiting > 0 && `${waiting} waiting for input`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")
-                : "all quiet"}
+              {waiting > 0 && running > 0
+                ? `${running} other${running === 1 ? "" : "s"} still working`
+                : `${projects?.length ?? 0} repo${projects?.length === 1 ? "" : "s"}`}
             </div>
           </div>
           <button
             onClick={() => setAdding(true)}
-            className="flex-none rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
+            className="tap flex-none rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong"
           >
             + add project
           </button>
+        </div>
+
+        {sessions === null && (
+          <div aria-hidden className="mb-6 grid gap-2">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className="h-[86px] animate-pulse rounded-xl border border-line bg-surface"
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Full width and single column: this is the band you came for, and a
+            grid would let it share a row with something that can wait. */}
+        <Band title="Needs a decision" count={needsYou.length}>
+          <div className="grid gap-2">
+            {needsYou.map((s) => (
+              <SessionCard key={s.id} session={s} urgent />
+            ))}
+          </div>
+        </Band>
+
+        {/* The quiet bands go multi-column instead, so a wide screen stops being
+            one very long column of things that need nothing. */}
+        <Band title="Running" count={live.length}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-2">
+            {live.map((s) => (
+              <SessionCard key={s.id} session={s} />
+            ))}
+          </div>
+        </Band>
+
+        <Band title="Recently finished" count={finished.length}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-2">
+            {finished.map((s) => (
+              <SessionCard key={s.id} session={s} />
+            ))}
+          </div>
+        </Band>
+
+        <div className="mb-2.5 flex items-center gap-2.5">
+          <h2 className="text-[15px] font-semibold tracking-[-.02em]">Projects</h2>
+          <span className="rounded-full bg-surface-2 px-2 text-[12px] font-semibold text-faint">
+            {projects?.length ?? 0}
+          </span>
+          <span className="h-px flex-1 bg-line" />
         </div>
 
         {/* Skeletons rather than an empty grid: "nothing here" and "not loaded
@@ -133,12 +343,11 @@ export default function Hub() {
             <Link
               key={p.name}
               to={`/p/${p.name}`}
-              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-faint"
+              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-accent-pastel"
             >
               <div className="flex items-center gap-2.5">
                 <StatusDot running={p.running + p.waiting > 0} />
-                <span className="min-w-0 truncate font-mono text-[15px] font-semibold">
-                  <span className="font-normal text-faint">~/</span>
+                <span className="min-w-0 truncate text-[15px] font-semibold tracking-[-.02em]">
                   {p.worktreeOf ? (
                     <>
                       <span className="text-muted">{p.worktreeOf}</span>
@@ -173,38 +382,56 @@ export default function Hub() {
               </div>
             </Link>
           ))}
-          <button
-            onClick={() => setAdding(true)}
-            className="flex min-h-[118px] items-center justify-center rounded-xl border border-dashed border-line font-mono text-[13px] text-faint hover:text-muted"
-          >
-            + add project
-          </button>
         </div>
 
-        <div className="mt-10 flex flex-wrap gap-[18px] border-t border-line pt-4 font-mono text-[11px] text-faint">
-          <span>single pod</span>
-          <span>{projects?.length ?? 0} projects</span>
-          <span>{running} running</span>
-          {facts && (
-            <>
-              <span>
-                data {gb(facts.diskTotal - facts.diskFree)}/{gb(facts.diskTotal)}
-              </span>
-              <span>
-                mem {gb(facts.memUsed)}/{gb(facts.memTotal)}
-              </span>
-              <span>
-                {facts.browsers} browser{facts.browsers === 1 ? "" : "s"}
-              </span>
+        {/* Was one wrapping run of mono text, which on a narrow window broke
+            into five ragged lines and read as terminal output that happened to
+            be pinned to the page. Disk and memory are ratios, so they get a
+            meter and say so; the rest are counts. */}
+        <div className="mt-10 rounded-xl border border-line bg-surface p-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-[560px]:grid-cols-4">
+            <Stat label="Projects" value={String(projects?.length ?? 0)} />
+            <Stat label="Running" value={String(running)} />
+            {facts && (
+              <Stat
+                label="Data"
+                value={`${gb(facts.diskTotal - facts.diskFree)} / ${gb(facts.diskTotal)}`}
+                fraction={
+                  facts.diskTotal > 0 ? (facts.diskTotal - facts.diskFree) / facts.diskTotal : null
+                }
+              />
+            )}
+            {facts && (
+              <Stat
+                label="Memory"
+                value={
+                  facts.memTotal > 0
+                    ? `${gb(facts.memUsed)} / ${gb(facts.memTotal)}`
+                    : gb(facts.memUsed)
+                }
+                // memTotal is 0 when the pod has no limit set, and a meter with
+                // no ceiling is a bar that means nothing.
+                fraction={facts.memTotal > 0 ? facts.memUsed / facts.memTotal : null}
+              />
+            )}
+          </div>
+          {facts && (facts.browsers > 0 || facts.docker) && (
+            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px] text-faint">
+              {facts.browsers > 0 && (
+                <span>
+                  {facts.browsers} headless browser{facts.browsers === 1 ? "" : "s"}
+                </span>
+              )}
               {facts.docker?.map((d) => (
                 <span key={d.type}>
-                  docker {d.type.toLowerCase()} {d.size}
+                  docker {d.type.toLowerCase()}{" "}
+                  <span className="font-mono tabular-nums">{d.size}</span>
                   {d.reclaimable.startsWith("0B")
                     ? ""
-                    : ` (${d.reclaimable.split(" ")[0]} reclaimable)`}
+                    : ` · ${d.reclaimable.split(" ")[0]} reclaimable`}
                 </span>
               ))}
-            </>
+            </div>
           )}
         </div>
       </main>

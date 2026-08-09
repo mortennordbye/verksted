@@ -112,10 +112,13 @@ function PrRow({ pr, onClick }: { pr: PullRequest; onClick: () => void }) {
     >
       <span className="w-9 flex-none font-mono text-[12px] text-faint">#{pr.number}</span>
       <div className="min-w-0 flex-1">
-        <div className="overflow-hidden text-[13.5px] text-ellipsis whitespace-nowrap">
-          {pr.title}
-        </div>
-        <div className="mt-0.5 flex items-center gap-2.5 font-mono text-[12px] text-faint">
+        {/* Two lines rather than an ellipsis: this panel is now also rendered in
+            the session's side column, where a single clipped line of a
+            conventional-commit title is all prefix and no subject. */}
+        <div className="line-clamp-2 text-[13.5px]">{pr.title}</div>
+        {/* Wraps: the counts and the timestamp do not shrink, so in a narrow
+            column they used to spill out of this row and under the chip. */}
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-1 font-mono text-[12px] text-faint">
           <span className="min-w-0 truncate">⎇ {pr.headRefName}</span>
           <span className="text-run">+{pr.additions}</span>
           <span className="text-claude">−{pr.deletions}</span>
@@ -126,7 +129,9 @@ function PrRow({ pr, onClick }: { pr: PullRequest; onClick: () => void }) {
           )}
         </div>
       </div>
-      <StatusChip kind={chip.kind} label={chip.label} />
+      <span className="flex-none">
+        <StatusChip kind={chip.kind} label={chip.label} />
+      </span>
     </button>
   );
 }
