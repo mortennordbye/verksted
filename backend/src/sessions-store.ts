@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentName, CreatedSession, Session, SessionWork } from "../../shared/api.js";
+import { sweepTempFiles, writeJsonAtomic } from "./atomic-json.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
@@ -121,36 +121,11 @@ async function readAll(): Promise<Meta[]> {
 }
 
 /**
- * Write-temp-then-rename, because listSessions is a GET that writes and three
- * pollers call it at once. A plain writeFile lets two writers interleave into
- * truncated JSON, which readAll then skips silently — the session disappears
- * from history for good. rename(2) is atomic within a filesystem, so a reader
- * sees either the old file or the new one.
- *
- * The temp name cannot end in ".json", or readAll would try to parse it.
+ * listSessions is a GET that writes, and three pollers call it at once, so the
+ * write has to be atomic — see writeJsonAtomic for what a torn one costs.
  */
 async function writeMeta(meta: Meta): Promise<void> {
-  const target = metaPath(meta.id);
-  const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, JSON.stringify(meta, null, 2));
-    await fs.rename(tmp, target);
-  } catch (err) {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  }
-}
-
-/** Leftover temp files from a pod killed mid-write; called once at boot. */
-async function sweepTempMetas(): Promise<void> {
-  try {
-    const files = await fs.readdir(env.SESSIONS_DIR);
-    for (const f of files.filter((f) => f.endsWith(".tmp"))) {
-      await fs.rm(path.join(env.SESSIONS_DIR, f), { force: true });
-    }
-  } catch {
-    // Nothing to sweep, or the dir is unreadable — boot regardless.
-  }
+  await writeJsonAtomic(metaPath(meta.id), meta);
 }
 
 async function readMeta(id: string): Promise<Meta | null> {
@@ -394,7 +369,7 @@ async function launchAgent(
  * which ends it as before.
  */
 export async function restoreSessions(log: Logger): Promise<void> {
-  await sweepTempMetas();
+  await sweepTempFiles(env.SESSIONS_DIR);
   const live = await liveNames();
   if (live === null) {
     // Restoring on a guess would start a second agent for every session that is
