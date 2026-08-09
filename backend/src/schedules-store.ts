@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Cron } from "croner";
 import type { Schedule, ScheduleRun, Session } from "../../shared/api.js";
+import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { listSessions, readReport } from "./sessions-store.js";
 
@@ -82,8 +83,14 @@ async function toWire(s: Stored): Promise<Schedule> {
   };
 }
 
+/**
+ * Atomic, because the scheduler stamps a schedule while the UI is polling it —
+ * see writeJsonAtomic. A torn read here surfaced as a schedule that existed a
+ * moment ago reading back as null, since readStored cannot tell a half-written
+ * file from a missing one.
+ */
 async function write(s: Stored): Promise<void> {
-  await fs.writeFile(filePath(s.id), JSON.stringify(s, null, 2));
+  await writeJsonAtomic(filePath(s.id), s);
 }
 
 async function readStored(id: string): Promise<Stored | null> {

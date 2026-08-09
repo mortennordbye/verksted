@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { env } from "./env.js";
 import { buildApp } from "./app.js";
+import { sweepTempFiles } from "./atomic-json.js";
 import { killAll } from "./browser.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
@@ -33,6 +34,9 @@ await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
 startNotifier(app.log);
 startMaintenance(app.log);
+// A pod killed mid-write leaves a temp file behind; sessions sweep theirs in
+// restoreSessions, and this is the schedules' equivalent.
+await sweepTempFiles(env.SCHEDULES_DIR);
 await reloadSchedules(app.log);
 
 // A rejection nobody handled would otherwise take the process down with Node's
