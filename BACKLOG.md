@@ -3,15 +3,6 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
-## Verify CI workflow against a real GitHub repo
-
-- **What:** The ci.yml workflow (test job + GHCR image push) has never run.
-- **Why deferred:** The repo has no GitHub remote yet and nothing is committed;
-  a workflow can only be verified by pushing.
-- **Unblocked by:** Creating the GitHub repo, committing, and pushing main; then
-  confirm the test job is green and `ghcr.io/<owner>/verksted:latest` appears.
-- **Where:** `.github/workflows/ci.yml`
-
 ## gh output fixtures are hand-written, not captured from a real gh
 
 - **What:** The gh-backed routes now have coverage through a fake `gh` on PATH
