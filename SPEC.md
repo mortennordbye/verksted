@@ -165,6 +165,18 @@ somebody asking), and a refusal to start a run when the pod already has six
 sessions alive. Both refusals are recorded as run outcomes rather than
 swallowed, so a schedule that never fires says why.
 
+The timers themselves live only in memory and are rebuilt from the stored
+records at boot, so a restart spanning a cron would lose that firing with
+nothing left to say it should have happened — and in an inbox where an `ok` run
+is meant to stay quiet, a scheduler that never fired reads exactly like a night
+when all was well. Each schedule therefore records when its timer last fired,
+and a boot asks every one of them what it missed: a tick under an hour old, and
+under half the schedule's own interval, is run on the way up; an older one is
+written off as a firing of its own, so the inbox says the pod was down rather
+than saying nothing. A tick the pod was up for is never one of these — the
+pause switch, the idle rule and a run still going all drop a tick deliberately,
+and re-running those is the stacking the ceilings above exist to prevent.
+
 Voice input belongs to the browser: the pod has no microphone, the phone does.
 The session toolbar has a mic key that dictates into the terminal (the browser's
 own speech recognition, secure origin required) and leaves the text in the pane
