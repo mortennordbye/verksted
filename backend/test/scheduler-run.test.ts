@@ -359,6 +359,126 @@ describe("a schedule that runs the assistant", () => {
   });
 });
 
+describe("a tick the pod was down for", () => {
+  afterEach(async () => {
+    vi.useRealTimers();
+    // Leave no timers behind for the next test to count, or for the process to
+    // wait on before it can exit.
+    for (const s of await store.listSchedules()) await store.deleteSchedule(s.id);
+    await scheduler.reloadSchedules(log);
+  });
+
+  /** The stamp a pod that had been up for that tick would have left behind. */
+  function firedAt(id: string, at: string) {
+    const file = path.join(schedulesDir, `${id}.json`);
+    const stored = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...stored, lastFiredAt: at }));
+  }
+
+  /**
+   * A catch-up is deliberately not awaited by the reload that starts it, so
+   * every assertion here is about something that lands a moment later. Only the
+   * Date is ever faked below, which leaves setTimeout real and a plain poll —
+   * counted in tries, since a frozen clock would never reach a deadline.
+   */
+  async function eventually(done: () => boolean | Promise<boolean>, tries = 200) {
+    for (let i = 0; i < tries && !(await done()); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  it("runs the tick it was down for, on the way back up", async () => {
+    // Pinned to a fixed instant so this reads the rule and not the clock: a
+    // half-hourly schedule last fired at 09:05, back up at 09:35. The 09:30
+    // tick is five minutes old, well inside the window.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-06-01T09:35:00Z"));
+    const s = await store.createSchedule({
+      name: "nightly",
+      project: "demo",
+      cron: "*/30 * * * *",
+      prompt: "check the open PRs",
+    });
+    firedAt(s.id, "2026-06-01T09:05:00Z");
+
+    await scheduler.reloadSchedules(log);
+    await eventually(() => fake.subcommand("tmux", "new-session").length > 0);
+
+    expect(fake.subcommand("tmux", "new-session")).toHaveLength(1);
+    // And the tick is accounted for, so the next boot does not run it again.
+    expect((await store.getSchedule(s.id))!.lastFiredAt).toBe("2026-06-01T09:35:00.000Z");
+  });
+
+  it("records one it is too late for rather than letting it vanish", async () => {
+    // The whole point: a run that reports itself ok is meant to leave the inbox
+    // quiet, so a scheduler that never fired must not read like a quiet night.
+    const s = await schedule("check the open PRs");
+    firedAt(s.id, "2020-01-01T00:00:00Z");
+
+    await scheduler.reloadSchedules(log);
+    await eventually(async () => (await store.getSchedule(s.id))!.lastError !== null);
+
+    const after = (await store.getSchedule(s.id))!;
+    expect(after.lastError).toContain("missed while the pod was down");
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+    // Stamped too, or a pod that keeps restarting reports the same missed tick
+    // every boot until it has pushed the real history out of the run list.
+    expect(after.lastFiredAt).not.toBe("2020-01-01T00:00:00Z");
+  });
+
+  it("leaves alone a schedule that has never fired", async () => {
+    // A schedule added moments ago — and, the first time this ships, every
+    // schedule there is. Nothing to compare against is not a missed tick.
+    const s = await schedule("check the open PRs");
+
+    await scheduler.reloadSchedules(log);
+    await eventually(() => fake.subcommand("tmux", "new-session").length > 0, 20);
+
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+    const after = (await store.getSchedule(s.id))!;
+    expect(after.lastError).toBeNull();
+    expect(after.lastFiredAt).toBeNull();
+  });
+});
+
+describe("missedTick", () => {
+  // Fixed dates, all of them long before this process started, which is half of
+  // what "missed" means. `due` is the first occurrence after the schedule last
+  // fired; `after` the one following it, which carries the interval.
+  const due = new Date("2026-01-01T07:00:00Z");
+  const tomorrow = new Date("2026-01-02T07:00:00Z");
+  const fired = "2026-01-01T06:00:00Z";
+  const at = due.getTime();
+
+  it("catches up on a tick that is minutes old", () => {
+    expect(scheduler.missedTick(fired, due, tomorrow, at + 20 * 60_000)).toBe("catch up");
+  });
+
+  it("gives up on one whose moment has passed", () => {
+    // A 07:00 briefing read at lunchtime is yesterday's news.
+    expect(scheduler.missedTick(fired, due, tomorrow, at + 5 * 3_600_000)).toBe("too late");
+  });
+
+  it("waits for the next tick rather than firing one just ahead of it", () => {
+    // Hourly, fifty minutes late: catching up would run ten minutes before the
+    // tick it was about to get anyway.
+    const nextHour = new Date(at + 3_600_000);
+    expect(scheduler.missedTick(fired, due, nextHour, at + 50 * 60_000)).toBe("too late");
+  });
+
+  it("has nothing to go on for a schedule that has never fired", () => {
+    expect(scheduler.missedTick(null, due, tomorrow, at + 60_000)).toBe("nothing");
+  });
+
+  it("leaves alone a tick this process was up for", () => {
+    // Not missed for want of a pod: croner's protect dropped it because the
+    // previous run — or its jitter — was still going, and that is deliberate.
+    const up = new Date();
+    const next = new Date(up.getTime() + 3_600_000);
+    expect(scheduler.missedTick(fired, up, next, up.getTime() + 60_000)).toBe("nothing");
+  });
+});
+
 describe("reloadSchedules", () => {
   // Leave no timers behind for the next test to count.
   afterEach(async () => {

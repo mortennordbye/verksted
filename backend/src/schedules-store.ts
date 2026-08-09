@@ -26,10 +26,12 @@ interface StoredRun {
 /** The stored record; the rest of the wire type is derived on every read. */
 type Stored = Omit<
   Schedule,
-  "nextRunAt" | "lastReport" | "lastRunAt" | "lastSessionId" | "lastError"
+  "nextRunAt" | "lastReport" | "lastRunAt" | "lastSessionId" | "lastError" | "lastFiredAt"
 > & {
   /** Newest first, capped at MAX_RUNS. */
   runs: StoredRun[];
+  /** Absent on every record written before catch-up existed. */
+  lastFiredAt?: string;
 };
 
 function filePath(id: string): string {
@@ -70,6 +72,7 @@ async function toWire(s: Stored): Promise<Schedule> {
     skipWhenIdle: s.skipWhenIdle ?? false,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
+    lastFiredAt: s.lastFiredAt ?? null,
     lastRunAt: last?.at ?? null,
     lastSessionId: last?.sessionId ?? null,
     lastError: last?.error ?? null,
@@ -165,6 +168,19 @@ export async function deleteSchedule(id: string): Promise<boolean> {
   if (!(await readStored(id))) return false;
   await fs.rm(filePath(id), { force: true });
   return true;
+}
+
+/**
+ * Mark this tick accounted for. Written whenever a timer fires — before the
+ * pause switch, the idle rule and every ceiling, because all of those are the
+ * schedule deciding rather than the schedule missing — and when a boot writes
+ * off a tick it was down for. What it buys is the next boot: the first cron
+ * occurrence after this stamp that is already in the past is a tick nobody ran.
+ */
+export async function stampFired(id: string): Promise<void> {
+  const stored = await readStored(id);
+  if (!stored) return;
+  await write({ ...stored, lastFiredAt: new Date().toISOString() });
 }
 
 /** Stamp the outcome of a run: the session it started, or why it started none. */

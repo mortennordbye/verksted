@@ -163,6 +163,26 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts`, `backend/src/sessions-store.ts`
   (`launchAgent`), `backend/test/scheduler-run.test.ts`
 
+## A catch-up has never run after a real pod restart
+
+- **What:** The rule is covered (`backend/test/scheduler-run.test.ts`, the
+  `missedTick` and "a tick the pod was down for" blocks): a tick inside the
+  window starts a session on the way up, an older one is recorded as missed, a
+  schedule that never fired is left alone, and a tick this process was up for is
+  not treated as missed. All of it against a fake clock and a fake tmux. What
+  that cannot show is a real restart: that `lastFiredAt` survives on the PVC
+  across a pod replacement (it is written to the schedule's own JSON, so it
+  should), and that the hour-long window is the right one in practice rather
+  than in theory.
+- **Why deferred:** It needs a deployed pod restarted across a schedule's cron,
+  which is the same wall every other unattended-path entry here sits behind.
+- **Unblocked by:** Restarting the pod deliberately a few minutes after a
+  schedule's cron and reading the inbox — a run should be there, either the
+  caught-up one or a "missed while the pod was down" row. If catch-ups turn out
+  to be unwanted noise, `CATCH_UP_WITHIN_MS` is the one number to turn down.
+- **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
+  `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
+
 ## Event triggers: react to the repo, not only to the clock
 
 - **What:** Schedules fire on a cron. "Keep an eye on my repos" really means
