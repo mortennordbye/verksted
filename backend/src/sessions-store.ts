@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentName, CreatedSession, Session } from "../../shared/api.js";
+import type { AgentName, CreatedSession, Session, SessionWork } from "../../shared/api.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
-import { syncDefaultBranch } from "./git.js";
+import { headCommit, syncDefaultBranch, workSince } from "./git.js";
 import { resolveInsideRepos } from "./paths.js";
 import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
@@ -38,6 +38,10 @@ interface Meta {
   endedAt: string | null;
   /** CDP port reserved for the session's headless browser (older metas lack it). */
   cdpPort?: number;
+  /** HEAD when the session started; absent for a project that is not a repo. */
+  startCommit?: string | null;
+  /** Measured once, when the session is first seen finished. */
+  work?: SessionWork | null;
 }
 
 function metaPath(id: string): string {
@@ -181,10 +185,29 @@ async function killQuietly(name: string): Promise<void> {
 }
 
 async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
-  const { cdpPort: _cdpPort, ...wire } = meta;
+  const { cdpPort: _cdpPort, startCommit: _startCommit, ...wire } = meta;
   const status = !live ? "done" : state === "waiting" ? "waiting" : "running";
   const report = await readReport(meta.id);
-  return { ...wire, status, report, outcome: reportOutcome(report, live) };
+  return { ...wire, work: meta.work ?? null, status, report, outcome: reportOutcome(report, live) };
+}
+
+/**
+ * What the repo has to show for the session, measured the moment it is first
+ * seen finished — the evidence beside its one-line sign-off, so "ok: tidied the
+ * PRs" can be checked against whether anything was committed at all.
+ *
+ * Measured on the way out rather than on demand because the repo keeps moving:
+ * the next session's commits would otherwise be added to this one's every time
+ * the row was read.
+ */
+async function captureWork(meta: Meta): Promise<SessionWork | null> {
+  if (!meta.startCommit) return null;
+  try {
+    return await workSince(resolveInsideRepos(meta.project), meta.startCommit);
+  } catch {
+    // The project has been deleted out from under it; there is nothing to read.
+    return null;
+  }
 }
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
@@ -219,6 +242,7 @@ export async function listSessions(project?: string): Promise<Session[]> {
     // end stamped the first time anyone lists it.
     if (!m.endedAt && !live.has(m.id)) {
       m.endedAt = new Date().toISOString();
+      m.work = await captureWork(m);
       await writeMeta(m);
       await closeBrowser(m.id);
     }
@@ -434,6 +458,9 @@ export function createSession(
       createdAt: new Date().toISOString(),
       endedAt: null,
       cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
+      // Read after the sync above, so the branch the app just fast-forwarded is
+      // the baseline and only what the session does counts against it.
+      startCommit: await headCommit(projectDir),
     };
     // A purged session's id can be reused; drop any stale state from it.
     await fs.rm(statePath(meta.id), { force: true });
@@ -485,8 +512,11 @@ export async function endSession(id: string): Promise<Session | null> {
   // had cdpPort stripped by toSession. Rebuilding dropped the reserved port on
   // every end, so the pool leaked until nextCdpPort ran out and threw a bare 500.
   const stored = await readMeta(id);
-  if (stored) await writeMeta({ ...stored, endedAt });
-  return { ...session, endedAt, status: "done" };
+  // Already measured when the list sweep stamped this session's end; ending an
+  // ended session must not re-measure it against a repo that has moved on.
+  const work = stored ? (stored.work ?? (await captureWork(stored))) : null;
+  if (stored) await writeMeta({ ...stored, endedAt, work });
+  return { ...session, endedAt, work, status: "done" };
 }
 
 /** End the session (tmux + shell companion) and remove it from history. */

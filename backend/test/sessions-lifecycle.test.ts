@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TmuxUnavailableError } from "../src/tmux.js";
+import type { SessionWork } from "../../shared/api.js";
 
 // sessions-store is the state machine; everything it talks to is stubbed so the
 // tests are about its own decisions rather than tmux, git or chromium.
@@ -25,9 +26,16 @@ vi.mock("../src/browser.js", () => ({
   closeBrowser: async () => {},
 }));
 
+const gitHead = vi.fn<() => Promise<string | null>>();
+const gitWork = vi.fn<(...args: unknown[]) => Promise<SessionWork | null>>();
+
 vi.mock("../src/git.js", () => ({
   syncDefaultBranch: async () => ({ branch: "main", status: "skipped", detail: "test" }),
+  headCommit: () => gitHead(),
+  workSince: (...args: unknown[]) => gitWork(...args),
 }));
+
+const WORK: SessionWork = { commits: 2, files: 3, dirty: 1, unpushed: 2, branch: "main" };
 
 vi.mock("../src/claude-hooks.js", () => ({
   ensureHooksSettings: async () => "/tmp/hooks.json",
@@ -74,6 +82,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   tmuxNew.mockResolvedValue(undefined);
   tmuxKill.mockResolvedValue(undefined);
+  gitHead.mockResolvedValue("start0");
+  gitWork.mockResolvedValue(WORK);
   for (const f of fs.readdirSync(sessionsDir)) fs.rmSync(path.join(sessionsDir, f));
 });
 
@@ -145,6 +155,36 @@ describe("liveness when tmux answers", () => {
     expect((await store.listSessions())[0].status).toBe("running");
   });
 
+  it("measures what the repo has to show for the session, when it is first seen done", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxList.mockResolvedValue([]);
+
+    const [first] = await store.listSessions();
+
+    expect(first.work).toEqual(WORK);
+    expect(gitWork).toHaveBeenCalledWith(expect.stringContaining("demo"), "start0");
+    // Measured on the way out and then kept, not recomputed per read: the repo
+    // keeps moving, and the next session's commits must not join this row.
+    gitWork.mockResolvedValue({ ...WORK, commits: 99 });
+    expect((await store.listSessions())[0].work).toEqual(WORK);
+    expect(gitWork).toHaveBeenCalledTimes(1);
+  });
+
+  it("has nothing to measure for a session that started outside a repo", async () => {
+    writeMeta("vk-demo-1");
+    tmuxList.mockResolvedValue([]);
+
+    expect((await store.listSessions())[0].work).toBeNull();
+    expect(gitWork).not.toHaveBeenCalled();
+  });
+
+  it("claims nothing about a session that is still running", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxList.mockResolvedValue(["vk-demo-1"]);
+
+    expect((await store.listSessions())[0].work).toBeNull();
+  });
+
   it("reaps a shell companion left behind by a dead agent session", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue(["vk-demo-1-shell"]);
@@ -171,6 +211,15 @@ describe("createSession", () => {
     );
     // And each one is on disk, rather than the last writer winning.
     expect(fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".json"))).toHaveLength(5);
+  });
+
+  it("records where the repo was, as the stick to measure the session against", async () => {
+    const session = await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+
+    expect(readMetaFile(session.id).startCommit).toBe("start0");
+    // A measuring stick, not something any screen shows.
+    expect(session).not.toHaveProperty("startCommit");
+    expect(session.work).toBeNull();
   });
 
   it("reserves a distinct cdp port per session", async () => {
@@ -216,6 +265,26 @@ describe("endSession", () => {
     const ended = await store.endSession("vk-demo-1");
     expect(ended!.status).toBe("done");
     expect(readMetaFile("vk-demo-1").endedAt).not.toBeNull();
+  });
+
+  it("measures the work when it is a DELETE that ends the session", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+
+    const ended = await store.endSession("vk-demo-1");
+
+    expect(ended!.work).toEqual(WORK);
+    expect(readMetaFile("vk-demo-1").work).toEqual(WORK);
+  });
+
+  it("keeps the measurement the sweep already took", async () => {
+    // Ending an ended session must not re-measure it against a repo that has
+    // moved on since.
+    writeMeta("vk-demo-1", { endedAt: "2026-01-02T00:00:00.000Z", work: WORK });
+
+    await store.endSession("vk-demo-1");
+
+    expect(gitWork).not.toHaveBeenCalled();
+    expect(readMetaFile("vk-demo-1").work).toEqual(WORK);
   });
 
   it("succeeds even when the tmux kill fails", async () => {
