@@ -630,3 +630,24 @@ what unblocks it / where the code lives.
 - **Where:** `.github/dependabot.yml` (the docker `ignore` block), `Dockerfile`
   (the `whisper`, `base` and `build` stages), `backend/package.json`
   (`@types/node`), `.github/workflows/ci.yml` (`node-version`)
+
+## TypeScript is installed twice, on purpose
+
+- **What:** `npm ls typescript` reports two copies: 7.0.2 under
+  `backend/node_modules` and `frontend/node_modules`, which is what `tsc` runs
+  for the build and the `lint` scripts, and 6.0.3 at the root, which is what
+  typescript-eslint's type-aware rules run on. It looks like a resolution bug
+  and is not one.
+- **Why deferred:** typescript-eslint does not support the native compiler yet,
+  and says so at runtime rather than in types alone — forcing a single
+  TypeScript 7 with an `overrides` entry makes every lint run die with
+  "typescript-eslint does not support TS 7.0". Running TS 6 alongside is
+  Microsoft's documented path for exactly this, not a workaround.
+- **Unblocked by:** typescript-eslint shipping TS >=7.1 support, tracked
+  upstream in typescript-eslint#10940. When it lands, drop the duplicate by
+  letting the root resolve to 7.x and confirm `npm ls typescript` reports one
+  copy.
+- **Where:** `backend/package.json` and `frontend/package.json` (the
+  `typescript` devDependency), `package.json` (`overrides`, where a
+  `typescript` entry would go and currently must not), `eslint.config.js`
+  (`recommendedTypeChecked`, the rules that need the TS 6 API)
