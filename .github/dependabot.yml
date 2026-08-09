@@ -22,6 +22,13 @@ updates:
       # One PR for the routine bumps; anything major still arrives on its own.
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # @types/node describes the runtime, so its major is not an independent
+      # choice: it moves when the image moves, and taking 26 while the pod runs
+      # 24 would type-check against APIs that are not there. Same LTS decision
+      # as the node image below, tracked in the same BACKLOG entry.
+      - dependency-name: "@types/node"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /
@@ -30,6 +37,18 @@ updates:
     groups:
       docker-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # Which Node major to run is an LTS decision, and Dependabot has no idea
+      # which releases are LTS. Left to itself it offered node:25-slim in #26,
+      # three months after 25 went end of life, and node:26-trixie-slim in #46,
+      # while 26 was still Current. Both would have taken the pod off a
+      # supported runtime.
+      #
+      # Nothing is lost by ignoring the major: the tag is `24-trixie-slim`, so
+      # every 24.x security release lands on the next image build without a PR.
+      # The next move is 26, once it becomes LTS on 2026-10-28 (BACKLOG.md).
+      - dependency-name: node
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
