@@ -116,7 +116,14 @@ COPY runtime/vk /usr/local/bin/vk
 # image rather than resolved out of the build output, so the path is the same
 # under tsx in dev and under node in the runtime image.
 COPY runtime/verksted-mcp.mjs /etc/verksted/verksted-mcp.mjs
-RUN chmod 0755 /usr/local/bin/vk
+# Strips AI attribution from every commit a session makes, in every repo. The
+# ban lives in CLAUDE.md, but that is an instruction to an agent rather than a
+# guarantee: one Co-authored-by got through and put "claude" in the repo's
+# GitHub contributors, which cost a 47-commit rewrite to undo. System-wide
+# because the commits come from agents in REPOS_DIR, not from this repo alone.
+COPY runtime/git-hooks/ /etc/verksted/git-hooks/
+RUN chmod 0755 /usr/local/bin/vk /etc/verksted/git-hooks/* \
+    && git config --system core.hooksPath /etc/verksted/git-hooks
 
 # Speech to text for the assistant's voice mode. ffmpeg is what turns whatever
 # the browser recorded (webm/opus on Chrome, mp4/aac on Safari) into the 16 kHz
