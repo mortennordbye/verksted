@@ -609,3 +609,24 @@ what unblocks it / where the code lives.
   `frontend/src/components/Terminal.tsx`, `frontend/src/components/ChatPane.tsx`,
   `frontend/src/components/AssistantPanel.tsx`,
   `frontend/src/components/CommandPalette.tsx`, `frontend/src/api.ts`
+
+## Node major bumps are a manual LTS decision
+
+- **What:** `.github/dependabot.yml` ignores major updates to the `node` image,
+  so nothing will propose Node 26 even after it becomes LTS. The image runs
+  `node:24-trixie-slim`; 24 is Active LTS until 2026-10-20 and supported to
+  2028-04-30.
+- **Why deferred:** Dependabot has no notion of which Node releases are LTS. It
+  proposed `node:25-slim` three months after 25 went end of life (#26) and
+  `node:26-trixie-slim` while 26 was still Current (#46). Ignoring the major is
+  what stops a green CI run from walking the pod onto an unsupported runtime.
+  The floating `24-trixie-slim` tag still picks up every 24.x security release
+  on each build, so this costs nothing between majors.
+- **Unblocked by:** 2026-10-28, when Node 26 enters LTS. Move the Dockerfile's
+  three `FROM` lines to `node:26-trixie-slim`, check `@types/node` moves to 26
+  to match, and confirm node-pty has prebuilds or still compiles for the new
+  ABI. Do the same again when 28 enters LTS in October 2028, before 24 goes end
+  of life in April 2028.
+- **Where:** `.github/dependabot.yml` (the docker `ignore` block), `Dockerfile`
+  (the `whisper`, `base` and `build` stages), `backend/package.json`
+  (`@types/node`), `.github/workflows/ci.yml` (`node-version`)
