@@ -1,9 +1,35 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AssistantEntry, AssistantThread } from "../../../shared/api";
 import { api } from "../api";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
+
+/**
+ * The composer's icons, drawn rather than typed.
+ *
+ * These were the glyphs "+", "((•))", "●" and "↑". No mono font ships the last
+ * three, so each came from whatever fallback the platform picked and they
+ * landed at different weights and sizes in a row four buttons wide — the same
+ * fault the top bar's two icons had before they were drawn.
+ */
+function Ico({ children }: { children: ReactNode }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
 
 /**
  * The assistant's chat.
@@ -264,54 +290,59 @@ export default function Assistant() {
 
         {/* Always present: the raccoon toggle lives here, and gating the whole
             row on having turns meant it did not exist on a fresh thread. */}
-        <div className="flex items-center gap-3 font-mono text-[11px] text-faint">
+        {/* The count reads left, the controls sit together on the right. They
+            used to run on from the count as one ragged line, which made three
+            mode toggles look like part of the sentence. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-faint">
           {turns > 0 && (
-            <span>
+            <span className={long ? "text-wait" : undefined}>
               {turns} turn{turns === 1 ? "" : "s"}
               {long && " · getting expensive to continue"}
             </span>
           )}
-          <button
-            onClick={() => {
-              const next = !showRaccoon;
-              setShowRaccoon(next);
-              localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
-            }}
-            title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
-            aria-pressed={showRaccoon}
-            className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
-              showRaccoon ? "border-accent/50 text-accent" : "border-line text-muted"
-            }`}
-          >
-            raccoon
-          </button>
-          {canSpeak() && (
+          <span className="ml-auto flex flex-wrap items-center gap-2">
             <button
-              onClick={toggleSpeakReplies}
-              title={
-                speakReplies
-                  ? "stop reading replies aloud"
-                  : "read every reply aloud, including ones you typed"
-              }
-              aria-pressed={speakReplies}
-              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text ${
-                speakReplies ? "border-accent/50 text-accent" : "border-line text-muted"
+              onClick={() => {
+                const next = !showRaccoon;
+                setShowRaccoon(next);
+                localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
+              }}
+              title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
+              aria-pressed={showRaccoon}
+              className={`rounded-md border px-2 py-1 font-medium hover:border-line-strong hover:text-text ${
+                showRaccoon ? "border-accent/50 text-accent" : "border-line text-muted"
               }`}
             >
-              read aloud
+              raccoon
             </button>
-          )}
-          {turns > 0 && (
-            <button
-              onClick={() => void newThread()}
-              disabled={thinking}
-              className={`rounded-[7px] border px-2 py-0.5 hover:border-faint hover:text-text disabled:opacity-40 ${
-                long ? "border-wait/50 text-wait" : "border-line text-muted"
-              }`}
-            >
-              new thread
-            </button>
-          )}
+            {canSpeak() && (
+              <button
+                onClick={toggleSpeakReplies}
+                title={
+                  speakReplies
+                    ? "stop reading replies aloud"
+                    : "read every reply aloud, including ones you typed"
+                }
+                aria-pressed={speakReplies}
+                className={`rounded-md border px-2 py-1 font-medium hover:border-line-strong hover:text-text ${
+                  speakReplies ? "border-accent/50 text-accent" : "border-line text-muted"
+                }`}
+              >
+                read aloud
+              </button>
+            )}
+            {turns > 0 && (
+              <button
+                onClick={() => void newThread()}
+                disabled={thinking}
+                className={`rounded-md border px-2 py-1 font-medium hover:border-line-strong hover:text-text disabled:opacity-40 ${
+                  long ? "border-wait/50 text-wait" : "border-line text-muted"
+                }`}
+              >
+                new thread
+              </button>
+            )}
+          </span>
         </div>
 
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
@@ -406,15 +437,11 @@ export default function Assistant() {
             e.target.value = "";
           }}
         />
-        <div className="flex items-end gap-2 rounded-xl border border-line bg-surface px-3 py-2">
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={thinking}
-            aria-label="attach an image"
-            className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
-          >
-            +
-          </button>
+        {/* Field on top, controls on their own row underneath. In one row the
+            four buttons crowded the field from both sides and the send button
+            drifted with the field's width; here each control has a fixed home
+            and the field gets the full width at any size. */}
+        <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -440,49 +467,79 @@ export default function Assistant() {
               listening ? "listening…" : thinking ? "working…" : "Ask, or tell me something…"
             }
             aria-label="message the assistant"
-            className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
+            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
           />
-          {canSpeak() && canListen() && !thinking && (
+          <div className="mt-2 flex items-center gap-2">
             <button
-              onClick={toggleVoice}
-              aria-label={voiceMode ? "end voice mode" : "start voice mode"}
-              title="hands free: it reads replies out and listens again"
-              className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint ${
-                voiceMode ? "border-accent text-accent" : "border-line text-muted"
-              }`}
+              onClick={() => fileRef.current?.click()}
+              disabled={thinking}
+              aria-label="attach an image"
+              className="tap-sq flex flex-none items-center justify-center rounded-lg border border-line px-2.5 py-2 text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
             >
-              ((•))
+              <Ico>
+                <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </Ico>
             </button>
-          )}
-          {canListen() && !thinking && !voiceMode && (
-            <button
-              onClick={() => (listening ? speech.stopListening() : void speech.listen())}
-              aria-label={listening ? "stop dictating" : "dictate"}
-              title="dictate into the field"
-              className={`tap-sq flex-none rounded-lg border px-2.5 py-1.5 font-mono text-[13px] hover:border-faint ${
-                listening ? "animate-pulse border-accent text-accent" : "border-line text-muted"
-              }`}
-            >
-              ●
-            </button>
-          )}
-          {thinking ? (
-            <button
-              onClick={() => void stop()}
-              className="tap-sq flex-none rounded-lg border border-line px-3 py-1.5 font-mono text-[12px] font-semibold text-muted hover:border-faint hover:text-text"
-            >
-              stop
-            </button>
-          ) : (
-            <button
-              onClick={() => void send()}
-              disabled={!text.trim() && !pending.length}
-              aria-label="send"
-              className="tap-sq flex-none rounded-lg bg-accent px-3 py-1.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-40"
-            >
-              ↑
-            </button>
-          )}
+            <span className="flex-1" />
+            {canSpeak() && canListen() && !thinking && (
+              <button
+                onClick={toggleVoice}
+                aria-label={voiceMode ? "end voice mode" : "start voice mode"}
+                title="hands free: it reads replies out and listens again"
+                className={`tap-sq flex flex-none items-center justify-center rounded-lg border px-2.5 py-2 hover:border-line-strong ${
+                  voiceMode ? "border-accent bg-accent-tint text-accent" : "border-line text-muted"
+                }`}
+              >
+                <Ico>
+                  <path d="M11 5 6 9H2v6h4l5 4z" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                </Ico>
+              </button>
+            )}
+            {canListen() && !thinking && !voiceMode && (
+              <button
+                onClick={() => (listening ? speech.stopListening() : void speech.listen())}
+                aria-label={listening ? "stop dictating" : "dictate"}
+                title="dictate into the field"
+                className={`tap-sq flex flex-none items-center justify-center rounded-lg border px-2.5 py-2 hover:border-line-strong ${
+                  listening
+                    ? "animate-pulse border-accent bg-accent-tint text-accent"
+                    : "border-line text-muted"
+                }`}
+              >
+                <Ico>
+                  <rect x="9" y="2" width="6" height="11" rx="3" />
+                  <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+                </Ico>
+              </button>
+            )}
+            {thinking ? (
+              <button
+                onClick={() => void stop()}
+                className="tap-sq flex flex-none items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[13px] font-semibold text-muted hover:border-line-strong hover:text-text"
+              >
+                <Ico>
+                  <rect x="7" y="7" width="10" height="10" rx="2" />
+                </Ico>
+                Stop
+              </button>
+            ) : (
+              // A filled circle rather than a rounded rectangle: it is the one
+              // action in this row that commits something, and at four buttons
+              // wide the outlined ones stopped reading as a set with it.
+              <button
+                onClick={() => void send()}
+                disabled={!text.trim() && !pending.length}
+                aria-label="send"
+                className="tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition hover:brightness-110 disabled:bg-surface-2 disabled:text-faint"
+              >
+                <Ico>
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </Ico>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
