@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -97,6 +97,78 @@ const SIDES = [
   { key: "runs", label: "actions", hint: "workflow runs, and the log of a failing job" },
 ] as const;
 type Side = (typeof SIDES)[number]["key"];
+
+/**
+ * A glyph per pane, for the phone's picker and for the button that opens it.
+ *
+ * Nine rows set in the same weight of the same font take a read to tell apart,
+ * and the picker is a thing you open several times a minute. The shape is what
+ * you aim at the second time; the label stays, because a folder and a globe
+ * carry meaning but "actions" and "pull requests" both look like arrows.
+ */
+const ICONS: Record<string, ReactNode> = {
+  files: <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />,
+  git: (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M6 9v6M18 9a9 9 0 0 1-9 9" />
+      <circle cx="18" cy="6" r="3" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.4-3.4" />
+    </>
+  ),
+  prs: (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="18" cy="18" r="3" />
+      <path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7" />
+    </>
+  ),
+  runs: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m10 8 6 4-6 4Z" />
+    </>
+  ),
+  chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />,
+  agent: <path d="m4 17 6-6-6-6M12 19h8" />,
+  shell: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m7 9 3 3-3 3M13 15h4" />
+    </>
+  ),
+  browser: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z" />
+    </>
+  ),
+};
+
+function PaneIcon({ name, className }: { name: string; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="17"
+      height="17"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`flex-none ${className ?? ""}`}
+      aria-hidden="true"
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}
 
 /** A persisted layout number, clamped — localStorage is user-editable. */
 function storedNumber(key: string, fallback: number, min: number, max: number): number {
@@ -296,6 +368,8 @@ export default function Session() {
     pane === "tree"
       ? (SIDES.find((sd) => sd.key === side)?.label ?? "files")
       : viewLabel(views.find(viewOn) ?? "agent");
+  // "chat" and "agent" are icons of their own; every other view is its own key.
+  const currentPaneKey = pane === "tree" ? side : (views.find(viewOn) ?? "agent");
 
   // hljs escapes the source; the produced HTML is only span tags with classes.
   const highlighted = useMemo(() => {
@@ -308,8 +382,16 @@ export default function Session() {
     <>
       {/* Phone: exactly one visual viewport tall, and the document never
           scrolls — the terminal takes whatever room the keyboard leaves.
-          Desktop keeps the ordinary scrolling page. */}
-      <div className="flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:h-auto desk:overflow-visible">
+          Desktop keeps the ordinary scrolling page.
+
+          Pinned to `--vvt`, not to the top of the page. iOS pans the visual
+          viewport inside a layout viewport that stays put, so a shell anchored
+          at layout-y 0 slides out from under the screen the moment the keyboard
+          opens — with the chat composer focused, what was left on screen was
+          the shell's bottom edge and black beneath it. `fixed` positions
+          against the layout viewport, which is what makes the offset the whole
+          correction. */}
+      <div className="fixed inset-x-0 top-[var(--vvt,0px)] flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:static desk:h-auto desk:overflow-visible">
         <TopBar
           back={session ? `/p/${session.project}` : "/"}
           crumb={session ? [session.project, session.title] : []}
@@ -388,6 +470,7 @@ export default function Session() {
               aria-expanded={picker}
               className="tap flex min-w-0 flex-none items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13.5px] font-semibold hover:border-line-strong"
             >
+              <PaneIcon name={currentPaneKey} className="text-muted" />
               <span className="truncate">{currentPaneLabel}</span>
               <svg
                 viewBox="0 0 24 24"
@@ -757,6 +840,7 @@ export default function Session() {
                   o.on ? "border-accent bg-accent-tint" : "border-line hover:border-line-strong"
                 }`}
               >
+                <PaneIcon name={o.key} className={o.on ? "text-accent" : "text-faint"} />
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-semibold">{o.label}</span>
                   <span className="block text-[12.5px] text-faint">{o.hint}</span>
