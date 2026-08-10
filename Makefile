@@ -1,4 +1,4 @@
-.PHONY: help setup dev up down test lint build run
+.PHONY: help setup dev up down test e2e lint build run
 .DEFAULT_GOAL := help
 
 help: ## list these targets
@@ -23,6 +23,9 @@ down: ## stop the dev stack
 
 test: ## vitest, backend and frontend
 	docker compose run --rm backend npm test
+
+e2e: ## smoke the built app in a real browser (builds the frontend first)
+	docker compose run --rm backend sh -c "npx vite build frontend && npx vitest run --config e2e/vitest.config.ts"
 
 lint: ## tsc --noEmit across workspaces, then eslint
 	docker compose run --rm backend npm run lint

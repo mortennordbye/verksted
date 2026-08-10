@@ -1,7 +1,12 @@
 import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { BranchSync, SessionWork } from "../../shared/api.js";
+import type {
+  BranchSync,
+  SessionChangedFile,
+  SessionCommit,
+  SessionWork,
+} from "../../shared/api.js";
 
 /**
  * Raw stdout, untrimmed. Porcelain -z output can legitimately begin with a
@@ -122,6 +127,86 @@ export async function workSince(repoDir: string, from: string): Promise<SessionW
   } catch {
     return null;
   }
+}
+
+/** Caps on one range's answer. A rebase or a merge of a long branch is the case
+ *  that runs away; past these the phone is the wrong place to read it anyway. */
+const MAX_COMMITS = 100;
+const MAX_FILES = 500;
+
+/**
+ * Parse `git diff --numstat -z`.
+ *
+ * -z for the same reason parsePorcelainZ needs it: without it any path that is
+ * not plain ASCII arrives C-quoted, and every path shown would then be one the
+ * per-file diff cannot ask for. Two record shapes come out of it:
+ *
+ *   "12\t3\tpath\0"                  ordinary, "-\t-\t" when the file is binary
+ *   "0\t0\t\0oldpath\0newpath\0"     a rename, whose path field is empty
+ */
+export function parseNumstatZ(stdout: string): SessionChangedFile[] {
+  const parts = stdout.split("\0");
+  const out: SessionChangedFile[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const m = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i]);
+    if (!m) continue;
+    // The rename shape: the two records after it are the old and the new path,
+    // and the new one is what the file is called now.
+    const path = m[3] || parts[i + 2];
+    if (!m[3]) i += 2;
+    if (!path) continue;
+    out.push({
+      path,
+      added: m[1] === "-" ? 0 : Number(m[1]),
+      removed: m[2] === "-" ? 0 : Number(m[2]),
+      binary: m[1] === "-",
+    });
+  }
+  return out;
+}
+
+/**
+ * What a commit range did: its subjects, and the files it touched.
+ *
+ * Two git calls and no file reads — the range is resolved against the object
+ * store, so a path in the answer is a path in the repo by construction.
+ */
+export async function changesIn(
+  repoDir: string,
+  from: string,
+  to: string,
+): Promise<{ commits: SessionCommit[]; files: SessionChangedFile[]; truncated: boolean }> {
+  const range = `${from}..${to}`;
+  // %x00 rather than a printable separator: a subject can contain anything.
+  const log = await git(repoDir, [
+    "log",
+    `--max-count=${MAX_COMMITS + 1}`,
+    "--format=%h%x00%s",
+    range,
+  ]);
+  const lines = log ? log.split("\n") : [];
+  const files = parseNumstatZ(await gitRaw(repoDir, ["diff", "--numstat", "-z", range]));
+  return {
+    commits: lines.slice(0, MAX_COMMITS).map((l) => {
+      const [sha, subject] = l.split("\0");
+      return { sha, subject: subject ?? "" };
+    }),
+    files: files.slice(0, MAX_FILES),
+    truncated: lines.length > MAX_COMMITS || files.length > MAX_FILES,
+  };
+}
+
+/** One file's diff over a range. The path is a client's, so it is a pathspec
+ *  and nothing else — literal, and after the `--` that ends the options. */
+export async function fileDiffIn(
+  repoDir: string,
+  from: string,
+  to: string,
+  relPath: string,
+): Promise<string> {
+  return gitRaw(repoDir, ["diff", `${from}..${to}`, "--", relPath], {
+    env: { ...process.env, GIT_LITERAL_PATHSPECS: "1" },
+  });
 }
 
 /** First useful line of a failed git command's stderr, for showing to the user. */

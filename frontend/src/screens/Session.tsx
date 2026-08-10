@@ -9,6 +9,7 @@ import type {
   GitFileStatus,
   GitStatus,
   Session as SessionInfo,
+  SessionFileDiff,
   Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
@@ -16,6 +17,7 @@ import { diffLineClass } from "../diff";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
+import ChangesPanel from "../components/ChangesPanel";
 import ChatPane from "../components/ChatPane";
 import BrowserPane from "../components/BrowserPane";
 import FileTree from "../components/FileTree";
@@ -81,7 +83,7 @@ const VIEW_KEY = "vk.session.view";
 type View = "chat" | "agent" | "shell" | "browser";
 
 /**
- * The side pane's tabs. The key labels the desktop strip, where five of them
+ * The side pane's tabs. The key labels the desktop strip, where six of them
  * share a sidebar; the label and hint are for the phone's picker, which has
  * room to say what each one is.
  *
@@ -92,6 +94,7 @@ type View = "chat" | "agent" | "shell" | "browser";
 const SIDES = [
   { key: "files", label: "files", hint: "browse and edit the repo" },
   { key: "git", label: "git", hint: "what has changed, staged and committed" },
+  { key: "changes", label: "changes", hint: "what this session itself committed" },
   { key: "search", label: "search", hint: "grep the repo" },
   { key: "prs", label: "pull requests", hint: "open PRs, their diffs, and merging" },
   { key: "runs", label: "actions", hint: "workflow runs, and the log of a failing job" },
@@ -120,6 +123,13 @@ const ICONS: Record<string, ReactNode> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="m20 20-3.4-3.4" />
+    </>
+  ),
+  // A commit on a line: what this session added to the history.
+  changes: (
+    <>
+      <circle cx="12" cy="12" r="3.5" />
+      <path d="M3 12h5.5M15.5 12H21" />
     </>
   ),
   prs: (
@@ -182,8 +192,13 @@ export default function Session() {
   useVisualViewport();
   // Set when this screen was reached by creating the session: says whether the
   // repo was actually moved to an up-to-date main.
-  const { sync } = (useLocation().state ?? {}) as { sync?: BranchSync };
+  const location = useLocation();
+  const { sync } = (location.state ?? {}) as { sync?: BranchSync };
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
+  // ?side=changes is how the inbox links straight to a finished run's diff:
+  // arriving at the terminal of a session that has none is a dead end on a
+  // phone, where the sidebar is a tab rather than a column.
+  const wantsSide = new URLSearchParams(location.search).get("side");
   const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
@@ -193,8 +208,8 @@ export default function Session() {
     session ? `/api/projects/${session.project}/git` : null,
     8_000,
   );
-  const [pane, setPane] = useState<"tree" | "term">("term");
-  const [side, setSide] = useState<Side>("files");
+  const [pane, setPane] = useState<"tree" | "term">(wantsSide === "changes" ? "tree" : "term");
+  const [side, setSide] = useState<Side>(wantsSide === "changes" ? "changes" : "files");
   // Companion panes next to the agent terminal; on desktop all three can
   // share the screen, on mobile exactly one is visible at a time.
   const [shell, setShell] = useState(false);
@@ -281,6 +296,25 @@ export default function Session() {
       setFile({ path: f.path, content: d.diff || "— no changes —", kind: "diff" });
     } catch (e) {
       setFile({ path: f.path, content: `— ${(e as Error).message} —`, kind: "diff" });
+    }
+  }
+
+  /** One file's diff over the session's own commit range, not the working tree. */
+  async function openRangeDiff(path: string) {
+    if (!session) return;
+    try {
+      const d = await api<SessionFileDiff>(
+        `/api/sessions/${session.id}/changes/diff?path=${encodeURIComponent(path)}`,
+      );
+      setFile({
+        path,
+        content: d.diff
+          ? d.diff + (d.truncated ? "\n— too long, the rest is in the terminal —" : "")
+          : "— no changes —",
+        kind: "diff",
+      });
+    } catch (e) {
+      setFile({ path, content: `— ${(e as Error).message} —`, kind: "diff" });
     }
   }
 
@@ -612,6 +646,9 @@ export default function Session() {
               )}
               {side === "search" && session && (
                 <SearchPanel project={session.project} onOpenFile={openFile} />
+              )}
+              {side === "changes" && session && (
+                <ChangesPanel sessionId={session.id} live={live} onOpenDiff={openRangeDiff} />
               )}
               {/* Both scroll on their own: the side column is a fixed height on
                   desktop, and a PR list with its diffs is taller than it. */}

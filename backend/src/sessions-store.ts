@@ -40,6 +40,10 @@ interface Meta {
   cdpPort?: number;
   /** HEAD when the session started; absent for a project that is not a repo. */
   startCommit?: string | null;
+  /** HEAD when the session was first seen finished, pinned at the same moment
+   *  the work counts were. Without it a review of an old session would diff
+   *  against wherever the repo has since got to. Absent on older metas. */
+  endCommit?: string | null;
   /** Measured once, when the session is first seen finished. */
   work?: SessionWork | null;
 }
@@ -160,7 +164,7 @@ async function killQuietly(name: string): Promise<void> {
 }
 
 async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
-  const { cdpPort: _cdpPort, startCommit: _startCommit, ...wire } = meta;
+  const { cdpPort: _cdpPort, startCommit: _startCommit, endCommit: _endCommit, ...wire } = meta;
   const status = !live ? "done" : state === "waiting" ? "waiting" : "running";
   const report = await readReport(meta.id);
   return { ...wire, work: meta.work ?? null, status, report, outcome: reportOutcome(report, live) };
@@ -175,14 +179,32 @@ async function toSession(meta: Meta, live: boolean, state: string | null): Promi
  * the next session's commits would otherwise be added to this one's every time
  * the row was read.
  */
-async function captureWork(meta: Meta): Promise<SessionWork | null> {
-  if (!meta.startCommit) return null;
+async function captureWork(
+  meta: Meta,
+): Promise<{ work: SessionWork | null; endCommit: string | null }> {
+  if (!meta.startCommit) return { work: null, endCommit: null };
   try {
-    return await workSince(resolveInsideRepos(meta.project), meta.startCommit);
+    const dir = resolveInsideRepos(meta.project);
+    // Both taken here, at the same moment and for the same reason: the counts
+    // and the range they stand for have to describe the same window.
+    return { work: await workSince(dir, meta.startCommit), endCommit: await headCommit(dir) };
   } catch {
     // The project has been deleted out from under it; there is nothing to read.
-    return null;
+    return { work: null, endCommit: null };
   }
+}
+
+/**
+ * The commit range to review a session by: where the repo was when it started,
+ * and where it was when it finished (HEAD while it still runs).
+ *
+ * Null when there is no range to read — an unknown session, or one that started
+ * somewhere that is not a git repo.
+ */
+export async function sessionRange(id: string): Promise<{ from: string; to: string } | null> {
+  const meta = await readMeta(id);
+  if (!meta?.startCommit) return null;
+  return { from: meta.startCommit, to: meta.endCommit ?? "HEAD" };
 }
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
@@ -217,7 +239,9 @@ export async function listSessions(project?: string): Promise<Session[]> {
     // end stamped the first time anyone lists it.
     if (!m.endedAt && !live.has(m.id)) {
       m.endedAt = new Date().toISOString();
-      m.work = await captureWork(m);
+      const done = await captureWork(m);
+      m.work = done.work;
+      m.endCommit = done.endCommit;
       await writeMeta(m);
       await closeBrowser(m.id);
     }
@@ -489,8 +513,10 @@ export async function endSession(id: string): Promise<Session | null> {
   const stored = await readMeta(id);
   // Already measured when the list sweep stamped this session's end; ending an
   // ended session must not re-measure it against a repo that has moved on.
-  const work = stored ? (stored.work ?? (await captureWork(stored))) : null;
-  if (stored) await writeMeta({ ...stored, endedAt, work });
+  let work = stored?.work ?? null;
+  let endCommit = stored?.endCommit ?? null;
+  if (stored && !stored.work) ({ work, endCommit } = await captureWork(stored));
+  if (stored) await writeMeta({ ...stored, endedAt, work, endCommit });
   return { ...session, endedAt, work, status: "done" };
 }
 
