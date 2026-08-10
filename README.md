@@ -18,6 +18,7 @@ credentials are only needed to actually run an agent.
 make setup   # build dev images and install deps (inside the container)
 make dev     # backend :8080, frontend :5173 with hot reload
 make test    # vitest, backend and frontend
+make e2e     # build the frontend, then smoke it in a real chromium
 make lint    # tsc --noEmit across workspaces, then eslint
 make build   # production image (tag: verksted)
 make run     # run that image on :8080 (needs .env)

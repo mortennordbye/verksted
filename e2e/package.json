@@ -1,0 +1,6 @@
+{
+  "//": "Not a workspace — only here so node and tsc read these files as ES modules. The root package.json has no type field, and NodeNext takes the nearest one.",
+  "name": "e2e",
+  "private": true,
+  "type": "module"
+}

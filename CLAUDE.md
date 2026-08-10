@@ -105,6 +105,7 @@ credentials only needed to actually run agents).
 make setup   # first time: build dev images + npm install (inside the container)
 make dev     # backend :8080 (tsx watch) + frontend :5173 (vite HMR)
 make test    # vitest (single test: docker compose run --rm backend npx vitest run test/<file>)
+make e2e     # builds the frontend, then drives it in a real chromium (e2e/)
 make lint    # tsc --noEmit across workspaces
 make build   # production image (tag: verksted)
 make run     # run the production image on :8080 (needs .env)
@@ -241,6 +242,7 @@ frontend/src/
 ├── components/       # Terminal, FileTree, TopBar, StatusChip
 ├── api.ts            # fetch helpers + usePoll
 └── theme.css         # mock.html palette as Tailwind v4 @theme
+e2e/                  # `make e2e` only: the built app in a real chromium
 ```
 
 ### Key patterns

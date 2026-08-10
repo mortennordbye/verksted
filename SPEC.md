@@ -64,7 +64,10 @@ Three levels:
    only in v1; editing happens through the terminal. Modified files are
    marked in the tree. The main pane switches between the terminal and the
    same session read as a conversation; the chat view is the only one that
-   still works after the session has ended.
+   still works after the session has ended. The sidebar carries a fourth tab,
+   changes: the commits the session made and the diff behind each file, over
+   its own recorded range, so an unattended run can be reviewed from the phone
+   rather than judged by its counts.
 
 A footer on the hub shows pod facts (PVC usage, per-agent auth status, MCP
 server count). The top bar deliberately shows no WireGuard state: the app is

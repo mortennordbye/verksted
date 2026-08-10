@@ -1,10 +1,21 @@
 import type { FastifyInstance } from "fastify";
-import type { AgentName, SessionCapture, SessionChat } from "../../../shared/api.js";
+import type {
+  AgentName,
+  SessionCapture,
+  SessionChanges,
+  SessionChat,
+  SessionFileDiff,
+} from "../../../shared/api.js";
 import { DEFAULT_WINDOW, MAX_WINDOW, readChat } from "../chat.js";
-import { resolveInsideRepos } from "../paths.js";
+import { changesIn, fileDiffIn, gitError } from "../git.js";
+import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
+
+/** Same ceiling the project's file diff uses: enough for any one file, and a
+ *  phone is not where a bigger one gets read. */
+const MAX_DIFF_BYTES = 512 * 1024;
 
 export default async function sessionRoutes(app: FastifyInstance) {
   // Every session across every project. The store already took an optional
@@ -209,6 +220,76 @@ export default async function sessionRoutes(app: FastifyInstance) {
         }
       }
       return readChat(file, conversationId, { bytes: req.query.bytes, since: req.query.since });
+    },
+  );
+
+  /**
+   * What the session's commits changed — the evidence behind "3 commits · 2
+   * files", rather than the counts alone.
+   *
+   * Committed work only. The working tree belongs to the project, not to a
+   * session, and the project's git panel already shows it; a session's range is
+   * the one thing that had no way to be read but by opening a terminal.
+   */
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/changes",
+    async (req, reply): Promise<SessionChanges | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      const range = await store.sessionRange(req.params.id);
+      // Not a git repo, or a session from before the start commit was recorded:
+      // there is no range, which is an answer rather than an error.
+      if (!range) return { from: null, to: null, commits: [], files: [], truncated: false };
+      try {
+        const repoDir = resolveInsideRepos(session.project);
+        return { ...range, ...(await changesIn(repoDir, range.from, range.to)) };
+      } catch (err) {
+        // The commit it started from is gone (the branch was reset), or the
+        // project has been deleted. Either way the range cannot be read, and
+        // saying so beats reporting an empty one as "it changed nothing".
+        req.log.warn(err, "session changes failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
+    },
+  );
+
+  /** One file's diff over that range, fetched when a file in it is opened. */
+  app.get<{ Params: { id: string }; Querystring: { path: string } }>(
+    "/api/sessions/:id/changes/diff",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["path"],
+          additionalProperties: false,
+          properties: { path: { type: "string", minLength: 1, maxLength: 1000 } },
+        },
+      },
+    },
+    async (req, reply): Promise<SessionFileDiff | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      const range = await store.sessionRange(req.params.id);
+      if (!range) return reply.code(409).send({ error: "no range recorded" });
+      let rel: string;
+      let repoDir: string;
+      try {
+        rel = repoRelPath(req.query.path);
+        repoDir = resolveInsideRepos(session.project);
+      } catch {
+        return reply.code(403).send({ error: "denied" });
+      }
+      try {
+        const diff = await fileDiffIn(repoDir, range.from, range.to, rel);
+        return {
+          path: rel,
+          diff: diff.slice(0, MAX_DIFF_BYTES),
+          truncated: diff.length > MAX_DIFF_BYTES,
+        };
+      } catch (err) {
+        req.log.warn(err, "session file diff failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
     },
   );
 }
