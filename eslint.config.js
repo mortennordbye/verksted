@@ -28,6 +28,10 @@ export default tseslint.config(
       // Shipped into the image and run by node there, not built by either
       // workspace — so no tsconfig project covers it.
       "runtime/**",
+      // Same as shared/: type-checked by the backend's tsconfig (which includes
+      // it), but the project service resolves a file to its *nearest* config
+      // and there is none here, so the type-aware rules have no program.
+      "e2e/**",
     ],
   },
   js.configs.recommended,

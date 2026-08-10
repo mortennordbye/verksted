@@ -196,12 +196,24 @@ export default function Inbox() {
                 <div className="mt-1 font-mono text-[11px] text-faint">{workLabel(r.work)}</div>
               )}
               {r.sessionId && (
-                <Link
-                  to={`/s/${r.sessionId}`}
-                  className="mt-1.5 inline-block font-mono text-[11px] text-muted hover:text-accent"
-                >
-                  open {r.sessionId} →
-                </Link>
+                <div className="mt-1.5 flex flex-wrap gap-3">
+                  <Link
+                    to={`/s/${r.sessionId}`}
+                    className="font-mono text-[11px] text-muted hover:text-accent"
+                  >
+                    open {r.sessionId} →
+                  </Link>
+                  {/* The counts above say something happened; this is the way to
+                      what it was, without opening a terminal on a phone. */}
+                  {(r.work?.commits ?? 0) > 0 && (
+                    <Link
+                      to={`/s/${r.sessionId}?side=changes`}
+                      className="font-mono text-[11px] text-muted hover:text-accent"
+                    >
+                      review the changes →
+                    </Link>
+                  )}
+                </div>
               )}
             </div>
           ))}

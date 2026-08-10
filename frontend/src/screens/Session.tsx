@@ -9,6 +9,7 @@ import type {
   GitFileStatus,
   GitStatus,
   Session as SessionInfo,
+  SessionFileDiff,
   Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
@@ -16,6 +17,7 @@ import { diffLineClass } from "../diff";
 import TopBar from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
+import ChangesPanel from "../components/ChangesPanel";
 import ChatPane from "../components/ChatPane";
 import BrowserPane from "../components/BrowserPane";
 import FileTree from "../components/FileTree";
@@ -99,6 +101,9 @@ const VIEW_KEY = "vk.session.view";
 /** What can occupy a pane. "chat" and "agent" are two views of the same one. */
 type View = "chat" | "agent" | "shell" | "browser";
 
+/** What the sidebar shows. */
+type Side = "files" | "git" | "search" | "changes";
+
 /** A persisted layout number, clamped — localStorage is user-editable. */
 function storedNumber(key: string, fallback: number, min: number, max: number): number {
   const n = Number(localStorage.getItem(key));
@@ -111,8 +116,13 @@ export default function Session() {
   useVisualViewport();
   // Set when this screen was reached by creating the session: says whether the
   // repo was actually moved to an up-to-date main.
-  const { sync } = (useLocation().state ?? {}) as { sync?: BranchSync };
+  const location = useLocation();
+  const { sync } = (location.state ?? {}) as { sync?: BranchSync };
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
+  // ?side=changes is how the inbox links straight to a finished run's diff:
+  // arriving at the terminal of a session that has none is a dead end on a
+  // phone, where the sidebar is a tab rather than a column.
+  const wantsSide = new URLSearchParams(location.search).get("side");
   const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
@@ -122,8 +132,8 @@ export default function Session() {
     session ? `/api/projects/${session.project}/git` : null,
     8_000,
   );
-  const [pane, setPane] = useState<"tree" | "term">("term");
-  const [side, setSide] = useState<"files" | "git" | "search">("files");
+  const [pane, setPane] = useState<"tree" | "term">(wantsSide === "changes" ? "tree" : "term");
+  const [side, setSide] = useState<Side>(wantsSide === "changes" ? "changes" : "files");
   // Companion panes next to the agent terminal; on desktop all three can
   // share the screen, on mobile exactly one is visible at a time.
   const [shell, setShell] = useState(false);
@@ -202,6 +212,25 @@ export default function Session() {
       setFile({ path: f.path, content: d.diff || "— no changes —", kind: "diff" });
     } catch (e) {
       setFile({ path: f.path, content: `— ${(e as Error).message} —`, kind: "diff" });
+    }
+  }
+
+  /** One file's diff over the session's own commit range, not the working tree. */
+  async function openRangeDiff(path: string) {
+    if (!session) return;
+    try {
+      const d = await api<SessionFileDiff>(
+        `/api/sessions/${session.id}/changes/diff?path=${encodeURIComponent(path)}`,
+      );
+      setFile({
+        path,
+        content: d.diff
+          ? d.diff + (d.truncated ? "\n— too long, the rest is in the terminal —" : "")
+          : "— no changes —",
+        kind: "diff",
+      });
+    } catch (e) {
+      setFile({ path, content: `— ${(e as Error).message} —`, kind: "diff" });
     }
   }
 
@@ -450,7 +479,7 @@ export default function Session() {
                 className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
               />
               <div role="group" aria-label="side panel" className="mb-2 flex flex-none gap-1.5">
-                {(["files", "git", "search"] as const).map((t) => (
+                {(["files", "git", "search", "changes"] as const).map((t) => (
                   <button
                     key={t}
                     aria-pressed={side === t}
@@ -490,6 +519,9 @@ export default function Session() {
               )}
               {side === "search" && session && (
                 <SearchPanel project={session.project} onOpenFile={openFile} />
+              )}
+              {side === "changes" && session && (
+                <ChangesPanel sessionId={session.id} live={live} onOpenDiff={openRangeDiff} />
               )}
             </div>
 

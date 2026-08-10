@@ -183,25 +183,54 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
   `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
 
-## A run's evidence is counts, with no way to read the diff behind them
+## Reviewing a run still means reading it file by file
 
-- **What:** An inbox row now says "3 commits · 2 files · 3 unpushed on main"
-  under the sign-off. What it cannot do is show the change: there is no
-  commit-range diff endpoint, only per-file working-tree diffs
-  (`GET /api/projects/:name/diff?path=`) and PR diffs. So the row answers "did
-  it do anything" but not "what did it do", and reading that still means opening
-  the session's terminal.
-- **Why deferred:** A range diff is a new endpoint plus a review screen, and the
-  size question a phone makes real — a night's work can be megabytes, so it
-  needs paging or per-file selection rather than one blob. The counts are the
-  useful part and stand on their own.
-- **Unblocked by:** Wanting to review an overnight run from the phone rather
-  than judge it by its numbers. `startCommit` is already stored on the session
-  metadata, so the range is there; what is missing is the endpoint and the view.
-- **Where:** `backend/src/sessions-store.ts` (`Meta.startCommit`,
-  `captureWork`), `backend/src/git.ts` (`workSince`),
-  `backend/src/routes/files.ts` (the per-file diff route to extend),
-  `frontend/src/screens/Inbox.tsx` (`workLabel`)
+- **What:** A session's range can now be read — commits, files, and each file's
+  diff (`GET /api/sessions/:id/changes`, the sidebar's changes tab, and the
+  inbox's "review the changes" link). What it is not is a review: there is no
+  whole-range diff in one scroll, no "mark this file read", and no way to
+  approve or reject from the phone. Big ranges are cut at 100 commits and 500
+  files, which the panel says but cannot page past.
+- **Why deferred:** Per-file is what a phone can actually render, and the size
+  problem is real — a night's work is megabytes. Paging and review state are a
+  screen's worth of design on top of an endpoint that already answers the
+  question the inbox row raises.
+- **Unblocked by:** Reviewing enough real overnight runs to know whether the
+  file list is the right unit, or whether it wants one continuous diff.
+- **Where:** `backend/src/git.ts` (`changesIn`, `MAX_COMMITS`, `MAX_FILES`),
+  `backend/src/routes/sessions.ts` (the two changes routes),
+  `frontend/src/components/ChangesPanel.tsx`
+
+## The browser smoke test is not in CI
+
+- **What:** `make e2e` builds the frontend and drives the real app in a real
+  chromium (hub, project, inbox, a finished run's changes and its diff). CI does
+  not run it — `.github/workflows/ci.yml` runs `npm test` only, so the one check
+  that would catch a broken bundle is the one nobody runs unattended.
+- **Why deferred:** The image build and the chromium download are what make it
+  expensive on a runner, and the job that would host it is the same one the
+  "run CI through the containers" entry below is about. Doing both at once
+  means measuring one change.
+- **Unblocked by:** Deciding that entry, then adding a step that runs
+  `npx vite build frontend && npx vitest run --config e2e/vitest.config.ts`
+  inside the dev image.
+- **Where:** `.github/workflows/ci.yml`, `e2e/smoke.test.ts`, `Makefile` (`e2e`)
+
+## The screens have one smoke path and one component test between them
+
+- **What:** `e2e/smoke.test.ts` proves the app boots and the review path works;
+  `frontend/test/` covers `api.ts`, two hooks and `ChangesPanel`. Everything
+  else in `frontend/src` — 25 components, the session screen's layout and pane
+  logic, the terminal's reconnect and dictation — has no test at all.
+- **Why deferred:** Deliberate. The smoke test was built first because it
+  catches the class of regression that actually reaches this repo (an unattended
+  agent shipping a bundle that does not render), and per-component coverage of a
+  UI that is still moving costs more than it returns.
+- **Unblocked by:** A regression that the smoke path does not catch. The setup
+  is no longer in the way: jsdom, Testing Library and the node_modules icon
+  glob all work (`frontend/vitest.config.ts`), so a component test is now a file
+  rather than a project.
+- **Where:** `frontend/test/`, `frontend/vitest.config.ts`
 
 ## What a session's work counts is the repo's movement, not the session's
 
@@ -216,8 +245,10 @@ what unblocks it / where the code lives.
   overlap a schedule with itself, the overlap is rare enough to state rather
   than engineer around.
 - **Unblocked by:** Two sessions in one repo producing a row that misleads in
-  practice. The cheap half-fix is to record the end commit as well and show the
-  range, so at least the row can be checked.
+  practice. The half-fix is in: both ends of the range are now recorded
+  (`Meta.startCommit`, `Meta.endCommit`) and the changes tab shows what is in
+  it, so a row that looks wrong can be checked commit by commit. What is still
+  missing is attribution itself.
 - **Where:** `backend/src/git.ts` (`workSince`),
   `backend/src/sessions-store.ts` (`captureWork`), `shared/api.ts`
   (`SessionWork`, where the caveat is written down)

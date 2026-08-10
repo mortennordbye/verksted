@@ -63,6 +63,51 @@ export interface SessionWork {
   branch: string;
 }
 
+/** One commit made while a session held the repo. */
+export interface SessionCommit {
+  /** Abbreviated sha, as git prints it. */
+  sha: string;
+  subject: string;
+}
+
+/** One file the range touched. A binary file reports 0/0 and says so. */
+export interface SessionChangedFile {
+  path: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+}
+
+/**
+ * The change behind a run's counts: what its commits actually did.
+ *
+ * The range is the session's own — from the commit HEAD was on when it started
+ * to where HEAD was when it was first seen finished, so it stays put once the
+ * repo moves on. A live session is measured against HEAD, which does move.
+ *
+ * Only committed work: anything the agent left uncommitted is in the project's
+ * git panel instead, which is where the working tree already lives.
+ */
+export interface SessionChanges {
+  /** Null when the session did not start in a git repo — nothing to measure. */
+  from: string | null;
+  /** "HEAD" while the session is still running. */
+  to: string | null;
+  commits: SessionCommit[];
+  files: SessionChangedFile[];
+  /** Either list hit its cap; there is more than is shown. */
+  truncated: boolean;
+}
+
+/** One file's diff over a session's range. */
+export interface SessionFileDiff {
+  path: string;
+  /** Unified diff text ("" when the range did not touch this file). */
+  diff: string;
+  /** Cut at the size cap — the rest is only readable in a terminal. */
+  truncated: boolean;
+}
+
 /** The last lines a session printed, for answering it without a terminal. */
 export interface SessionCapture {
   id: string;
