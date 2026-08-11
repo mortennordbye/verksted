@@ -3,7 +3,7 @@ import type { AssistantEntry, AssistantThread } from "../../../shared/api";
 import { api } from "../api";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
-import { canListen, canSpeak, useSpeech } from "../useSpeech";
+import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
 
 /**
  * The composer's icons, drawn rather than typed.
@@ -201,6 +201,10 @@ export default function Assistant() {
     if (next) {
       // Whatever is already on screen has been read, or was never meant to be.
       spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+      // This tap is the user gesture iOS wants before any audio may play
+      // without one — for the pod's voice as much as the browser's, since a
+      // reply arrives long after any tap.
+      unlockAudio();
       speech.speak("ok");
     } else if (!voiceMode) {
       speech.cancelSpeech();

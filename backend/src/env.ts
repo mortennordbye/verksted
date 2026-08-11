@@ -95,4 +95,14 @@ export const env = {
   ALLOWED_ORIGINS: allowedOrigins,
   // IANA zone every cron pattern is read in (see above).
   TZ: timezone,
+  // The assistant's voice: a neural model on the pod (see tts.ts). Baked into
+  // the image at these paths; overridable so a dev box can point at a copy
+  // rather than carry 200 MB it does not use. Missing files are not an error —
+  // the app answers "no voice here" and the browser reads replies instead.
+  KOKORO_PYTHON: process.env.KOKORO_PYTHON ?? "/opt/kokoro/venv/bin/python",
+  KOKORO_SCRIPT: process.env.KOKORO_SCRIPT ?? "/etc/verksted/vk-say.py",
+  KOKORO_MODEL: process.env.KOKORO_MODEL ?? "/usr/local/share/kokoro/kokoro.onnx",
+  KOKORO_VOICES: process.env.KOKORO_VOICES ?? "/usr/local/share/kokoro/voices.bin",
+  // Which of the model's voices the assistant speaks in by default.
+  KOKORO_VOICE: process.env.KOKORO_VOICE ?? "af_heart",
 };

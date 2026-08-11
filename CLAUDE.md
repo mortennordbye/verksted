@@ -224,10 +224,12 @@ process env into tmux for the CLIs. To add a var: extend `env.ts` + `.env.exampl
 shared/api.ts         # wire types shared by backend and frontend (types only)
 runtime/              # shipped into the image, not part of the build
 ├── SANDBOX.md        # what a session must know about its own environment
+├── vk-say.py         # text -> speech worker the backend talks to (tts.ts)
 └── vk                # `vk doctor` — the live version of the same thing
 backend/src/
 ├── index.ts          # bootstrap: env, fastify, routes, static serving
 ├── sandbox-doc.ts    # points each agent's global memory file at SANDBOX.md
+├── tts.ts            # the assistant's voice: one warm Kokoro worker on the pod
 ├── env.ts            # validated env, fail fast
 ├── paths.ts          # path-scoping helper — the security surface
 ├── tmux.ts           # execFile wrappers around tmux

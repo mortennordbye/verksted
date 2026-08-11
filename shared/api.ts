@@ -578,6 +578,18 @@ export interface AssistantSearchHit {
   text: string;
 }
 
+/**
+ * The voices the pod itself can speak in, and which one it defaults to.
+ *
+ * Empty when this pod has no voice model, which is the signal to fall back to
+ * whatever the browser has. Unlike the browser's list this is the same on every
+ * device, because the speaking happens in one place.
+ */
+export interface AssistantVoices {
+  voices: string[];
+  current: string;
+}
+
 export type MemoryType = "preference" | "project" | "reference";
 /** "global", or the name of the project the fact belongs to. */
 export type MemoryScope = string;

@@ -1,9 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import type { AssistantVoices } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
+import { env } from "../env.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
 import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
+import * as tts from "../tts.js";
+import { MAX_TEXT } from "../tts.js";
 
 /**
  * The assistant's thread, and the one websocket that pushes it.
@@ -129,6 +133,64 @@ export default async function assistantRoutes(app: FastifyInstance) {
       }
     },
   );
+
+  /**
+   * The other direction: text in, spoken audio out.
+   *
+   * One chunk per request, because the frontend splits a reply into sentences
+   * and plays the first while the rest are still being made — synthesis is
+   * roughly a third of real time, so a whole answer in one request would be a
+   * long wait before any sound at all.
+   *
+   * A pod without the model answers 503 rather than an error: the browser's own
+   * voice is the fallback, and the client needs to be able to tell the
+   * difference between "no voice here" and "the voice broke".
+   */
+  app.post<{ Body: { text: string; voice?: string } }>(
+    "/api/assistant/speak",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["text"],
+          additionalProperties: false,
+          properties: {
+            text: { type: "string", minLength: 1, maxLength: MAX_TEXT },
+            // Checked against the model's own list in tts.ts, not here.
+            voice: { type: "string", maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!tts.available()) return reply.code(503).send({ error: "no voice on this pod" });
+      try {
+        // A voice this model does not have is the caller's mistake, and saying
+        // so beats a 502 that reads as "the pod is broken".
+        if (req.body.voice && !(await tts.voices()).includes(req.body.voice)) {
+          return reply.code(400).send({ error: `no such voice: ${req.body.voice}` });
+        }
+        const wav = await tts.synthesize(req.body.text, req.body.voice);
+        // Immutable for the client's purposes: the same text and voice make the
+        // same audio, and a reply is often re-read.
+        return reply.type("audio/wav").header("cache-control", "private, max-age=300").send(wav);
+      } catch (err) {
+        req.log.error(err, "synthesis failed");
+        return reply.code(502).send({ error: "could not say that" });
+      }
+    },
+  );
+
+  /** The voices this pod can speak in; empty when it has none. */
+  app.get("/api/assistant/voices", async (req): Promise<AssistantVoices> => {
+    try {
+      return { voices: await tts.voices(), current: env.KOKORO_VOICE };
+    } catch (err) {
+      // A model that will not load is a pod with no voice, not a broken screen.
+      req.log.error(err, "voices unavailable");
+      return { voices: [], current: env.KOKORO_VOICE };
+    }
+  });
 
   /**
    * Older conversations, searched. The assistant's own long-term recall: it

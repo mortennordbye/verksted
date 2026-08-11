@@ -195,6 +195,14 @@ The session toolbar has a mic key that dictates into the terminal (the browser's
 own speech recognition, secure origin required) and leaves the text in the pane
 unsent, so it can be read before the agent gets it.
 
+Voice is answered on the pod in both directions: whisper.cpp transcribes what
+was recorded, and a small neural model (Kokoro) speaks the replies. Neither
+leaves the network, which is the same reason there is no public ingress — and
+speaking here is also the only way to sound like a person on the device this is
+used from, since iOS never exposes Siri or the enhanced voices to a web page.
+The browser's own speechSynthesis remains the fallback for a pod without the
+model.
+
 ## Deployment
 
 - Image: multi-stage Dockerfile. Build stage compiles the frontend; runtime
