@@ -3,6 +3,7 @@ import { env } from "./env.js";
 import { buildApp } from "./app.js";
 import { sweepTempFiles } from "./atomic-json.js";
 import { killAll } from "./browser.js";
+import { stop as stopVoice } from "./tts.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
 import { inject as injectMemory } from "./memory-store.js";
@@ -59,12 +60,14 @@ for (const sig of ["SIGTERM", "SIGINT"] as const) {
       .catch((err: unknown) => app.log.error({ err }, "shutdown failed"))
       .finally(() => {
         killAll();
+        stopVoice();
         process.exit(0);
       });
     // Kubernetes sends SIGKILL after its grace period regardless; this just
     // makes sure a wedged close does not hold chromium processes open.
     setTimeout(() => {
       killAll();
+      stopVoice();
       process.exit(0);
     }, 8_000).unref();
   });

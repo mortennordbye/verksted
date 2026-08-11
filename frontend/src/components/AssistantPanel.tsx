@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
-import type { AssistantConfig } from "../../../shared/api";
+import type { AssistantConfig, AssistantVoices } from "../../../shared/api";
 import { api, usePoll } from "../api";
-import { VOICE_KEY, canSpeak, pickVoice, useVoices } from "../useSpeech";
+import {
+  POD_VOICE_KEY,
+  VOICE_KEY,
+  audioPlayer,
+  canSpeak,
+  pickVoice,
+  sortVoices,
+  useVoices,
+  voiceLabel,
+} from "../useSpeech";
 
 /**
  * Who the assistant is, and what it costs to run.
@@ -43,6 +52,54 @@ export default function AssistantPanel() {
 
   const voices = useVoices();
   const [voiceName, setVoiceName] = useState(() => localStorage.getItem(VOICE_KEY) ?? "");
+  const [podVoices, setPodVoices] = useState<string[]>([]);
+  const [defaultVoice, setDefaultVoice] = useState("");
+  const [podVoice, setPodVoice] = useState(() => localStorage.getItem(POD_VOICE_KEY) ?? "");
+  const [sampling, setSampling] = useState(false);
+
+  useEffect(() => {
+    void api<AssistantVoices>("/api/assistant/voices")
+      .then((v) => {
+        setPodVoices(v.voices);
+        setDefaultVoice(v.current);
+      })
+      .catch(() => {
+        // No voice on this pod, or it could not be reached: the browser list
+        // below is the answer either way.
+      });
+  }, []);
+
+  /**
+   * Which voice the pod speaks in, per device — the same reason the browser one
+   * is: two people at two screens can disagree about it without either being
+   * wrong, and it is one string.
+   */
+  async function choosePodVoice(name: string) {
+    setPodVoice(name);
+    if (name) localStorage.setItem(POD_VOICE_KEY, name);
+    else localStorage.removeItem(POD_VOICE_KEY);
+    setSampling(true);
+    try {
+      const res = await fetch("/api/assistant/speak", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text: "Nothing needs you. Everything is quiet.",
+          ...(name ? { voice: name } : {}),
+        }),
+      });
+      if (!res.ok) return;
+      const url = URL.createObjectURL(await res.blob());
+      const audio = audioPlayer();
+      audio.src = url;
+      // This is a click, so playing here also unlocks the element for the
+      // replies that arrive later without one.
+      await audio.play().catch(() => undefined);
+      audio.onended = () => URL.revokeObjectURL(url);
+    } finally {
+      setSampling(false);
+    }
+  }
 
   /**
    * Stored per device rather than on the volume: which voices exist depends on
@@ -120,26 +177,52 @@ export default function AssistantPanel() {
           className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
         />
 
-        {canSpeak() && voices.length > 0 && (
+        {/* The pod's own voices when it has them. They are the same on every
+            device, unlike the browser's, and they are the reason voice mode no
+            longer sounds like a machine — so the browser list is only offered
+            when the pod has nothing. */}
+        {podVoices.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
             <select
-              value={voiceName}
-              onChange={(e) => chooseVoice(e.target.value)}
+              value={podVoice}
+              onChange={(e) => choosePodVoice(e.target.value)}
               aria-label="voice"
               className={`max-w-[280px] ${field}`}
             >
-              <option value="">best available ({pickVoice(voices)?.name ?? "none"})</option>
-              {voices.map((v) => (
-                <option key={`${v.name}-${v.lang}`} value={v.name}>
-                  {v.name} · {v.lang}
-                  {v.localService ? "" : " · network"}
+              <option value="">default ({voiceLabel(defaultVoice)})</option>
+              {sortVoices(podVoices).map((v) => (
+                <option key={v} value={v}>
+                  {voiceLabel(v)}
                 </option>
               ))}
             </select>
             <span className="font-mono text-[11px] text-faint">
-              picking one reads a sample aloud
+              {sampling ? "speaking…" : "spoken on the pod · picking one plays a sample"}
             </span>
           </div>
+        ) : (
+          canSpeak() &&
+          voices.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={voiceName}
+                onChange={(e) => chooseVoice(e.target.value)}
+                aria-label="voice"
+                className={`max-w-[280px] ${field}`}
+              >
+                <option value="">best available ({pickVoice(voices)?.name ?? "none"})</option>
+                {voices.map((v) => (
+                  <option key={`${v.name}-${v.lang}`} value={v.name}>
+                    {v.name} · {v.lang}
+                    {v.localService ? "" : " · network"}
+                  </option>
+                ))}
+              </select>
+              <span className="font-mono text-[11px] text-faint">
+                this pod has no voice of its own, so the browser reads replies
+              </span>
+            </div>
+          )
         )}
 
         <div className="flex items-center gap-3">

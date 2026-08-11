@@ -142,6 +142,37 @@ RUN echo /opt/whisper > /etc/ld.so.conf.d/whisper.conf \
     # Fails the build rather than the first person who tries to talk to it.
     && whisper-cli --help >/dev/null
 
+# Text to speech, the other direction, and on the pod for the same reason: the
+# browser's speechSynthesis is the one part of voice mode that sounded like a
+# machine, and on iOS it is also the worst of the three — Safari never exposes
+# Siri or the enhanced voices to a web page, so the picker could only choose
+# between bad ones. Kokoro is a small neural model that sounds like a person.
+#
+# fp16 rather than the int8 build of the same model: measured on this image,
+# int8 runs at 1.66x real time and fp16 at 0.39x, so the smaller file is four
+# times slower — CPUs compute in floats and the quantised ops are not
+# accelerated. Phonemisation comes from espeakng-loader inside the wheel, so
+# there is no espeak-ng package to install and keep in step.
+ENV KOKORO_HOME=/usr/local/share/kokoro
+RUN uv venv /opt/kokoro/venv -q \
+    && uv pip install -q --python /opt/kokoro/venv/bin/python \
+       "kokoro-onnx==0.5.0" "onnxruntime==1.28.0" "numpy==2.5.2" \
+    && mkdir -p "$KOKORO_HOME" \
+    && curl -fsSL -o "$KOKORO_HOME/kokoro.onnx" \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.fp16.onnx \
+    && curl -fsSL -o "$KOKORO_HOME/voices.bin" \
+       https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin \
+    && test -s "$KOKORO_HOME/kokoro.onnx" && test -s "$KOKORO_HOME/voices.bin"
+# The worker the backend talks to (see backend/src/tts.ts). Baked in beside the
+# other runtime pieces rather than resolved out of the build output, so the path
+# is the same under tsx in dev and under node in the image.
+COPY runtime/vk-say.py /etc/verksted/vk-say.py
+# Loads the model and synthesises one line, which fails the build rather than
+# the first person who asks it to speak.
+RUN echo '{"text":"build check","voice":"af_heart","out":"/tmp/build-check.wav"}' \
+      | /opt/kokoro/venv/bin/python /etc/verksted/vk-say.py \
+    && test -s /tmp/build-check.wav && rm -f /tmp/build-check.wav
+
 # tmux draws no status bar; the web UI has its own. Its scrollback is also the
 # only one the browser terminal has (see tmux.ts scrollHistory), and 2000 lines
 # — the default — is a short afternoon of agent output.

@@ -243,6 +243,35 @@ what unblocks it / where the code lives.
 - **Where:** `backend/test/scheduler-run.test.ts` (the `eventually` call in that
   test), `backend/src/scheduler.ts` (`missedTick`)
 
+## The pod's voice is English-first, and never speaks Norwegian
+
+- **What:** Kokoro ships 54 voices, and the settings page lists all of them, but
+  the assistant answers in English and the model has no Norwegian at all — the
+  nearest neighbours are Spanish, French, Italian, Portuguese, Hindi, Japanese
+  and Chinese. Picking one of those reads English text in that language's
+  phonetics, which is a novelty rather than a feature.
+- **Why deferred:** The assistant writes in English, so an English voice is the
+  matching one. Norwegian would mean a second model (Piper has nb voices) and a
+  language decision per reply, which is a bigger change than a voice picker.
+- **Unblocked by:** Wanting to be spoken to in Norwegian. The engine is already
+  behind one function (`synthesize`), so a second model is a branch there rather
+  than a new subsystem.
+- **Where:** `backend/src/tts.ts`, `runtime/vk-say.py`, `frontend/src/useSpeech.ts`
+  (`sortVoices`, which is what puts English first today)
+
+## Synthesis is not cached, so a reply read twice is made twice
+
+- **What:** Every request synthesises from scratch. The response carries a
+  five-minute private cache-control, so a browser re-reading the same reply may
+  reuse it, but nothing on the pod remembers anything — and the sample the
+  settings page plays is remade on every tap.
+- **Why deferred:** A reply is usually read once, and the cache that would help
+  is keyed on text plus voice, which is a store with an eviction policy for a
+  saving of about a second.
+- **Unblocked by:** Noticing the same sentences being made repeatedly — the
+  briefing is the likely one, since it says similar things every morning.
+- **Where:** `backend/src/tts.ts` (`synthesize`)
+
 ## What a session's work counts is the repo's movement, not the session's
 
 - **What:** `workSince` measures from the commit HEAD was on when the session
