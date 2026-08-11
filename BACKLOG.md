@@ -727,29 +727,3 @@ what unblocks it / where the code lives.
   against that rule; roughly 40 sites.
 - **Where:** `frontend/src/screens/{Project,Session,Inbox,Settings}.tsx`,
   `frontend/src/components/*Panel.tsx`
-
-## No sheet can be opened under `make dev`
-
-- **What:** Every overlay that uses `Sheet` — the session actions menu, the pane
-  picker, add-project — opens and closes again within the same tick in the dev
-  server. Nothing is visibly wrong; the sheet simply never appears. Production
-  builds are unaffected.
-- **Why it happens:** `useDismissOnBack` pushes a history entry when the overlay
-  opens and calls `history.back()` in its cleanup, so that closing by any other
-  route does not leave an entry for Back to swallow. React StrictMode
-  deliberately mounts, unmounts and remounts every effect in development, so the
-  cleanup fires immediately after the first mount; the `popstate` that
-  `history.back()` produces is then caught by the listener the second mount has
-  already registered, which calls `onClose`. Confirmed in the browser: one
-  `popstate` arrives per open, and `history.length` is unchanged afterwards.
-- **Why deferred:** The obvious guards are wrong. The cleanup cannot tell a
-  StrictMode teardown from a real close, and the hook is the Android Back
-  behaviour for four overlays, so a careless fix trades an invisible dev
-  annoyance for Back leaving the session and dropping the terminal websocket.
-- **Unblocked by:** Deciding the approach. Either survive remounts by tracking
-  the pushed entry outside React (a module-level ref keyed by overlay), or drop
-  the `history.back()` in cleanup and tolerate one dead Back press. Verify by
-  opening a sheet in `make dev` and in `make run`, and by checking Android Back
-  still closes the sheet rather than leaving the screen.
-- **Where:** `frontend/src/useDismissOnBack.ts` (`useDismissOnBack`),
-  `frontend/src/components/Sheet.tsx`, `frontend/src/main.tsx` (`StrictMode`)

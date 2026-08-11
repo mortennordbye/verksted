@@ -1,6 +1,27 @@
 import { useEffect, useRef } from "react";
 
 /**
+ * How many overlays are open. The history entry is shared between them: the
+ * first to open pushes it, the last to close pops it, and one that opens as
+ * another closes — the session's actions sheet handing over to its confirm —
+ * inherits the entry rather than pushing a second one.
+ *
+ * That handover is why this is module state and not per-overlay.
+ * `history.back()` does not pop synchronously; the popstate it produces arrives
+ * a task later, by which time the replacement overlay has mounted and
+ * registered its own listener. The confirm then saw a Back nobody pressed and
+ * closed itself, resolving "no" — so killing or deleting a session from its own
+ * screen silently did nothing, in production as well as in dev, where
+ * StrictMode's remount produced the same collision on the first overlay opened.
+ */
+let openOverlays = 0;
+
+/** True while the current history entry is the one an overlay pushed. */
+function overlayEntry(): boolean {
+  return (history.state as { vkOverlay?: boolean } | null)?.vkOverlay === true;
+}
+
+/**
  * Make Android's hardware Back close an overlay instead of leaving the screen.
  *
  * Sheets, modals and the fullscreen terminal are all state, not routes, so Back
@@ -22,23 +43,28 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
   useEffect(() => {
     if (!open) return;
 
+    openOverlays++;
     // Marked so popstate can tell our own entry from a real navigation.
-    history.pushState({ vkOverlay: true }, "");
-    let popped = false;
+    if (openOverlays === 1 && !overlayEntry()) history.pushState({ vkOverlay: true }, "");
 
-    const onPop = () => {
-      popped = true;
-      close.current();
-    };
+    // Two overlays genuinely open at once share the entry, so Back closes both.
+    // They stack only by accident in this app, and one press leaving one of
+    // them behind is the worse of the two answers.
+    const onPop = () => close.current();
     addEventListener("popstate", onPop);
 
     return () => {
       removeEventListener("popstate", onPop);
-      // Closed by something other than Back: drop the entry we added, or it
-      // would swallow the next Back press.
-      if (!popped && (history.state as { vkOverlay?: boolean } | null)?.vkOverlay) {
-        history.back();
-      }
+      openOverlays--;
+      // Deferred to a task, not a microtask: an overlay closing in order to
+      // open another is one tick, not two, and the replacement has to have
+      // mounted before this decides the last one is gone. A microtask is not
+      // late enough — React flushes those between the unmount and the mount.
+      // Back itself needs nothing here: the browser has popped the entry
+      // already, which is what the check below sees.
+      setTimeout(() => {
+        if (openOverlays === 0 && overlayEntry()) history.back();
+      }, 0);
     };
   }, [open]);
 }
