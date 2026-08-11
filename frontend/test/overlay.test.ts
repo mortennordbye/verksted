@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyText } from "../src/clipboard";
@@ -68,6 +69,52 @@ describe("useDismissOnBack", () => {
     });
     expect(location.pathname).toBe("/p/demo");
     expect(history.length).toBe(length);
+  });
+
+  /**
+   * The handover: the session's actions sheet closes and its confirm opens in
+   * the same tick. The sheet's cleanup used to pop the shared entry a task
+   * later, and the confirm — mounted and listening by then — read that pop as
+   * Back and closed itself, resolving "no". Kill and delete asked nothing and
+   * did nothing; the session stayed.
+   */
+  it("does not pop the entry when one overlay closes as another opens", async () => {
+    const back = vi.spyOn(history, "back");
+    const sheet = renderHook(() => useDismissOnBack(true, () => {}));
+    const onClose = vi.fn();
+    // Each of these commits on its own, the way the browser commits the sheet's
+    // unmount and the confirm's mount. Wrapping both in one act() would hold
+    // the second one's effect back until the act closed, which is a harness
+    // artefact and not the ordering under test.
+    sheet.unmount();
+    const confirm = renderHook(() => useDismissOnBack(true, onClose));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(back).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect((history.state as { vkOverlay?: boolean }).vkOverlay).toBe(true);
+
+    // And the overlay that inherited the entry still answers Back with it.
+    await goBack();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    confirm.unmount();
+  });
+
+  // StrictMode mounts, unmounts and remounts every effect in development, which
+  // is the same handover with one overlay: the entry must survive it, or no
+  // sheet in the app can be opened under `make dev`.
+  it("survives the remount StrictMode performs in development", async () => {
+    const onClose = vi.fn();
+    const before = history.length;
+    renderHook(() => useDismissOnBack(true, onClose), { wrapper: StrictMode });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect((history.state as { vkOverlay?: boolean }).vkOverlay).toBe(true);
+    expect(history.length).toBe(before + 1);
   });
 
   it("does not re-push when the callback identity changes each render", () => {
