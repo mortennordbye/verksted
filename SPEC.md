@@ -67,7 +67,12 @@ Three levels:
    still works after the session has ended. The sidebar carries a fourth tab,
    changes: the commits the session made and the diff behind each file, over
    its own recorded range, so an unattended run can be reviewed from the phone
-   rather than judged by its counts.
+   rather than judged by its counts. From there the whole range opens as one
+   patch, each file tickable as it is read and the run markable approved or
+   needs-work. Those marks live on the session rather than in the browser, so a
+   review begun on a phone is still half-done at a desk, and the inbox row says
+   how far it got — an overnight run that has been dealt with should look
+   different from one nobody has opened.
 
 A footer on the hub shows pod facts (PVC usage, per-agent auth status, MCP
 server count). The top bar deliberately shows no WireGuard state: the app is
@@ -91,6 +96,11 @@ One container, three parts:
   - REST: list/clone projects, create/kill/list sessions, file tree and
     file-read endpoints scoped to the repos directory.
   - WebSocket: bridges xterm.js in the browser to `tmux attach` via node-pty.
+  - Server-sent events: the session and project lists, pushed when they change.
+    One watcher on the pod feeds every connected client and runs only while at
+    least one is listening, so what the screens used to ask for on a five-second
+    timer each — three git processes per repo, per client — is computed once or
+    not at all. Clients fall back to polling whenever the stream is not healthy.
   - Static serving of the built frontend.
 - Frontend: Vite + React + TypeScript + Tailwind, @xterm/xterm + fit addon,
   vite-plugin-pwa for the manifest/service worker.
@@ -145,6 +155,14 @@ schedule, and a run that reports itself ok pushes nothing at all. Only the
 agent can tell whether "two PRs open" is fine or needs someone, which is why
 the verdict is the agent's to write rather than something the backend infers.
 Sessions started by hand write no report and behave exactly as before.
+
+"ok" is the stated default and the other two have to earn themselves against
+it. Asked merely "which of these needs me?", an agent that had finished its
+work and left a list to read called that "attention" — so a run that was done
+arrived as "needs a look" and woke a phone for something nobody was blocked on.
+The contract now says outright that having something to read is not the same as
+being stuck, and that a tie goes to "ok": the work is on the hub either way,
+and an inbox of false alarms is one nobody reads.
 
 One such schedule is how the workbench learns: nightly it reads back what you
 typed into the sessions that ended that day — only your own words, never model

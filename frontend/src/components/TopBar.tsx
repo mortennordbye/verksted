@@ -50,7 +50,28 @@ function IconLink({
   );
 }
 
-export default function TopBar({ crumb, back }: { crumb?: string[]; back?: string }) {
+/** One step of the trail. `to` makes it a link; the step you are on has none. */
+export interface Crumb {
+  label: string;
+  to?: string;
+}
+
+/** A step of the trail, as a link when there is somewhere above it to go. */
+function CrumbLabel({ crumb, first }: { crumb: Crumb; first: boolean }) {
+  const className = `overflow-hidden text-ellipsis whitespace-nowrap ${
+    first
+      ? "text-[15px] font-semibold tracking-[-.02em] text-text"
+      : "font-mono text-[13px] font-normal text-muted"
+  }`;
+  if (!crumb.to) return <b className={className}>{crumb.label}</b>;
+  return (
+    <Link to={crumb.to} className={`${className} hover:text-accent`}>
+      <b>{crumb.label}</b>
+    </Link>
+  );
+}
+
+export default function TopBar({ crumb, back }: { crumb?: Crumb[]; back?: string }) {
   const navigate = useNavigate();
   // A harvested memory that nobody notices is a harvest that did not happen:
   // the queue is the one thing in the inbox that arrives without a session or a
@@ -74,44 +95,44 @@ export default function TopBar({ crumb, back }: { crumb?: string[]; back?: strin
           as a CLI that happens to have a web page. The dot is the accent, so it
           follows a palette swap without being touched.
 
-          On a sub-screen the wordmark drops and the dot goes on alone as the
-          way home. The app's own name is the one thing you already know; the
-          bar's job there is to say which project you are in, and "verksted"
-          sitting where the project should be actively got in the way of it. */}
+          The wordmark stays on the sub-screens too. It was dropped there once,
+          on the grounds that the app's own name is the one thing you already
+          know — but that left a 9px dot as the only way to the hub, which is
+          not a thing anyone discovers. The name is the way home, spelled out,
+          and the trail after it is what says where you are. */}
       <Link
         to="/"
-        aria-label={back !== undefined ? "home" : undefined}
-        className="flex flex-none items-center gap-2 text-[16px] font-bold tracking-[-0.03em]"
+        aria-label="verksted — home"
+        // `tap`, not `tap-sq`: the word carries its own width, and this needs
+        // to be a 44px-high target on a phone rather than a 9px dot.
+        className="tap flex flex-none items-center gap-2 text-[16px] font-bold tracking-[-0.03em] hover:text-accent"
       >
         <span className="relative h-[9px] w-[9px] flex-none rounded-full bg-accent">
           <span className="absolute -inset-[5px] rounded-full bg-accent/15" />
         </span>
-        {back === undefined && "verksted"}
+        verksted
       </Link>
       {crumb && crumb.length > 0 && (
-        // First and last survive a phone. The first is the project, which is
-        // the answer to "where am I"; the last is the session, which is the
-        // answer to "which one" — and on the session screen it is the only
-        // place the title shows, since that screen drops its own title row to
-        // give the terminal the height back.
+        // Only the last one survives a phone, and it is the one that says which
+        // thing you are looking at — on the session screen the only place the
+        // title shows at all, since that screen drops its own title row to give
+        // the terminal the height back.
+        //
+        // It used to keep the first as well. That was before the wordmark came
+        // back to its left: three names plus two buttons in 390px truncated the
+        // lot to "ver… / Im…", which answers neither question. The step above
+        // is what the back button is for on a phone; on a wide screen there is
+        // room to spell the whole trail out and every step of it is a link.
         <div className="flex min-w-0 items-center gap-2">
           {crumb.map((c, i) => (
             <span
-              key={c}
+              key={c.label}
               className={`${
-                i === 0 || i === crumb.length - 1 ? "flex" : "hidden min-[800px]:flex"
+                i === crumb.length - 1 ? "flex" : "hidden min-[800px]:flex"
               } min-w-0 items-center gap-2`}
             >
-              {i > 0 && <span className="flex-none text-faint">/</span>}
-              <b
-                className={`overflow-hidden text-ellipsis whitespace-nowrap ${
-                  i === 0
-                    ? "text-[15px] font-semibold tracking-[-.02em] text-text"
-                    : "font-mono text-[13px] font-normal text-muted"
-                }`}
-              >
-                {c}
-              </b>
+              <span className="flex-none text-faint">/</span>
+              <CrumbLabel crumb={c} first={i === 0} />
             </span>
           ))}
         </div>

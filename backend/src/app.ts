@@ -7,6 +7,7 @@ import { isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js
 import projectRoutes from "./routes/projects.js";
 import sessionRoutes from "./routes/sessions.js";
 import fileRoutes from "./routes/files.js";
+import eventRoutes from "./routes/events.js";
 import factsRoutes from "./routes/facts.js";
 import settingsRoutes from "./routes/settings.js";
 import scheduleRoutes from "./routes/schedules.js";
@@ -64,6 +65,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(settingsRoutes);
   await app.register(scheduleRoutes);
   await app.register(factsRoutes);
+  await app.register(eventRoutes);
   await app.register(sshRoutes);
   await app.register(pushRoutes);
   await app.register(githubRoutes);

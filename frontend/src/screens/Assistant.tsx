@@ -283,7 +283,7 @@ export default function Assistant() {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar crumb={["assistant"]} back="/" />
+      <TopBar crumb={[{ label: "assistant" }]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
         {showRaccoon && (

@@ -96,6 +96,15 @@ describe("origin check on mutating requests", () => {
     expect(read.statusCode).toBe(200);
   });
 
+  it("blocks a cross-origin event stream, which EventSource can read back", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/events",
+      headers: { host: "pod:8080", origin: "http://evil.example" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
   it("blocks a CORS-simple POST to browser/start, which takes no body", async () => {
     const res = await app.inject({
       method: "POST",

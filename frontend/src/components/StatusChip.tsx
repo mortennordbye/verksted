@@ -1,3 +1,5 @@
+import type { ReviewSummary } from "../../../shared/api";
+
 /* The state colours are pastels now, so the old /5 wash was invisible against
    #0b0b0e. Radius is northlight's 6px tag rather than a pill, and the label is
    sans: mono on every chip was most of what made the app read as a terminal. */
@@ -14,6 +16,30 @@ export function StatusChip({ kind, label }: { kind: keyof typeof styles; label: 
       className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] font-semibold whitespace-nowrap ${styles[kind]}`}
     >
       {label}
+    </span>
+  );
+}
+
+/**
+ * How far a run has been read, and what was concluded — a row's answer to "have
+ * I dealt with this one?", which is the question an inbox of overnight runs
+ * mostly asks. Renders nothing until somebody has started.
+ */
+export function ReviewMark({ review, total }: { review: ReviewSummary; total: number }) {
+  if (review.reviewed === 0 && !review.verdict) return null;
+  const verdict = review.verdict;
+  return (
+    <span className="inline-flex items-center gap-1.5 font-mono text-[11px] whitespace-nowrap">
+      {verdict && (
+        <span className={verdict === "approved" ? "text-run" : "text-wait"}>
+          {verdict === "approved" ? "✓ approved" : "⚠ needs work"}
+        </span>
+      )}
+      {review.reviewed > 0 && (
+        <span className="text-faint">
+          {total > 0 ? `${review.reviewed} of ${total} read` : `${review.reviewed} read`}
+        </span>
+      )}
     </span>
   );
 }

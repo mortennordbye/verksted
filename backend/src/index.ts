@@ -3,6 +3,7 @@ import { env } from "./env.js";
 import { buildApp } from "./app.js";
 import { sweepTempFiles } from "./atomic-json.js";
 import { killAll } from "./browser.js";
+import { setEventLogger } from "./events.js";
 import { stop as stopVoice } from "./tts.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
@@ -23,6 +24,7 @@ for (const dir of [
 }
 
 const app = await buildApp();
+setEventLogger(app.log);
 // Before the sessions start: agents read their global memory file when a
 // session begins, so a restored session should already find the note there.
 await ensureSandboxNotes(app.log);

@@ -151,6 +151,24 @@ describe("runSchedule", () => {
     const prompt = envOf(fake.subcommand("tmux", "new-session")[0]).VK_PROMPT;
     expect(prompt).toContain("$VK_REPORT_FILE");
     expect(prompt).toMatch(/"ok: <summary>"/);
+    expect(prompt).toMatch(/"attention: <summary>"/);
+    expect(prompt).toMatch(/"failed: <summary>"/);
+  });
+
+  it("tells the run that having something to read is not being stuck", async () => {
+    // The calibration, not just the vocabulary. Asked only "which needs me?", a
+    // run that had finished and left a list to read signed off "attention" —
+    // which put a done run in "needs a decision" and woke a phone for it. If
+    // this wording goes, that comes back, and nothing else would catch it.
+    const s = await schedule("propose some improvements");
+
+    await scheduler.runSchedule(s.id, log);
+
+    const prompt = envOf(fake.subcommand("tmux", "new-session")[0]).VK_PROMPT;
+    expect(prompt).toMatch(/only if this cannot go any further without me/);
+    expect(prompt).toMatch(/not the same as being stuck/);
+    // And a stated default to fall back on, so a close call does not escalate.
+    expect(prompt).toMatch(/write "ok"/);
   });
 
   it("runs unattended in auto permission mode", async () => {

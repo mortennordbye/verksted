@@ -196,6 +196,34 @@ export async function changesIn(
   };
 }
 
+/** Cap on the whole-range patch. A megabyte is more than a night of work and
+ *  about as much as a phone will scroll; past it the terminal is the place. */
+const MAX_PATCH_BYTES = 1024 * 1024;
+
+/**
+ * The whole range as one patch, for reading a run end to end.
+ *
+ * Cut at a file boundary rather than mid-hunk: the reader splits this back into
+ * files, and half a `diff --git` header would come out as a file whose name is
+ * a fragment. Only a single file bigger than the whole cap falls back to a
+ * blunt cut, which is already unreadable by then.
+ */
+export async function rangeDiff(
+  repoDir: string,
+  from: string,
+  to: string,
+): Promise<{ diff: string; truncated: boolean }> {
+  // quotePath=false so a non-ASCII path arrives spelled the way the -z file
+  // list spells it; the reader matches the two against each other.
+  const out = await gitRaw(repoDir, ["-c", "core.quotePath=false", "diff", `${from}..${to}`]);
+  if (out.length <= MAX_PATCH_BYTES) return { diff: out, truncated: false };
+  const boundary = out.lastIndexOf("\ndiff --git ", MAX_PATCH_BYTES);
+  return {
+    diff: boundary > 0 ? out.slice(0, boundary + 1) : out.slice(0, MAX_PATCH_BYTES),
+    truncated: true,
+  };
+}
+
 /** One file's diff over a range. The path is a client's, so it is a pathspec
  *  and nothing else — literal, and after the `--` that ends the options. */
 export async function fileDiffIn(

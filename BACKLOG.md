@@ -174,23 +174,23 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
   `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
 
-## Reviewing a run still means reading it file by file
+## A big review still cannot be paged past its caps
 
-- **What:** A session's range can now be read — commits, files, and each file's
-  diff (`GET /api/sessions/:id/changes`, the sidebar's changes tab, and the
-  inbox's "review the changes" link). What it is not is a review: there is no
-  whole-range diff in one scroll, no "mark this file read", and no way to
-  approve or reject from the phone. Big ranges are cut at 100 commits and 500
-  files, which the panel says but cannot page past.
-- **Why deferred:** Per-file is what a phone can actually render, and the size
-  problem is real — a night's work is megabytes. Paging and review state are a
-  screen's worth of design on top of an endpoint that already answers the
-  question the inbox row raises.
-- **Unblocked by:** Reviewing enough real overnight runs to know whether the
-  file list is the right unit, or whether it wants one continuous diff.
-- **Where:** `backend/src/git.ts` (`changesIn`, `MAX_COMMITS`, `MAX_FILES`),
-  `backend/src/routes/sessions.ts` (the two changes routes),
-  `frontend/src/components/ChangesPanel.tsx`
+- **What:** Reviewing a run is now a screen: the whole range as one patch
+  (`GET /api/sessions/:id/changes/patch`), per-file read marks and a verdict
+  kept on the session (`PATCH /api/sessions/:id/review`), both surfaced on the
+  changes tab and the inbox row. What is still fixed is the size: the file and
+  commit lists cut at 500 and 100, and the patch itself at 1 MB, cut at a file
+  boundary. All three say so and none can be paged past — a range bigger than
+  that is only fully readable in the terminal.
+- **Why deferred:** Paging a diff is its own design (by file? by hunk? what does
+  "read" mean for a page?), and no real range has come close to the caps yet.
+  Guessing at the interaction before one does is how the wrong one gets built.
+- **Unblocked by:** A real overnight run that hits a cap. The numbers to move
+  are named constants, so raising them is the cheap first answer if that run
+  turns out to be an outlier rather than the new normal.
+- **Where:** `backend/src/git.ts` (`MAX_COMMITS`, `MAX_FILES`,
+  `MAX_PATCH_BYTES`), `frontend/src/components/ReviewOverlay.tsx`
 
 ## The browser smoke test is not in CI
 
