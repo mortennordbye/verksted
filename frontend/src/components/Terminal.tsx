@@ -619,10 +619,22 @@ export default function Terminal({
     //
     // Capture, so this runs before xterm's own handler on the textarea beneath;
     // a paste carrying only text is left alone and pastes as it always did.
+    //
+    // `files` alone is not enough: a screenshot taken with Win+Shift+S sits on
+    // the clipboard as a bitmap rather than as a file, and not every browser
+    // synthesises a File for it — `items` carries it and `files` stays empty.
+    // The paste then falls through to xterm, which has no text to insert
+    // either, so the gesture does nothing at all.
     const onPaste = (e: ClipboardEvent) => {
-      const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-        f.type.startsWith("image/"),
-      );
+      const data = e.clipboardData;
+      if (!data) return;
+      const carried = data.files.length
+        ? Array.from(data.files)
+        : Array.from(data.items)
+            .filter((i) => i.kind === "file")
+            .map((i) => i.getAsFile())
+            .filter((f): f is File => f !== null);
+      const files = carried.filter((f) => f.type.startsWith("image/"));
       if (!files.length) return;
       e.preventDefault();
       e.stopPropagation();
