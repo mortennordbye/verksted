@@ -53,7 +53,7 @@ export default function Settings() {
 
   return (
     <>
-      <TopBar back="/" crumb={["settings"]} />
+      <TopBar back="/" crumb={[{ label: "settings" }]} />
       <main className="mx-auto max-w-[760px] px-[18px] pt-[22px] pb-[60px]">
         <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Settings</h1>
         <div className="mb-6 text-sm text-muted">

@@ -428,7 +428,11 @@ export default function Session() {
       <div className="fixed inset-x-0 top-[var(--vvt,0px)] flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:static desk:h-auto desk:overflow-visible">
         <TopBar
           back={session ? `/p/${session.project}` : "/"}
-          crumb={session ? [session.project, session.title] : []}
+          crumb={
+            session
+              ? [{ label: session.project, to: `/p/${session.project}` }, { label: session.title }]
+              : []
+          }
         />
         {/* max-w to match the other screens: without it the kill and delete
             buttons sat a screen-width away from the title on an ultrawide. */}

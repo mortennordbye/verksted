@@ -1,6 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentName, CreatedSession, Session, SessionWork } from "../../shared/api.js";
+import type {
+  AgentName,
+  CreatedSession,
+  ReviewVerdict,
+  Session,
+  SessionReview,
+  SessionWork,
+} from "../../shared/api.js";
 import { sweepTempFiles, writeJsonAtomic } from "./atomic-json.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
@@ -46,6 +53,10 @@ interface Meta {
   endCommit?: string | null;
   /** Measured once, when the session is first seen finished. */
   work?: SessionWork | null;
+  /** Files of the range marked read, and where the reader landed on the run as
+   *  a whole. Absent until somebody reviews it. */
+  reviewed?: string[];
+  verdict?: ReviewVerdict | null;
 }
 
 function metaPath(id: string): string {
@@ -164,10 +175,26 @@ async function killQuietly(name: string): Promise<void> {
 }
 
 async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
-  const { cdpPort: _cdpPort, startCommit: _startCommit, endCommit: _endCommit, ...wire } = meta;
+  const {
+    cdpPort: _cdpPort,
+    startCommit: _startCommit,
+    endCommit: _endCommit,
+    reviewed: _reviewed,
+    verdict: _verdict,
+    ...wire
+  } = meta;
   const status = !live ? "done" : state === "waiting" ? "waiting" : "running";
   const report = await readReport(meta.id);
-  return { ...wire, work: meta.work ?? null, status, report, outcome: reportOutcome(report, live) };
+  return {
+    ...wire,
+    work: meta.work ?? null,
+    status,
+    report,
+    outcome: reportOutcome(report, live),
+    // A count, not the paths: this rides on every row of every list, and the
+    // screen that needs the paths asks for the range anyway.
+    review: { reviewed: meta.reviewed?.length ?? 0, verdict: meta.verdict ?? null },
+  };
 }
 
 /**
@@ -205,6 +232,76 @@ export async function sessionRange(id: string): Promise<{ from: string; to: stri
   const meta = await readMeta(id);
   if (!meta?.startCommit) return null;
   return { from: meta.startCommit, to: meta.endCommit ?? "HEAD" };
+}
+
+/** What has been read of a session's range, and what was concluded about it. */
+export async function getReview(id: string): Promise<SessionReview> {
+  const meta = await readMeta(id);
+  return {
+    files: meta?.reviewed ?? [],
+    reviewed: meta?.reviewed?.length ?? 0,
+    verdict: meta?.verdict ?? null,
+  };
+}
+
+/**
+ * Record a step of a review: one file marked read or unread, a verdict on the
+ * run, or both. Null for either leaves that half alone; null `verdict` clears
+ * it, which is how an answer is taken back.
+ *
+ * Read marks live in the session's own metadata rather than the browser's,
+ * because the run being reviewed was started on one device and is read on
+ * another — a night's work is judged on a phone and finished at a desk.
+ */
+export async function setReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
+  // Wait for this session's previous write, whether it worked or not: what
+  // matters is only that no two of them read the file at the same moment.
+  const queued = (reviewWrites.get(id) ?? Promise.resolve()).then(
+    () => writeReview(id, change),
+    () => writeReview(id, change),
+  );
+  reviewWrites.set(id, queued);
+  try {
+    return await queued;
+  } finally {
+    // Last one out clears the entry, so the map does not keep a key per session
+    // for the life of the process.
+    if (reviewWrites.get(id) === queued) reviewWrites.delete(id);
+  }
+}
+
+interface ReviewChange {
+  file?: { path: string; read: boolean };
+  verdict?: ReviewVerdict | null;
+}
+
+/**
+ * In-flight review writes, one chain per session.
+ *
+ * Every write is read-modify-write on a single metadata file, and the actions
+ * that produce them arrive in bursts — ticking four files off as fast as a
+ * thumb moves. Run concurrently they all read the same meta and the last to
+ * finish wins, so three of those four marks vanish. Chaining is enough here:
+ * this is one person reviewing one run, not a contended resource.
+ */
+const reviewWrites = new Map<string, Promise<SessionReview | null>>();
+
+async function writeReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
+  const meta = await readMeta(id);
+  if (!meta) return null;
+  if (change.file) {
+    const kept = (meta.reviewed ?? []).filter((p) => p !== change.file!.path);
+    // A range shows at most MAX_FILES files, so anything approaching this is a
+    // client inventing paths rather than a person reading a big night's work.
+    meta.reviewed = change.file.read ? [...kept, change.file.path].slice(-1000) : kept;
+  }
+  if (change.verdict !== undefined) meta.verdict = change.verdict;
+  await writeMeta(meta);
+  return {
+    files: meta.reviewed ?? [],
+    reviewed: meta.reviewed?.length ?? 0,
+    verdict: meta.verdict ?? null,
+  };
 }
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
@@ -272,6 +369,16 @@ export async function getSession(id: string): Promise<Session | null> {
  * phone quiet, the other two push. Appended to the prompt rather than buried in
  * a hook because the agent has to be told in words.
  *
+ * The wording is deliberately lopsided, because the failure mode in practice is
+ * only ever in one direction. "attention" used to say "if I have to act", and
+ * an agent that had finished a piece of work and left something to read decided
+ * that reading it counted — so runs that were simply *done* arrived as "needs a
+ * look" and woke a phone for a list nobody was blocked on. Every escalation
+ * word therefore has to earn itself against a stated default, and the default
+ * is "ok". A run that cries wolf costs more than one that under-reports: the
+ * work is still on the hub either way, and an inbox of false alarms is one
+ * nobody reads.
+ *
  * Only scheduled runs are *told* this. An interactive session has no defined
  * end, and injecting the instruction as its first prompt would make the agent
  * answer a piece of bookkeeping before the user has said anything. Every
@@ -281,9 +388,17 @@ export async function getSession(id: string): Promise<Session | null> {
  * start.
  */
 export const REPORT_CONTRACT =
-  '\n\nWhen you are done, write one line to the file at "$VK_REPORT_FILE": ' +
-  '"ok: <summary>" if nothing needs me, "attention: <summary>" if I have to act, ' +
-  'or "failed: <summary>" if you could not finish.';
+  '\n\nWhen you are done, write one line to the file at "$VK_REPORT_FILE", ' +
+  "starting with one of three words.\n\n" +
+  '"failed: <summary>" if you could not finish what you were asked.\n' +
+  '"attention: <summary>" only if this cannot go any further without me — a ' +
+  "decision that is not yours to make, an approval you could not get, or " +
+  "something broken I would want to know about tonight.\n" +
+  '"ok: <summary>" for everything else.\n\n' +
+  'Work you finished and left for me to read is "ok", even when the summary is ' +
+  "a list I will want to do something about later — having something to read is " +
+  'not the same as being stuck. "attention" wakes a phone, so spend it only on ' +
+  'a run that is actually blocked. When the two seem equally true, write "ok".';
 
 /** The three verdicts a report can open with, plus where it got to otherwise. */
 export function reportOutcome(

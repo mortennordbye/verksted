@@ -43,5 +43,10 @@ export function isWebsocketUpgrade(req: FastifyRequest): boolean {
 }
 
 export function needsOriginCheck(req: FastifyRequest): boolean {
-  return MUTATING.has(req.method) || isWebsocketUpgrade(req);
+  // The event stream is a GET, but it is a long-lived one that keeps pushing
+  // what is running and where: a page on the VPN could open it cross-origin
+  // with EventSource and read the bench indefinitely. Ordinary GETs are exempt
+  // because a cross-origin fetch cannot read the response without CORS headers,
+  // which nothing here sends — EventSource is the exception that can.
+  return MUTATING.has(req.method) || isWebsocketUpgrade(req) || req.url.startsWith("/api/events");
 }

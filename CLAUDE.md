@@ -234,8 +234,10 @@ backend/src/
 ├── paths.ts          # path-scoping helper — the security surface
 ├── tmux.ts           # execFile wrappers around tmux
 ├── sessions-store.ts # session metadata JSON + tmux liveness
+├── projects-store.ts # the repos on the volume, as the hub sees them
 ├── schedules-store.ts# recurring prompts: one JSON file per schedule
 ├── scheduler.ts      # cron timers -> unattended sessions
+├── events.ts         # one watcher -> every client: what the UI used to poll for
 ├── routes/           # projects, sessions, files
 └── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
 backend/test/         # vitest; the path-traversal suite is the one that matters
@@ -243,6 +245,7 @@ frontend/src/
 ├── screens/          # Hub, Project, Session, Inbox, Settings
 ├── components/       # Terminal, FileTree, TopBar, StatusChip
 ├── api.ts            # fetch helpers + usePoll
+├── events.ts         # the shared EventSource usePoll takes its data from
 └── theme.css         # mock.html palette as Tailwind v4 @theme
 e2e/                  # `make e2e` only: the built app in a real chromium
 ```
@@ -252,7 +255,11 @@ e2e/                  # `make e2e` only: the built app in a real chromium
 - Session id == tmux session name (`vk-<project>-<seq>`); the id is the join key
   between metadata JSON, tmux, and the websocket route.
 - Frontend data fetching is plain `fetch` + the `usePoll` hook in `frontend/src/api.ts`
-  — no query library. Status badges move to websocket push in milestone 4.
+  — no query library. The session and project lists are pushed rather than polled:
+  `GET /api/events` is an SSE stream fed by one server-side watcher
+  (`backend/src/events.ts`), and `usePoll` upgrades to it for the paths it serves,
+  falling back to its own interval whenever the stream is not healthy. Call sites
+  do not choose; add a streamed path in both `events.ts` files or not at all.
 - UI styling comes from the mock's palette in `theme.css` (`bg-surface`, `text-muted`,
   `border-line`, agent colors `claude`/`antigravity`/`codex`); mono font for anything
   terminal-ish, sans for prose.

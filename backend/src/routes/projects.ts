@@ -4,8 +4,9 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
-import { branchOf, git, worktreeParent } from "../git.js";
+import { git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
+import { listProjects } from "../projects-store.js";
 import * as store from "../sessions-store.js";
 import { execEnv } from "../settings-store.js";
 
@@ -31,40 +32,7 @@ async function linkedWorktrees(dir: string): Promise<string[]> {
 }
 
 export default async function projectRoutes(app: FastifyInstance) {
-  app.get("/api/projects", async (): Promise<Project[]> => {
-    const entries = await fs.readdir(env.REPOS_DIR, { withFileTypes: true });
-    const sessions = await store.listSessions();
-    const projects: Project[] = [];
-    for (const e of entries) {
-      if (!e.isDirectory()) continue;
-      const dir = path.join(env.REPOS_DIR, e.name);
-      try {
-        await fs.access(path.join(dir, ".git"));
-      } catch {
-        continue;
-      }
-      let dirty = false;
-      try {
-        dirty = (await git(dir, ["status", "--porcelain"])) !== "";
-      } catch {
-        // leave dirty=false; branch shows "?" below on the same kind of breakage
-      }
-      const own = sessions.filter((s) => s.project === e.name);
-      const liveSessions = own.filter((s) => s.status !== "done");
-      projects.push({
-        name: e.name,
-        branch: await branchOf(dir),
-        dirty,
-        running: own.filter((s) => s.status === "running").length,
-        waiting: own.filter((s) => s.status === "waiting").length,
-        done: own.filter((s) => s.status === "done").length,
-        agents: [...new Set(liveSessions.map((s) => s.agent))],
-        lastSessionAt: own[0]?.createdAt ?? null,
-        worktreeOf: await worktreeParent(dir),
-      });
-    }
-    return projects.sort((a, b) => a.name.localeCompare(b.name));
-  });
+  app.get("/api/projects", (): Promise<Project[]> => listProjects());
 
   app.post<{ Body: { mode: "clone" | "init"; url?: string; name?: string } }>(
     "/api/projects",

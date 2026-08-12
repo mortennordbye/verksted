@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { SessionChanges, SessionFileDiff } from "../../shared/api.js";
+import type {
+  Session,
+  SessionChanges,
+  SessionFileDiff,
+  SessionPatch,
+  SessionReview,
+} from "../../shared/api.js";
 import { parseNumstatZ } from "../src/git.js";
 
 let app: FastifyInstance;
@@ -109,6 +115,7 @@ describe("GET /api/sessions/:id/changes", () => {
       commits: [],
       files: [],
       truncated: false,
+      review: { files: [], reviewed: 0, verdict: null },
     });
   });
 
@@ -151,6 +158,133 @@ describe("GET /api/sessions/:id/changes/diff", () => {
     expect((await app.inject({ url: "/api/sessions/vk-demo-1/changes/diff" })).statusCode).toBe(
       400,
     );
+  });
+});
+
+describe("GET /api/sessions/:id/changes/patch", () => {
+  it("returns the whole range as one patch", async () => {
+    const res = await app.inject({ url: "/api/sessions/vk-demo-1/changes/patch" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<SessionPatch>();
+    // Both files of the range, in one answer rather than one request each.
+    expect(body.diff).toContain("+++ b/a.txt");
+    expect(body.diff).toContain("+hei");
+    expect(body.truncated).toBe(false);
+  });
+
+  it("spells a non-ASCII path the way the file list spells it", async () => {
+    const body = (
+      await app.inject({ url: "/api/sessions/vk-demo-1/changes/patch" })
+    ).json<SessionPatch>();
+    // C-quoted ("\303\246.txt") would match no row of the list it is read beside.
+    expect(body.diff).toContain("+++ b/æ.txt");
+  });
+
+  it("stops at the end commit", async () => {
+    const body = (
+      await app.inject({ url: "/api/sessions/vk-demo-1/changes/patch" })
+    ).json<SessionPatch>();
+    expect(body.diff).not.toContain("later.txt");
+  });
+
+  it("is empty for a session with no range, rather than an error", async () => {
+    const res = await app.inject({ url: "/api/sessions/vk-demo-2/changes/patch" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<SessionPatch>()).toEqual({ diff: "", truncated: false });
+  });
+
+  it("409s when the range cannot be read", async () => {
+    expect((await app.inject({ url: "/api/sessions/vk-demo-3/changes/patch" })).statusCode).toBe(
+      409,
+    );
+  });
+
+  it("404s an unknown session", async () => {
+    expect((await app.inject({ url: "/api/sessions/vk-ghost-9/changes/patch" })).statusCode).toBe(
+      404,
+    );
+  });
+});
+
+describe("PATCH /api/sessions/:id/review", () => {
+  const patch = (id: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PATCH", url: `/api/sessions/${id}/review`, payload });
+
+  it("marks a file read, and reports it back with the range", async () => {
+    const res = await patch("vk-demo-1", { file: { path: "a.txt", read: true } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<SessionReview>()).toEqual({
+      files: ["a.txt"],
+      reviewed: 1,
+      verdict: null,
+    });
+
+    const changes = (
+      await app.inject({ url: "/api/sessions/vk-demo-1/changes" })
+    ).json<SessionChanges>();
+    expect(changes.review.files).toEqual(["a.txt"]);
+  });
+
+  it("does not count the same file twice", async () => {
+    await patch("vk-demo-1", { file: { path: "a.txt", read: true } });
+    const body = (
+      await patch("vk-demo-1", { file: { path: "a.txt", read: true } })
+    ).json<SessionReview>();
+    expect(body.files).toEqual(["a.txt"]);
+  });
+
+  it("keeps every mark when a burst of them arrives at once", async () => {
+    // Ticking files off as fast as a thumb moves. Each write is
+    // read-modify-write on one metadata file, so run concurrently the last to
+    // finish used to win and the rest vanished.
+    await Promise.all(
+      ["one.ts", "two.ts", "three.ts", "four.ts"].map((p) =>
+        patch("vk-demo-1", { file: { path: p, read: true } }),
+      ),
+    );
+    const marked = ["one.ts", "two.ts", "three.ts", "four.ts"];
+    const body = (await patch("vk-demo-1", {})).json<SessionReview>();
+    expect(body.files).toEqual(expect.arrayContaining(marked));
+
+    // Put the fixture back: the tests below are about what one review holds.
+    for (const p of marked) await patch("vk-demo-1", { file: { path: p, read: false } });
+  });
+
+  it("takes a mark back", async () => {
+    await patch("vk-demo-1", { file: { path: "æ.txt", read: true } });
+    const body = (
+      await patch("vk-demo-1", { file: { path: "æ.txt", read: false } })
+    ).json<SessionReview>();
+    expect(body.files).not.toContain("æ.txt");
+  });
+
+  it("records a verdict, and lets it be cleared", async () => {
+    expect(
+      (await patch("vk-demo-1", { verdict: "needs-work" })).json<SessionReview>().verdict,
+    ).toBe("needs-work");
+    expect((await patch("vk-demo-1", { verdict: null })).json<SessionReview>().verdict).toBe(null);
+  });
+
+  it("survives on the session, so it outlives the browser that set it", async () => {
+    await patch("vk-demo-1", { verdict: "approved" });
+    const meta = JSON.parse(fs.readFileSync(path.join(sessionsDir, "vk-demo-1.json"), "utf8"));
+    expect(meta.verdict).toBe("approved");
+    // And it reaches the lists a row is drawn from, as a count rather than paths.
+    const session = (await app.inject({ url: "/api/sessions/vk-demo-1" })).json<Session>();
+    expect(session.review).toEqual({ reviewed: 1, verdict: "approved" });
+    expect(session).not.toHaveProperty("reviewed");
+  });
+
+  it("refuses a verdict it does not know", async () => {
+    expect((await patch("vk-demo-1", { verdict: "lgtm" })).statusCode).toBe(400);
+  });
+
+  it("refuses a file entry without both halves", async () => {
+    expect((await patch("vk-demo-1", { file: { path: "a.txt" } })).statusCode).toBe(400);
+  });
+
+  it("404s an unknown session", async () => {
+    expect((await patch("vk-ghost-9", { verdict: "approved" })).statusCode).toBe(404);
   });
 });
 

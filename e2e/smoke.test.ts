@@ -132,6 +132,38 @@ describe("the app in a real browser", () => {
     await page.getByText("+and what the run added").waitFor({ timeout: 15_000 });
   });
 
+  it("reads the whole run in one scroll, and remembers what was read", async () => {
+    await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: /review all/ }).click();
+
+    const review = page.getByRole("dialog", { name: "review vk-demo-1" });
+    // The range's own patch, not a per-file request: the file's header and the
+    // line the run added are both in the one answer.
+    await review.getByText("readme.md").first().waitFor({ timeout: 15_000 });
+    await review.getByText("+and what the run added").waitFor({ timeout: 15_000 });
+
+    // click rather than check: the tick is controlled by the server's answer,
+    // so it only moves once the round trip lands.
+    await review.getByRole("checkbox").first().click();
+    await review.getByText("1 of 1 read").waitFor({ timeout: 15_000 });
+    await review.getByRole("button", { name: /approved/ }).click();
+
+    // Reloading is the point: the marks live on the session, so a review begun
+    // on a phone is still there on a laptop.
+    await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
+    await page.getByText("✓ approved").waitFor({ timeout: 15_000 });
+    await page.getByText("1 of 1 read").first().waitFor({ timeout: 15_000 });
+  });
+
+  it("gets home from a session by the wordmark, not only the back arrow", async () => {
+    // The way to the hub used to be a 9px dot with no label, which is not a
+    // thing anyone finds. The name is the link now, at a thumb-sized target.
+    await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
+    await page.getByLabel("verksted — home").click();
+    await page.waitForURL((u) => u.pathname === "/");
+    await page.getByText("demo").first().waitFor({ timeout: 15_000 });
+  });
+
   it("did all of that without a console error or a failed request", () => {
     expect(problems).toEqual([]);
   });

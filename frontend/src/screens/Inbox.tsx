@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import type { Memory, ScheduleRun, Session, SessionWork } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
-import { StatusChip } from "../components/StatusChip";
+import { ReviewMark, StatusChip } from "../components/StatusChip";
 import WaitingSession from "../components/WaitingSession";
 
 /** The badge for a run's outcome. Only "attention" and "failed" want the eye. */
@@ -57,6 +57,10 @@ export default function Inbox() {
   );
   const [busy, setBusy] = useState<string | null>(null);
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
+  /** A run's review, read off the session it started — the runs list has no
+   *  reason to carry it, and the session list is already on this screen. */
+  const reviewOf = (sessionId: string | null) =>
+    sessions?.find((s) => s.id === sessionId)?.review ?? null;
   const proposals = proposed?.proposals ?? [];
   // Proposals count: they are the one thing here that arrives with nothing to
   // announce it, and a queue nobody looks at is a learning loop that stalls at
@@ -81,7 +85,7 @@ export default function Inbox() {
 
   return (
     <>
-      <TopBar back="/" crumb={["inbox"]} />
+      <TopBar back="/" crumb={[{ label: "inbox" }]} />
       <main className="mx-auto max-w-[900px] px-[18px] pt-[22px] pb-[60px]">
         <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
           Inbox
@@ -193,7 +197,14 @@ export default function Inbox() {
                 {r.report ?? r.error ?? "no sign-off"}
               </div>
               {r.work && (
-                <div className="mt-1 font-mono text-[11px] text-faint">{workLabel(r.work)}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <span className="font-mono text-[11px] text-faint">{workLabel(r.work)}</span>
+                  {/* A night that has already been read says so here, so the
+                      inbox is a list of what is still outstanding. */}
+                  {reviewOf(r.sessionId) && (
+                    <ReviewMark review={reviewOf(r.sessionId)!} total={r.work.files} />
+                  )}
+                </div>
               )}
               {r.sessionId && (
                 <div className="mt-1.5 flex flex-wrap gap-3">

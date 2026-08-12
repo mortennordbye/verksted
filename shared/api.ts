@@ -38,6 +38,25 @@ export interface Session {
    * somewhere that is not a git repo.
    */
   work: SessionWork | null;
+  /** How far a person has got reading what it did. */
+  review: ReviewSummary;
+}
+
+/** Where the reader landed on a run, once they have read it. */
+export type ReviewVerdict = "approved" | "needs-work";
+
+/** A run's review as a row can show it: a count and a verdict, no paths. */
+export interface ReviewSummary {
+  /** Files marked read. Against `work.files` for the "3 of 9" a row shows. */
+  reviewed: number;
+  /** Null until someone says; a run can be fully read and still undecided. */
+  verdict: ReviewVerdict | null;
+}
+
+/** The same review with the paths in it, for the screen doing the reviewing. */
+export interface SessionReview extends ReviewSummary {
+  /** Repo-relative paths marked read, as the changes list spells them. */
+  files: string[];
 }
 
 /**
@@ -96,6 +115,23 @@ export interface SessionChanges {
   commits: SessionCommit[];
   files: SessionChangedFile[];
   /** Either list hit its cap; there is more than is shown. */
+  truncated: boolean;
+  /** What has been read of it, and what was concluded. */
+  review: SessionReview;
+}
+
+/**
+ * The whole range as one patch, for reading a run in one scroll rather than a
+ * file at a time.
+ *
+ * One request for the lot: a night's work is a handful of files, and the reader
+ * scrolling it should not wait for a round trip per file. The size cap is the
+ * reason it can be that blunt — past it the terminal is the right place.
+ */
+export interface SessionPatch {
+  /** Unified diff of the whole range ("" when it committed nothing). */
+  diff: string;
+  /** Cut at the size cap; what is here is whole files, never half of one. */
   truncated: boolean;
 }
 

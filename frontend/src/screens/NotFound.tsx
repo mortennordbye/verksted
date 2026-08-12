@@ -5,7 +5,7 @@ import TopBar from "../components/TopBar";
 export default function NotFound() {
   return (
     <>
-      <TopBar back="/" crumb={["not found"]} />
+      <TopBar back="/" crumb={[{ label: "not found" }]} />
       <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
         <h1 className="mb-2 text-[21px] font-semibold tracking-tight">no such page</h1>
         <p className="mb-4 text-sm text-muted">

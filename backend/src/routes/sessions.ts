@@ -1,13 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import type {
   AgentName,
+  ReviewVerdict,
   SessionCapture,
   SessionChanges,
   SessionChat,
   SessionFileDiff,
+  SessionPatch,
+  SessionReview,
 } from "../../../shared/api.js";
 import { DEFAULT_WINDOW, MAX_WINDOW, readChat } from "../chat.js";
-import { changesIn, fileDiffIn, gitError } from "../git.js";
+import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { transcriptPath } from "../transcripts.js";
@@ -237,12 +240,15 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
       const range = await store.sessionRange(req.params.id);
+      const review = await store.getReview(req.params.id);
       // Not a git repo, or a session from before the start commit was recorded:
       // there is no range, which is an answer rather than an error.
-      if (!range) return { from: null, to: null, commits: [], files: [], truncated: false };
+      if (!range) {
+        return { from: null, to: null, commits: [], files: [], truncated: false, review };
+      }
       try {
         const repoDir = resolveInsideRepos(session.project);
-        return { ...range, ...(await changesIn(repoDir, range.from, range.to)) };
+        return { ...range, ...(await changesIn(repoDir, range.from, range.to)), review };
       } catch (err) {
         // The commit it started from is gone (the branch was reset), or the
         // project has been deleted. Either way the range cannot be read, and
@@ -290,6 +296,65 @@ export default async function sessionRoutes(app: FastifyInstance) {
         req.log.warn(err, "session file diff failed");
         return reply.code(409).send({ error: gitError(err) });
       }
+    },
+  );
+
+  /**
+   * The whole range as one patch, which is what reviewing a run means: reading
+   * it end to end rather than tapping through it a file at a time.
+   */
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/changes/patch",
+    async (req, reply): Promise<SessionPatch | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      const range = await store.sessionRange(req.params.id);
+      if (!range) return { diff: "", truncated: false };
+      try {
+        return await rangeDiff(resolveInsideRepos(session.project), range.from, range.to);
+      } catch (err) {
+        req.log.warn(err, "session patch failed");
+        return reply.code(409).send({ error: gitError(err) });
+      }
+    },
+  );
+
+  /**
+   * A step of a review: a file marked read, a verdict on the run, or both.
+   *
+   * The path is not resolved against the disk on purpose — nothing is opened
+   * here. It is a label recorded against the session, and it is bounded and
+   * kept as sent so it matches what the changes list spells.
+   */
+  app.patch<{
+    Params: { id: string };
+    Body: { file?: { path: string; read: boolean }; verdict?: ReviewVerdict | null };
+  }>(
+    "/api/sessions/:id/review",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            file: {
+              type: "object",
+              required: ["path", "read"],
+              additionalProperties: false,
+              properties: {
+                path: { type: "string", minLength: 1, maxLength: 1000 },
+                read: { type: "boolean" },
+              },
+            },
+            verdict: { type: ["string", "null"], enum: ["approved", "needs-work", null] },
+          },
+        },
+      },
+    },
+    async (req, reply): Promise<SessionReview | void> => {
+      const review = await store.setReview(req.params.id, req.body);
+      if (!review) return reply.code(404).send({ error: "not found" });
+      return review;
     },
   );
 }

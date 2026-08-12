@@ -12,6 +12,7 @@ const changes = (over: Partial<SessionChanges> = {}): SessionChanges => ({
     { path: "logo.png", added: 0, removed: 0, binary: true },
   ],
   truncated: false,
+  review: { files: [], reviewed: 0, verdict: null },
   ...over,
 });
 

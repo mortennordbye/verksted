@@ -1,6 +1,9 @@
-import type { SessionChanges } from "../../../shared/api";
+import { useEffect, useState } from "react";
+import type { SessionChanges, SessionReview } from "../../../shared/api";
 import { usePoll } from "../api";
 import { fileIcon } from "../fileicons";
+import ReviewOverlay from "./ReviewOverlay";
+import { ReviewMark } from "./StatusChip";
 
 /** A range's ends, short enough for a sidebar. */
 const short = (sha: string) => (sha === "HEAD" ? "HEAD" : sha.slice(0, 7));
@@ -32,6 +35,17 @@ export default function ChangesPanel({
     `/api/sessions/${sessionId}/changes`,
     live ? 20_000 : 60 * 60_000,
   );
+  const [reviewing, setReviewing] = useState(false);
+  // Held here rather than re-read: the overlay is what changes it, and the poll
+  // behind this panel is an hour wide on the sessions worth reviewing.
+  const [review, setReview] = useState<SessionReview | null>(null);
+  useEffect(() => {
+    if (data) setReview((prev) => prev ?? data.review);
+  }, [data]);
+
+  const files = data?.files ?? [];
+  const read = new Set(review?.files ?? []);
+  const readCount = files.filter((f) => read.has(f.path)).length;
 
   return (
     <section
@@ -46,6 +60,11 @@ export default function ChangesPanel({
           </span>
         )}
       </div>
+      {review?.verdict && (
+        <div className="px-2.5 pb-2 normal-case">
+          <ReviewMark review={review} total={files.length} />
+        </div>
+      )}
 
       {loading && <div className="px-2.5 text-faint">…</div>}
       {error && <div className="px-2.5 text-wait">{error}</div>}
@@ -81,16 +100,24 @@ export default function ChangesPanel({
         </>
       )}
 
-      {(data?.files.length ?? 0) > 0 && (
+      {files.length > 0 && (
         <>
           <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] tracking-widest text-faint uppercase">
             files
             <span className="ml-auto rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal text-muted">
-              {data!.files.length}
+              {readCount > 0 ? `${readCount} of ${files.length} read` : files.length}
             </span>
           </div>
+          {/* The whole range in one scroll, which is what judging a night's work
+              actually takes; the list below is for going straight to one file. */}
+          <button
+            onClick={() => setReviewing(true)}
+            className="mx-2.5 mb-1 flex w-[calc(100%-1.25rem)] cursor-pointer items-center justify-center gap-1.5 rounded-md border border-line py-1.5 text-[11px] text-muted hover:border-accent-pastel hover:text-accent"
+          >
+            review all {files.length} files →
+          </button>
           <ul>
-            {data!.files.map((f) => {
+            {files.map((f) => {
               const name = f.path.split("/").at(-1)!;
               const dir = f.path.includes("/") ? f.path.slice(0, f.path.lastIndexOf("/")) : "";
               return (
@@ -100,7 +127,12 @@ export default function ChangesPanel({
                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-[7px] px-2.5 py-1 text-left whitespace-nowrap"
                   >
                     <img src={fileIcon(name)} alt="" className="h-4 w-4 flex-none" />
-                    <span className="text-text">{name}</span>
+                    <span className={read.has(f.path) ? "text-faint" : "text-text"}>{name}</span>
+                    {read.has(f.path) && (
+                      <span className="flex-none text-[11px] text-run" title="marked read">
+                        ✓
+                      </span>
+                    )}
                     {dir && <span className="min-w-0 truncate text-[11px] text-faint">{dir}</span>}
                     <span className="ml-auto flex-none pl-1.5 text-[11px]">
                       {f.binary ? (
@@ -124,6 +156,16 @@ export default function ChangesPanel({
         <div className="px-2.5 pt-2 text-[11px] text-faint">
           …a long range, cut short — the rest is in the terminal
         </div>
+      )}
+
+      {reviewing && review && (
+        <ReviewOverlay
+          sessionId={sessionId}
+          label={sessionId}
+          review={review}
+          onReview={setReview}
+          onClose={() => setReviewing(false)}
+        />
       )}
     </section>
   );

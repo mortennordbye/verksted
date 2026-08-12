@@ -187,7 +187,7 @@ export default function Project() {
   if (notFound) {
     return (
       <>
-        <TopBar back="/" crumb={name ? [name] : []} />
+        <TopBar back="/" crumb={name ? [{ label: name }] : []} />
         <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
           <h1 className="mb-2 text-[21px] font-semibold tracking-tight">no such project</h1>
           <p className="text-sm text-muted">
@@ -201,7 +201,7 @@ export default function Project() {
 
   return (
     <>
-      <TopBar back="/" crumb={name ? [name] : []} />
+      <TopBar back="/" crumb={name ? [{ label: name }] : []} />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
         <div className="mb-[18px] flex flex-wrap items-start justify-between gap-4">
           <div>
