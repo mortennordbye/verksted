@@ -43,6 +43,13 @@ export interface Session {
    * a session that left no transcript.
    */
   usage: SessionUsage | null;
+  /**
+   * Seconds since the session's pane last printed anything; null once it has
+   * ended, and null while tmux cannot be asked. What it answers is the question
+   * a status alone cannot: whether a running session is working or finished
+   * hours ago and left its pane at a shell.
+   */
+  idleSeconds: number | null;
   /** How far a person has got reading what it did. */
   review: ReviewSummary;
   /**

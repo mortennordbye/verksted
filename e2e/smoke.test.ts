@@ -28,6 +28,7 @@ let page: Page;
 let base: string;
 let reposDir: string;
 let sessionsDir: string;
+let feedDir: string;
 /** Anything the browser logged as an error, or any request that failed. */
 const problems: string[] = [];
 
@@ -72,6 +73,30 @@ beforeAll(async () => {
     }),
   );
 
+  // One note filed by a session, so the inbox renders a `vk feedback` item in a
+  // real browser rather than only in the route's unit test.
+  feedDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-feed-"));
+  fs.writeFileSync(
+    path.join(feedDir, "bench_feedback_e2e.json"),
+    JSON.stringify({
+      id: "bench:feedback:e2e",
+      source: "bench",
+      at: new Date().toISOString(),
+      title: "the bench is missing something: the file tree cannot rename a file",
+      detail: "the file tree cannot rename a file\nfiled by claude in demo",
+      urgency: "new",
+      state: "new",
+      until: null,
+      link: "/s/vk-demo-1",
+      loop: null,
+      did: null,
+      triaged: false,
+      version: "filed",
+      pushed: false,
+    }),
+  );
+
+  process.env.FEED_DIR = feedDir;
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   const schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
@@ -134,7 +159,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
   await app?.close();
-  for (const dir of [reposDir, sessionsDir]) {
+  for (const dir of [reposDir, sessionsDir, feedDir]) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -162,6 +187,9 @@ describe("the app in a real browser", () => {
   it("shows the inbox, with the run's evidence and the way into it", async () => {
     await page.goto(`${base}/runs`, { waitUntil: "networkidle" });
     await page.getByText("Inbox").first().waitFor({ timeout: 15_000 });
+    // What a session filed about the bench itself, in the one list.
+    // Twice on the row, as the title and as the note itself; either will do.
+    await page.getByText("the file tree cannot rename a file").first().waitFor({ timeout: 15_000 });
   });
 
   it("reads a finished run's changes and opens the diff behind them", async () => {

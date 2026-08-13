@@ -35,6 +35,18 @@ describe("mergeBlock", () => {
   });
 });
 
+describe("the sandbox note", () => {
+  /**
+   * How `vk feedback` is rolled out at all: the agents only learn the command
+   * exists because this block is written into their global memory file, in
+   * every repo, including ones verksted has never seen.
+   */
+  it("tells every agent how to say what the bench is missing", () => {
+    const merged = mergeBlock("");
+    expect(merged).toContain("vk feedback");
+  });
+});
+
 describe("the house rules", () => {
   it("tells every agent to leave no sign that one wrote anything", () => {
     // Every agent CLI here signs its own work by default, and git history is

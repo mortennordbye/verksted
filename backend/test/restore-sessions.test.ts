@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { FakeBin } from "./helpers/fake-bin.js";
+import { FakeBin, tmuxLsRows } from "./helpers/fake-bin.js";
 
 /**
  * restoreSessions decides, after a pod restart, which recorded sessions get an
@@ -151,7 +151,7 @@ describe("restoreSessions", () => {
     seed("vk-demo-4", { agent: "codex", conv: "44444444-4444-4444-4444-444444444444" });
     // The project directory is gone.
     seed("vk-gone-1", { project: "gone", conv: "55555555-5555-5555-5555-555555555555" });
-    fake.reply("tmux", "ls", { stdout: "vk-demo-1\n" });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows("vk-demo-1") });
 
     await store.restoreSessions(log);
 

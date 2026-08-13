@@ -14,6 +14,7 @@ function s(id: string, status: Session["status"]): Session {
     outcome: "running" as const,
     work: null,
     usage: null,
+    idleSeconds: null,
     review: { reviewed: 0, verdict: null },
     unattended: null,
     status,

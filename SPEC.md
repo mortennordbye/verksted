@@ -133,6 +133,19 @@ No database. Repos are directories, `tmux ls` is the session list, session
 metadata is a JSON file per session, and status comes from agent hooks
 touching state files (not from parsing terminal output).
 
+A session's pane deliberately outlives its agent — a crashed agent has to stay
+readable, and its shell is where you restart it — so a session whose work ended
+overnight still reads as running, and still counts against the six-session
+ceiling the scheduler refuses to start a run past. A sweep ends those: past a
+grace period, a pane that has been quiet and whose agent process is gone (no
+child under the pane's shell, which is the only reliable signal — the agent
+shares the shell's process group, so tmux reports the shell either way) is ended
+the same way DELETE ends it, keeping the report, the commit range and the
+history. It leaves alone anything waiting on a person, anything whose agent is
+still running, and anything holding uncommitted or unpushed work: the volume is
+the only copy of that, and discarding what git cannot get back is not a
+housekeeping decision.
+
 Session status and notifications share one mechanism: Claude Code
 Notification/Stop hooks (and best-effort equivalents for gemini/codex) write
 state files that drive the UI badges over websocket, and feed the notifier so
@@ -262,6 +275,18 @@ line or two under the same three-word sign-off, and pushes the phone through
 briefing is, and it is the only path by which this app speaks first. The details
 — why each run gets a fresh conversation, and what stops a broken one pushing
 hourly — are in ASSISTANT.md.
+
+The agents file into the inbox too. `vk feedback "..."` from inside any session
+leaves a note about the workbench itself — something verksted cannot do, a
+command that was not there — and the sandbox note tells every agent in every
+repo that the command exists. The bar is deliberately high and stated in
+SANDBOX.md: this is for what stopped them here, never for the repo they are
+working in, which has its own issues and backlog. They are the only ones who
+meet these limits at the moment they bite, and until now that discovery went
+into a transcript nobody reads. A note lands in the feed as a bench item —
+what a note about the bench is — so it is triaged, shown and dismissed by
+everything the feed already does, and identical text is one item however many
+sessions hit it.
 
 Each schedule keeps its last 20 firings, and the inbox screen flattens them
 across schedules, newest first — the answer to "anything overnight?" without

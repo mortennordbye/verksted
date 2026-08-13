@@ -37,6 +37,10 @@ const BLOCK = [
   "writes, because ArgoCD reconciles from git and a change belongs in a manifest",
   "and a pull request. So diagnose from the cluster rather than asking for what",
   "it says.",
+  "",
+  "If verksted itself gets in your way — something the workbench cannot do, not",
+  'something about the repo you are in — say so with `vk feedback "..."`. It',
+  "reaches the person who owns the bench; nothing else is expected of you.",
 ].join("\n");
 
 const RULES_START = "<!-- verksted:house start -->";

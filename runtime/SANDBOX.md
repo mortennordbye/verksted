@@ -76,6 +76,22 @@ Reach for these before installing something: what is here is the same on every
 restart, and what `apt-get install` adds is gone with the container. Tools
 under `$HOME` — `npm i -g`, `uv tool install`, `cargo install` — do persist.
 
+## Telling the owner what the bench is missing
+
+`vk feedback "<one or two sentences>"` files a note that lands in the owner's
+inbox for review.
+
+This is for verksted itself — the workbench you are running inside — and only
+for what got in your way here: a thing the app cannot do, a command that was not
+available, a way the sandbox made a normal job awkward. You are the one who
+finds these out, at the moment they stop you, and a transcript nobody reads is
+where they go otherwise.
+
+It is not for the repo you are working in: bugs, ideas and deferred work belong
+in that project's own issues or `BACKLOG.md`, and a note filed here about them
+is noise in a queue read by a person. Nothing is expected of you — a session
+that never files one is a session that was not blocked, which is the normal case.
+
 ## Other things worth knowing
 
 - **File watching.** Repos live on a network volume in the pod. Bind-mounted hot

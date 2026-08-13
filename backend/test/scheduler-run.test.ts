@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scheduledJobs } from "croner";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeBin } from "./helpers/fake-bin.js";
+import { FakeBin, tmuxLsRows } from "./helpers/fake-bin.js";
 
 /**
  * What a fired schedule actually does. schedules.test.ts covers the store and
@@ -231,7 +231,7 @@ describe("runSchedule", () => {
     const s = await schedule("check the open PRs");
     const first = await sessionFrom(s.id);
     // The session the first run started is still live on the tmux server.
-    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
     fake.reset();
 
     const second = await scheduler.runSchedule(s.id, log);
@@ -372,7 +372,7 @@ describe("a schedule that runs a maintainer stage", () => {
   it("ends the session once the agent has exited, failing one that left no report", async () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     // The pane is back at its shell: the headless agent is gone.
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
@@ -391,7 +391,7 @@ describe("a schedule that runs a maintainer stage", () => {
     // no longer has the session.
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "1");
     fake.reply("tmux", "capture-pane", {
       stdout:
@@ -412,7 +412,7 @@ describe("a schedule that runs a maintainer stage", () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.report`), "ok: filed 2\n");
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
     await scheduler.watchUnattended(log);
@@ -424,7 +424,7 @@ describe("a schedule that runs a maintainer stage", () => {
   it("leaves a run alone while its agent is still going", async () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
     await scheduler.watchUnattended(log);
 
@@ -435,7 +435,7 @@ describe("a schedule that runs a maintainer stage", () => {
   it("kills a run at the cap and says so", async () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
     await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
 
@@ -448,7 +448,7 @@ describe("a schedule that runs a maintainer stage", () => {
   it("does not touch a session a person started", async () => {
     const s = await schedule("check the open PRs");
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
     await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
@@ -836,7 +836,7 @@ describe("a schedule that runs the assistant", () => {
   it("still reads a ceiling or an empty queue as the schedule holding off", async () => {
     const s = await schedule("check the open PRs");
     const first = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
 
     await scheduler.runSchedule(s.id, log);
 
@@ -905,7 +905,7 @@ describe("a run that could not run at all", () => {
   it("says nothing when the schedule simply held off", async () => {
     const s = await schedule("render tonight's queue");
     const first = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
 
     const sent = await pushes(() => scheduler.runSchedule(s.id, log));
 
@@ -924,7 +924,7 @@ describe("a scheduled session that has signed off", () => {
     const session = await sessionFrom(s.id);
     // A schedule's session runs the TUI: it writes its report and then sits at
     // the prompt, so tmux goes on listing it until somebody ends it.
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     signOff(session!.id, "ok: nothing to render");
 
     await scheduler.endSignedOffRuns(log);
@@ -937,7 +937,7 @@ describe("a scheduled session that has signed off", () => {
   it("is left alone while it has written nothing, because it may be asking", async () => {
     const s = await schedule("render tonight's queue");
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
     await scheduler.endSignedOffRuns(log);
 
@@ -947,7 +947,7 @@ describe("a scheduled session that has signed off", () => {
   it("leaves an unattended run to the watch that knows when its agent exited", async () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
-    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     signOff(session!.id, "ok: nothing to scout");
 
     await scheduler.endSignedOffRuns(log);
