@@ -115,6 +115,8 @@ what unblocks it / where the code lives.
   this bench where "leave no sign an agent wrote this" and "ask before anything
   irreversible" are not said at all — and memory-store.ts injects through the
   same list, so a agy session is also told nothing verksted has learned. The
+  block is also how an agent learns `vk feedback` exists, so agy is the one
+  agent that will never file a note about the bench either. The
   same three-way gap already exists for agy's status hooks and MCP config, so
   this is one verification pass, not three.
 - **Why deferred:** Needs confirming in the pod against a real authenticated

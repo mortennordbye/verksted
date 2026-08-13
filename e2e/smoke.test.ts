@@ -28,6 +28,7 @@ let page: Page;
 let base: string;
 let reposDir: string;
 let sessionsDir: string;
+let feedbackDir: string;
 /** Anything the browser logged as an error, or any request that failed. */
 const problems: string[] = [];
 
@@ -72,7 +73,23 @@ beforeAll(async () => {
     }),
   );
 
+  // One note filed by a session, so the inbox's "from the agents" section is
+  // rendered by something rather than only unit-tested.
+  feedbackDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-fb-"));
+  fs.writeFileSync(
+    path.join(feedbackDir, "fb-11111111.json"),
+    JSON.stringify({
+      id: "fb-11111111",
+      text: "the file tree cannot rename a file",
+      session: "vk-demo-1",
+      project: "demo",
+      agent: "claude",
+      at: new Date().toISOString(),
+    }),
+  );
+
   process.env.REPOS_DIR = reposDir;
+  process.env.FEEDBACK_DIR = feedbackDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
   process.env.STATIC_DIR = dist;
@@ -98,7 +115,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
   await app?.close();
-  for (const dir of [reposDir, sessionsDir]) {
+  for (const dir of [reposDir, sessionsDir, feedbackDir]) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 });
@@ -121,6 +138,12 @@ describe("the app in a real browser", () => {
   it("shows the inbox, with the run's evidence and the way into it", async () => {
     await page.goto(`${base}/runs`, { waitUntil: "networkidle" });
     await page.getByText("Inbox").first().waitFor({ timeout: 15_000 });
+    // What a session filed about the bench itself, and the way to clear it.
+    await page.getByText("the file tree cannot rename a file").waitFor({ timeout: 15_000 });
+    await page.getByRole("button", { name: "dismiss" }).click();
+    await page
+      .getByText("the file tree cannot rename a file")
+      .waitFor({ state: "detached", timeout: 15_000 });
   });
 
   it("reads a finished run's changes and opens the diff behind them", async () => {

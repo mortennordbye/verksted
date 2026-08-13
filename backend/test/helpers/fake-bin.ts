@@ -153,3 +153,15 @@ export class FakeBin {
     fs.rmSync(this.dir, { recursive: true, force: true });
   }
 }
+
+/**
+ * One live session as `tmux ls` prints it for the format the store asks for:
+ * name, last activity, pane pid. A fake reply keyed on "ls" answers both of the
+ * store's formats, and the name-only form is read as a session with no
+ * activity — which the sweep would take as a session tmux could not describe.
+ *
+ * The pane pid is 1, which always exists and always has children, so a session
+ * built from this reads as one whose agent is still running.
+ */
+export const tmuxLsRows = (...names: string[]): string =>
+  names.map((n) => `${n}\t${Math.floor(Date.now() / 1000)}\t1`).join("\n") + "\n";

@@ -38,6 +38,13 @@ export interface Session {
    * somewhere that is not a git repo.
    */
   work: SessionWork | null;
+  /**
+   * Seconds since the session's pane last printed anything; null once it has
+   * ended, and null while tmux cannot be asked. What it answers is the question
+   * a status alone cannot: whether a running session is working or finished
+   * hours ago and left its pane at a shell.
+   */
+  idleSeconds: number | null;
   /** How far a person has got reading what it did. */
   review: ReviewSummary;
 }
@@ -658,4 +665,23 @@ export interface AssistantConfig {
   effort: "low" | "medium" | "high" | "xhigh" | "max";
   /** Free text appended to its instructions: house style, standing orders. */
   instructions: string;
+}
+
+/**
+ * A note an agent filed about the bench itself, from inside a session.
+ *
+ * The agents are the only ones who find out what verksted cannot do at the
+ * moment it stops them, and until now that discovery went into a transcript
+ * nobody reads. `vk feedback "..."` puts it here instead — the same
+ * propose-and-review shape the memory queue uses, because this is likewise
+ * something written on your behalf that should reach you only if you keep it.
+ */
+export interface Feedback {
+  id: string;
+  text: string;
+  /** The session that filed it, and the repo it was working in; null if unknown. */
+  session: string | null;
+  project: string | null;
+  agent: AgentName | null;
+  at: string;
 }

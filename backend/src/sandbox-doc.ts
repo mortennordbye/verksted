@@ -25,6 +25,10 @@ const BLOCK = [
   "ports do not answer on localhost. Read /etc/verksted/SANDBOX.md before running",
   "docker, docker compose, or a project's make targets, and run `vk doctor` to",
   "check the live topology.",
+  "",
+  "If verksted itself gets in your way — something the workbench cannot do, not",
+  'something about the repo you are in — say so with `vk feedback "..."`. It',
+  "reaches the person who owns the bench; nothing else is expected of you.",
 ].join("\n");
 
 const RULES_START = "<!-- verksted:house start -->";

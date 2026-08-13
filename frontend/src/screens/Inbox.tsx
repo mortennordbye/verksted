@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Memory, ScheduleRun, Session, SessionWork } from "../../../shared/api";
+import type { Feedback, Memory, ScheduleRun, Session, SessionWork } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { ReviewMark, StatusChip } from "../components/StatusChip";
@@ -55,6 +55,10 @@ export default function Inbox() {
     "/api/memory/proposed",
     30_000,
   );
+  const { data: filed, refresh: refreshFeedback } = usePoll<{ feedback: Feedback[] }>(
+    "/api/feedback",
+    30_000,
+  );
   const [busy, setBusy] = useState<string | null>(null);
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
   /** A run's review, read off the session it started — the runs list has no
@@ -62,13 +66,26 @@ export default function Inbox() {
   const reviewOf = (sessionId: string | null) =>
     sessions?.find((s) => s.id === sessionId)?.review ?? null;
   const proposals = proposed?.proposals ?? [];
+  const notes = filed?.feedback ?? [];
   // Proposals count: they are the one thing here that arrives with nothing to
   // announce it, and a queue nobody looks at is a learning loop that stalls at
   // the review step. Lighter than blocked work, but it does want you.
   const needsYou =
     waiting.length +
     proposals.length +
+    notes.length +
     (runs ?? []).filter((r) => r.outcome === "attention" || r.outcome === "failed").length;
+
+  async function dismiss(id: string) {
+    if (busy) return;
+    setBusy(id);
+    try {
+      await api(`/api/feedback/${id}`, { method: "DELETE" });
+      refreshFeedback();
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function review(slug: string, keep: boolean) {
     if (busy) return;
@@ -98,8 +115,9 @@ export default function Inbox() {
               : "nothing needs you"}
         </h1>
         <div className="mb-6 text-sm text-muted">
-          Agents blocked on a decision, memories waiting to be kept or dropped, then every firing of
-          every schedule. A run signs off with one line; that line is what the phone got.
+          Agents blocked on a decision, memories waiting to be kept or dropped, what the sessions
+          said the bench was missing, then every firing of every schedule. A run signs off with one
+          line; that line is what the phone got.
         </div>
 
         {waiting.length > 0 && (
@@ -160,6 +178,50 @@ export default function Inbox() {
                         drop
                       </button>
                     </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Filed from inside a session with `vk feedback`. The agents are the
+            only ones who meet verksted's limits at the moment they bite, and
+            this is the one place that knowledge lands in front of a person. */}
+        {notes.length > 0 && (
+          <>
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              From the agents
+            </div>
+            <div className="mb-1.5 text-[13px] text-muted">
+              What sessions said verksted itself was missing. Dismissing one only clears it from
+              here — it is a note, not a task.
+            </div>
+            <div className="mb-7 flex flex-col gap-2">
+              {notes.map((n) => (
+                <div
+                  key={n.id}
+                  className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5"
+                >
+                  <div className="text-[13.5px]">{n.text}</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                    {n.agent && <StatusChip kind="idle" label={n.agent} />}
+                    {n.session && (
+                      <Link
+                        to={`/s/${n.session}`}
+                        className="font-mono text-[11px] text-faint hover:text-accent"
+                      >
+                        {n.session}
+                      </Link>
+                    )}
+                    <span className="font-mono text-[11px] text-faint">{agoLabel(n.at)}</span>
+                    <button
+                      onClick={() => dismiss(n.id)}
+                      disabled={busy !== null}
+                      className="ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                    >
+                      dismiss
+                    </button>
                   </div>
                 </div>
               ))}

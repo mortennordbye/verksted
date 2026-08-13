@@ -157,9 +157,9 @@ async function readMeta(id: string): Promise<Meta | null> {
  * means "unknown", and every caller has to treat it as such rather than as
  * "nothing is running".
  */
-async function liveNames(): Promise<Set<string> | null> {
+async function liveNames(): Promise<Map<string, tmux.SessionActivity> | null> {
   try {
-    return new Set(await tmux.listSessions());
+    return new Map((await tmux.listSessionsDetail()).map((d) => [d.name, d]));
   } catch {
     return null;
   }
@@ -174,7 +174,12 @@ async function killQuietly(name: string): Promise<void> {
   }
 }
 
-async function toSession(meta: Meta, live: boolean, state: string | null): Promise<Session> {
+async function toSession(
+  meta: Meta,
+  live: boolean,
+  state: string | null,
+  activity?: tmux.SessionActivity,
+): Promise<Session> {
   const {
     cdpPort: _cdpPort,
     startCommit: _startCommit,
@@ -189,6 +194,7 @@ async function toSession(meta: Meta, live: boolean, state: string | null): Promi
     ...wire,
     work: meta.work ?? null,
     status,
+    idleSeconds: activity ? Math.max(0, Math.round(Date.now() / 1000 - activity.activity)) : null,
     report,
     outcome: reportOutcome(report, live),
     // A count, not the paths: this rides on every row of every list, and the
@@ -346,7 +352,8 @@ export async function listSessions(project?: string): Promise<Session[]> {
     if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
       await killQuietly(`${m.id}-shell`);
     }
-    out.push(await toSession(m, live.has(m.id), live.has(m.id) ? await readState(m.id) : null));
+    const alive = live.get(m.id);
+    out.push(await toSession(m, !!alive, alive ? await readState(m.id) : null, alive));
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
@@ -358,7 +365,7 @@ export async function getSession(id: string): Promise<Session | null> {
   // Unknown liveness: fall back to what the metadata last recorded, the same
   // way listSessions does, rather than reporting a live session as done.
   const isLive = live === null ? !meta.endedAt : live.has(id);
-  return await toSession(meta, isLive, isLive ? await readState(id) : null);
+  return await toSession(meta, isLive, isLive ? await readState(id) : null, live?.get(id));
 }
 
 /**
@@ -633,6 +640,82 @@ export async function endSession(id: string): Promise<Session | null> {
   if (stored && !stored.work) ({ work, endCommit } = await captureWork(stored));
   if (stored) await writeMeta({ ...stored, endedAt, work, endCommit });
   return { ...session, endedAt, work, status: "done" };
+}
+
+/**
+ * How long a session has to have been a bare shell before the sweep ends it.
+ * Long enough that a pane still being read is never pulled out from under
+ * someone, short enough that a night of finished runs is not still holding
+ * slots the scheduler needs in the morning.
+ */
+export const REAP_IDLE_MS = 2 * 60 * 60_000;
+
+/**
+ * Whether the agent this pane was started for has exited.
+ *
+ * tmux runs the agent as `<agent>; exec $SHELL`, so the pane process is the
+ * shell in both cases and its command name says nothing (see SessionActivity).
+ * What says everything is the child: while the agent runs — including while it
+ * is running a tool — the shell has one, and when it exits the pane is left as
+ * an interactive shell with none.
+ */
+async function agentGone(panePid: number): Promise<boolean> {
+  try {
+    const children = await fs.readFile(`/proc/${panePid}/task/${panePid}/children`, "utf8");
+    return children.trim() === "";
+  } catch {
+    // No such process, or a kernel without CONFIG_PROC_CHILDREN. Neither is
+    // evidence that the agent is gone, and this decision ends sessions.
+    return false;
+  }
+}
+
+/**
+ * End sessions whose agent has finished and left the pane sitting at a shell.
+ *
+ * These are invisible as anything but "running": the pane outlives the agent on
+ * purpose (a crashed agent has to stay readable, and its shell is where you
+ * restart it), so a session whose work ended at 02:00 still reads as live at
+ * noon and still counts against the scheduler's live-session ceiling. Ending it
+ * here is the same end DELETE performs — the report, the commit range and the
+ * history all survive; only the idle pane goes.
+ *
+ * Deliberately narrow. Nothing is ended that is:
+ *
+ * - **waiting** — that is a question addressed to a person, and the inbox's
+ *   business, not a sweep's.
+ * - **still running an agent** — a live child means work in progress, however
+ *   quiet the pane has been.
+ * - **holding uncommitted or unpushed work** — the volume is the only copy, and
+ *   discarding what git cannot get back is not a housekeeping decision. Those
+ *   are reported instead, and left exactly where they are.
+ */
+export async function reapFinishedSessions(log: Logger): Promise<string[]> {
+  const live = await liveNames();
+  if (live === null) return []; // tmux unreachable: sweep nothing, as elsewhere.
+  const ended: string[] = [];
+  for (const meta of await readAll()) {
+    if (meta.endedAt) continue;
+    const activity = live.get(meta.id);
+    if (!activity) continue; // Already gone; the list sweep stamps its end.
+    if (Date.now() - activity.activity * 1000 < REAP_IDLE_MS) continue;
+    if ((await readState(meta.id)) === "waiting") continue;
+    if (!(await agentGone(activity.panePid))) continue;
+
+    const { work } = await captureWork(meta);
+    if (work && (work.dirty > 0 || (work.unpushed ?? 0) > 0)) {
+      log.warn(
+        { session: meta.id, dirty: work.dirty, unpushed: work.unpushed },
+        `${meta.id} finished with work only on the volume; leaving it open`,
+      );
+      continue;
+    }
+    await endSession(meta.id);
+    ended.push(meta.id);
+    const idleHours = Math.round((Date.now() - activity.activity * 1000) / 3_600_000);
+    log.info(`ended ${meta.id}: its agent had exited, pane idle ${idleHours}h`);
+  }
+  return ended;
 }
 
 /** End the session (tmux + shell companion) and remove it from history. */
