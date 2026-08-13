@@ -10,9 +10,39 @@ set -eu
 PROBE_IMAGE=busybox:stable
 
 usage() {
-  echo "usage: vk doctor    report this session's docker topology"
+  echo "usage: vk doctor          report this session's docker topology"
+  echo "       vk feedback TEXT   tell the owner what verksted itself is missing"
   echo
   echo "/etc/verksted/SANDBOX.md explains what the report means."
+}
+
+# Where the backend answers from inside a session. Always this pod, always this
+# port: the app and the session share a network namespace, whatever the tunnel
+# in front of it looks like.
+API=${VK_API:-http://127.0.0.1:8080}
+
+# A note about the bench, not about the repo. The text is the request body
+# verbatim, so no quoting of it into JSON has to happen in sh; the session id
+# rides along as a query parameter and the backend reads the repo off it.
+feedback() {
+  if [ -z "${1:-}" ]; then
+    echo "vk feedback: say what is missing, in one or two sentences" >&2
+    exit 1
+  fi
+  url="$API/api/feedback"
+  # An `x && y` list whose left side fails is itself a failed command, and this
+  # script runs under `set -e`: written that way, a session with no id in its
+  # environment would exit here instead of filing the note.
+  if [ -n "${VK_SESSION_ID:-}" ]; then
+    url="$url?session=$VK_SESSION_ID"
+  fi
+  if printf '%s' "$*" |
+    curl -fsS -X POST -H 'Content-Type: text/plain' --data-binary @- "$url" >/dev/null; then
+    echo "filed. it lands in the inbox for review; nothing else is needed."
+  else
+    echo "vk feedback: could not reach verksted at $API" >&2
+    exit 1
+  fi
 }
 
 doctor() {
@@ -49,6 +79,10 @@ doctor() {
 
 case "${1:-}" in
   doctor) doctor ;;
+  feedback)
+    shift
+    feedback "$@"
+    ;;
   *)
     usage
     exit 1

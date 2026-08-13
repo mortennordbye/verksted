@@ -3,15 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { establishedCount } from "../src/maintenance.js";
 
 let app: FastifyInstance;
+// Imported with the app rather than at the top of the file: maintenance reaches
+// env.ts through the session sweep, and env snapshots process.env the first time
+// it is imported — a static import here would freeze REPOS_DIR at its default
+// before the line below points it at a temp dir, and the disk facts would then
+// be measured on a path that does not exist.
+let establishedCount: typeof import("../src/maintenance.js").establishedCount;
 
 beforeAll(async () => {
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-facts-"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-facts-s-"));
   process.env.STATIC_DIR = "";
   const { buildApp } = await import("../src/app.js");
+  ({ establishedCount } = await import("../src/maintenance.js"));
   app = await buildApp({ logger: false });
 });
 

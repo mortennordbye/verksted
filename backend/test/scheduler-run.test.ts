@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { scheduledJobs } from "croner";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeBin } from "./helpers/fake-bin.js";
+import { FakeBin, tmuxLsRows } from "./helpers/fake-bin.js";
 
 /**
  * What a fired schedule actually does. schedules.test.ts covers the store and
@@ -184,7 +184,7 @@ describe("runSchedule", () => {
     const s = await schedule("check the open PRs");
     const first = await sessionFrom(s.id);
     // The session the first run started is still live on the tmux server.
-    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
     fake.reset();
 
     const second = await scheduler.runSchedule(s.id, log);

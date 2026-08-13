@@ -19,6 +19,7 @@ for (const dir of [
   env.SCHEDULES_DIR,
   env.ASSISTANT_DIR,
   env.MEMORY_DIR,
+  env.FEEDBACK_DIR,
 ]) {
   fs.mkdirSync(dir, { recursive: true });
 }

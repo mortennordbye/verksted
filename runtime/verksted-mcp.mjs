@@ -43,6 +43,17 @@ const local = (iso) =>
   iso ? new Date(iso).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "-";
 
 /**
+ * How long a live session has been silent, as a phrase. Only worth printing
+ * once it is long enough to mean something: a session that last spoke a minute
+ * ago is simply working, and a column of "idle 0m" teaches nothing.
+ */
+const idle = (seconds) => {
+  if (seconds === null || seconds < 30 * 60) return "";
+  const hours = Math.floor(seconds / 3600);
+  return hours ? `  idle ${hours}h` : `  idle ${Math.floor(seconds / 60)}m`;
+};
+
+/**
  * Set when this server was started for a turn a schedule fired, with nobody
  * reading. Only the tools marked `unattended` are then offered at all — not
  * merely left off an allow list, which is auto-approval rather than
@@ -81,7 +92,7 @@ const TOOLS = [
         ),
         "",
         "LIVE SESSIONS",
-        rows(live, (s) => `${s.id}  ${s.agent}  ${s.status}  ${s.title}`),
+        rows(live, (s) => `${s.id}  ${s.agent}  ${s.status}  ${s.title}${idle(s.idleSeconds)}`),
         "",
         // Finished sessions matter only for what they concluded, and only
         // recently: the rest is history the user can open the inbox for.

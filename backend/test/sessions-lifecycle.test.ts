@@ -1,7 +1,8 @@
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TmuxUnavailableError } from "../src/tmux.js";
 import type { SessionWork } from "../../shared/api.js";
 
@@ -11,11 +12,26 @@ const tmuxList = vi.fn<() => Promise<string[]>>();
 const tmuxNew = vi.fn<(...args: unknown[]) => Promise<void>>();
 const tmuxKill = vi.fn<(name: string) => Promise<void>>();
 
+/**
+ * The store asks tmux for detail, not just names. Every case here that only
+ * cares about which sessions are live keeps saying so through tmuxList, and
+ * this derives a plausible detail row from it: active this second, and a pane
+ * pid that resolves to a process with children (pid 1 always has some), which
+ * is what the sweep reads as "the agent is still there".
+ */
+const tmuxDetail = vi.fn(async () =>
+  (await tmuxList()).map((name) => ({
+    name,
+    activity: Math.floor(Date.now() / 1000),
+    panePid: 1,
+  })),
+);
+
 vi.mock("../src/tmux.js", async () => {
   const actual = await vi.importActual<typeof import("../src/tmux.js")>("../src/tmux.js");
   return {
     ...actual,
-    listSessions: () => tmuxList(),
+    listSessionsDetail: () => tmuxDetail(),
     newSession: (...args: unknown[]) => tmuxNew(...args),
     killSession: (name: string) => tmuxKill(name),
   };
@@ -88,7 +104,7 @@ beforeEach(() => {
 });
 
 /**
- * The bug this guards: tmux.listSessions used to swallow every failure and
+ * The bug this guards: the tmux listing used to swallow every failure and
  * return [], so one bad `tmux ls` marked every session done, wrote endedAt to
  * each, and made the notifier push "finished" per session — every 5 s.
  */
@@ -427,5 +443,115 @@ describe("per-project standing context", () => {
     await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
     expect(tmuxNewEnv().VK_PROMPT.length).toBeLessThan(8_100);
     clearContext();
+  });
+});
+
+/**
+ * The sweep that ends sessions whose agent has exited, leaving the pane at a
+ * shell. Its whole safety rests on one kernel fact — that a live agent shows up
+ * as a child of the pane process — so these use real processes rather than a
+ * stub of the check: a kernel without /proc children support has to fail here
+ * and not in the pod, where the cost is an ended session.
+ */
+describe("reapFinishedSessions", () => {
+  const spawned: ChildProcess[] = [];
+  const log = { info: vi.fn(), warn: vi.fn() };
+
+  /** A pane whose agent has exited: a process with no children. */
+  const bareShell = (): number => {
+    const p = spawn("sleep", ["30"], { stdio: "ignore" });
+    spawned.push(p);
+    return p.pid!;
+  };
+
+  /** A pane still running its agent: a shell with a child under it. */
+  const withAgent = async (): Promise<number> => {
+    const p = spawn("sh", ["-c", "sleep 30 & wait"], { stdio: "ignore" });
+    spawned.push(p);
+    // The child appears a moment after the shell does.
+    for (let i = 0; i < 50; i++) {
+      const kids = fs.readFileSync(`/proc/${p.pid}/task/${p.pid}/children`, "utf8").trim();
+      if (kids) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    return p.pid!;
+  };
+
+  /** One live session, idle for `idleMinutes`, with the given pane process. */
+  const live = (id: string, panePid: number, idleMinutes: number) =>
+    tmuxDetail.mockResolvedValue([
+      { name: id, activity: Math.floor(Date.now() / 1000) - idleMinutes * 60, panePid },
+    ]);
+
+  afterEach(() => {
+    for (const p of spawned.splice(0)) p.kill("SIGKILL");
+    tmuxDetail.mockReset();
+  });
+
+  it("ends a session whose agent exited and left nothing behind", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
+    live("vk-demo-1", bareShell(), 180);
+
+    expect(await store.reapFinishedSessions(log)).toEqual(["vk-demo-1"]);
+    expect(tmuxKill).toHaveBeenCalledWith("vk-demo-1");
+    // Ended, not deleted: the report and the range it left are the history.
+    expect(readMetaFile("vk-demo-1").endedAt).not.toBeNull();
+    expect(fs.existsSync(metaFile("vk-demo-1"))).toBe(true);
+  });
+
+  it("leaves a session whose agent is still running, however quiet it has been", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
+    live("vk-demo-1", await withAgent(), 24 * 60);
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(tmuxKill).not.toHaveBeenCalled();
+  });
+
+  it("leaves a session that has not been idle long enough", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
+    live("vk-demo-1", bareShell(), 5);
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+  });
+
+  /** A question addressed to a person is the inbox's business, not a sweep's. */
+  it("leaves a session that is waiting on an answer", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.state"), "waiting");
+    live("vk-demo-1", bareShell(), 180);
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(tmuxKill).not.toHaveBeenCalled();
+  });
+
+  /** The volume is the only copy of anything git has not been told about. */
+  it("leaves a session holding uncommitted work, and says so", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 3, unpushed: 0 });
+    live("vk-demo-1", bareShell(), 180);
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(readMetaFile("vk-demo-1").endedAt).toBeNull();
+    expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("leaves a session whose commits have not reached a remote", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 2 });
+    live("vk-demo-1", bareShell(), 180);
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+  });
+
+  it("sweeps nothing while tmux cannot be asked", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxDetail.mockRejectedValue(new TmuxUnavailableError(new Error("fork failed")));
+
+    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(tmuxKill).not.toHaveBeenCalled();
   });
 });

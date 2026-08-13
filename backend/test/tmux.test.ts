@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TmuxUnavailableError, listSessions } from "../src/tmux.js";
+import { TmuxUnavailableError, listSessionsDetail } from "../src/tmux.js";
 
 const realPath = process.env.PATH;
 const realTmpdir = process.env.TMUX_TMPDIR;
@@ -18,15 +18,15 @@ afterEach(() => {
  * genuinely nothing is live; anything else means we could not find out, and
  * answering [] would end every session and push "finished" for each one.
  */
-describe("listSessions", () => {
+describe("listSessionsDetail", () => {
   it("returns nothing when there is no tmux server", async () => {
     // A socket dir tmux has never used: it reports "error connecting to …".
     process.env.TMUX_TMPDIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-tmux-"));
-    await expect(listSessions()).resolves.toEqual([]);
+    await expect(listSessionsDetail()).resolves.toEqual([]);
   });
 
   it("throws rather than reporting nothing when tmux cannot be run at all", async () => {
     process.env.PATH = "/nonexistent";
-    await expect(listSessions()).rejects.toBeInstanceOf(TmuxUnavailableError);
+    await expect(listSessionsDetail()).rejects.toBeInstanceOf(TmuxUnavailableError);
   });
 });

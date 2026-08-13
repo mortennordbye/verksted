@@ -76,6 +76,8 @@ export const env = {
   ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
   // What verksted has learned: one markdown file per fact (see memory-store.ts).
   MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
+  // Notes the agents filed about the bench itself (see feedback-store.ts).
+  FEEDBACK_DIR: process.env.FEEDBACK_DIR ?? "/data/feedback",
   // Model and reasoning effort for the assistant only; sessions are unaffected.
   ASSISTANT_MODEL: assistantModel,
   ASSISTANT_EFFORT: assistantEffort,
