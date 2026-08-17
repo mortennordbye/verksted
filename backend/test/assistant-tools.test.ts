@@ -90,6 +90,7 @@ describe("the tool set", () => {
         "ci_log",
         "ci_rerun",
         "ci_runs",
+        "cluster_status",
         "create_schedule",
         "delete_schedule",
         "end_session",
@@ -142,6 +143,9 @@ describe("the tool set", () => {
       [
         "ci_log",
         "ci_runs",
+        // Read-only, and the cluster is exactly the thing an unwatched run needs
+        // to see: a scheduled deploy check has no one to ask.
+        "cluster_status",
         "list_memories",
         "list_prs",
         "list_schedules",

@@ -250,6 +250,21 @@ export interface PodFacts {
   docker: { type: string; size: string; reclaimable: string }[] | null;
 }
 
+/**
+ * The cluster this pod runs in, as kubectl prints it.
+ *
+ * Text rather than parsed rows on purpose: every section here is a `kubectl get`
+ * table, and for the CRDs those columns are the ones Argo CD and Kargo chose to
+ * show. Parsing them into fields would mean pinning jsonpaths into someone
+ * else's API that a chart upgrade is free to move, to produce something no more
+ * readable than the table. The only processing done is dropping the healthy pods.
+ */
+export interface ClusterSnapshot {
+  /** False on a bench with no cluster credential — a laptop, CI. */
+  reachable: boolean;
+  sections: { title: string; text: string }[];
+}
+
 export interface GitFileStatus {
   path: string;
   /** One-letter code, VS Code style: M, U (untracked), A, D, R, … */
