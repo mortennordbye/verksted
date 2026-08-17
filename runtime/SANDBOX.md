@@ -1,9 +1,10 @@
 # The verksted sandbox
 
 You are working inside a verksted session: one container holding tmux, the agent
-CLIs, git, gh, node, python — and a docker _client_. Read this before running
-`docker`, `docker compose`, or a project's `make` targets. The environment
-differs from a laptop in two ways, and both fail silently rather than loudly.
+CLIs, git, gh, kubectl, node, python — and a docker _client_. Read this before
+running `docker`, `docker compose`, or a project's `make` targets. The
+environment differs from a laptop in two ways that fail silently rather than
+loudly, and carries one credential worth knowing you have.
 
 Run `vk doctor` to see the live topology of the session you are actually in.
 
@@ -40,6 +41,26 @@ namespace.
 
 `vk doctor` prints the right host for the session you are in. Reach for it when
 a project's README says "open http://localhost:PORT".
+
+## 3. kubectl is already pointed at the cluster you are running in
+
+There is no kubeconfig to write and no context to select: in the pod, kubectl
+reads the projected ServiceAccount token and talks to the cluster hosting this
+session. On a bench outside a cluster there is no token, and every command fails
+to find a server — which is the honest answer, not a setup step you missed.
+
+The account is bound to cluster-wide **read**, plus `create` on Kargo
+Promotions. So `get`, `describe`, `logs`, `top` and `events` work anywhere,
+including the `argoproj.io` and `kargo.akuity.io` custom resources — an ArgoCD
+Application's sync state and a Kargo Stage's Freight are ordinary objects here.
+Secrets are not readable: the builtin `view` role leaves them out, and that is
+deliberate.
+
+Two things follow. `apply`, `edit`, `delete` and `scale` will be refused, and
+should be: ArgoCD owns cluster state and reconciles it from git, so a change
+belongs in a manifest and a pull request. And the credential is the pod's, not
+yours — every session shares it, so treat what you read as you would anything
+else on a shared machine.
 
 ## Other things worth knowing
 

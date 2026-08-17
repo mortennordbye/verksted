@@ -94,6 +94,28 @@ RUN install -m 0755 -d /etc/apt/keyrings \
     && apt-get update && apt-get install -y --no-install-recommends \
        docker-ce-cli docker-compose-plugin docker-buildx-plugin \
     && rm -rf /var/lib/apt/lists/*
+
+# kubectl, for sessions that run in the cluster this image is deployed to. In
+# the pod there is no kubeconfig to write: kubectl finds the projected
+# ServiceAccount token by itself, so what it can do is decided entirely by the
+# RBAC bound to that account (homelab: k8s/talos/apps/verksted/rbac.yaml).
+# Outside the pod — a laptop, CI — there is no token and every command simply
+# fails to find a cluster, which is the correct outcome.
+#
+# The minor is pinned to the cluster's (Genesis is on 1.35): pkgs.k8s.io serves
+# one repository per minor, and kubectl only promises to work one minor either
+# side of the apiserver. Bump this together with a Talos/Kubernetes upgrade.
+RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key \
+      -o /etc/apt/keyrings/kubernetes.asc \
+    && chmod a+r /etc/apt/keyrings/kubernetes.asc \
+    # Armored key referenced directly, as in the docker block above — this image
+    # has no gnupg, so there is nothing to dearmor with.
+    && echo "deb [signed-by=/etc/apt/keyrings/kubernetes.asc] https://pkgs.k8s.io/core:/stable:/v1.35/deb/ /" \
+       > /etc/apt/sources.list.d/kubernetes.list \
+    && apt-get update && apt-get install -y --no-install-recommends kubectl \
+    && rm -rf /var/lib/apt/lists/* \
+    && kubectl version --client
+
 # The installer drops a 180MB binary under /root/.local and we copy it out, so
 # without the cleanup the layer carries the same binary twice. /root is not the
 # runtime HOME (that is /data/home, a volume), so nothing reads what is removed.

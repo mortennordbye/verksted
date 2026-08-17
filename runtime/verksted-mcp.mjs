@@ -141,6 +141,20 @@ const TOOLS = [
     },
   },
   {
+    name: "cluster_status",
+    unattended: true,
+    description:
+      "The Kubernetes cluster this workbench runs in: nodes, pods that are not healthy, ArgoCD sync state, Kargo stages and promotions, and recent warnings. Read-only. Use it when an answer depends on the cluster rather than on this box — a merged PR that has not appeared, a deploy that says it finished, an app that is down. It reports the shape of the problem; a session with kubectl is where you go digging.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => {
+      const { reachable, sections } = await call("GET", "/api/cluster");
+      // Said plainly rather than as an empty answer: a bench outside the cluster
+      // is not a broken cluster, and the difference decides what to say next.
+      if (!reachable) return "this workbench has no cluster access";
+      return sections.map((s) => `${s.title}\n${s.text}`).join("\n\n");
+    },
+  },
+  {
     name: "start_session",
     description:
       "Start an agent session in a project, optionally with a first prompt. This is how you do work that changes anything: you cannot edit files or run commands yourself, so delegate it to a session the user can watch, then say which session you started. The prompt has to stand on its own — the session cannot see this conversation.",
