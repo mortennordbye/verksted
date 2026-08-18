@@ -1,6 +1,6 @@
 #!/bin/sh
-# verksted sandbox helper. `vk doctor` reports what this session's docker setup
-# actually is right now; /etc/verksted/SANDBOX.md explains why it is that way.
+# verksted sandbox helper. `vk doctor` reports what this session's docker and
+# cluster access actually are right now; /etc/verksted/SANDBOX.md explains why.
 #
 # The bind-mount probe is the point of the command: a daemon that cannot see the
 # working directory mounts an empty one instead of failing, so the only reliable
@@ -10,9 +10,28 @@ set -eu
 PROBE_IMAGE=busybox:stable
 
 usage() {
-  echo "usage: vk doctor    report this session's docker topology"
+  echo "usage: vk doctor    report this session's docker and cluster topology"
   echo
   echo "/etc/verksted/SANDBOX.md explains what the report means."
+}
+
+# What kubectl can actually do from here, asked rather than assumed. The answer
+# is the apiserver's: the RBAC bound to this pod's ServiceAccount is a manifest
+# in another repo and may have moved since anyone wrote a doc about it.
+can() { kubectl auth can-i "$@" --all-namespaces 2>/dev/null || true; }
+
+cluster() {
+  if ! command -v kubectl >/dev/null 2>&1; then
+    echo "cluster          kubectl is not installed in this image"
+  elif ! who=$(kubectl auth whoami -o jsonpath='{.status.userInfo.username}' 2>/dev/null); then
+    # No token, or one the apiserver will not accept. Both mean the same thing
+    # to a session: do not plan on reading the cluster from here.
+    echo "cluster          none reachable - no usable ServiceAccount token here"
+  else
+    echo "cluster          reachable as $who"
+    echo "                 get pods $(can get pods), get secrets $(can get secrets)," \
+         "create deployments $(can create deployments)"
+  fi
 }
 
 doctor() {
@@ -35,6 +54,8 @@ doctor() {
     *) host=127.0.0.1 ;;
   esac
   echo "published ports  answer at $host:<port>"
+
+  cluster
 
   here=$(ls -A . 2>/dev/null | wc -l | tr -d ' ')
   there=$(docker run --rm -v "$PWD:/probe" "$PROBE_IMAGE" ls -A /probe 2>/dev/null | wc -l | tr -d ' ')

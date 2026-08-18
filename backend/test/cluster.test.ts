@@ -1,9 +1,20 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { unhealthyPods } from "../src/routes/cluster.js";
+
+/** Every kubectl argv the route asked for, and what to answer with. */
+const calls: string[][] = [];
+let reply: (args: string[]) => string = () => "";
+
+vi.mock("../src/exec.js", () => ({
+  exec: async (file: string, args: string[]) => {
+    calls.push([file, ...args]);
+    return { stdout: reply(args), stderr: "" };
+  },
+}));
 
 let app: FastifyInstance;
 
@@ -11,11 +22,16 @@ beforeAll(async () => {
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-cluster-"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-cluster-s-"));
   process.env.STATIC_DIR = "";
+  // The snapshot is cached for ten seconds, so the two route cases below would
+  // otherwise be one answer served twice. Only Date is faked; the http server
+  // and its timers are left alone.
+  vi.useFakeTimers({ toFake: ["Date"] });
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
 });
 
 afterAll(async () => {
+  vi.useRealTimers();
   await app.close();
 });
 
@@ -51,11 +67,32 @@ describe("unhealthyPods", () => {
 });
 
 describe("GET /api/cluster", () => {
-  // The test container has no ServiceAccount token, so this exercises the
-  // no-cluster path: an answer, not a 500.
   it("reports unreachable rather than failing when there is no cluster", async () => {
+    reply = () => {
+      throw new Error("The connection to the server localhost:8080 was refused");
+    };
     const res = await app.inject({ url: "/api/cluster" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ reachable: false, sections: [] });
+  });
+
+  it("never passes --request-timeout, which would disable in-cluster config", async () => {
+    // The flag puts a Timeout on the merged client config, so it stops comparing
+    // equal to kubectl's built-in default — and that equality is what kubectl
+    // tests before falling back to the projected ServiceAccount token. With the
+    // flag, every read silently goes to http://localhost:8080 instead, which in
+    // the pod is this backend answering 200 with index.html.
+    vi.setSystemTime(Date.now() + 60_000); // past the snapshot's ten-second cache
+    calls.length = 0;
+    reply = (args) => (args[1] === "pods" ? PODS : "NAME   STATUS\nx      Ready");
+
+    const res = await app.inject({ url: "/api/cluster" });
+
+    expect(res.json().reachable).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const argv of calls) {
+      expect(argv[0]).toBe("kubectl");
+      expect(argv.join(" ")).not.toContain("--request-timeout");
+    }
   });
 });

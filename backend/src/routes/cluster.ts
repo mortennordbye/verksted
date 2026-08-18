@@ -21,13 +21,19 @@ import { ttlCache } from "../cache.js";
 /** A read, or null if it failed for any reason — no cluster, no permission, timeout. */
 async function kubectl(args: string[]): Promise<string | null> {
   try {
-    // Two timeouts because they stop different things: --request-timeout ends a
-    // call the apiserver is not answering, the outer one ends a kubectl that
-    // never got that far (no route to the API at all, which is what a bench
-    // outside the cluster looks like).
-    const { stdout } = await exec("kubectl", [...args, "--request-timeout=5s"], {
-      timeout: 8_000,
-    });
+    // No --request-timeout, however reasonable it looks here. Setting it puts a
+    // Timeout on the merged client config, which stops that config comparing
+    // equal to kubectl's built-in default — and equality with the default is the
+    // test kubectl uses to decide whether to fall back to in-cluster config. So
+    // the flag silently turns the projected ServiceAccount token off and sends
+    // every request to the default server instead: http://localhost:8080, which
+    // in this pod is this very backend, answering 200 with index.html. The
+    // symptom is a JSON parse error on "<", nowhere near the cause.
+    //
+    // The process timeout below is the one that does the job anyway: it ends a
+    // kubectl that is hanging for any reason, including one that never found a
+    // route to the apiserver at all.
+    const { stdout } = await exec("kubectl", args, { timeout: 8_000 });
     return stdout.trim() || null;
   } catch {
     return null;
