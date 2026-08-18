@@ -6,6 +6,11 @@ import path from "node:path";
  * so every session in every repo starts knowing that the docker daemon is a
  * sibling — rather than rediscovering it from an empty bind mount.
  *
+ * The cluster credential is here for the opposite reason: an empty bind mount at
+ * least raises the question, but nothing about a shell suggests that kubectl in
+ * it is already talking to the cluster the shell runs in. An agent that is not
+ * told has no way to find out, and asks the user for what it could read itself.
+ *
  * Global rather than per-project because the constraint belongs to the sandbox,
  * not to any repo: it is equally true in a project verksted has never seen. A
  * pointer rather than the text because the file is the agent's context budget,
@@ -25,6 +30,13 @@ const BLOCK = [
   "ports do not answer on localhost. Read /etc/verksted/SANDBOX.md before running",
   "docker, docker compose, or a project's make targets, and run `vk doctor` to",
   "check the live topology.",
+  "",
+  "The container also runs inside a Kubernetes cluster, and kubectl is already",
+  "authenticated against it — no kubeconfig, no context to choose. Cluster-wide",
+  "read, including ArgoCD Applications and Kargo resources; no Secrets and no",
+  "writes, because ArgoCD reconciles from git and a change belongs in a manifest",
+  "and a pull request. So diagnose from the cluster rather than asking for what",
+  "it says.",
 ].join("\n");
 
 const RULES_START = "<!-- verksted:house start -->";
