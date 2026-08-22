@@ -601,7 +601,17 @@ export interface AssistantToolCall {
   detail: string;
 }
 
-/** One turn in the assistant's thread. */
+/**
+ * Which room a thread belongs to.
+ *
+ * Two of them, and they are separate on purpose: the assistant answers alone,
+ * one to one and cheap, and the council is the room you go to when a question
+ * wants more than one head. Each keeps its own conversation, so an afternoon of
+ * meetings does not make the next quick question expensive.
+ */
+export type ChatRoom = "assistant" | "council";
+
+/** One turn in a thread. */
 export interface AssistantEntry {
   id: string;
   role: "user" | "assistant";

@@ -1,7 +1,7 @@
 # The assistant
 
-**Status: M1–M3 are built and work; M4 is proposed. The assistant is now the
-chair of a council — see "The council" below.** The chat, the headless
+**Status: M1–M3 are built and work; M4 is proposed. The assistant and the
+council are two rooms now — see "The council" below.** The chat, the headless
 runtime behind it, the thread store, explicit memory, recall over old threads,
 the tools the assistant acts through, a schedule that runs it with nobody
 watching, and the learning loop — review queue first, then the nightly harvest —
@@ -694,16 +694,45 @@ where the second nose came from.
 
 ## The council
 
-**Status: built.** The assistant is now the chair of a small council. Each of the
-others is a JSON file on the volume — a name, a remit, a persona, a model, and
+**Status: built.** There is a small council beside the assistant. Each of its
+members is a JSON file on the volume — a name, a remit, a persona, a model, and
 the verksted tools it is offered — created and edited from the settings page the
 way a schedule is. `COUNCIL_DIR` is seeded on first boot with three beside
 Gabriel: Michael for the cluster, Raphael for the code, Uriel for the half of
 life that is not work.
 
-**You ask the room, not a person.** Every turn goes to the chair. It either
-answers — which costs exactly what a turn cost before any of this existed — or
-it opens its reply with a line naming who it wants:
+### Two rooms
+
+They are separate things, and the separation is at the conversation rather than
+only in the UI. `/ai` is the assistant: it answers alone, one call, exactly what
+a turn cost before any of this existed. `/council` is the room where several do,
+with the chair routing and the roster on screen. Each keeps its own `current`
+pointer and its own thread, so an afternoon of meetings is not sitting in the
+context of the next quick question, being re-sent and paid for with every turn
+of it. The hub has a door to each.
+
+The rooms are independent in flight, too: one being busy says nothing about the
+other, and `stop` names the room it is stopping. Killing a meeting from a screen
+where nobody pressed anything is exactly the bug that shape prevents.
+
+The API says which room in a query parameter and defaults to the assistant,
+because everything else about those endpoints is one machine — one uploads
+directory, one voice, one settings file, one search over every thread ever
+written — and because a thread written before the split was written to the
+assistant, which is what it should still open as.
+
+**The assistant can point, not pull.** It is told who is on the council and that
+it cannot ask them. When a question is squarely somebody's, it answers what it
+can and makes its last line `theirs: michael`, which the backend lifts off the
+reply and turns into a button carrying the question next door, prefilled and
+unsent. The meeting stays the person's to spend, and the wrong four calls are
+never made on their behalf. A line naming nobody real is left in the text: it
+comes after a real answer, so stripping it would delete a sentence somebody
+meant.
+
+**In the council you ask the room, not a person.** Every turn there goes to the
+chair. It either answers, or it opens its reply with a line naming who it
+wants:
 
 ```
 convene: michael, raphael
@@ -767,7 +796,8 @@ an HTTP request whose client is about to be killed anyway.
 
 |                                       | model invocations          |
 | ------------------------------------- | -------------------------- |
-| a question the chair keeps            | 2 — unchanged              |
+| a question in the assistant's room    | 2 — unchanged              |
+| a question the chair keeps            | 2                          |
 | `@michael …`, straight to one advisor | 2, on that advisor's model |
 | a meeting with N advisors             | N + 2                      |
 | a round table of N advisors           | N + 2, one after another   |
