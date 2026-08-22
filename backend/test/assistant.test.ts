@@ -191,7 +191,7 @@ describe("the thread", () => {
     // state is gone, the volume is not.
     vi.resetModules();
     const fresh = await import("../src/assistant.js");
-    const thread = await fresh.readThread();
+    const thread = await fresh.readThread("assistant");
 
     expect(thread.status).toBe("idle");
     expect(thread.entries).toHaveLength(2);
@@ -204,7 +204,9 @@ describe("the thread", () => {
     // invisible: the transcript is written, and nothing is reading it.
     const { currentConversation } = await import("../src/assistant.js");
 
-    const ids = await Promise.all(Array.from({ length: 8 }, () => currentConversation()));
+    const ids = await Promise.all(
+      Array.from({ length: 8 }, () => currentConversation("assistant")),
+    );
 
     expect(new Set(ids).size).toBe(1);
     expect(fs.readFileSync(path.join(assistantDir, "current"), "utf8").trim()).toBe(ids[0]);

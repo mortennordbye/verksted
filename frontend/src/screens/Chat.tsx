@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
+import { useNavigate, useSearchParams } from "react-router";
+import type { AssistantEntry, AssistantThread, ChatRoom, CouncilMember } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
@@ -33,7 +34,13 @@ function Ico({ children }: { children: ReactNode }) {
 }
 
 /**
- * The assistant's chat.
+ * A chat, in one of the two rooms.
+ *
+ * One screen for both because they are the same conversation with different
+ * people in it: what differs is who may answer, which is decided on the server,
+ * and three things here — the roster, the round table, and the way over to the
+ * other room. Two copies of a chat screen would be two places to fix a scroll
+ * bug in.
  *
  * The thread arrives whole over a websocket rather than being polled or
  * diffed: it is a few kilobytes, and a diff protocol would be the only
@@ -66,7 +73,69 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   );
 }
 
-function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember }) {
+/**
+ * The way over to the council, drawn under the answer it came with.
+ *
+ * The assistant cannot ask them, so this is the whole handoff: the question is
+ * carried across prefilled and not sent, because the meeting is the person's to
+ * spend. Under the bubble rather than above it, unlike the other marks, since
+ * it is what to do next rather than what was done.
+ */
+function Handoff({
+  ids,
+  members,
+  question,
+}: {
+  ids: string[];
+  members: Map<string, CouncilMember>;
+  question: string;
+}) {
+  const navigate = useNavigate();
+  const named = ids.map((id) => members.get(id)).filter(Boolean) as CouncilMember[];
+  if (!named.length) return null;
+  const ask = `${named.length === 1 ? `@${named[0].id} ` : ""}${question}`.trim();
+  return (
+    <button
+      type="button"
+      onClick={() => navigate(`/council?ask=${encodeURIComponent(ask)}`)}
+      className="tap flex max-w-full items-center gap-2 self-start rounded-full border border-accent/40 bg-accent-tint px-3 py-1.5 font-mono text-[11px] text-accent hover:brightness-110"
+    >
+      {named.map((m) => (
+        <Face key={m.id} face={m.face} className="h-[15px] w-[15px] flex-none" />
+      ))}
+      <span className="truncate">
+        ask {named.map((m) => m.name).join(" and ")} in the council →
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The question an answer was answering: the nearest thing typed above it.
+ *
+ * Only the handoff uses it, and it wants what was asked rather than what was
+ * replied — the point of carrying it over is that the council gets the question
+ * itself, not the assistant's account of it.
+ */
+function lastAskedBefore(entries: AssistantEntry[], index: number): string {
+  for (let i = index; i >= 0; i--) {
+    if (entries[i].role === "user" && entries[i].text.trim()) return entries[i].text;
+  }
+  return "";
+}
+
+function Turn({
+  entry,
+  member,
+  members,
+  question,
+}: {
+  entry: AssistantEntry;
+  member?: CouncilMember;
+  members: Map<string, CouncilMember>;
+  /** The question this answered, carried over when the handoff is tapped. */
+  question: string;
+}) {
   if (entry.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1.5">
@@ -92,9 +161,11 @@ function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember
   const colour = member?.colour ?? "teal";
   return (
     <div className="flex flex-col gap-2.5">
-      {entry.tools.map((t, i) => (
-        <ToolChip key={i} name={t.name} detail={t.detail} />
-      ))}
+      {entry.tools
+        .filter((t) => t.name !== "handoff")
+        .map((t, i) => (
+          <ToolChip key={i} name={t.name} detail={t.detail} />
+        ))}
       {entry.text && (
         // The portrait sits beside what was said rather than above it, so a
         // meeting reads as several people talking instead of as one voice with
@@ -130,6 +201,11 @@ function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember
           </div>
         </div>
       )}
+      {entry.tools
+        .filter((t) => t.name === "handoff")
+        .map((t, i) => (
+          <Handoff key={i} ids={t.detail.split(",")} members={members} question={question} />
+        ))}
     </div>
   );
 }
@@ -198,9 +274,22 @@ function Roster({
   );
 }
 
-export default function Assistant() {
+export default function Chat({ room }: { room: ChatRoom }) {
+  const council = room === "council";
+  // Everything that names a room in a URL, in one place: the query the server
+  // reads, and the socket the thread arrives on.
+  const q = council ? "?room=council" : "";
+  /**
+   * A question handed over from the assistant: it starts in the field, unsent.
+   *
+   * Prefilled rather than asked, because the meeting is the thing that costs
+   * and the person is the one who decides to spend it. Taken as the field's
+   * initial value rather than pushed in afterwards, so there is no render where
+   * the field is empty and no way for it to overwrite something being typed.
+   */
+  const [params, setParams] = useSearchParams();
   const [thread, setThread] = useState<AssistantThread | null>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => params.get("ask") ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -236,17 +325,24 @@ export default function Assistant() {
    */
   const spokenRef = useRef<Set<string>>(new Set());
   // The roster changes when somebody edits it in settings, which is rarely, so
-  // it is polled slowly rather than pushed. An empty answer is a bench with no
-  // council on it, and everything below then reads exactly as it did before.
+  // it is polled slowly rather than pushed. Both rooms need it: the council to
+  // show who is in it, and the assistant to draw the face of whoever it hands a
+  // question to.
   const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
+
+  // Dropped from the URL once it is in the field, so a reload does not put a
+  // question back that has already been asked or thrown away.
+  useEffect(() => {
+    if (params.has("ask")) setParams({}, { replace: true });
+  }, [params, setParams]);
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/assistant/stream`);
+    const ws = new WebSocket(`${proto}://${location.host}/api/assistant/stream${q}`);
     ws.onmessage = (e: MessageEvent<string>) => {
       try {
         setThread(JSON.parse(e.data) as AssistantThread);
@@ -256,7 +352,7 @@ export default function Assistant() {
     };
     // The socket sends the thread on connect, so there is no separate fetch.
     return () => ws.close();
-  }, []);
+  }, [q]);
 
   // Follow the conversation as it grows, the way a chat is expected to.
   useEffect(() => {
@@ -373,7 +469,7 @@ export default function Assistant() {
     setError(null);
     try {
       setThread(
-        await api<AssistantThread>("/api/assistant/messages", {
+        await api<AssistantThread>(`/api/assistant/messages${q}`, {
           method: "POST",
           body: JSON.stringify({
             text: value || "(see image)",
@@ -393,12 +489,12 @@ export default function Assistant() {
   }
 
   async function stop() {
-    await api("/api/assistant/stop", { method: "POST" }).catch(() => {});
+    await api(`/api/assistant/stop${q}`, { method: "POST" }).catch(() => {});
   }
 
   async function newThread() {
     setThread(null);
-    await api("/api/assistant/new", { method: "POST" }).catch(() => {});
+    await api(`/api/assistant/new${q}`, { method: "POST" }).catch(() => {});
   }
 
   // Every turn re-sends the whole thread, so a long one gets steadily more
@@ -435,9 +531,7 @@ export default function Assistant() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* What you opened is the room, not one of the people in it. With no
-          advisors it is still the assistant, so the crumb follows the roster. */}
-      <TopBar crumb={[{ label: members.length > 1 ? "council" : "assistant" }]} back="/" />
+      <TopBar crumb={[{ label: council ? "council" : "assistant" }]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
         {showRaccoon && (
@@ -490,7 +584,7 @@ export default function Assistant() {
                 read aloud
               </button>
             )}
-            {members.length > 1 && (
+            {council && members.length > 1 && (
               <button
                 onClick={() => setRoundTable((r) => !r)}
                 title={
@@ -526,14 +620,21 @@ export default function Assistant() {
           <div className="mt-6 text-center">
             <div className="font-mono text-[13px] text-muted">nothing said yet</div>
             <p className="mx-auto mt-2 max-w-[42ch] text-[13.5px] text-faint">
-              Ask what needs you, or tell it something to remember. It can read your projects,
-              sessions and runs.
+              {council
+                ? "Put a question to the room. The chair hands it to whoever it belongs to, or you can address one of them directly with their @id."
+                : "Ask what needs you, or tell it something to remember. It can read your projects, sessions and runs, and it will say when a question is really the council's."}
             </p>
           </div>
         )}
 
-        {thread?.entries.map((e) => (
-          <Turn key={e.id} entry={e} member={e.member ? byId.get(e.member) : undefined} />
+        {thread?.entries.map((e, i) => (
+          <Turn
+            key={e.id}
+            entry={e}
+            member={e.member ? byId.get(e.member) : undefined}
+            members={byId}
+            question={lastAskedBefore(thread.entries, i)}
+          />
         ))}
 
         {/* Who is still out. An advisor's tokens are deliberately not streamed:
@@ -634,17 +735,19 @@ export default function Assistant() {
             e.target.value = "";
           }}
         />
-        <Roster
-          members={members}
-          speaking={thread?.speaking ?? []}
-          addressed={/^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null}
-          onPick={(id) => {
-            // The chair is who you get by default, so tapping it clears the
-            // address rather than adding one.
-            const stripped = text.replace(/^@[a-z][a-z0-9-]*\s*/, "");
-            setText(id === "chair" ? stripped : `@${id} ${stripped}`);
-          }}
-        />
+        {council && (
+          <Roster
+            members={members}
+            speaking={thread?.speaking ?? []}
+            addressed={/^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null}
+            onPick={(id) => {
+              // The chair is who you get by default, so tapping it clears the
+              // address rather than adding one.
+              const stripped = text.replace(/^@[a-z][a-z0-9-]*\s*/, "");
+              setText(id === "chair" ? stripped : `@${id} ${stripped}`);
+            }}
+          />
+        )}
         {/* Field on top, controls on their own row underneath. In one row the
             four buttons crowded the field from both sides and the send button
             drifted with the field's width; here each control has a fixed home

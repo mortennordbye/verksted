@@ -242,7 +242,7 @@ backend/src/
 └── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
 backend/test/         # vitest; the path-traversal suite is the one that matters
 frontend/src/
-├── screens/          # Hub, Project, Session, Inbox, Settings
+├── screens/          # Hub, Project, Session, Chat (assistant + council), Inbox, Settings
 ├── components/       # Terminal, FileTree, TopBar, StatusChip
 ├── api.ts            # fetch helpers + usePoll
 ├── events.ts         # the shared EventSource usePoll takes its data from

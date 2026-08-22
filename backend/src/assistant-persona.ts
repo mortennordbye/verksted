@@ -311,6 +311,39 @@ function councilBlock(roster: { id: string; name: string; remit: string }[]): st
 }
 
 /**
+ * What the assistant is told about the council, in the room where it has none.
+ *
+ * It knows who they are and it cannot ask them, and that is the split: the
+ * council is a room the person walks into, not a bill the assistant can run up
+ * on their behalf. The one thing it may do is name whose question it was, which
+ * costs a line and saves the wrong four calls.
+ *
+ * Shorter than the chair's block because there is no protocol to teach — one
+ * line, at the end, and the screen turns it into the way over.
+ */
+function nextDoorBlock(roster: { id: string; name: string; remit: string }[]): string[] {
+  if (!roster.length) return [];
+  return [
+    "",
+    "There is a council next door, and you are not in it here. These sit on it:",
+    ...roster.map((m) => `- ${m.id} (${m.name}): ${m.remit}`),
+    "",
+    "You cannot ask them and must not pretend to have. When a question is",
+    "squarely one of theirs, answer what you can of it yourself and then make",
+    "the LAST line of your reply exactly:",
+    "",
+    "theirs: <id>[, <id>]",
+    "",
+    "and nothing after it. It is turned into a way to put the question to them,",
+    "which the person decides to spend. Use it for a question you genuinely",
+    "cannot answer as well as they would, not to hand off work you could do:",
+    "you can read the bench, the repos, the cluster and the web yourself, and a",
+    "handoff for something you already have the tools for is you being unhelpful",
+    "at their expense.",
+  ];
+}
+
+/**
  * The same, for a briefing that is allowed to ask the council.
  *
  * It says less, because an unattended chair has fewer choices: it cannot act on
@@ -352,6 +385,27 @@ export function systemPrompt(
     ...VOICE,
     ...JOB,
     ...councilBlock(roster),
+    ...standingOrders(instructions),
+  ].join("\n");
+}
+
+/**
+ * The whole prompt for the room where the assistant answers alone.
+ *
+ * The same identity, voice and job as the chair's — it is the same assistant —
+ * with the council block swapped for one that says they are next door.
+ */
+export function soloPrompt(
+  name: string,
+  instructions: string,
+  roster: { id: string; name: string; remit: string }[] = [],
+): string {
+  return [
+    ...opening(name),
+    "",
+    ...VOICE,
+    ...JOB,
+    ...nextDoorBlock(roster),
     ...standingOrders(instructions),
   ].join("\n");
 }

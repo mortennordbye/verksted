@@ -8,6 +8,7 @@ import type {
   Session,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
@@ -224,8 +225,14 @@ export default function Hub() {
   // and the hub already polls two other things. Only the status is read now —
   // the strip explains what the assistant is instead of quoting it.
   const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
-  // Only to name the strip: with nobody else on it, this is still the assistant.
+  // The other room, polled the same way. Two doors rather than one, because
+  // they are two conversations: what the council is still talking about has
+  // nothing to do with whether the assistant is free.
+  const { data: councilThread } = usePoll<AssistantThread>("/api/assistant?room=council", 10_000);
   const { data: council } = usePoll<CouncilMember[]>("/api/council", 120_000);
+  // The chair is on the roster and is not somebody you convene, so a council
+  // worth its own door is one with anybody else on it.
+  const advisors = (council ?? []).filter((m) => !m.chair && m.enabled);
 
   async function addProject() {
     const value = input.trim();
@@ -255,57 +262,104 @@ export default function Hub() {
     <>
       <TopBar />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
-        {/* Above the projects, because it is not one. In the accent rather than
-            a fourth agent colour: this agent is the app itself. */}
-        <Link
-          to="/ai"
-          // Flat tint rather than the gradient that was here: northlight rules
-          // gradients out, and the tint is the same treatment its featured card
-          // gets, which is what this strip is.
-          className="mb-5 flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
-        >
-          <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-accent/15 text-accent">
-            <svg
-              viewBox="0 0 24 24"
-              width="18"
-              height="18"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4.2-.9L3 20.5l1.6-4.4A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
-            </svg>
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="mb-0.5 flex items-center gap-2">
-              <span className="text-[14.5px] font-semibold tracking-[-.02em]">
-                {council && council.length > 1 ? "Council" : "Assistant"}
-              </span>
-              {assistant?.status === "thinking" && (
-                <span className="flex items-center gap-1.5 text-[12px] text-accent">
-                  <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  {/* Who is working, when it is not the one you asked. A meeting
+        {/* Above the projects, because neither of them is one. Two doors, side
+            by side where there is room for it: the assistant answers alone and
+            the council is where several do, and which one you want is a
+            decision you make before you type rather than one it makes for
+            you. */}
+        <div className="mb-5 grid gap-3 min-[620px]:grid-cols-2">
+          <Link
+            to="/ai"
+            // Flat tint rather than the gradient that was here: northlight rules
+            // gradients out, and the tint is the same treatment its featured card
+            // gets, which is what this strip is.
+            className="flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
+          >
+            <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-accent/15 text-accent">
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4.2-.9L3 20.5l1.6-4.4A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="mb-0.5 flex items-center gap-2">
+                <span className="text-[14.5px] font-semibold tracking-[-.02em]">Assistant</span>
+                {assistant?.status === "thinking" && (
+                  <span className="flex items-center gap-1.5 text-[12px] text-accent">
+                    <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                    {/* Who is working, when it is not the one you asked. A meeting
                       takes longer than a turn, and "working" alone reads as
                       stuck when it is three advisors thinking at once. */}
-                  {assistant.speaking?.length
-                    ? `${assistant.speaking.length} answering`
-                    : "working"}
-                </span>
-              )}
-            </span>
-            {/* Says what the thing is, rather than the last line it happened to
+                    {assistant.speaking?.length
+                      ? `${assistant.speaking.length} answering`
+                      : "working"}
+                  </span>
+                )}
+              </span>
+              {/* Says what the thing is, rather than the last line it happened to
                 say. A truncated half-sentence out of an old thread told you
                 nothing about why you would open it. */}
-            <span className="block text-[12.5px] text-faint">
-              Ask what needs you, or tell it something to remember. It reads your projects, sessions
-              and runs, and puts the question to whoever on the council it belongs to.
+              <span className="block text-[12.5px] text-faint">
+                Ask what needs you, or tell it something to remember. It reads your projects,
+                sessions and runs, and answers on its own.
+              </span>
             </span>
-          </span>
-          <span className="flex-none pt-1 text-[13px] text-faint">→</span>
-        </Link>
+            <span className="flex-none pt-1 text-[13px] text-faint">→</span>
+          </Link>
+
+          {/* The other room, and only when there is one: an advisor has to exist
+            before a door to them means anything. */}
+          {advisors.length > 0 && (
+            <Link
+              to="/council"
+              className="flex items-start gap-3 rounded-xl border border-line bg-surface px-[15px] py-3.5 hover:border-line-strong"
+            >
+              {/* Who is in there, rather than an icon standing for them. Three at
+                most: it is a door, not a roster. */}
+              <span className="flex h-9 flex-none -space-x-2">
+                {advisors.slice(0, 3).map((m) => (
+                  <span
+                    key={m.id}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border bg-surface-2 ${MEMBER_TEXT[m.colour]} ${MEMBER_RULE[m.colour]}`}
+                  >
+                    <Face
+                      face={m.face}
+                      mood={councilThread?.speaking?.includes(m.id) ? "speaking" : "idle"}
+                      className="h-[21px] w-[21px]"
+                    />
+                  </span>
+                ))}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="mb-0.5 flex items-center gap-2">
+                  <span className="text-[14.5px] font-semibold tracking-[-.02em]">Council</span>
+                  {councilThread?.status === "thinking" && (
+                    <span className="flex items-center gap-1.5 text-[12px] text-accent">
+                      <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+                      {councilThread.speaking?.length
+                        ? `${councilThread.speaking.length} answering`
+                        : "working"}
+                    </span>
+                  )}
+                </span>
+                <span className="block text-[12.5px] text-faint">
+                  {advisors.length} in the room. Put a question to them when it wants more than one
+                  head, or address one directly with their @id.
+                </span>
+              </span>
+              <span className="flex-none pt-1 text-[13px] text-faint">→</span>
+            </Link>
+          )}
+        </div>
 
         {/* Stacked on a phone: the headline is a sentence that wraps to two
             lines there, and a button held at its right edge ends up floating

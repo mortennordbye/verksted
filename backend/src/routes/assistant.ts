@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import type { AssistantVoices } from "../../../shared/api.js";
+import type { AssistantVoices, ChatRoom } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
 import { env } from "../env.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
@@ -18,13 +18,38 @@ import { MAX_TEXT } from "../tts.js";
  * a handful of kilobytes and a diff protocol would be the only stateful thing
  * in this app.
  */
-export default async function assistantRoutes(app: FastifyInstance) {
-  app.get("/api/assistant", () => assistant.readThread());
+/**
+ * Which room an endpoint is talking about.
+ *
+ * A query parameter rather than a path of its own, because everything else
+ * about these endpoints is the same machine: one uploads directory, one voice,
+ * one settings file, one search over every thread ever written. Only which
+ * conversation is meant differs. Absent means the assistant, so a client that
+ * has not been told about rooms — and every thread written before there were
+ * two — still means what it always meant.
+ */
+const ROOM = {
+  type: "object",
+  properties: { room: { type: "string", enum: ["assistant", "council"] } },
+};
 
-  app.post<{ Body: { text: string; images?: string[]; roundTable?: boolean } }>(
+const roomOf = (q: { room?: string }): ChatRoom => (q.room === "council" ? "council" : "assistant");
+
+export default async function assistantRoutes(app: FastifyInstance) {
+  app.get<{ Querystring: { room?: string } }>(
+    "/api/assistant",
+    { schema: { querystring: ROOM } },
+    (req) => assistant.readThread(roomOf(req.query)),
+  );
+
+  app.post<{
+    Body: { text: string; images?: string[]; roundTable?: boolean };
+    Querystring: { room?: string };
+  }>(
     "/api/assistant/messages",
     {
       schema: {
+        querystring: ROOM,
         body: {
           type: "object",
           required: ["text"],
@@ -52,7 +77,12 @@ export default async function assistantRoutes(app: FastifyInstance) {
       const text = req.body.text.trim();
       if (!text) return reply.code(400).send({ error: "say something" });
       try {
-        return await assistant.send(text, req.body.images ?? [], req.body.roundTable === true);
+        return await assistant.send(
+          roomOf(req.query),
+          text,
+          req.body.images ?? [],
+          req.body.roundTable === true,
+        );
       } catch (err) {
         // The only expected throw is "already running", which is a conflict
         // rather than a server fault: the client should wait, not retry.
@@ -246,26 +276,39 @@ export default async function assistantRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));
+  app.post<{ Querystring: { room?: string } }>(
+    "/api/assistant/stop",
+    { schema: { querystring: ROOM } },
+    (req) => ({ stopped: assistant.stop(roomOf(req.query)) }),
+  );
 
-  app.post("/api/assistant/new", async (_req, reply) => {
-    try {
-      return { conversationId: await assistant.newConversation() };
-    } catch (err) {
-      return reply.code(409).send({ error: (err as Error).message });
-    }
-  });
+  app.post<{ Querystring: { room?: string } }>(
+    "/api/assistant/new",
+    { schema: { querystring: ROOM } },
+    async (req, reply) => {
+      try {
+        return { conversationId: await assistant.newConversation(roomOf(req.query)) };
+      } catch (err) {
+        return reply.code(409).send({ error: (err as Error).message });
+      }
+    },
+  );
 
-  app.get("/api/assistant/stream", { websocket: true }, (socket, req) => {
-    // Without this a socket error (a phone dropping off mid-frame) reaches the
-    // server's error event and takes the process down.
-    socket.on("error", (err: unknown) => req.log.warn({ err }, "assistant socket error"));
-    const unsubscribe = assistant.subscribe((thread) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
-    });
-    socket.on("close", unsubscribe);
-    void assistant.readThread().then((thread) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
-    });
-  });
+  app.get<{ Querystring: { room?: string } }>(
+    "/api/assistant/stream",
+    { websocket: true, schema: { querystring: ROOM } },
+    (socket, req) => {
+      const room = roomOf(req.query);
+      // Without this a socket error (a phone dropping off mid-frame) reaches the
+      // server's error event and takes the process down.
+      socket.on("error", (err: unknown) => req.log.warn({ err }, "assistant socket error"));
+      const unsubscribe = assistant.subscribe(room, (thread) => {
+        if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
+      });
+      socket.on("close", unsubscribe);
+      void assistant.readThread(room).then((thread) => {
+        if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
+      });
+    },
+  );
 }
