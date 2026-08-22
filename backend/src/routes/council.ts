@@ -3,6 +3,7 @@ import type { CouncilMember } from "../../../shared/api.js";
 import * as council from "../council-store.js";
 import { MemberDeniedError } from "../council-store.js";
 import { listForMember, saveForMember, forgetForMember } from "../memory-store.js";
+import * as tts from "../tts.js";
 
 /**
  * The council roster, and what each advisor privately knows.
@@ -12,6 +13,10 @@ import { listForMember, saveForMember, forgetForMember } from "../memory-store.j
  * whatever reads the file later. A tool name that is a typo, or one that is the
  * chair's alone, is a 400 on the settings page instead of something a child
  * process finds out about.
+ *
+ * The voice is checked here rather than in the store because the store also
+ * validates on the way out, and a pod that loses its voice model must not lose
+ * its roster with it.
  */
 const ID = { type: "string", pattern: "^[a-z][a-z0-9-]{0,31}$" };
 
@@ -50,6 +55,18 @@ export default async function councilRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
+      // Only when this pod has a voice at all: the list comes from the model's
+      // own ready line, so a pod without one has nothing to check against, and
+      // refusing every name there would hold the roster hostage to an optional
+      // feature. Where there is a list, a typo is an error on the form rather
+      // than a sample button that does nothing.
+      const voice = (req.body.voice ?? "").trim();
+      if (voice && tts.available()) {
+        const known = await tts.voices();
+        if (!known.includes(voice)) {
+          return reply.code(400).send({ error: `no such voice on this pod: ${voice}` });
+        }
+      }
       try {
         return await council.saveMember({ ...req.body, id: req.params.id });
       } catch (err) {

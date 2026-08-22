@@ -78,6 +78,16 @@ describe("what a member file may say", () => {
     await expect(store.saveMember(member({ remit: "" }))).rejects.toThrow(/needs a remit/);
   });
 
+  it("keeps a voice the pod cannot speak, so a lost model is not a lost roster", async () => {
+    // The name is checked at the route, where a request can be refused. Here it
+    // is also the read path, and a member whose voice went away with the model
+    // has to keep reading as a member.
+    const saved = await store.saveMember(member({ voice: "nobody_at_all" }));
+
+    expect(saved.voice).toBe("nobody_at_all");
+    expect((await store.listMembers()).map((m) => m.voice)).toEqual(["nobody_at_all"]);
+  });
+
   it("caps the persona, because it is carried with every turn", async () => {
     const saved = await store.saveMember(member({ persona: "x".repeat(9_000) }));
 

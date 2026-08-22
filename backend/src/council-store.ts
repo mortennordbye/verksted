@@ -220,10 +220,9 @@ export function validate(input: Partial<CouncilMember> & { id: string }): Counci
     tools: [...new Set(tools)],
     web: input.web === true,
     colour,
-    // Not checked against the model's list here: which voices exist depends on
-    // whether this pod has the voice model at all, and a roster that could not
-    // be saved on a pod without one would be a roster held hostage to an
-    // optional feature. An unknown name is refused when it is spoken.
+    // Not checked against the model's list here: this runs on the way out as
+    // well, and a pod that lost its voice model would then lose its roster with
+    // it. The name is checked at the route, where there is a request to refuse.
     voice: (input.voice ?? "").trim().slice(0, 40),
     chair: false,
     enabled: input.enabled !== false,

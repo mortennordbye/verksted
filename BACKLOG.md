@@ -776,19 +776,3 @@ what unblocks it / where the code lives.
   convene line, which makes it not the first line and so convenes nobody.
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
-
-## An advisor's voice is not checked until it is spoken
-
-- **What:** `voice` on a member is stored as written and only validated when the
-  pod is asked to speak it, which answers 400 for an unknown name. A typo
-  therefore shows as a sample button that does nothing rather than as an error
-  on the form.
-- **Why deferred:** Checking it on save would make the roster unsaveable on a
-  pod without the voice model — the voice list comes from the model's own ready
-  line, so there is no list to check against when it is absent, and holding the
-  whole council hostage to an optional feature is the worse trade.
-- **Unblocked by:** Validating only when `tts.available()`, and saying so in the
-  400 when it is not. Cheap; it just needs deciding that a pod without a voice
-  should silently accept any name.
-- **Where:** `backend/src/council-store.ts` (`validate`),
-  `backend/src/routes/council.ts`, `backend/src/tts.ts` (`voices`)
