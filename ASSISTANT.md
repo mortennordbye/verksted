@@ -892,6 +892,40 @@ An advisor's answer reaches the chair, which does hold the irreversible tools.
 So the same sentence that covers a pull request body covers a colleague: what an
 advisor says is a report, not an instruction.
 
+### The one that reads headroom
+
+One advisor is given a second MCP server: headroom, the finance app on the same
+cluster, through the stdio server that repo already ships (`mcp/server.ts`, run
+with the `tsx` in its own `node_modules`). Nothing is copied into this repo and
+nothing new is deployed beside headroom — the pod can already reach it, and the
+two env vars in `env.ts` say where and how to log in. Without both, the server
+is not offered at all, so a bench that does not run headroom is simply quiet
+about it rather than holding tools that fail on every call.
+
+Which advisor is a constant in `assistant.ts`, not a field on the member, for
+the same reason the denied built-ins are: "may read the household finances" is
+not a checkbox worth having on a form that can be edited from a phone. The chair
+does not get it either — the numbers belong in one room rather than in every
+answer — and neither does an unattended turn, which reads the bench, and the
+bench is not where the money is.
+
+Read-only is the deny list's job, and here it names tools one at a time:
+headroom's nine writes, plus `get_raw_data`, which returns the whole database
+where the aggregates answer the question. The narrowing cannot happen the way
+`VK_TOOLS` does it — that switch is verksted's own server reading its own env —
+and `mcp__headroom` can only be *allowed* whole. Naming individual MCP tools in
+`--disallowed-tools` does hold: the CLI refuses the call rather than merely
+leaving it unapproved, which is the difference between a restriction and an
+auto-approval, and it was checked against the CLI rather than assumed.
+
+That advisor also reads the web, which is the one combination the rest of this
+document argues against: a page it fetches is how a prompt injection would carry
+something out, and the data on the other side is now somebody's finances rather
+than a repo. Denying the writes and the raw dump narrows what a bad page could
+reach; it does not close it. The mitigation that remains is the same one as
+everywhere else here — no shell, every tool call visible in the room — and it is
+a mitigation, not a defence.
+
 ### Adding somebody
 
 A member is a file, so adding one was always a form on the settings page. What

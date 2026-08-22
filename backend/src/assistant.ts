@@ -86,10 +86,67 @@ const UNATTENDED_BUILTIN_TOOLS = ["Read", "Grep", "Glob"];
 const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task"];
 const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
+/**
+ * The one advisor that may read headroom, and what it may not do there.
+ *
+ * A member id fixed in code rather than a field on the member, and for the same
+ * reason the denied built-ins are: a member is a JSON file somebody can edit
+ * from a phone, and "may read the household finances" is not a checkbox worth
+ * having on that form. The chair's id is never this one, so the chair does not
+ * get it either — the numbers belong in one room, not in every answer.
+ *
+ * The deny list is the half that works. An allow list only auto-approves, and
+ * `mcp__headroom` can only be allowed whole; verksted's own server is narrowed
+ * per member through VK_TOOLS, and headroom's has no such switch. Naming the
+ * tools individually in --disallowed-tools does hold — verified against the
+ * CLI, which refuses the call rather than merely leaving it unapproved.
+ *
+ * What is denied is every write, so the advisor cannot move a budget it was
+ * only asked about, and `get_raw_data`, which returns the whole database when
+ * the aggregates it keeps are what advice is actually made of. That second one
+ * is not about trust: this advisor reads the web, and a page that talks it into
+ * something can only carry out what the advisor was able to fetch.
+ */
+const HEADROOM_MEMBER = "ariel";
+const HEADROOM_DENIED = [
+  "set_category_budget",
+  "add_goal",
+  "update_goal",
+  "add_fixed_expense",
+  "update_fixed_expense",
+  "update_assumptions",
+  "set_ai_context",
+  "set_profile",
+  "restore_revision",
+  "get_raw_data",
+].map((t) => `mcp__headroom__${t}`);
+
+/** Its own repo's server, run from the volume: nothing here is a second copy. */
+const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
+
 /** Where the MCP server the assistant acts through lives inside the image. */
 function mcpConfig(unattended: boolean, tools: string[] | null, member: string | null) {
+  // Never unattended: a nightly briefing reads the bench, and the bench is not
+  // where the money is. Never without both env vars, so a bench that does not
+  // run headroom offers no tools that would fail on every call.
+  const headroom =
+    !unattended && member === HEADROOM_MEMBER && !!env.HEADROOM_URL && !!env.HEADROOM_PASSWORD;
   return {
     mcpServers: {
+      ...(headroom
+        ? {
+            headroom: {
+              // tsx from headroom's own node_modules rather than npx: no
+              // network, and the server is the one that repo ships and tests.
+              command: path.join(HEADROOM_SERVER, "node_modules/.bin/tsx"),
+              args: [path.join(HEADROOM_SERVER, "mcp/server.ts")],
+              env: {
+                HEADROOM_URL: env.HEADROOM_URL,
+                HEADROOM_PASSWORD: env.HEADROOM_PASSWORD,
+              },
+            },
+          }
+        : {}),
       verksted: {
         command: "node",
         args: ["/etc/verksted/verksted-mcp.mjs"],
@@ -774,13 +831,18 @@ function policyFor(
   member: CouncilMember,
 ): Pick<Speaker, "builtins" | "allowed" | "denied" | "tools"> {
   const web = member.web ? ["WebFetch", "WebSearch"] : [];
+  const headroom = member.id === HEADROOM_MEMBER;
   return {
     builtins: [...BUILTIN_READ, ...web],
-    allowed: [...BUILTIN_READ, ...web, "mcp__verksted"],
+    allowed: [...BUILTIN_READ, ...web, "mcp__verksted", ...(headroom ? ["mcp__headroom"] : [])],
     // The chair keeps every tool, so it is offered the server unfiltered; an
     // advisor is offered exactly what its file names.
     tools: member.chair ? null : member.tools,
-    denied: member.chair ? DENIED_TOOLS : [...DENIED_TOOLS, ...(member.web ? [] : WEB_TOOLS)],
+    denied: [
+      ...DENIED_TOOLS,
+      ...(member.chair || member.web ? [] : WEB_TOOLS),
+      ...(headroom ? HEADROOM_DENIED : []),
+    ],
   };
 }
 

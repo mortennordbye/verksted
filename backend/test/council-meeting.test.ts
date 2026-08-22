@@ -51,6 +51,10 @@ beforeAll(async () => {
   process.env.MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-mem-"));
   process.env.SETTINGS_FILE = path.join(councilDir, "settings.json");
   process.env.STATIC_DIR = "";
+  // Both, because the advisor is given the server only when it has somewhere to
+  // point it and a way in — which is the gating this file goes on to assert.
+  process.env.HEADROOM_URL = "https://headroom.example";
+  process.env.HEADROOM_PASSWORD = "hunter2";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
   const { seedCouncil } = await import("../src/council-store.js");
@@ -618,5 +622,60 @@ describe("addressing one advisor directly", () => {
 
     expect(got[1].member).toBeUndefined();
     expect(callsFor("Michael")).toHaveLength(0);
+  });
+});
+
+/** The MCP servers one call was configured with. */
+const serversIn = (argv: string[]): string[] => {
+  const file = argv[argv.indexOf("--mcp-config") + 1];
+  const config = JSON.parse(fs.readFileSync(file, "utf8")) as {
+    mcpServers: Record<string, unknown>;
+  };
+  return Object.keys(config.mcpServers);
+};
+
+describe("the advisor that reads headroom", () => {
+  // Added the way the settings page adds one, rather than seeded: which member
+  // this is, is a decision in assistant.ts, and the member itself is a file.
+  beforeEach(async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/council",
+      payload: { id: "ariel", name: "Ariel", remit: "money", tools: [], web: true },
+    });
+    fake.reply("claude", "-p", { stdout: run("convene: ariel, michael") });
+    whenAsked("Ariel", "You are 4,000 kroner under on groceries.");
+    whenAsked("Michael", "The cluster is green.");
+    fake.reply("claude", "-p The council answered.", { stdout: run("Watch the groceries.") });
+  });
+
+  afterEach(async () => {
+    await app.inject({ method: "DELETE", url: "/api/council/ariel" });
+  });
+
+  it("gives Ariel headroom, and gives it to nobody else in the room", async () => {
+    await say("how is the budget looking?");
+
+    expect(serversIn(callsFor("Ariel")[0])).toContain("headroom");
+    // Not the advisor sitting beside him, and not the chair that convened them:
+    // the numbers are one member's remit rather than the room's.
+    expect(serversIn(callsFor("Michael")[0])).not.toContain("headroom");
+    expect(serversIn(fake.argvFor("claude")[0])).not.toContain("headroom");
+  });
+
+  it("lets Ariel read headroom and not write it", async () => {
+    await say("how is the budget looking?");
+
+    const [argv] = callsFor("Ariel");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
+    // Named one by one, because the server can only be *allowed* whole. This is
+    // the half that refuses the call rather than merely leaving it unapproved.
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    expect(denied).toContain("mcp__headroom__set_category_budget");
+    expect(denied).toContain("mcp__headroom__restore_revision");
+    // The one read that returns everything, denied for what it would cost an
+    // advisor that also reads the web.
+    expect(denied).toContain("mcp__headroom__get_raw_data");
+    expect(denied).not.toContain("mcp__headroom__get_budget_summary");
   });
 });
