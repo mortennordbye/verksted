@@ -928,6 +928,13 @@ and `mcp__headroom` can only be _allowed_ whole. Naming individual MCP tools in
 leaving it unapproved, which is the difference between a restriction and an
 auto-approval, and it was checked against the CLI rather than assumed.
 
+All of that has since been watched against the real headroom rather than a fake
+`claude`: the login through `mcp/client.ts` succeeds, `get_overview` and
+`get_budget_summary` return the app's own numbers, and `get_raw_data` is refused
+in the same breath — which is the deny list working on a server this repo does
+not own. The run that proved it declared no `env` block at all, so it also
+confirms the inheritance the section above rests on.
+
 That advisor also reads the web, which is the one combination the rest of this
 document argues against: a page it fetches is how a prompt injection would carry
 something out, and the data on the other side is now somebody's finances rather

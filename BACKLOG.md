@@ -3,23 +3,21 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
-## Ariel has never read the real headroom
+## Ariel's headroom server runs out of a working tree
 
-- **What:** The advisor that reads headroom is wired and tested against a fake
-  `claude`, but has never spoken to the real thing: `HEADROOM_URL` and
-  `HEADROOM_PASSWORD` are unset, so nothing has confirmed the login flow through
-  `mcp/client.ts`, the shape of what the read tools return, or that the deny list
-  actually blocks a write attempt at run time rather than only in the argv.
-- **Why deferred:** Needs the headroom password typed into the settings page,
-  which is a secret decision rather than a code one.
-- **Unblocked by:** Setting both vars on the settings page, asking Ariel a budget
-  question, and watching the tool calls in the room. A second thing to watch
-  while there: the server runs `tsx` out of `/data/repos/headroom`, so a branch
-  checkout or a reinstall in that repo changes what the advisor can do, and the
-  failure mode is tools quietly not listing.
-- **Where:** `backend/src/assistant.ts` (`HEADROOM_MEMBER`, `HEADROOM_DENIED`,
-  `mcpConfig`), `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
-  `/data/council/ariel.json`
+- **What:** The server is `tsx mcp/server.ts` under `/data/repos/headroom`, so
+  what that advisor can do is decided by whatever is checked out there. A branch
+  without `mcp/`, a half-finished edit or a reinstall changes it, and the failure
+  mode is silent: the tools simply do not list, and the advisor answers as though
+  headroom was never configured — which is indistinguishable from the vars being
+  unset.
+- **Why deferred:** The alternative is pinning a copy into this image or running
+  headroom's HTTP transport beside it, and both cost more than the failure does
+  while one person uses one checkout.
+- **Unblocked by:** Wanting to work on a headroom branch and keep Ariel honest at
+  the same time; then either pin the server or surface "headroom configured but
+  not answering" as something visible rather than absent.
+- **Where:** `backend/src/assistant.ts` (`HEADROOM_SERVER`, `mcpConfig`)
 
 ## gh output fixtures are hand-written, not captured from a real gh
 
