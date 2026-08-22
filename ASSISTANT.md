@@ -744,6 +744,27 @@ The line itself never appears; what appears in its place is a mark saying who
 was asked, so a wrong routing call is something you can see rather than
 something you have to infer from a bad answer.
 
+### Asking the room
+
+`@all` puts one question to every advisor at once, and the chair closes. It
+exists because the chair is told to convene sparingly and a question about the
+council itself — who they are, what each of them makes of something — belongs to
+nobody's remit, so the sparing answer was the chair answering alone. A question
+addressed to everybody, answered by one, reads as rudeness rather than as
+thrift.
+
+There is no opening chair turn: `@all` has already decided who answers, so
+making the chair decide it again would be a call spent on a question with one
+possible answer. That makes it N+1 rather than a convening's N+2. The chair can
+write `convene: all` (or `discuss: all`) itself, and is told to when a question
+is plainly for the room.
+
+`MAX_EVERYONE` is a higher ceiling than `MAX_CONVENED`, and for a different
+reason: the low one guards against a model calling a meeting nobody wanted, and
+this one guards against nothing but a runaway roster, since asking everybody is
+an explicit instruction. Whoever it leaves out is named in the mark — "everyone"
+that means "the first six" is lying about what it did.
+
 ### The round table
 
 The other first line the chair may write is `discuss: michael, raphael`, and it
@@ -800,6 +821,7 @@ an HTTP request whose client is about to be killed anyway.
 | a question the chair keeps            | 2                          |
 | `@michael …`, straight to one advisor | 2, on that advisor's model |
 | a meeting with N advisors             | N + 2                      |
+| `@all`, with N on the roster          | N + 1 — no routing turn    |
 | a round table of N advisors           | N + 2, one after another   |
 | the ceiling, whatever the chair asks  | 5                          |
 

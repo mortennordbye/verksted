@@ -830,8 +830,42 @@ async function chairSpeaker(room: ChatRoom): Promise<Speaker> {
  */
 const CONVENE_RE = /^(convene|discuss):\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)\s*$/im;
 
-/** No more than this many advisors in one meeting, whatever the chair asks for. */
+/** No more than this many advisors in one meeting the chair called for itself. */
 export const MAX_CONVENED = 3;
+
+/**
+ * The word that means the whole room, typed as `@all` or written by the chair
+ * as `convene: all`.
+ *
+ * It is not a member id — `MEMBER_ID_RE` would let somebody create an advisor
+ * called `all`, and this shadows it deliberately: addressing everybody is worth
+ * more than one advisor's name, and the settings page can rename them.
+ */
+const EVERYONE = "all";
+
+/**
+ * A higher ceiling for a meeting somebody asked for by name.
+ *
+ * `MAX_CONVENED` guards against a model calling a meeting nobody wanted; this
+ * one guards against nothing but a runaway roster, since asking everybody is an
+ * explicit instruction. Whoever is left out is named in the mark rather than
+ * quietly dropped: a meeting that says "everyone" and means "the first six" is
+ * lying about what it did.
+ */
+export const MAX_EVERYONE = 6;
+
+/** Everybody who takes part in meetings, and how many the ceiling left out. */
+async function theRoom(): Promise<{ members: CouncilMember[]; dropped: number }> {
+  const all = (await listMembers()).filter((m) => m.enabled);
+  return {
+    members: all.slice(0, MAX_EVERYONE),
+    dropped: Math.max(0, all.length - MAX_EVERYONE),
+  };
+}
+
+/** What the mark says: who answered, and who the ceiling left out. */
+const meetingDetail = (members: CouncilMember[], dropped: number): string =>
+  `${members.map((m) => m.name).join(", ")}${dropped ? ` (+${dropped} not asked)` : ""}`;
 
 /**
  * Who the chair asked for, and whether they are to hear each other.
@@ -846,11 +880,19 @@ export const MAX_CONVENED = 3;
 async function convened(
   text: string,
   forceRound = false,
-): Promise<{ members: CouncilMember[]; round: boolean }> {
+): Promise<{ members: CouncilMember[]; round: boolean; everyone: boolean; dropped: number }> {
   const line = text.trim().split("\n")[0] ?? "";
   const match = CONVENE_RE.exec(line);
-  if (!match) return { members: [], round: false };
+  if (!match) return { members: [], round: false, everyone: false, dropped: 0 };
   const ids = [...new Set(match[2].split(",").map((id) => id.trim()))];
+  const wantsRound = forceRound || match[1].toLowerCase() === "discuss";
+  // `all` is the whole room and cannot be mixed with names: it already is the
+  // names, and reading "all, michael" as anything but everybody would be
+  // guessing at what the chair meant.
+  if (ids.includes(EVERYONE)) {
+    const { members, dropped } = await theRoom();
+    return { members, round: wantsRound && members.length > 1, everyone: true, dropped };
+  }
   const members: CouncilMember[] = [];
   for (const id of ids) {
     if (members.length >= MAX_CONVENED) break;
@@ -858,8 +900,7 @@ async function convened(
     const member = await getMember(id);
     if (member && member.enabled) members.push(member);
   }
-  const round = (forceRound || match[1].toLowerCase() === "discuss") && members.length > 1;
-  return { members, round };
+  return { members, round: wantsRound && members.length > 1, everyone: false, dropped: 0 };
 }
 
 /**
@@ -869,13 +910,26 @@ async function convened(
  * want. Cheaper than a meeting by every measure, and it is what makes a wrong
  * routing call something you can work around rather than argue with.
  */
-async function addressed(prompt: string): Promise<{ member: CouncilMember; rest: string } | null> {
+interface Addressed {
+  members: CouncilMember[];
+  rest: string;
+  /** `@all`: everybody answers, and the chair closes rather than routing. */
+  everyone: boolean;
+  dropped: number;
+}
+
+async function addressed(prompt: string): Promise<Addressed | null> {
   const match = /^@([a-z][a-z0-9-]{0,31})\b\s*([\s\S]*)$/.exec(prompt.trim());
   if (!match) return null;
+  const rest = match[2].trim();
+  if (!rest) return null;
+  if (match[1] === EVERYONE) {
+    const { members, dropped } = await theRoom();
+    return members.length ? { members, rest, everyone: true, dropped } : null;
+  }
   const member = await getMember(match[1]);
   if (!member || !member.enabled || member.chair) return null;
-  const rest = match[2].trim();
-  return rest ? { member, rest } : null;
+  return { members: [member], rest, everyone: false, dropped: 0 };
 }
 
 /**
@@ -1124,12 +1178,17 @@ export async function send(
     announce(room);
 
     const direct = room === "council" ? await addressed(prompt) : null;
-    if (direct) {
+    if (direct?.everyone) {
+      // Nobody has to decide who this belongs to: it was put to the room. The
+      // chair's opening turn is skipped entirely, so asking everybody costs one
+      // call fewer than a meeting it had to be talked into.
+      await runEveryone(threadId, direct, roundTable);
+    } else if (direct) {
       await speak({
         room,
         threadId,
-        member: direct.member,
-        systemPrompt: await memberSystemPrompt(direct.member),
+        member: direct.members[0],
+        systemPrompt: await memberSystemPrompt(direct.members[0]),
         prompt: direct.rest,
         images,
       });
@@ -1218,7 +1277,12 @@ async function runChair(
 
   if (cancelled.has(threadId)) return;
 
-  const { members: called, round } = await convened(held.text, roundTable);
+  const {
+    members: called,
+    round,
+    everyone: everyoneCalled,
+    dropped,
+  } = await convened(held.text, roundTable);
   if (!called.length) {
     // It opened with something shaped like a convene line but named nobody who
     // exists. That is an answer, however odd, and swallowing it would leave the
@@ -1237,59 +1301,120 @@ async function runChair(
     text: "",
     tools: [
       ...held.tools,
-      { name: round ? "discuss" : "convene", detail: called.map((m) => m.name).join(", ") },
+      {
+        name: round ? "discuss" : everyoneCalled ? "everyone" : "convene",
+        detail: meetingDetail(called, dropped),
+      },
     ],
   });
   announce("council");
 
-  const answers: { name: string; text: string }[] = [];
-  if (round) {
-    // In turn, and in the order the chair named them: the whole of a round
-    // table is that the second one has read the first. Sequential also means a
-    // stopped meeting stops at the next speaker rather than after all of them.
-    for (const member of called) {
-      if (cancelled.has(threadId)) break;
-      const said = await speak({
-        room: "council",
-        threadId,
-        member,
-        systemPrompt: await memberSystemPrompt(member),
-        prompt: tableTurn(
-          prompt,
-          answers.filter((a) => a.text.trim()),
-        ),
-      });
-      answers.push({ name: member.name, text: said.text });
-    }
-  } else {
-    answers.push(
-      ...(await Promise.all(
-        called.map(async (member) => {
-          const said = await speak({
-            room: "council",
-            threadId,
-            member,
-            systemPrompt: await memberSystemPrompt(member),
-            prompt,
-          });
-          return { name: member.name, text: said.text };
-        }),
-      )),
-    );
-  }
+  const answers = await runAdvisors(threadId, prompt, called, round);
 
   // Nothing was stopped if the advisors were already answering when the button
   // was pressed, but the closing turn has not been paid for yet, and it is the
   // one thing still avoidable.
   if (cancelled.has(threadId)) return;
 
+  await closeMeeting(threadId, prompt, answers, round, speakerPrompt);
+}
+
+/**
+ * Put one question to the whole room, because that is what was asked.
+ *
+ * No opening chair turn: `@all` has already decided who answers, so making the
+ * chair decide it again would be a call spent on a routing question with one
+ * possible answer. It still closes, the way every other meeting shape does.
+ */
+async function runEveryone(threadId: string, asked: Addressed, roundTable: boolean): Promise<void> {
+  const round = roundTable && asked.members.length > 1;
+  await appendEntry(threadId, {
+    role: "assistant",
+    text: "",
+    tools: [
+      {
+        name: round ? "discuss" : "everyone",
+        detail: meetingDetail(asked.members, asked.dropped),
+      },
+    ],
+    id: randomUUID(),
+    at: new Date().toISOString(),
+  });
+  announce("council");
+
+  const answers = await runAdvisors(threadId, asked.rest, asked.members, round);
+  if (cancelled.has(threadId)) return;
+  await closeMeeting(
+    threadId,
+    asked.rest,
+    answers,
+    round,
+    (await chairSpeaker("council")).systemPrompt,
+  );
+}
+
+/**
+ * The advisors' half of a meeting: everybody at once, or one after another.
+ *
+ * Shared by the meeting the chair calls and the one you call yourself, because
+ * they differ only in who decided who is in the room.
+ */
+async function runAdvisors(
+  threadId: string,
+  question: string,
+  members: CouncilMember[],
+  round: boolean,
+): Promise<{ name: string; text: string }[]> {
+  if (!round) {
+    return Promise.all(
+      members.map(async (member) => {
+        const said = await speak({
+          room: "council",
+          threadId,
+          member,
+          systemPrompt: await memberSystemPrompt(member),
+          prompt: question,
+        });
+        return { name: member.name, text: said.text };
+      }),
+    );
+  }
+  // In turn, and in the order they were named: the whole of a round table is
+  // that the second one has read the first. Sequential also means a stopped
+  // meeting stops at the next speaker rather than after all of them.
+  const answers: { name: string; text: string }[] = [];
+  for (const member of members) {
+    if (cancelled.has(threadId)) break;
+    const said = await speak({
+      room: "council",
+      threadId,
+      member,
+      systemPrompt: await memberSystemPrompt(member),
+      prompt: tableTurn(
+        question,
+        answers.filter((a) => a.text.trim()),
+      ),
+    });
+    answers.push({ name: member.name, text: said.text });
+  }
+  return answers;
+}
+
+/** The chair's last word on a meeting, whoever called it. */
+async function closeMeeting(
+  threadId: string,
+  question: string,
+  answers: { name: string; text: string }[],
+  round: boolean,
+  speakerPrompt: string,
+): Promise<void> {
   await speak({
     room: "council",
     threadId,
-    member: me,
+    member: await chair(),
     systemPrompt: speakerPrompt,
     prompt: briefing(
-      prompt,
+      question,
       answers.filter((a) => a.text.trim()),
       round,
     ),

@@ -53,12 +53,16 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   // Convening is the chair handing the question on, not a lookup it performed.
   // Rendered as what happened rather than as a tool name, because "who was
   // asked" is the thing worth seeing and a wrong call should be obvious.
-  if (name === "convene" || name === "discuss") {
+  if (name === "convene" || name === "discuss" || name === "everyone") {
+    const said =
+      name === "discuss"
+        ? `round table: ${detail}`
+        : name === "everyone"
+          ? `everyone: ${detail}`
+          : `asks ${detail}`;
     return (
       <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-accent/40 bg-accent-tint px-2.5 py-1 font-mono text-[11px] text-accent">
-        <span className="truncate">
-          {name === "discuss" ? `round table: ${detail}` : `asks ${detail}`}
-        </span>
+        <span className="truncate">{said}</span>
       </span>
     );
   }
@@ -228,7 +232,10 @@ function Roster({
   onPick: (id: string) => void;
 }) {
   if (members.length < 2) return null;
+  const advisors = members.filter((m) => !m.chair);
   const shown = members.find((m) => m.id === (addressed ?? "")) ?? null;
+  const asked = addressed === "all";
+  const anySpeaking = speaking.length > 1;
   return (
     <div className="px-1 pb-2">
       <div className="flex flex-wrap gap-1.5">
@@ -264,11 +271,47 @@ function Roster({
             </button>
           );
         })}
+
+        {/* The room itself, which is a thing you can address. Without it the
+            only way to learn that a question can go to everybody is to be told,
+            and the chair answering one meant for all of them reads as rudeness
+            rather than as a routing call. */}
+        {advisors.length > 1 && (
+          <button
+            type="button"
+            onClick={() => onPick("all")}
+            title="put it to the whole room: everybody answers"
+            aria-pressed={asked}
+            className={`tap flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+              asked || anySpeaking
+                ? "border-accent/50 text-accent"
+                : "border-line text-faint hover:border-line-strong"
+            }`}
+          >
+            <span className="flex flex-none -space-x-1.5">
+              {advisors.slice(0, 3).map((m) => (
+                <Face
+                  key={m.id}
+                  face={m.face}
+                  mood={speaking.includes(m.id) ? "speaking" : "idle"}
+                  className={`h-[18px] w-[18px] ${MEMBER_TEXT[m.colour]}`}
+                />
+              ))}
+            </span>
+            @all
+          </button>
+        )}
       </div>
       {/* What the one you have picked is for. A remit is one line and it is the
           answer to "why would I ask them", which a name on its own is not. */}
-      {shown && (
-        <div className={`mt-1.5 text-[12px] ${MEMBER_TEXT[shown.colour]}`}>{shown.remit}</div>
+      {asked ? (
+        <div className="mt-1.5 text-[12px] text-accent">
+          everybody answers, and the chair has the last word
+        </div>
+      ) : (
+        shown && (
+          <div className={`mt-1.5 text-[12px] ${MEMBER_TEXT[shown.colour]}`}>{shown.remit}</div>
+        )
       )}
     </div>
   );
@@ -621,7 +664,7 @@ export default function Chat({ room }: { room: ChatRoom }) {
             <div className="font-mono text-[13px] text-muted">nothing said yet</div>
             <p className="mx-auto mt-2 max-w-[42ch] text-[13.5px] text-faint">
               {council
-                ? "Put a question to the room. The chair hands it to whoever it belongs to, or you can address one of them directly with their @id."
+                ? "Put a question to the room. The chair hands it to whoever it belongs to; @all asks every one of them, and an @id asks that one alone."
                 : "Ask what needs you, or tell it something to remember. It can read your projects, sessions and runs, and it will say when a question is really the council's."}
             </p>
           </div>

@@ -448,6 +448,78 @@ describe("adding somebody", () => {
   });
 });
 
+describe("asking the whole room", () => {
+  beforeEach(() => {
+    whenAsked("Michael", "I watch the cluster.");
+    whenAsked("Raphael", "I read the code.");
+    whenAsked("Uriel", "I keep what is not work.");
+    fake.reply("claude", "-p The council answered.", { stdout: run("That is the room.") });
+  });
+
+  it("puts @all to everybody, with no chair turn to decide it", async () => {
+    // The question already said who it was for, so making the chair route it
+    // would be a call spent on a decision with one possible answer.
+    const got = entries(await say("@all who are you?"));
+
+    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Uriel" }]);
+    expect(got[1].text).toBe("");
+    expect(
+      got
+        .filter((e) => e.member)
+        .map((e) => e.member)
+        .sort(),
+    ).toEqual(["michael", "raphael", "uriel"]);
+    expect(got.at(-1)?.text).toBe("That is the room.");
+    // Three advisors and the chair's last word: no opening turn.
+    expect(fake.argvFor("claude")).toHaveLength(4);
+    // And the @ is addressing, not part of what they are asked.
+    expect(callsFor("Michael")[0][1]).toBe("who are you?");
+  });
+
+  it("lets the chair put it to everybody too", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: all") });
+
+    const got = entries(await say("what does everyone make of this?"));
+
+    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Uriel" }]);
+    expect(got.filter((e) => e.member)).toHaveLength(3);
+  });
+
+  it("seats the whole room at the round table when the switch is on", async () => {
+    const got = entries(await say("@all who are you?", true));
+
+    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael, Uriel" }]);
+    // Sequential, so the last one asked has read the ones before it.
+    const asked = callsFor("Uriel")[0][1];
+    expect(asked).toContain("Michael: I watch the cluster.");
+  });
+
+  it("says who the ceiling left out rather than dropping them quietly", async () => {
+    // A meeting that says "everyone" and means "the first six" is lying about
+    // what it did, so whoever was left out is named in the mark.
+    const { MAX_EVERYONE } = await import("../src/assistant.js");
+    const extra = MAX_EVERYONE - 2;
+    for (let i = 0; i < extra; i++) {
+      await app.inject({
+        method: "POST",
+        url: "/api/council",
+        payload: { id: `extra${i}`, name: `Extra${i}`, remit: "spare", tools: [] },
+      });
+      fake.reply("claude", "-p", { contains: `Your name is Extra${i}.`, stdout: run("here") });
+    }
+
+    const got = entries(await say("@all who are you?"));
+
+    const detail = got[1].tools[0].detail;
+    expect(detail).toContain("(+1 not asked)");
+    expect(got.filter((e) => e.member)).toHaveLength(MAX_EVERYONE);
+
+    for (let i = 0; i < extra; i++) {
+      await app.inject({ method: "DELETE", url: `/api/council/extra${i}` });
+    }
+  });
+});
+
 describe("one turn at a time", () => {
   it("refuses a second question while a meeting is still going", async () => {
     // The registry cannot answer this on its own: between the chair's turn and
