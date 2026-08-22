@@ -124,15 +124,25 @@ describe("a meeting", () => {
 
     const got = entries(await say("is the homelab pr safe to merge?"));
 
-    expect(got.map((e) => [e.member ?? "chair", e.text])).toEqual([
+    // The question, then the mark saying who was asked, then the summary. The
+    // convene line itself is machinery and is kept out of the conversation.
+    expect([got[0], got[1], got.at(-1)].map((e) => [e!.member ?? "chair", e!.text])).toEqual([
       ["chair", "is the homelab pr safe to merge?"],
-      // The convene line itself is machinery, kept out of the conversation.
       ["chair", ""],
-      ["michael", "The cluster is green."],
-      ["raphael", "Four bumps, all passing."],
       ["chair", "Merge it."],
     ]);
     expect(got[1].tools).toEqual([{ name: "convene", detail: "Michael, Raphael" }]);
+    // The advisors in between, as a set: they answer in parallel and land as
+    // they finish, so asserting an order would be asserting a race.
+    expect(
+      got
+        .filter((e) => e.member)
+        .map((e) => [e.member, e.text])
+        .sort(),
+    ).toEqual([
+      ["michael", "The cluster is green."],
+      ["raphael", "Four bumps, all passing."],
+    ]);
   });
 
   it("hands the chair what the advisors actually said", async () => {
