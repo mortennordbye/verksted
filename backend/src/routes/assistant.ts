@@ -21,7 +21,7 @@ import { MAX_TEXT } from "../tts.js";
 export default async function assistantRoutes(app: FastifyInstance) {
   app.get("/api/assistant", () => assistant.readThread());
 
-  app.post<{ Body: { text: string; images?: string[] } }>(
+  app.post<{ Body: { text: string; images?: string[]; roundTable?: boolean } }>(
     "/api/assistant/messages",
     {
       schema: {
@@ -40,6 +40,10 @@ export default async function assistantRoutes(app: FastifyInstance) {
               maxItems: 4,
               items: { type: "string", pattern: "^[0-9a-f-]{36}\\.[a-z]{3,4}$" },
             },
+            // Ask the council to talk this one over rather than answer in
+            // parallel. Per turn, not a setting: it costs more and takes longer,
+            // so it is a thing you switch on for a question worth it.
+            roundTable: { type: "boolean" },
           },
         },
       },
@@ -48,7 +52,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
       const text = req.body.text.trim();
       if (!text) return reply.code(400).send({ error: "say something" });
       try {
-        return await assistant.send(text, req.body.images ?? []);
+        return await assistant.send(text, req.body.images ?? [], req.body.roundTable === true);
       } catch (err) {
         // The only expected throw is "already running", which is a conflict
         // rather than a server fault: the client should wait, not retry.

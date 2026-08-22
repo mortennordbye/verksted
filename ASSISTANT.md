@@ -715,6 +715,31 @@ The line itself never appears; what appears in its place is a mark saying who
 was asked, so a wrong routing call is something you can see rather than
 something you have to infer from a bad answer.
 
+### The round table
+
+The other first line the chair may write is `discuss: michael, raphael`, and it
+buys one thing: the advisors answer **in turn**, each shown what the ones before
+it said and asked to name where it disagrees. A convening is two answers to the
+same question written by two people who cannot hear each other; a round table is
+a conversation, and the difference shows up exactly where it matters — when one
+advisor's finding changes what another's means.
+
+It is asked for in two ways, because the two are asking different things. The
+chair calls one itself when a question straddles two remits or when it expects
+them to disagree. The `round table` switch in the composer says so from outside:
+it travels with that one turn, nudges the chair to put the question to the room,
+and upgrades a `convene:` line into a discussion if the chair convenes anyway. A
+switch rather than a setting, and not remembered across a reload, because it is
+the one control in that row that costs money every time it is on.
+
+Sequential, so it is slower than a convening of the same size and costs the same
+number of calls; a stop lands between speakers rather than after all of them.
+What the others said travels in the prompt rather than in the advisor's own
+conversation — an advisor resumes its own thread across the whole chat, and
+somebody's opinion about today's question must not still be in its context next
+week, presented as something it knew. One round: each advisor speaks once, and
+the chair settles what is left.
+
 ### Why a line of prose and not a tool
 
 A tool costs two round trips — the one that emits the call and the one that
@@ -745,6 +770,7 @@ an HTTP request whose client is about to be killed anyway.
 | a question the chair keeps            | 2 — unchanged              |
 | `@michael …`, straight to one advisor | 2, on that advisor's model |
 | a meeting with N advisors             | N + 2                      |
+| a round table of N advisors           | N + 2, one after another   |
 | the ceiling, whatever the chair asks  | 5                          |
 
 `MAX_CONVENED` is enforced in the code and not asked of the model, because a
@@ -813,6 +839,46 @@ this is what makes it true of all of them.
 An advisor's answer reaches the chair, which does hold the irreversible tools.
 So the same sentence that covers a pull request body covers a colleague: what an
 advisor says is a report, not an instruction.
+
+### Adding somebody
+
+A member is a file, so adding one was always a form on the settings page. What
+it was not was something you could ask for: noticing that nobody on the roster
+covers what you keep asking about, and saying so, ended in a blank form and a
+list of tool names. `council_add` is the chair's answer to "I need someone
+watching what this all costs" — it writes the remit, the persona, the few
+read-only tools that subject needs, a colour and a face, and the new advisor is
+in the room before the turn ends.
+
+It is chair-only, and it posts to a **create-only** endpoint rather than the
+form's `PUT`. The `PUT` is a form saving what it just loaded and overwriting is
+the whole point of it; a chair working from a half-remembered name must not
+quietly replace an advisor along with everything that advisor was given, so an
+id that already exists is a 409 and a sentence, not a silent replacement. It
+grants nothing the settings page could not: the route validates the tools the
+same way, so a chair-only tool is refused on the way in and a new advisor cannot
+be created holding one.
+
+### Faces
+
+Every member has a drawn portrait — owl, fox, bear, cat, robot, raccoon — in its
+own colour, shown beside what it said, in the roster above the composer, and on
+its card in settings. The chair is the raccoon, which is the animal this bench
+already had.
+
+A closed set of drawings rather than an image per member, because a member is a
+JSON file on a volume that holds JSON, and a portrait that is a file is a file
+to serve, cache and lose. Animals rather than people: at the 18px the roster
+draws them, human faces differ only by hair and read as one face repeated, while
+a silhouette with ears is recognisable from the corner of your eye — which is
+the whole job, since four hues is already more than anyone reliably tells apart
+on a phone. The mouth opens while its owner is answering, so who is still out is
+visible without reading a word.
+
+A member that has never been given a face gets one derived from its id, so the
+advisors that existed before faces did are not all the same animal, and the same
+member is the same animal on every device without a migration having written
+anything.
 
 ### Memory, shared and private
 

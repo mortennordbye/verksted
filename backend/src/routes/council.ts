@@ -20,6 +20,42 @@ import * as tts from "../tts.js";
  */
 const ID = { type: "string", pattern: "^[a-z][a-z0-9-]{0,31}$" };
 
+/** The editable half of a member: the same fields whether it is created or changed. */
+const MEMBER_FIELDS = {
+  name: { type: "string", minLength: 1, maxLength: 60 },
+  remit: { type: "string", minLength: 1, maxLength: council.MAX_REMIT },
+  // Carried with every turn this member takes, so it is capped the way
+  // the assistant's standing orders are: about a screenful.
+  persona: { type: "string", maxLength: council.MAX_PERSONA },
+  model: { type: "string", maxLength: 60 },
+  effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"] },
+  tools: { type: "array", maxItems: 40, items: { type: "string", maxLength: 40 } },
+  web: { type: "boolean" },
+  voice: { type: "string", maxLength: 40 },
+  colour: {
+    type: "string",
+    enum: ["amber", "violet", "teal", "rose", "sky", "lime"],
+  },
+  face: { type: "string", enum: ["owl", "fox", "bear", "cat", "robot", "raccoon"] },
+  enabled: { type: "boolean" },
+};
+
+/**
+ * Whether this pod can speak in the voice a member was given.
+ *
+ * Only when this pod has a voice at all: the list comes from the model's own
+ * ready line, so a pod without one has nothing to check against, and refusing
+ * every name there would hold the roster hostage to an optional feature. Where
+ * there is a list, a typo is an error on the form rather than a sample button
+ * that does nothing.
+ */
+async function badVoice(voice: string | undefined): Promise<string | null> {
+  const want = (voice ?? "").trim();
+  if (!want || !tts.available()) return null;
+  const known = await tts.voices();
+  return known.includes(want) ? null : `no such voice on this pod: ${want}`;
+}
+
 export default async function councilRoutes(app: FastifyInstance) {
   app.get("/api/council", () => council.listCouncil());
 
@@ -31,44 +67,49 @@ export default async function councilRoutes(app: FastifyInstance) {
     {
       schema: {
         params: { type: "object", required: ["id"], properties: { id: ID } },
+        body: { type: "object", additionalProperties: false, properties: MEMBER_FIELDS },
+      },
+    },
+    async (req, reply) => {
+      const bad = await badVoice(req.body.voice);
+      if (bad) return reply.code(400).send({ error: bad });
+      try {
+        return await council.saveMember({ ...req.body, id: req.params.id });
+      } catch (err) {
+        if (err instanceof MemberDeniedError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
+
+  /**
+   * Add someone who is not here yet.
+   *
+   * Apart from the PUT above because it refuses an id that already exists: the
+   * PUT is a form saving what it just loaded, and overwriting is what it is
+   * for, but the chair calling `council_add` on a name it half-remembers must
+   * not silently replace an advisor and everything that advisor was given.
+   */
+  app.post<{ Body: Partial<CouncilMember> & { id: string } }>(
+    "/api/council",
+    {
+      schema: {
         body: {
           type: "object",
+          required: ["id", "name", "remit"],
           additionalProperties: false,
-          properties: {
-            name: { type: "string", minLength: 1, maxLength: 60 },
-            remit: { type: "string", minLength: 1, maxLength: council.MAX_REMIT },
-            // Carried with every turn this member takes, so it is capped the way
-            // the assistant's standing orders are: about a screenful.
-            persona: { type: "string", maxLength: council.MAX_PERSONA },
-            model: { type: "string", maxLength: 60 },
-            effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"] },
-            tools: { type: "array", maxItems: 40, items: { type: "string", maxLength: 40 } },
-            web: { type: "boolean" },
-            voice: { type: "string", maxLength: 40 },
-            colour: {
-              type: "string",
-              enum: ["amber", "violet", "teal", "rose", "sky", "lime"],
-            },
-            enabled: { type: "boolean" },
-          },
+          properties: { id: ID, ...MEMBER_FIELDS },
         },
       },
     },
     async (req, reply) => {
-      // Only when this pod has a voice at all: the list comes from the model's
-      // own ready line, so a pod without one has nothing to check against, and
-      // refusing every name there would hold the roster hostage to an optional
-      // feature. Where there is a list, a typo is an error on the form rather
-      // than a sample button that does nothing.
-      const voice = (req.body.voice ?? "").trim();
-      if (voice && tts.available()) {
-        const known = await tts.voices();
-        if (!known.includes(voice)) {
-          return reply.code(400).send({ error: `no such voice on this pod: ${voice}` });
-        }
+      if (req.body.id === council.CHAIR_ID || (await council.getMember(req.body.id))) {
+        return reply.code(409).send({ error: `${req.body.id} is already on the council` });
       }
+      const bad = await badVoice(req.body.voice);
+      if (bad) return reply.code(400).send({ error: bad });
       try {
-        return await council.saveMember({ ...req.body, id: req.params.id });
+        return reply.code(201).send(await council.saveMember(req.body));
       } catch (err) {
         if (err instanceof MemberDeniedError) return reply.code(400).send({ error: err.message });
         throw err;

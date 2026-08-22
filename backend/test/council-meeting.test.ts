@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { FakeBin } from "./helpers/fake-bin.js";
 
@@ -70,8 +70,12 @@ beforeEach(() => {
   fake.reset();
 });
 
-const say = (text: string) =>
-  app.inject({ method: "POST", url: "/api/assistant/messages", payload: { text } });
+const say = (text: string, roundTable = false) =>
+  app.inject({
+    method: "POST",
+    url: "/api/assistant/messages",
+    payload: { text, ...(roundTable ? { roundTable: true } : {}) },
+  });
 
 interface Entry {
   role: string;
@@ -239,6 +243,124 @@ describe("a meeting", () => {
     const got = entries(await say("everything?"));
 
     expect(got.filter((e) => e.member).length).toBeLessThanOrEqual(3);
+  });
+});
+
+describe("a round table", () => {
+  /** The prompt the call carrying this advisor's persona was given. */
+  const promptFor = (name: string) => callsFor(name).map((argv) => argv[1]);
+
+  beforeEach(() => {
+    whenAsked("Michael", "The cluster is green.");
+    whenAsked("Raphael", "Four bumps, all passing.");
+    fake.reply("claude", "-p The council talked it over", { stdout: run("Merge it.") });
+  });
+
+  it("shows each advisor what the ones before it said", async () => {
+    fake.reply("claude", "-p", { stdout: run("discuss: michael, raphael") });
+
+    const got = entries(await say("is the homelab pr safe to merge?"));
+
+    // The first one is asked the plain question; the second is asked it with
+    // the first one's answer, which is the whole of what a round table is.
+    expect(promptFor("Michael")[0]).toBe("is the homelab pr safe to merge?");
+    expect(promptFor("Raphael")[0]).toContain("Michael: The cluster is green.");
+    expect(promptFor("Raphael")[0]).toContain("where you disagree");
+    // And the chair is told they heard each other, so it can settle a fight.
+    const closing = fake.argvFor("claude").find((argv) => argv[1].startsWith("The council talked"));
+    expect(closing?.[1]).toContain("Raphael: Four bumps, all passing.");
+    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael" }]);
+  });
+
+  it("keeps them in the order the chair named them", async () => {
+    // Sequential, so unlike a convening this order is a property rather than a
+    // race: the transcript is what somebody reads back afterwards.
+    fake.reply("claude", "-p", { stdout: run("discuss: raphael, michael") });
+
+    const got = entries(await say("is the homelab pr safe to merge?"));
+
+    expect(got.filter((e) => e.member).map((e) => e.member)).toEqual(["raphael", "michael"]);
+  });
+
+  it("turns a convening into one when the switch is on", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });
+
+    const got = entries(await say("is the homelab pr safe to merge?", true));
+
+    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael" }]);
+    expect(promptFor("Raphael")[0]).toContain("Michael: The cluster is green.");
+    // The chair is told the switch is on, rather than being made to guess.
+    expect(fake.argvFor("claude")[0][1]).toContain("round table switch is on");
+  });
+
+  it("is a plain answer when only one advisor is named", async () => {
+    // A round table of one is a convening with a longer prompt, and a chip that
+    // said "round table: Michael" would be describing something that did not
+    // happen.
+    fake.reply("claude", "-p", { stdout: run("discuss: michael") });
+    fake.reply("claude", "-p The council answered.", { stdout: run("Fine.") });
+
+    const got = entries(await say("what is degraded?"));
+
+    expect(got[1].tools).toEqual([{ name: "convene", detail: "Michael" }]);
+    expect(promptFor("Michael")[0]).toBe("what is degraded?");
+  });
+});
+
+describe("adding somebody", () => {
+  const add = (body: Record<string, unknown>) =>
+    app.inject({ method: "POST", url: "/api/council", payload: body });
+
+  const roster = async (): Promise<{ id: string; name: string; face: string }[]> =>
+    (await app.inject({ url: "/api/council" })).json();
+
+  const ledger = {
+    name: "Ledger",
+    remit: "what this bench costs to run",
+    persona: "You watch the money.",
+    tools: ["status"],
+    face: "bear",
+  };
+
+  // The council directory outlives a test here, unlike the transcript, so
+  // whoever was added is taken back off before the next one runs.
+  afterEach(async () => {
+    for (const m of await roster()) {
+      if (!["chair", "michael", "raphael", "uriel"].includes(m.id)) {
+        await app.inject({ method: "DELETE", url: `/api/council/${m.id}` });
+      }
+    }
+  });
+
+  it("puts a new advisor on the roster", async () => {
+    const res = await add({ ...ledger, id: "ledger" });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ id: "ledger", face: "bear", enabled: true });
+    expect((await roster()).map((m) => m.id)).toContain("ledger");
+  });
+
+  it("refuses an id somebody already has, rather than replacing them", async () => {
+    // The chair working from a half-remembered name must not quietly take an
+    // advisor's place, along with everything that advisor was given.
+    const res = await add({ ...ledger, id: "michael", name: "Not Michael" });
+
+    expect(res.statusCode).toBe(409);
+    expect((await roster()).find((m) => m.id === "michael")?.name).toBe("Michael");
+  });
+
+  it("refuses the chair's own tools, whoever is asking", async () => {
+    const res = await add({ ...ledger, id: "spender", tools: ["status", "start_session"] });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/chair's alone/);
+  });
+
+  it("gives one that chose no face a face of its own", async () => {
+    const res = await add({ ...ledger, id: "warden", face: undefined });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().face).toBeTruthy();
   });
 });
 

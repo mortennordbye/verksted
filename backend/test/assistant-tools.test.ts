@@ -30,6 +30,15 @@ const REPLIES: Record<string, unknown> = {
   "DELETE /api/sessions/vk-demo-1": { id: "vk-demo-1", report: "ok: done" },
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
+  "POST /api/council": {
+    id: "ledger",
+    name: "Ledger",
+    remit: "what this bench costs",
+    face: "bear",
+    colour: "rose",
+    tools: ["status"],
+    web: false,
+  },
 };
 
 /** One JSON-RPC round trip, with a fresh process each time. */
@@ -91,6 +100,7 @@ describe("the tool set", () => {
         "ci_rerun",
         "ci_runs",
         "cluster_status",
+        "council_add",
         "create_schedule",
         "delete_schedule",
         "end_session",
@@ -268,6 +278,27 @@ describe("one advisor's tools", () => {
 
     expect(seen[0]?.url).toBe("/api/council/uriel/memory/x");
     expect(seen[0]?.body).not.toContain("Homelab");
+  });
+
+  it("adds a council member as the create-only call, not as an overwrite", async () => {
+    // PUT would replace whoever already holds that id, along with everything
+    // they were given. The chair working from a half-remembered name must get
+    // a refusal rather than quietly take an advisor's place.
+    seen = [];
+    const res = await callTool("council_add", {
+      id: "ledger",
+      name: "Ledger",
+      remit: "what this bench costs",
+      persona: "You watch the money.",
+      tools: ["status"],
+      face: "bear",
+      colour: "rose",
+    });
+
+    expect(seen[0]?.method).toBe("POST");
+    expect(seen[0]?.url).toBe("/api/council");
+    expect(JSON.parse(seen[0]?.body ?? "{}")).toMatchObject({ id: "ledger", face: "bear" });
+    expect(JSON.stringify(res)).toContain("added Ledger (@ledger)");
   });
 
   it("gives the backend's inventory the same names this server offers", async () => {

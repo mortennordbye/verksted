@@ -670,6 +670,12 @@ export interface CouncilMember {
   web: boolean;
   colour: CouncilColour;
   /**
+   * Which portrait is drawn for this one. A closed set, because each face is a
+   * drawing in the frontend rather than a file: a name with no drawing behind
+   * it would render as nothing at all.
+   */
+  face: CouncilFace;
+  /**
    * Which of the pod's voices reads this one aloud. Empty means the device's
    * default, which is what every advisor sounded like before: one narrator
    * reading everybody, which is exactly what makes a meeting unlistenable.
@@ -686,6 +692,16 @@ export interface CouncilMember {
  * and the three agent brands are not free to reuse.
  */
 export type CouncilColour = "amber" | "violet" | "teal" | "rose" | "sky" | "lime";
+
+/**
+ * The portraits an advisor may wear.
+ *
+ * Animals rather than people: at the 26px the roster draws them, human faces
+ * differ only by hair and read as one face repeated, while a silhouette with
+ * ears is recognisable at a glance and from the corner of your eye. The chair
+ * is the raccoon, which is the one this bench already had.
+ */
+export type CouncilFace = "owl" | "fox" | "bear" | "cat" | "robot" | "raccoon";
 
 /** One turn from an older conversation, found by searching them. */
 export interface AssistantSearchHit {
