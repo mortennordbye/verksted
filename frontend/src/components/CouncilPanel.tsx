@@ -6,6 +6,7 @@ import type {
   CouncilMember,
 } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { audioPlayer, voiceLabel } from "../useSpeech";
 
 /**
@@ -21,33 +22,6 @@ import { audioPlayer, voiceLabel } from "../useSpeech";
  */
 const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
-
-const TEXT: Record<CouncilColour, string> = {
-  amber: "text-member-amber",
-  violet: "text-member-violet",
-  teal: "text-member-teal",
-  rose: "text-member-rose",
-  sky: "text-member-sky",
-  lime: "text-member-lime",
-};
-
-const RULE: Record<CouncilColour, string> = {
-  amber: "border-member-amber/40",
-  violet: "border-member-violet/40",
-  teal: "border-member-teal/40",
-  rose: "border-member-rose/40",
-  sky: "border-member-sky/40",
-  lime: "border-member-lime/40",
-};
-
-const SWATCH: Record<CouncilColour, string> = {
-  amber: "bg-member-amber",
-  violet: "bg-member-violet",
-  teal: "bg-member-teal",
-  rose: "bg-member-rose",
-  sky: "bg-member-sky",
-  lime: "bg-member-lime",
-};
 
 const field =
   "rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
@@ -119,6 +93,7 @@ const blank = (id: string): CouncilMember => ({
   tools: [],
   web: false,
   colour: "sky",
+  face: "owl",
   voice: "",
   chair: false,
   enabled: true,
@@ -208,12 +183,12 @@ export default function CouncilPanel() {
           <div
             key={m.id}
             className={`flex flex-col gap-2 rounded-[11px] border border-l-2 bg-surface px-[15px] py-3 ${
-              m.enabled ? RULE[m.colour] : "border-line opacity-60"
+              m.enabled ? MEMBER_RULE[m.colour] : "border-line opacity-60"
             }`}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`h-2.5 w-2.5 flex-none rounded-full ${SWATCH[m.colour]}`} />
-              <span className={`font-mono text-[13px] ${TEXT[m.colour]}`}>{m.name}</span>
+              <Portrait face={m.face} colour={m.colour} size={32} title={m.remit} />
+              <span className={`font-mono text-[13px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
               <span className="font-mono text-[11px] text-faint">
                 {m.chair ? "chair" : `@${m.id}`}
               </span>
@@ -349,6 +324,28 @@ export default function CouncilPanel() {
                 ))}
               </select>
             )}
+          </div>
+
+          {/* Drawn in the colour picked above, because that is the pair you are
+              actually choosing: the same fox in two hues is two advisors. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {FACES.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setEditing({ ...editing, face: f })}
+                aria-pressed={editing.face === f}
+                aria-label={f}
+                title={f}
+                className={`tap flex h-9 w-9 items-center justify-center rounded-full border ${
+                  editing.face === f
+                    ? `${MEMBER_RULE[editing.colour]} ${MEMBER_TEXT[editing.colour]} bg-surface-2`
+                    : "border-line text-faint hover:border-line-strong"
+                }`}
+              >
+                <Face face={f} className="h-[22px] w-[22px]" />
+              </button>
+            ))}
           </div>
 
           <div className="mt-1 text-[12px] text-muted">What they may look at</div>

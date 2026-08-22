@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AssistantEffort, CouncilColour, CouncilMember } from "../../shared/api.js";
+import type {
+  AssistantEffort,
+  CouncilColour,
+  CouncilFace,
+  CouncilMember,
+} from "../../shared/api.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { DEFAULT_NAME, readAssistantConfig } from "./settings-store.js";
@@ -71,6 +76,7 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   { name: "delete_schedule", chairOnly: true },
   { name: "pause_schedules", chairOnly: true },
   { name: "notify", chairOnly: true },
+  { name: "council_add", chairOnly: true },
   { name: "repo_diff", chairOnly: false },
   { name: "recent_prompts", chairOnly: false },
   { name: "propose_memory", chairOnly: false },
@@ -84,6 +90,7 @@ const TOOL_NAMES = new Set(TOOL_INVENTORY.map((t) => t.name));
 const CHAIR_ONLY = new Set(TOOL_INVENTORY.filter((t) => t.chairOnly).map((t) => t.name));
 
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
+const FACES: CouncilFace[] = ["owl", "fox", "bear", "cat", "robot", "raccoon"];
 const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 
 /** Carried with every turn of every meeting, so it is on the same budget the persona is. */
@@ -91,6 +98,19 @@ export const MAX_PERSONA = 2_000;
 export const MAX_REMIT = 200;
 
 export class MemberDeniedError extends Error {}
+
+/**
+ * The face a member wears when nobody has chosen one.
+ *
+ * From the id rather than a fixed default, so the advisors that existed before
+ * faces did are not all the same animal — and so the same member is the same
+ * animal on every device, forever, without a migration having written anything.
+ */
+function faceFor(id: string): CouncilFace {
+  let n = 0;
+  for (const ch of id) n = (n * 31 + ch.charCodeAt(0)) % 1_000_003;
+  return FACES[n % FACES.length];
+}
 
 function filePath(id: string): string {
   return path.join(env.COUNCIL_DIR, `${id}.json`);
@@ -129,6 +149,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     ],
     web: false,
     colour: "teal",
+    face: "owl",
     voice: "am_michael",
     enabled: true,
   },
@@ -159,6 +180,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     ],
     web: false,
     colour: "violet",
+    face: "fox",
     voice: "bm_george",
     enabled: true,
   },
@@ -177,6 +199,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     tools: ["status", "recall", "list_memories", "remember", "forget", "propose_memory"],
     web: true,
     colour: "amber",
+    face: "cat",
     voice: "bf_emma",
     enabled: true,
   },
@@ -210,6 +233,9 @@ export function validate(input: Partial<CouncilMember> & { id: string }): Counci
   const colour = COLOURS.includes(input.colour as CouncilColour)
     ? (input.colour as CouncilColour)
     : "teal";
+  const face = FACES.includes(input.face as CouncilFace)
+    ? (input.face as CouncilFace)
+    : faceFor(id);
   return {
     id,
     name,
@@ -220,6 +246,7 @@ export function validate(input: Partial<CouncilMember> & { id: string }): Counci
     tools: [...new Set(tools)],
     web: input.web === true,
     colour,
+    face,
     // Not checked against the model's list here: this runs on the way out as
     // well, and a pod that lost its voice model would then lose its roster with
     // it. The name is checked at the route, where there is a request to refuse.
@@ -255,6 +282,7 @@ export async function chair(): Promise<CouncilMember> {
     tools: TOOL_INVENTORY.map((t) => t.name),
     web: true,
     colour: "amber",
+    face: "raccoon",
     // The chair keeps the per-device voice the settings page already sets.
     voice: "",
     chair: true,

@@ -1,11 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type {
-  AssistantEntry,
-  AssistantThread,
-  CouncilColour,
-  CouncilMember,
-} from "../../../shared/api";
+import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
 import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
@@ -50,10 +46,12 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   // Convening is the chair handing the question on, not a lookup it performed.
   // Rendered as what happened rather than as a tool name, because "who was
   // asked" is the thing worth seeing and a wrong call should be obvious.
-  if (name === "convene") {
+  if (name === "convene" || name === "discuss") {
     return (
       <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-accent/40 bg-accent-tint px-2.5 py-1 font-mono text-[11px] text-accent">
-        <span className="truncate">asks {detail}</span>
+        <span className="truncate">
+          {name === "discuss" ? `round table: ${detail}` : `asks ${detail}`}
+        </span>
       </span>
     );
   }
@@ -67,34 +65,6 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
     </span>
   );
 }
-
-/** The hue tokens a member may carry, as the classes Tailwind has to see. */
-const MEMBER_TEXT: Record<CouncilColour, string> = {
-  amber: "text-member-amber",
-  violet: "text-member-violet",
-  teal: "text-member-teal",
-  rose: "text-member-rose",
-  sky: "text-member-sky",
-  lime: "text-member-lime",
-};
-
-const MEMBER_DOT: Record<CouncilColour, string> = {
-  amber: "bg-member-amber",
-  violet: "bg-member-violet",
-  teal: "bg-member-teal",
-  rose: "bg-member-rose",
-  sky: "bg-member-sky",
-  lime: "bg-member-lime",
-};
-
-const MEMBER_RULE: Record<CouncilColour, string> = {
-  amber: "border-member-amber/40",
-  violet: "border-member-violet/40",
-  teal: "border-member-teal/40",
-  rose: "border-member-rose/40",
-  sky: "border-member-sky/40",
-  lime: "border-member-lime/40",
-};
 
 function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember }) {
   if (entry.role === "user") {
@@ -126,23 +96,36 @@ function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember
         <ToolChip key={i} name={t.name} detail={t.detail} />
       ))}
       {entry.text && (
-        <div className="flex flex-col gap-1">
+        // The portrait sits beside what was said rather than above it, so a
+        // meeting reads as several people talking instead of as one voice with
+        // labels. The chair keeps the bare bubble it has always had.
+        <div className="flex items-start gap-2">
           {entry.member && (
-            <span className={`font-mono text-[11px] ${MEMBER_TEXT[colour]}`}>
-              {member?.name ?? entry.member}
-            </span>
+            <Portrait
+              face={member?.face ?? "owl"}
+              colour={colour}
+              size={28}
+              title={member?.remit}
+            />
           )}
-          <div className="flex">
-            <div
-              className={`max-w-[82%] rounded-[14px] rounded-bl-[5px] border px-3 py-2 text-[14px] whitespace-pre-wrap ${
-                entry.failed
-                  ? "border-fail/40 bg-fail/10 text-text"
-                  : entry.member
-                    ? `${MEMBER_RULE[colour]} border-l-2 bg-surface`
-                    : "border-line bg-surface"
-              }`}
-            >
-              {entry.text}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            {entry.member && (
+              <span className={`font-mono text-[11px] ${MEMBER_TEXT[colour]}`}>
+                {member?.name ?? entry.member}
+              </span>
+            )}
+            <div className="flex">
+              <div
+                className={`max-w-[88%] rounded-[14px] rounded-bl-[5px] border px-3 py-2 text-[14px] whitespace-pre-wrap ${
+                  entry.failed
+                    ? "border-fail/40 bg-fail/10 text-text"
+                    : entry.member
+                      ? `${MEMBER_RULE[colour]} border-l-2 bg-surface`
+                      : "border-line bg-surface"
+                }`}
+              >
+                {entry.text}
+              </div>
             </div>
           </div>
         </div>
@@ -191,7 +174,15 @@ function Roster({
                     : "border-line text-faint hover:border-line-strong"
               }`}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${MEMBER_DOT[m.colour]}`} />
+              {/* Only two states here, and neither of them is invented: a face
+                  is talking or it is not. Drawing the ones you have not picked
+                  as "thinking" would say something about them that is not
+                  true. */}
+              <Face
+                face={m.face}
+                mood={busy ? "speaking" : "idle"}
+                className="h-[18px] w-[18px] flex-none"
+              />
               {m.chair ? m.name : `@${m.id}`}
               {busy && " …"}
             </button>
@@ -225,6 +216,15 @@ export default function Assistant() {
   const [speakReplies, setSpeakReplies] = useState(
     () => localStorage.getItem("vk.assistant.speak") === "1",
   );
+  /**
+   * Ask the council to talk this one over instead of answering in parallel.
+   *
+   * Not remembered across reloads, unlike the two above: it is the one switch
+   * here that costs real money every time it is on — the advisors answer one
+   * after another, each carrying what the others said — so it should not
+   * survive a session you have forgotten you started.
+   */
+  const [roundTable, setRoundTable] = useState(false);
   // Off unless asked for, and remembered per device: it is decoration, and the
   // people who want it want it every time.
   const [showRaccoon, setShowRaccoon] = useState(
@@ -375,7 +375,11 @@ export default function Assistant() {
       setThread(
         await api<AssistantThread>("/api/assistant/messages", {
           method: "POST",
-          body: JSON.stringify({ text: value || "(see image)", images: pending }),
+          body: JSON.stringify({
+            text: value || "(see image)",
+            images: pending,
+            roundTable,
+          }),
           // A turn does real work; the default 15s would abandon every one of
           // them while the socket kept showing it running.
           timeoutMs: 11 * 60_000,
@@ -486,6 +490,22 @@ export default function Assistant() {
                 read aloud
               </button>
             )}
+            {members.length > 1 && (
+              <button
+                onClick={() => setRoundTable((r) => !r)}
+                title={
+                  roundTable
+                    ? "back to one answer each, in parallel"
+                    : "have the council talk it over: each one answers having read the others"
+                }
+                aria-pressed={roundTable}
+                className={`rounded-md border px-2 py-1 font-medium hover:border-line-strong hover:text-text ${
+                  roundTable ? "border-accent/50 text-accent" : "border-line text-muted"
+                }`}
+              >
+                round table
+              </button>
+            )}
             {turns > 0 && (
               <button
                 onClick={() => void newThread()}
@@ -520,7 +540,20 @@ export default function Assistant() {
             three of them writing at once onto a phone is noise, and the names
             say the same thing for none of the traffic. */}
         {thread?.speaking?.length ? (
-          <div className="px-1 font-mono text-[12px] text-faint">
+          <div className="flex flex-wrap items-center gap-2 px-1 font-mono text-[12px] text-faint">
+            {thread.speaking.map((id) => {
+              const m = byId.get(id);
+              return m ? (
+                <Portrait
+                  key={id}
+                  face={m.face}
+                  colour={m.colour}
+                  mood="speaking"
+                  size={24}
+                  title={m.name}
+                />
+              ) : null;
+            })}
             {thread.speaking.map((id) => byId.get(id)?.name ?? id).join(", ")} answering…
           </div>
         ) : null}

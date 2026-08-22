@@ -557,6 +557,47 @@ const TOOLS = [
       ),
   },
   {
+    name: "council_add",
+    description:
+      "Add an advisor to the council. Use it when the person says they want someone for a subject nobody here covers — do not offer it for a question you can answer yourself. The remit is one line saying what they are for, and the persona is how they think, written as instructions to them in the second person: it is the whole of their character, so make it specific about what they lead with and what they refuse to guess at. Tools are the read-only ones, and fewer is better: an advisor with no tool answers from what it is told and costs almost nothing. Colours are amber, violet, teal, rose, sky and lime; faces are owl, fox, bear, cat, robot and raccoon — pick ones nobody else on the roster already has. Say who you are about to add and what for, then add them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: {
+          type: "string",
+          description: "lowercase slug, which is what @addresses them, e.g. 'ledger'",
+        },
+        name: { type: "string" },
+        remit: { type: "string", description: "one line: what they are for" },
+        persona: { type: "string", description: "how they think, addressed to them" },
+        tools: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "read-only verksted tools; recall and remember let them keep their own notes",
+        },
+        web: { type: "boolean", description: "may read the web" },
+        colour: { enum: ["amber", "violet", "teal", "rose", "sky", "lime"] },
+        face: { enum: ["owl", "fox", "bear", "cat", "robot", "raccoon"] },
+      },
+      required: ["id", "name", "remit", "persona"],
+    },
+    run: (a) =>
+      call("POST", "/api/council", {
+        id: a.id,
+        name: a.name,
+        remit: a.remit,
+        persona: a.persona,
+        ...(a.tools ? { tools: a.tools } : {}),
+        ...(a.web === undefined ? {} : { web: a.web }),
+        ...(a.colour ? { colour: a.colour } : {}),
+        ...(a.face ? { face: a.face } : {}),
+      }).then(
+        (m) =>
+          `added ${m.name} (@${m.id}), ${m.face} in ${m.colour}: ${m.remit}. Tools: ${m.tools.length ? m.tools.join(", ") : "none"}${m.web ? ", the web" : ""}.`,
+      ),
+  },
+  {
     name: "repo_diff",
     unattended: true,
     description:

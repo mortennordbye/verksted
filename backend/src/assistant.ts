@@ -771,23 +771,29 @@ async function chairSpeaker(): Promise<Speaker> {
  * is simply an answer, so the failure mode is a meeting that did not happen,
  * which is visible and cheap.
  */
-const CONVENE_RE = /^convene:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)\s*$/im;
+const CONVENE_RE = /^(convene|discuss):\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)\s*$/im;
 
 /** No more than this many advisors in one meeting, whatever the chair asks for. */
 export const MAX_CONVENED = 3;
 
 /**
- * Who the chair asked for, filtered to advisors that exist and are enabled.
+ * Who the chair asked for, and whether they are to hear each other.
  *
- * Enforced here rather than trusted to the prompt: a ceiling a model is merely
- * asked to respect is not a ceiling, and this one is what stands between a
- * question and an unbounded number of model calls.
+ * The ceiling is enforced here rather than trusted to the prompt: a ceiling a
+ * model is merely asked to respect is not a ceiling, and this one is what
+ * stands between a question and an unbounded number of model calls.
+ *
+ * `round` is demoted for a single name, because a round table of one is a
+ * convening with a longer prompt and a chip that would say something untrue.
  */
-async function convened(text: string): Promise<CouncilMember[]> {
+async function convened(
+  text: string,
+  forceRound = false,
+): Promise<{ members: CouncilMember[]; round: boolean }> {
   const line = text.trim().split("\n")[0] ?? "";
   const match = CONVENE_RE.exec(line);
-  if (!match) return [];
-  const ids = [...new Set(match[1].split(",").map((id) => id.trim()))];
+  if (!match) return { members: [], round: false };
+  const ids = [...new Set(match[2].split(",").map((id) => id.trim()))];
   const members: CouncilMember[] = [];
   for (const id of ids) {
     if (members.length >= MAX_CONVENED) break;
@@ -795,7 +801,8 @@ async function convened(text: string): Promise<CouncilMember[]> {
     const member = await getMember(id);
     if (member && member.enabled) members.push(member);
   }
-  return members;
+  const round = (forceRound || match[1].toLowerCase() === "discuss") && members.length > 1;
+  return { members, round };
 }
 
 /**
@@ -914,17 +921,59 @@ async function chairHasSpoken(threadId: string): Promise<boolean> {
  */
 const MAX_ANSWER = 1_200;
 
-function briefing(question: string, answers: { name: string; text: string }[]): string {
+function briefing(
+  question: string,
+  answers: { name: string; text: string }[],
+  round = false,
+): string {
   return [
-    "The council answered. Now give the person the answer.",
+    round
+      ? "The council talked it over, each of them having heard the ones before. Now give the person the answer."
+      : "The council answered. Now give the person the answer.",
     "",
     `They asked: ${question}`,
     "",
     ...answers.map((a) => `${a.name}: ${a.text.slice(0, MAX_ANSWER)}`),
     "",
+    ...(round
+      ? [
+          "Where they disagreed, say who you think is right and why, in a line. An",
+          "unresolved disagreement is the one thing worth spending words on here.",
+          "",
+        ]
+      : []),
     "Say what it means and what to do, in two or three sentences. Do not repeat",
     "their answers back; they are on the screen above yours. Do not convene",
     "anyone: this is the last word on this question.",
+  ].join("\n");
+}
+
+/**
+ * What an advisor is asked when it is not the first to speak.
+ *
+ * The others' answers travel in the prompt rather than in its conversation,
+ * because each advisor resumes its own claude thread across a whole chat: what
+ * somebody said about today's question would otherwise still be in its context
+ * next week, presented as something it knew.
+ *
+ * Trimmed per answer for the same reason the briefing is, and asked for
+ * disagreement explicitly — three advisors politely agreeing with each other is
+ * three calls that could have been one.
+ */
+function tableTurn(question: string, said: { name: string; text: string }[]): string {
+  if (!said.length) return question;
+  return [
+    "Round table. You are answering after the others, and they can be wrong.",
+    "",
+    `The question: ${question}`,
+    "",
+    "Said so far:",
+    ...said.map((a) => `${a.name}: ${a.text.slice(0, MAX_ANSWER)}`),
+    "",
+    "Answer your part of it in two or three sentences. Say where you disagree",
+    "with what is above, and name who you are disagreeing with. Do not repeat a",
+    "point somebody has already made, and do not agree out loud just to have",
+    "said something: if you have nothing to add, say that in one line.",
   ].join("\n");
 }
 
@@ -940,7 +989,11 @@ function briefing(question: string, answers: { name: string; text: string }[]): 
  * - the chair opens with `convene: ...`, the advisors named answer in parallel,
  *   and the chair is asked once more with what they said.
  */
-export async function send(prompt: string, images: string[] = []): Promise<AssistantThread> {
+export async function send(
+  prompt: string,
+  images: string[] = [],
+  roundTable = false,
+): Promise<AssistantThread> {
   // Taken before anything is awaited, which is the whole of why it is a plain
   // flag: everything below this line yields, and a guard that yields first is
   // one two requests walk through together.
@@ -973,7 +1026,7 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
         images,
       });
     } else {
-      await runChair(threadId, prompt, images);
+      await runChair(threadId, prompt, images, roundTable);
     }
   } finally {
     chatTurn = false;
@@ -995,8 +1048,29 @@ export async function send(prompt: string, images: string[] = []): Promise<Assis
   return thread;
 }
 
+/**
+ * What the chair is told when the round-table switch is on.
+ *
+ * In the prompt rather than in the system prompt because the switch is per
+ * turn, and the chair's system prompt is written once for a conversation it
+ * resumes. It is a nudge and not a command: a question that is genuinely
+ * nobody's on the council should still be answered by the chair alone rather
+ * than put to a table that has nothing to say about it.
+ */
+const ROUND_TABLE_ASKED = [
+  "",
+  "(The round table switch is on: they have asked to hear the council talk this",
+  "over. Put it to two or three of them with a first line of discuss: unless it",
+  "is genuinely nobody's, in which case answer it yourself as usual.)",
+].join("\n");
+
 /** The chair's turn, and the meeting it may call. */
-async function runChair(threadId: string, prompt: string, images: string[]): Promise<void> {
+async function runChair(
+  threadId: string,
+  prompt: string,
+  images: string[],
+  roundTable = false,
+): Promise<void> {
   const me = await chair();
   const speakerPrompt = (await chairSpeaker()).systemPrompt;
 
@@ -1004,7 +1078,7 @@ async function runChair(threadId: string, prompt: string, images: string[]): Pro
     threadId,
     member: me,
     systemPrompt: speakerPrompt,
-    prompt,
+    prompt: roundTable ? `${prompt}\n${ROUND_TABLE_ASKED}` : prompt,
     images,
     interceptConvene: true,
   });
@@ -1012,7 +1086,7 @@ async function runChair(threadId: string, prompt: string, images: string[]): Pro
 
   if (cancelled.has(threadId)) return;
 
-  const called = await convened(held.text);
+  const { members: called, round } = await convened(held.text, roundTable);
   if (!called.length) {
     // It opened with something shaped like a convene line but named nobody who
     // exists. That is an answer, however odd, and swallowing it would leave the
@@ -1029,21 +1103,46 @@ async function runChair(threadId: string, prompt: string, images: string[]): Pro
   await appendEntry(threadId, {
     ...held,
     text: "",
-    tools: [...held.tools, { name: "convene", detail: called.map((m) => m.name).join(", ") }],
+    tools: [
+      ...held.tools,
+      { name: round ? "discuss" : "convene", detail: called.map((m) => m.name).join(", ") },
+    ],
   });
   announce();
 
-  const answers = await Promise.all(
-    called.map(async (member) => {
+  const answers: { name: string; text: string }[] = [];
+  if (round) {
+    // In turn, and in the order the chair named them: the whole of a round
+    // table is that the second one has read the first. Sequential also means a
+    // stopped meeting stops at the next speaker rather than after all of them.
+    for (const member of called) {
+      if (cancelled.has(threadId)) break;
       const said = await speak({
         threadId,
         member,
         systemPrompt: await memberSystemPrompt(member),
-        prompt,
+        prompt: tableTurn(
+          prompt,
+          answers.filter((a) => a.text.trim()),
+        ),
       });
-      return { name: member.name, text: said.text };
-    }),
-  );
+      answers.push({ name: member.name, text: said.text });
+    }
+  } else {
+    answers.push(
+      ...(await Promise.all(
+        called.map(async (member) => {
+          const said = await speak({
+            threadId,
+            member,
+            systemPrompt: await memberSystemPrompt(member),
+            prompt,
+          });
+          return { name: member.name, text: said.text };
+        }),
+      )),
+    );
+  }
 
   // Nothing was stopped if the advisors were already answering when the button
   // was pressed, but the closing turn has not been paid for yet, and it is the
@@ -1057,6 +1156,7 @@ async function runChair(threadId: string, prompt: string, images: string[]): Pro
     prompt: briefing(
       prompt,
       answers.filter((a) => a.text.trim()),
+      round,
     ),
   });
 }
@@ -1173,7 +1273,9 @@ export async function runUnattended(
     });
 
     const held = heldBox.entry;
-    const called = held ? await convened(held.text) : [];
+    // Parallel whatever it asked for: a round table is for a question someone
+    // is waiting on an answer to, and nobody is reading this one.
+    const called = held ? (await convened(held.text)).members : [];
     if (held && !called.length) await appendEntry(conversationId, held, true);
     if (held && called.length) {
       await appendEntry(

@@ -129,6 +129,9 @@
   /* The raccoon's jaw, and nothing else about it. */
   --animate-rc-chew: rc-chew 0.3s ease-in-out infinite;
 
+  /* A council face's mouth while it is answering. */
+  --animate-vk-talk: vk-talk 0.3s ease-in-out infinite;
+
   @keyframes blink {
     50% {
       opacity: 0;
@@ -137,6 +140,16 @@
   @keyframes pulse-run {
     50% {
       box-shadow: 0 0 0 5px rgba(142, 199, 152, 0.14);
+    }
+  }
+
+  @keyframes vk-talk {
+    0%,
+    100% {
+      transform: scaleY(0.35);
+    }
+    50% {
+      transform: scaleY(1);
     }
   }
 
@@ -251,10 +264,20 @@ select:focus-visible {
   border-radius: 4px;
 }
 
+/* An SVG shape scales about the viewBox origin unless it is told otherwise,
+   which sends a mouth sliding off the chin instead of opening. The animation
+   itself is the utility next to this class, so Tailwind sees it used and keeps
+   the keyframes. */
+.vk-talk {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
   .animate-pulse-run,
-  .animate-rc-chew {
+  .animate-rc-chew,
+  .animate-vk-talk {
     animation: none;
   }
 }
