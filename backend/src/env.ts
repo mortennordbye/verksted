@@ -76,6 +76,8 @@ export const env = {
   ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
   // What verksted has learned: one markdown file per fact (see memory-store.ts).
   MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
+  // The council: one JSON file per member (see council-store.ts).
+  COUNCIL_DIR: process.env.COUNCIL_DIR ?? "/data/council",
   // Model and reasoning effort for the assistant only; sessions are unaffected.
   ASSISTANT_MODEL: assistantModel,
   ASSISTANT_EFFORT: assistantEffort,

@@ -756,3 +756,58 @@ what unblocks it / where the code lives.
   against that rule; roughly 40 sites.
 - **Where:** `frontend/src/screens/{Project,Session,Inbox,Settings}.tsx`,
   `frontend/src/components/*Panel.tsx`
+
+## The chair's convening has never been watched against a real model
+
+- **What:** A meeting is triggered by the chair opening its reply with
+  `convene: <id>[, <id>]`, which the backend parses and strips. Every test drives
+  a fake `claude` that says exactly that, so what is proven is the plumbing —
+  who gets spawned, what they are given, what lands in the transcript — and not
+  the thing the feature actually rests on: whether a real model reliably emits
+  that line when it should, and does not emit it when it should not.
+- **Why deferred:** It needs a live authenticated CLI and a person reading the
+  answers over a few days. The failure modes are both cheap and visible — a
+  meeting that did not happen is an ordinary answer, and one that happened when
+  it should not have is a mark in the thread saying who was asked — so this is
+  something to watch rather than something to block on.
+- **Unblocked by:** A week of real use. Watch for two shapes: convening on
+  questions the chair could have answered from `status` (expensive, and the
+  persona line about it is the weakest kind of mitigation), and prose before the
+  convene line, which makes it not the first line and so convenes nobody.
+- **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
+  `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
+
+## A schedule still cannot hold a meeting
+
+- **What:** A schedule can now name which council member answers it, so a 07:00
+  cluster briefing runs as Michael with Michael's tools. What it cannot do is
+  convene several: `runUnattended` runs exactly one participant, and the chair's
+  `convene:` line is never parsed out of an unattended reply.
+- **Why deferred:** The ceiling is wrong for it. `MAX_UNATTENDED_PER_DAY` counts
+  turns, so twelve meetings would quietly be forty-eight model calls — a
+  backstop that stops counting what it is backstopping is worse than none. The
+  cheap half, one named advisor per schedule, is shipped and is probably all
+  that was wanted: a briefing's usual answer is "ok: nothing needs you", which
+  is not worth four calls.
+- **Unblocked by:** Wanting a briefing that genuinely needs two subjects at
+  once. Then make the daily ceiling count participants rather than runs, and
+  give `unattendedPrompt` the roster and `runUnattended` the convene handling
+  `runChair` already has.
+- **Where:** `backend/src/scheduler.ts` (`MAX_UNATTENDED_PER_DAY`,
+  `overDailyCeiling`), `backend/src/assistant.ts` (`runUnattended`),
+  `backend/src/assistant-persona.ts` (`UNATTENDED_MEMBER_JOB`)
+
+## The council has no voices
+
+- **What:** Every advisor would be read aloud in the pod's one voice, so the
+  chat speaks the chair's answer and skips theirs. A meeting read out loud is
+  currently one narrator reading the summary.
+- **Why deferred:** Explicitly out of scope for the first cut. Skipping the
+  advisors is the right behaviour either way — their answers are on the screen,
+  and the summary is the half you asked for — so this only becomes worth
+  building if you want to listen to a meeting rather than read it.
+- **Unblocked by:** Wanting to hear who said what. Then a `voice` field on
+  `CouncilMember` validated against `GET /api/assistant/voices`, and picking the
+  voice per entry rather than per device in `useSpeech`.
+- **Where:** `frontend/src/screens/Assistant.tsx` (the speak effect),
+  `backend/src/tts.ts`, `shared/api.ts` (`CouncilMember`)

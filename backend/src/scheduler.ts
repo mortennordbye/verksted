@@ -154,7 +154,7 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
     log.warn({ schedule: id }, `schedule ${id} skipped: daily unattended ceiling reached`);
     return null;
   }
-  const { text, failed } = await runUnattended(schedule.prompt);
+  const { text, failed } = await runUnattended(schedule.prompt, schedule.member);
   if (failed || !text) {
     const error = text || "the turn produced nothing";
     await schedules.recordRun(id, { error });

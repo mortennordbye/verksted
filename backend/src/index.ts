@@ -9,6 +9,7 @@ import { startMaintenance } from "./maintenance.js";
 import { startNotifier } from "./notifier.js";
 import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
+import { seedCouncil } from "./council-store.js";
 import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
@@ -19,6 +20,7 @@ for (const dir of [
   env.SCHEDULES_DIR,
   env.ASSISTANT_DIR,
   env.MEMORY_DIR,
+  env.COUNCIL_DIR,
 ]) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -31,6 +33,8 @@ await ensureSandboxNotes(app.log);
 // Memory is edited as files on the volume, so what sessions are told is rebuilt
 // from the directory at boot rather than trusted to be current.
 await injectMemory();
+// The council, on an empty volume only: a member removed by hand stays removed.
+await seedCouncil();
 // Before listening, not after: the first request to list sessions is also what
 // stamps a tmux-less session as done, and it must not beat the restore to them.
 await restoreSessions(app.log);

@@ -1,6 +1,11 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Project, Schedule, Settings as SettingsInfo } from "../../../shared/api";
+import type {
+  CouncilMember,
+  Project,
+  Schedule,
+  Settings as SettingsInfo,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { useConfirm } from "../useConfirm";
 import { StatusChip } from "./StatusChip";
@@ -44,6 +49,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   );
   // Only the global list needs the picker; a project-scoped one already knows.
   const { data: projects } = usePoll<Project[]>(project ? null : "/api/projects", 60_000);
+  // "Where it runs" and "who answers it" are the same question asked once, so
+  // the roster joins the repos in one control rather than adding a second.
+  const { data: council } = usePoll<CouncilMember[]>(project ? null : "/api/council", 120_000);
   const { data: settings, refresh: refreshSettings } = usePoll<SettingsInfo>(
     "/api/settings",
     30_000,
@@ -57,6 +65,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     cron: "0 8 * * 1-5",
     jitterMinutes: 0,
     prompt: "",
+    // Which council member answers an assistant schedule. Empty is the chair.
+    member: "",
   });
   const [open, setOpen] = useState<string | null>(null);
   const [edit, setEdit] = useState({ cron: "", jitterMinutes: 0, prompt: "" });
@@ -172,7 +182,10 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               <span className="font-mono text-[12.5px]">{s.name}</span>
               {!project && (
                 <span className="font-mono text-[11px] text-faint">
-                  {s.kind === "assistant" ? "the assistant" : s.project}
+                  {s.kind === "assistant"
+                    ? (council?.find((m) => m.id === (s.member || "chair"))?.name ??
+                      "the assistant")
+                    : s.project}
                 </span>
               )}
               <StatusChip
@@ -279,22 +292,30 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               <select
                 value={
                   draft.kind === "assistant"
-                    ? "assistant"
+                    ? `member:${draft.member}`
                     : draft.project || projects?.[0]?.name || ""
                 }
                 onChange={(e) =>
                   setDraft((d) =>
-                    e.target.value === "assistant"
-                      ? { ...d, kind: "assistant" }
+                    e.target.value.startsWith("member:")
+                      ? {
+                          ...d,
+                          kind: "assistant",
+                          member: e.target.value.slice("member:".length),
+                        }
                       : { ...d, kind: "session", project: e.target.value },
                   )
                 }
-                aria-label="where it runs"
+                aria-label="who runs it"
                 className={field}
               >
-                {/* One control, because "which repo" and "the assistant
+                {/* One control, because "which repo" and "which of the council
                     instead of a repo" are the same question asked once. */}
-                <option value="assistant">the assistant (no repo)</option>
+                {(council ?? [{ id: "chair", name: "the assistant", chair: true }]).map((m) => (
+                  <option key={m.id} value={`member:${m.chair ? "" : m.id}`}>
+                    {m.name} (no repo)
+                  </option>
+                ))}
                 {(projects ?? []).map((p) => (
                   <option key={p.name} value={p.name}>
                     {p.name}

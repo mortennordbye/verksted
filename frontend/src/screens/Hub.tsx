@@ -277,7 +277,12 @@ export default function Hub() {
               {assistant?.status === "thinking" && (
                 <span className="flex items-center gap-1.5 text-[12px] text-accent">
                   <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  working
+                  {/* Who is working, when it is not the one you asked. A meeting
+                      takes longer than a turn, and "working" alone reads as
+                      stuck when it is three advisors thinking at once. */}
+                  {assistant.speaking?.length
+                    ? `${assistant.speaking.length} answering`
+                    : "working"}
                 </span>
               )}
             </span>
@@ -286,7 +291,7 @@ export default function Hub() {
                 nothing about why you would open it. */}
             <span className="block text-[12.5px] text-faint">
               Ask what needs you, or tell it something to remember. It reads your projects, sessions
-              and runs, and needs no repo or terminal to answer.
+              and runs, and puts the question to whoever on the council it belongs to.
             </span>
           </span>
           <span className="flex-none pt-1 text-[13px] text-faint">→</span>

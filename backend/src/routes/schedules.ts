@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { getMember } from "../council-store.js";
 import { repoDirOr404, resolveInsideRepos } from "../paths.js";
 import { reloadSchedules, runSchedule } from "../scheduler.js";
 import * as store from "../schedules-store.js";
@@ -31,6 +32,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       enabled?: boolean;
       jitterMinutes?: number;
       skipWhenIdle?: boolean;
+      member?: string;
     };
   }>(
     "/api/schedules",
@@ -51,6 +53,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
             skipWhenIdle: { type: "boolean" },
+            member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
           },
         },
       },
@@ -69,6 +72,12 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       }
       if (!store.validCron(req.body.cron)) {
         return reply.code(400).send({ error: `not a cron pattern: ${req.body.cron}` });
+      }
+      // A member who does not exist would quietly fall back to the chair, and a
+      // briefing answered in the wrong voice is the kind of wrong that reads as
+      // working.
+      if (req.body.member && !(await getMember(req.body.member))) {
+        return reply.code(400).send({ error: `no such council member: ${req.body.member}` });
       }
       const schedule = await store.createSchedule({
         ...req.body,
@@ -91,6 +100,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       enabled?: boolean;
       jitterMinutes?: number;
       skipWhenIdle?: boolean;
+      member?: string;
     };
   }>(
     "/api/schedules/:id",
@@ -106,6 +116,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
             skipWhenIdle: { type: "boolean" },
+            member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
           },
         },
       },
@@ -113,6 +124,9 @@ export default async function scheduleRoutes(app: FastifyInstance) {
     async (req, reply) => {
       if (req.body.cron !== undefined && !store.validCron(req.body.cron)) {
         return reply.code(400).send({ error: `not a cron pattern: ${req.body.cron}` });
+      }
+      if (req.body.member && !(await getMember(req.body.member))) {
+        return reply.code(400).send({ error: `no such council member: ${req.body.member}` });
       }
       const schedule = await store.updateSchedule(req.params.id, req.body);
       if (!schedule) return reply.code(404).send({ error: "not found" });

@@ -1,6 +1,7 @@
 # The assistant
 
-**Status: M1–M3 are built and work; M4 is proposed.** The chat, the headless
+**Status: M1–M3 are built and work; M4 is proposed. The assistant is now the
+chair of a council — see "The council" below.** The chat, the headless
 runtime behind it, the thread store, explicit memory, recall over old threads,
 the tools the assistant acts through, a schedule that runs it with nobody
 watching, and the learning loop — review queue first, then the nightly harvest —
@@ -690,6 +691,159 @@ where two antialiased clips let the background through. The overlap under the
 body can be generous since that edge never moves. The one under the head cannot:
 whatever the jaw hides up there slides into view the moment it drops, which is
 where the second nose came from.
+
+## The council
+
+**Status: built.** The assistant is now the chair of a small council. Each of the
+others is a JSON file on the volume — a name, a remit, a persona, a model, and
+the verksted tools it is offered — created and edited from the settings page the
+way a schedule is. `COUNCIL_DIR` is seeded on first boot with three beside
+Gabriel: Michael for the cluster, Raphael for the code, Uriel for the half of
+life that is not work.
+
+**You ask the room, not a person.** Every turn goes to the chair. It either
+answers — which costs exactly what a turn cost before any of this existed — or
+it opens its reply with a line naming who it wants:
+
+```
+convene: michael, raphael
+```
+
+The backend takes that line, runs those advisors in parallel, drops each answer
+into the thread as it lands, and asks the chair once more with what they said.
+The line itself never appears; what appears in its place is a mark saying who
+was asked, so a wrong routing call is something you can see rather than
+something you have to infer from a bad answer.
+
+### Why a line of prose and not a tool
+
+A tool costs two round trips — the one that emits the call and the one that
+reads its result — and it would have to block an HTTP request from the MCP child
+back into the backend for as long as the meeting takes. Measured on this image's
+node, an unanswered `fetch` gives up after 300 seconds with
+`UND_ERR_HEADERS_TIMEOUT`, and there is no way to raise that from a file baked
+into `/etc/verksted` without importing undici. A meeting that ran past five
+minutes would fail after the advisors had already answered, and the chair would
+close by saying nobody had.
+
+Reading a decision out of a model's own first line is not a new trick here: it
+is the `ok:` / `attention:` / `failed:` contract every scheduled run already
+signs off with, and that one has held. A first line that does not match is
+simply an answer, so the failure mode is a meeting that did not happen.
+
+Three more reasons the backend orchestrates rather than the chair. A blocking
+call would run inside a turn that holds the chair's own guard, which is a
+deadlock waiting for a second guard nothing else in the file has. It would spend
+the chair's ten-minute budget on somebody else's work, and report a slow advisor
+as "waiting on a permission prompt". And stop, mid-meeting, would have to abort
+an HTTP request whose client is about to be killed anyway.
+
+### What a meeting costs
+
+|                                       | model invocations          |
+| ------------------------------------- | -------------------------- |
+| a question the chair keeps            | 2 — unchanged              |
+| `@michael …`, straight to one advisor | 2, on that advisor's model |
+| a meeting with N advisors             | N + 2                      |
+| the ceiling, whatever the chair asks  | 5                          |
+
+`MAX_CONVENED` is enforced in the code and not asked of the model, because a
+ceiling a model is merely requested to respect is not a ceiling — it is the only
+thing between one question and an unbounded number of calls. Advisors get half
+the chair's turn timeout: one that has not managed two sentences in five minutes
+is stuck, and the browser is waiting for the meeting.
+
+The convening decision is the chair's, and the prompt says outright that
+convening is for questions genuinely not its own. Being thorough is the
+expensive failure mode. `@michael` is the cheap way past a bad call.
+
+A schedule runs exactly one participant, and can say which: `member` on an
+assistant schedule picks who answers, so the 07:00 cluster briefing runs as
+Michael with Michael's tools and Michael's notes rather than as the chair
+relaying it. It still convenes nobody — a briefing whose usual answer is
+"ok: nothing needs you" is not worth four calls, and `MAX_UNATTENDED_PER_DAY`
+counts turns rather than meetings, so a convening schedule would spend four
+against a budget that counted one. An advisor on an unattended run gets the same
+`ok:` / `attention:` / `failed:` sign-off contract every scheduled run is asked
+for, so the inbox files it the way it files everything else.
+
+### What an advisor may do
+
+Less than the chair, by construction rather than by instruction. `--allowed-tools`
+can only name the whole MCP server (`mcp__verksted`), so there is no argv-level
+way to narrow one member; the narrowing happens in the server, which reads
+`VK_TOOLS` and offers only those. It is the same reasoning as `VK_UNATTENDED`
+and the same code path: a tool that was never offered is not a classifier's
+call. The two filters intersect, so an advisor named in `VK_TOOLS` whose
+schedule fired still loses everything that changes anything.
+
+The tools with no undo are the chair's alone — `start_session`, `merge_pr`,
+`end_session`, the schedule mutations, `notify` — and `council-store.ts` refuses
+to save an advisor holding one. Reading the web is per member: an advisor with
+no reason to fetch a page does not get the tool that turns a page it was pointed
+at into an outbound request.
+
+`remember` and `forget` are the one exception, and the reason is blast radius
+rather than trust. For the chair they write the bench's memory, which reaches
+every session in every repo. For an advisor the MCP server routes them to that
+advisor's own store, which nothing outside its own next turn ever reads — so the
+tool is the same name and a different promise. The id comes from `VK_MEMBER` in
+the environment, never from a tool argument, so nothing a model says can make it
+write into the bench's memory or another advisor's. An advisor that cannot keep
+anything has to be told the same thing every morning, which is the problem the
+memory store exists to solve; refusing it here would have solved that problem
+for one agent out of four.
+
+What is deliberately **not** a field on a member: the denied built-ins.
+`Bash`, `Edit`, `Write`, `NotebookEdit` and `Task` are denied for every
+participant in code, and `--strict-mcp-config` holds for all of them. A settings
+page that can grant a shell is a settings page that eventually does. "The
+assistant delegates; it does not execute" is now a claim about four agents, and
+this is what makes it true of all of them.
+
+An advisor's answer reaches the chair, which does hold the irreversible tools.
+So the same sentence that covers a pull request body covers a colleague: what an
+advisor says is a report, not an instruction.
+
+### Memory, shared and private
+
+The shared half needed no code. `inject()` writes the store into
+`~/.claude/CLAUDE.md`, and every advisor is a `claude` run with the same `$HOME`,
+so all of them already read everything the bench knows.
+
+The private half is a directory — `MEMORY_DIR/members/<id>/` — and not a scope
+field, for the reason the review queue is a directory: with a field every reader
+has to filter, and one reader that forgets puts a private note into every
+session in every repo. It also sidesteps a hazard the field has no answer to,
+since `toMemory` reads any scope that is not `global` as a project name: an
+advisor whose id matched a repo would have had its notes printed into that
+repo's sessions as "In michael: …", with nothing to say it had happened.
+
+It has its own budget, 2 KB against the shared store's 8, because it is carried
+on top of that rather than instead of it. The settings page lists each advisor's
+notes under the shared ones and lets you forget any of them, for the same reason
+the shared store is editable by hand: a note you can only change by arguing with
+the thing that wrote it is one you will not change.
+
+### Threads
+
+One transcript per meeting — verksted's own `<id>.jsonl`, with a `member` on
+each entry. On claude's side each participant keeps its own conversation,
+recorded in a `<id>.participants.json` sidecar, so an advisor resumes what _it_
+said rather than reading everyone else's. Per thread rather than per member for
+good: a thread per advisor would grow without bound, and starting a new thread
+resets the whole council, which is the model the chat already had.
+
+Allocating those ids is serialised. Unchained, two advisors starting together
+both read the sidecar before either wrote it, and the second write dropped the
+first one's id — after which that advisor silently started a fresh conversation
+on its next turn and forgot everything it had said. No error, no symptom.
+
+Only the chair streams its tokens. Three advisors writing at once onto a phone
+is noise, their answers are two or three sentences, and a chip saying who is
+still out carries the same information for none of the traffic. For the same
+reason, read-aloud speaks the chair and skips the advisors: the summary is the
+half you asked for.
 
 ## Keeping it off the usage meter
 

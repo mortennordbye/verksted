@@ -160,6 +160,35 @@ describe("what sessions are told", () => {
     expect(without).not.toContain("verksted:memory");
     expect(without).toContain("Always rebase.");
   });
+
+  it("keeps one advisor's private notes out of every session and every other advisor", async () => {
+    // The whole point of a private note is that it does not travel. A directory
+    // rather than a field on the shared store is what makes this true by
+    // construction: list() reads *.md at the top level, and a subdirectory is
+    // not one, so there is no filter for a future reader to forget.
+    fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+    await store.save({ slug: "dashes", text: "Avoid em dashes." });
+    await store.saveForMember("uriel", { slug: "dentist", text: "The dentist is on Thursday." });
+
+    expect(fs.readFileSync(path.join(home, CLAUDE_MD), "utf8")).not.toContain("dentist");
+    expect((await store.list()).map((m) => m.slug)).toEqual(["dashes"]);
+    expect(store.renderBlock(await store.list()).text).not.toContain("dentist");
+    expect(await store.renderForMember("michael")).toBe("");
+
+    // And it does reach the advisor it was written for.
+    expect(await store.renderForMember("uriel")).toContain("The dentist is on Thursday.");
+  });
+
+  it("gives an advisor's own notes a smaller budget than the shared store", async () => {
+    // It is carried on top of the shared block rather than instead of it.
+    for (let i = 0; i < 60; i++) {
+      await store.saveForMember("uriel", { slug: `note-${i}`, text: "x".repeat(200) });
+    }
+
+    expect((await store.renderForMember("uriel")).length).toBeLessThanOrEqual(
+      store.MEMBER_BUDGET_BYTES,
+    );
+  });
 });
 
 describe("the review queue", () => {

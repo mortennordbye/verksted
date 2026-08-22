@@ -189,6 +189,98 @@ describe("the tool set", () => {
   });
 });
 
+/**
+ * VK_TOOLS is how one advisor on the council is narrowed. --allowed-tools can
+ * only name the whole server, so this is the only place a member's reach can
+ * actually be cut — and the property that matters is not the list, it is that
+ * list and call agree about it.
+ */
+describe("one advisor's tools", () => {
+  const list = async (env: Record<string, string>) => {
+    const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, env)) as {
+      result: { tools: { name: string }[] };
+    };
+    return res.result.tools.map((t) => t.name);
+  };
+
+  it("offers exactly what VK_TOOLS names", async () => {
+    expect(await list({ VK_TOOLS: "status,cluster_status" })).toEqual(["status", "cluster_status"]);
+  });
+
+  it("refuses to run a tool it did not offer that member", async () => {
+    const res = (await rpc(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "merge_pr" } },
+      { VK_TOOLS: "status,cluster_status" },
+    )) as { error?: { message: string } };
+
+    expect(res.error?.message).toContain("no such tool");
+  });
+
+  it("intersects with the unattended filter rather than overriding it", async () => {
+    // A member named in VK_TOOLS whose schedule fired still loses everything
+    // that changes something. Two filters, both of which have to say yes.
+    const names = await list({ VK_TOOLS: "status,merge_pr", VK_UNATTENDED: "1" });
+
+    expect(names).toContain("status");
+    expect(names).not.toContain("merge_pr");
+  });
+
+  it("ignores a name that is not a tool", async () => {
+    // A filter, not a contract. The typo is caught when the member is saved,
+    // which is where somebody can see it; here it must not take the run down.
+    expect(await list({ VK_TOOLS: "status,not_a_tool" })).toEqual(["status"]);
+  });
+
+  it("writes an advisor's memory to its own store, not the bench's", async () => {
+    // The whole difference between a member holding `remember` and the chair
+    // holding it: one writes a note nothing else reads, the other writes into
+    // every session in every repo.
+    seen = [];
+    await rpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "remember", arguments: { slug: "dentist", text: "Thursday." } },
+      },
+      { VK_MEMBER: "uriel", VK_TOOLS: "remember" },
+    );
+
+    expect(seen[0]?.url).toBe("/api/council/uriel/memory/dentist");
+  });
+
+  it("does not let a tool argument decide whose memory is written", async () => {
+    // The id comes from the environment. A model that names somebody else, or
+    // asks for a project scope, changes nothing about where this lands.
+    seen = [];
+    await rpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "remember",
+          arguments: { slug: "x", text: "y", scope: "Homelab", member: "chair" },
+        },
+      },
+      { VK_MEMBER: "uriel", VK_TOOLS: "remember" },
+    );
+
+    expect(seen[0]?.url).toBe("/api/council/uriel/memory/x");
+    expect(seen[0]?.body).not.toContain("Homelab");
+  });
+
+  it("gives the backend's inventory the same names this server offers", async () => {
+    // The backend keeps its own copy of these names, because this file is baked
+    // into the image at a path the build does not import from. This is the test
+    // that keeps the copy honest — the settings page's checkboxes and the
+    // write-time validation are both built on it.
+    const { TOOL_INVENTORY } = await import("../src/council-store.js");
+
+    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual((await list({})).sort());
+  });
+});
+
 describe("requests that carry a safety decision", () => {
   it("pauses schedules without touching the agent env vars beside them", async () => {
     // PUT /api/settings also carries `vars`. Sending the one flag is what keeps

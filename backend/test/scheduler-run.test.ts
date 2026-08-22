@@ -30,6 +30,8 @@ const log = { info: () => {}, warn: () => {} };
 /** A cron that cannot fire during the run: every launch here is "run now". */
 const CRON = "17 4 1 1 *";
 
+const councilDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-council-"));
+
 async function schedule(prompt: string, project = "demo") {
   return store.createSchedule({ name: "nightly", project, cron: CRON, prompt });
 }
@@ -85,6 +87,8 @@ beforeAll(async () => {
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = schedulesDir;
+  process.env.COUNCIL_DIR = councilDir;
+  process.env.MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-mem-"));
   process.env.STATIC_DIR = "";
   scheduler = await import("../src/scheduler.js");
   store = await import("../src/schedules-store.js");
@@ -342,6 +346,54 @@ describe("a schedule that runs the assistant", () => {
     );
 
     expect(await scheduler.skipForIdle((await store.getSchedule(idle.id))!)).toBe(false);
+  });
+
+  it("runs the advisor a schedule names, in that advisor's voice", async () => {
+    // A cluster briefing at 07:00 is worth more from the one that watches the
+    // cluster than from the chair relaying it. One advisor, one model call: a
+    // schedule never holds a meeting, because the daily ceiling counts turns.
+    const { saveMember } = await import("../src/council-store.js");
+    await saveMember({
+      id: "michael",
+      name: "Michael",
+      remit: "the cluster",
+      tools: ["cluster_status"],
+    });
+    const s = await store.createSchedule({
+      name: "cluster briefing",
+      kind: "assistant",
+      project: "",
+      cron: CRON,
+      prompt: "anything degraded?",
+      member: "michael",
+    });
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: reply("ok: nothing degraded.") });
+
+    const out = await scheduler.runSchedule(s.id, log);
+
+    expect(out).toEqual({ reply: "ok: nothing degraded." });
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).toContain("Your name is Michael.");
+    // Unattended still means unattended: it keeps its own tools but loses the
+    // web and everything that changes anything.
+    expect(argv[argv.indexOf("--disallowed-tools") + 1]).toContain("WebFetch");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: { verksted: { env: Record<string, string> } };
+    };
+    expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
+    expect(config.mcpServers.verksted.env.VK_TOOLS).toBe("cluster_status");
+  });
+
+  it("falls back to the chair when a schedule names nobody", async () => {
+    const s = await assistantSchedule("what needs me today?");
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: reply("ok: quiet.") });
+
+    await scheduler.runSchedule(s.id, log);
+
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).not.toContain("sits on the council");
   });
 
   it("never skips a briefing that did not ask to be skipped", async () => {
