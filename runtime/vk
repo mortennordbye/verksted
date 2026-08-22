@@ -9,10 +9,21 @@ set -eu
 
 PROBE_IMAGE=busybox:stable
 
+# The volume, and where its exports land on it. VK_DATA_DIR is for testing the
+# backup path against a scratch tree; the app itself never reads it.
+DATA_DIR=${VK_DATA_DIR:-/data}
+BACKUP_DIR=$DATA_DIR/backups
+MIN_FREE_KB=10485760
+
 usage() {
-  echo "usage: vk doctor    report this session's docker and cluster topology"
+  echo "usage: vk doctor              report this session's docker and cluster topology"
+  echo "       vk backup [--out DIR] [--name NAME]"
+  echo "                             export all of $DATA_DIR to one tar.gz"
+  echo "       vk restore ARCHIVE [--target DIR] [--force]"
+  echo "                             import one back"
+  echo "       vk backups [DIR]      list the archives in $BACKUP_DIR"
   echo
-  echo "/etc/verksted/SANDBOX.md explains what the report means."
+  echo "/etc/verksted/SANDBOX.md explains what the doctor report means."
 }
 
 # What kubectl can actually do from here, asked rather than assumed. The answer
@@ -68,8 +79,230 @@ doctor() {
   echo "                 ok: bind mounts of $PWD reach the daemon"
 }
 
+die() { echo "vk: $*" >&2; exit 1; }
+
+# Everything verksted knows lives in files under $DATA_DIR and nowhere else: no
+# database, and — unusually — no Kubernetes Secret either, so the agent tokens
+# and OAuth state are files on the volume like the rest. That makes one tar the
+# whole export, and it also means the archive is as sensitive as the volume is.
+# Hence 0600 on the way out, and a loud line about where not to leave it.
+
+# The caches are what turn a 23G volume into a 900M archive. Everything listed
+# here is rebuilt on demand by the tool that owns it; nothing here is state.
+# Patterns are unanchored, so a bare name matches that component at any depth.
+excludes() {
+  cat <<'EOF'
+./backups
+./.verksted-backup
+./home/.cache
+./home/.npm
+./home/.rustup
+./home/.cargo
+./home/.local
+./home/.claude/cache
+./home/.claude/paste-cache
+./home/.claude/session-env
+./home/.claude.json.tmp.*
+node_modules
+.venv
+venv
+target
+dist
+build
+.next
+.turbo
+__pycache__
+.pytest_cache
+.mypy_cache
+EOF
+}
+
+# Each repo's git remote and HEAD, so the archive says what it is holding even
+# before anyone extracts it. -uno on the status: the untracked scan walks every
+# ignored node_modules on an NFS mount, and the tracked count answers the only
+# question being asked here — was there uncommitted work in this tree.
+repos_json() {
+  first=1
+  printf '['
+  for d in "$DATA_DIR"/repos/*/; do
+    [ -d "$d.git" ] || continue
+    remote=$(git -C "$d" remote get-url origin 2>/dev/null || echo "")
+    branch=$(git -C "$d" symbolic-ref --short HEAD 2>/dev/null || echo "")
+    commit=$(git -C "$d" rev-parse HEAD 2>/dev/null || echo "")
+    dirty=$(git -C "$d" status --porcelain -uno 2>/dev/null | wc -l | tr -d ' ')
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    jq -nc --arg n "$(basename "$d")" --arg r "$remote" --arg b "$branch" \
+           --arg c "$commit" --argjson d "${dirty:-0}" \
+      '{name:$n,remote:$r,branch:$b,commit:$c,dirtyTracked:$d}'
+  done
+  printf ']'
+}
+
+backup() {
+  outdir=$BACKUP_DIR
+  name=""
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --out) outdir=${2:?--out needs a directory}; shift 2 ;;
+      --name) name=${2:?--name needs a file name}; shift 2 ;;
+      *) die "backup: unknown option $1" ;;
+    esac
+  done
+  [ -d "$DATA_DIR" ] || die "$DATA_DIR does not exist"
+  [ -n "$name" ] || name="verksted-$(date +%Y%m%d-%H%M%S).tar.gz"
+  mkdir -p "$outdir"
+
+  # The share behind this mount is shared with every other PVC in the cluster,
+  # so filling it is not a local mistake.
+  avail=$(df -Pk "$outdir" | awk 'NR==2 {print $4}')
+  [ "$avail" -ge "$MIN_FREE_KB" ] \
+    || die "only $((avail / 1024))M free on $outdir, want $((MIN_FREE_KB / 1024))M"
+
+  tmp=$(mktemp -d)
+  out=$outdir/$name
+  part=$out.partial
+  trap 'rm -rf "$tmp" "$part"' EXIT
+
+  image=$(kubectl get pod "$(uname -n)" \
+    -o jsonpath='{.spec.containers[?(@.name=="verksted")].image}' 2>/dev/null || echo "")
+  mkdir -p "$tmp/.verksted-backup"
+  jq -n --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        --arg hostname "$(uname -n)" \
+        --arg image "$image" \
+        --arg dataDir "$DATA_DIR" \
+        --argjson repos "$(repos_json)" \
+    '{version: 1, createdAt: $createdAt, hostname: $hostname, dataDir: $dataDir, repos: $repos}
+     + (if $image == "" then {} else {image: $image} end)' \
+    > "$tmp/.verksted-backup/MANIFEST.json"
+  excludes > "$tmp/excludes"
+
+  echo "packing $DATA_DIR -> $out"
+  # The manifest goes in first so reading it back costs one member, not a whole
+  # decompression pass (see --occurrence=1 below).
+  #
+  # Agents write to this volume the entire time this runs, so tar will say "file
+  # changed as we read it" and exit 1. That is the normal case, not a failure —
+  # a session's .state file flipping mid-read does not invalidate the archive.
+  # Only exit 2 and up means tar could not do its job.
+  rc=0
+  tar -czf "$part" -X "$tmp/excludes" --warning=no-file-changed \
+      -C "$tmp" .verksted-backup \
+      -C "$DATA_DIR" . || rc=$?
+  [ "$rc" -le 1 ] || die "tar failed (exit $rc)"
+
+  chmod 0600 "$part"
+  mv "$part" "$out"
+  ( cd "$outdir" && sha256sum "$name" > "$name.sha256" )
+  chmod 0600 "$out.sha256"
+  trap - EXIT
+  rm -rf "$tmp"
+
+  echo "wrote $out ($(du -h "$out" | cut -f1)), checksum in $out.sha256"
+  echo
+  echo "this archive holds every token, OAuth login and private key on the volume,"
+  echo "unencrypted. It also sits on the same NAS share it is protecting — copy it"
+  echo "somewhere else, and somewhere you would keep a password file."
+
+  # Only worth printing where it would actually work: outside the pod there is
+  # no namespace to name and no pod to name it after.
+  ns=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo "")
+  if [ -n "$ns" ]; then
+    echo
+    echo "  kubectl cp $ns/$(uname -n):${out#/} ./$name"
+  fi
+}
+
+restore() {
+  archive=""
+  target=$DATA_DIR
+  force=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --target) target=${2:?--target needs a directory}; shift 2 ;;
+      --force) force=1; shift ;;
+      -*) die "restore: unknown option $1" ;;
+      *) [ -z "$archive" ] || die "restore: one archive at a time"; archive=$1; shift ;;
+    esac
+  done
+  [ -n "$archive" ] || die "restore: which archive?"
+  [ -f "$archive" ] || die "no such file: $archive"
+
+  if [ -f "$archive.sha256" ]; then
+    ( cd "$(dirname "$archive")" \
+      && sha256sum -c --status "$(basename "$archive").sha256" ) \
+      || die "checksum mismatch — $archive is not the file that was written"
+  else
+    echo "warning: no $archive.sha256 beside it, integrity unverified" >&2
+  fi
+
+  # Proves it is a verksted archive before anything gets overwritten. The
+  # manifest is the first member, and --occurrence=1 stops tar there.
+  manifest=$(tar -xzOf "$archive" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
+  printf '%s' "$manifest" | jq -e . >/dev/null 2>&1 \
+    || die "$archive has no manifest — not a vk backup archive"
+  printf '%s' "$manifest" | jq -r '
+    "archive   \(.createdAt)  from \(.hostname)\(if .image then " on \(.image)" else "" end)",
+    "repos     \(.repos | length) (\(.repos | map(select(.dirtyTracked > 0)) | length) with uncommitted work)"'
+  echo "target    $target"
+
+  # A restore under a live app leaves it half old and half new: the backend has
+  # settings.json open, and tmux is holding sessions whose metadata is being
+  # replaced under them. Restoring anywhere else is nobody's problem, so this
+  # only guards the volume the app is actually running on.
+  if [ "$target" = "$DATA_DIR" ] && [ "$force" -eq 0 ]; then
+    echo "vk: $target is the live volume, $(tmux ls 2>/dev/null | wc -l | tr -d ' ') tmux session(s) on it" >&2
+    die "stop the app first, or pass --force if you mean it"
+  fi
+
+  mkdir -p "$target"
+  # Extract merges. Files the archive does not carry are left where they are;
+  # this restores what was backed up, it does not make $target identical to it.
+  tar -xpzf "$archive" -C "$target" || die "extract failed"
+
+  # tar preserves modes, but these are the ones that must be right whatever the
+  # archive says — the same modes settings-store.ts and routes/ssh.ts write.
+  for f in "$target/settings.json" "$target/push.json" \
+           "$target/home/.claude/.credentials.json"; do
+    if [ -f "$f" ]; then chmod 0600 "$f"; fi
+  done
+  if [ -d "$target/home/.ssh" ]; then
+    chmod 0700 "$target/home/.ssh"
+    find "$target/home/.ssh" -type f -exec chmod 0600 {} +
+    find "$target/home/.ssh" -type f -name '*.pub' -exec chmod 0644 {} +
+  fi
+
+  echo
+  echo "restored into $target"
+  echo "restart the app: it reads settings.json at startup and rewrites the"
+  echo "verksted blocks in \$HOME/.claude/CLAUDE.md on boot."
+}
+
+backups() {
+  dir=${1:-$BACKUP_DIR}
+  found=0
+  for f in "$dir"/*.tar.gz; do
+    [ -f "$f" ] || continue
+    found=1
+    m=$(tar -xzOf "$f" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
+    if printf '%s' "$m" | jq -e . >/dev/null 2>&1; then
+      when=$(printf '%s' "$m" | jq -r '.createdAt')
+      n="$(printf '%s' "$m" | jq -r '.repos | length') repos"
+    else
+      # A .tar.gz someone else left here. Named, so it is not mistaken for one.
+      when="-"
+      n="not a vk archive"
+    fi
+    printf '%-40s %7s  %-22s %s\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$when" "$n"
+  done
+  [ "$found" -eq 1 ] || echo "no archives in $dir"
+}
+
 case "${1:-}" in
   doctor) doctor ;;
+  backup) shift; backup "$@" ;;
+  restore) shift; restore "$@" ;;
+  backups) shift; backups "$@" ;;
   *)
     usage
     exit 1
