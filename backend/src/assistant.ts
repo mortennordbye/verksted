@@ -125,12 +125,16 @@ const HEADROOM_DENIED = [
 const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
 
 /** Where the MCP server the assistant acts through lives inside the image. */
-function mcpConfig(unattended: boolean, tools: string[] | null, member: string | null) {
+function mcpConfig(
+  unattended: boolean,
+  tools: string[] | null,
+  member: string | null,
+  headroomConfigured: boolean,
+) {
   // Never unattended: a nightly briefing reads the bench, and the bench is not
-  // where the money is. Never without both env vars, so a bench that does not
+  // where the money is. Never without both vars set, so a bench that does not
   // run headroom offers no tools that would fail on every call.
-  const headroom =
-    !unattended && member === HEADROOM_MEMBER && !!env.HEADROOM_URL && !!env.HEADROOM_PASSWORD;
+  const headroom = !unattended && member === HEADROOM_MEMBER && headroomConfigured;
   return {
     mcpServers: {
       ...(headroom
@@ -140,10 +144,12 @@ function mcpConfig(unattended: boolean, tools: string[] | null, member: string |
               // network, and the server is the one that repo ships and tests.
               command: path.join(HEADROOM_SERVER, "node_modules/.bin/tsx"),
               args: [path.join(HEADROOM_SERVER, "mcp/server.ts")],
-              env: {
-                HEADROOM_URL: env.HEADROOM_URL,
-                HEADROOM_PASSWORD: env.HEADROOM_PASSWORD,
-              },
+              // No env block: HEADROOM_URL and HEADROOM_PASSWORD are settings
+              // vars, and an MCP server inherits the environment the CLI was
+              // spawned with — which is where agentEnv() already puts them.
+              // Checked against the CLI rather than assumed. Naming them here
+              // would mean the backend reading a credential it has no use for
+              // and writing it into a second file on the volume.
             },
           }
         : {}),
@@ -189,7 +195,12 @@ async function ensureMcpConfig(o: {
   const name = o.unattended ? "mcp-unattended" : isChair ? "mcp" : `mcp-${o.id}`;
   const file = path.join(env.ASSISTANT_DIR, `${name}.json`);
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
-  await writeJsonAtomic(file, mcpConfig(o.unattended, o.tools, isChair ? null : o.id));
+  // Whether headroom is reachable at all is the only thing the backend needs to
+  // know about it: the values themselves go to the CLI with every other agent
+  // var, and the server reads them from the environment it inherits.
+  const vars = await agentEnv();
+  const configured = !!(vars.HEADROOM_URL && vars.HEADROOM_PASSWORD);
+  await writeJsonAtomic(file, mcpConfig(o.unattended, o.tools, isChair ? null : o.id, configured));
   return file;
 }
 

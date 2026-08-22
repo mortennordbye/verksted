@@ -13,6 +13,12 @@ export const KNOWN_AGENT_KEYS = [
   "GIT_AUTHOR_EMAIL",
   "GIT_COMMITTER_NAME",
   "GIT_COMMITTER_EMAIL",
+  // Where headroom is, and how to log in. Agent vars rather than deployment
+  // config because the backend never reads them: they reach headroom's MCP
+  // server the way every other credential here reaches a CLI, by being in the
+  // environment its process was spawned with.
+  "HEADROOM_URL",
+  "HEADROOM_PASSWORD",
 ];
 
 // ANTHROPIC_API_KEY silently overrides Claude Max subscription auth and bills

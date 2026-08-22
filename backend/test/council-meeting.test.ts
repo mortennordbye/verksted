@@ -51,14 +51,15 @@ beforeAll(async () => {
   process.env.MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-mem-"));
   process.env.SETTINGS_FILE = path.join(councilDir, "settings.json");
   process.env.STATIC_DIR = "";
-  // Both, because the advisor is given the server only when it has somewhere to
-  // point it and a way in — which is the gating this file goes on to assert.
-  process.env.HEADROOM_URL = "https://headroom.example";
-  process.env.HEADROOM_PASSWORD = "hunter2";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
   const { seedCouncil } = await import("../src/council-store.js");
   await seedCouncil();
+  // Settings vars rather than deployment env: both, because the advisor is
+  // given the server only when it has somewhere to point it and a way in —
+  // which is the gating this file goes on to assert.
+  const { writeVars } = await import("../src/settings-store.js");
+  await writeVars({ HEADROOM_URL: "https://headroom.example", HEADROOM_PASSWORD: "hunter2" });
 });
 
 afterAll(async () => {
@@ -651,6 +652,19 @@ describe("the advisor that reads headroom", () => {
 
   afterEach(async () => {
     await app.inject({ method: "DELETE", url: "/api/council/ariel" });
+    const { writeVars } = await import("../src/settings-store.js");
+    await writeVars({ HEADROOM_URL: "https://headroom.example", HEADROOM_PASSWORD: "hunter2" });
+  });
+
+  it("leaves the server off a bench that has not said where headroom is", async () => {
+    // The failure this prevents is the quiet one: tools that exist, are offered
+    // and fail on every call, on a bench that simply does not run headroom.
+    const { writeVars } = await import("../src/settings-store.js");
+    await writeVars({});
+
+    await say("how is the budget looking?");
+
+    expect(serversIn(callsFor("Ariel")[0])).not.toContain("headroom");
   });
 
   it("gives Ariel headroom, and gives it to nobody else in the room", async () => {
