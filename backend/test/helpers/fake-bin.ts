@@ -29,10 +29,30 @@ export interface FakeCall {
 export interface Reply {
   /** Matches when the call's argv, joined by spaces, starts with this. */
   prefix: string;
+  /**
+   * Matches only when the joined argv also contains this.
+   *
+   * A prefix cannot reach what distinguishes two otherwise identical calls: a
+   * council meeting spawns the chair and each advisor with the same question in
+   * argv[1], and what tells them apart — the model, the tools, whose persona is
+   * being appended — is at the far end of a long argv. This is how a test says
+   * "the call that carries Michael's prompt" without the production code having
+   * to shape its prompts to suit a fake.
+   */
+  contains?: string;
   stdout?: string;
   stderr?: string;
   /** Exit code; a non-zero one makes `exec` reject, as the real binary would. */
   code?: number;
+  /**
+   * Hold the process open this long before answering.
+   *
+   * Everything a fake normally answers is instantaneous, which makes the
+   * properties that only exist *while* something is running — a second request
+   * being refused, a stop button reaching a child — untestable. A real `claude`
+   * takes seconds; this is the smallest way to say so.
+   */
+  delayMs?: number;
 }
 
 const HELPER = `
@@ -49,8 +69,10 @@ const joined = argv.join(" ");
 // Longest prefix wins, so a specific reply can be added over a general one
 // without depending on the order they were registered in.
 const match = (replies[bin] || [])
-  .filter((r) => joined.startsWith(r.prefix))
-  .sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  .filter((r) => joined.startsWith(r.prefix) && (!r.contains || joined.includes(r.contains)))
+  // Longest wins, and a reply that names something to contain is more specific
+  // than one of the same prefix that does not.
+  .sort((a, b) => (b.prefix + (b.contains || "")).length - (a.prefix + (a.contains || "")).length)[0];
 // Synchronous, and looping over partial writes: process.stdout.write to a pipe
 // is asynchronous, so a process.exit() right after it silently truncates
 // anything larger than the pipe buffer — which is exactly the size of output
@@ -60,12 +82,20 @@ function writeAll(fd, text) {
   let off = 0;
   while (off < buf.length) off += fs.writeSync(fd, buf, off, buf.length - off);
 }
-if (match) {
-  if (match.stdout) writeAll(1, match.stdout);
-  if (match.stderr) writeAll(2, match.stderr);
-  process.exit(match.code || 0);
+function finish(m) {
+  if (m.stdout) writeAll(1, m.stdout);
+  if (m.stderr) writeAll(2, m.stderr);
+  process.exit(m.code || 0);
 }
-process.exit(0);
+if (match && match.delayMs) {
+  // A killed process must die rather than answer, which is the whole point of
+  // being slow: the default SIGTERM handling does that while this timer waits.
+  setTimeout(() => finish(match), match.delayMs);
+} else if (match) {
+  finish(match);
+} else {
+  process.exit(0);
+}
 `;
 
 export class FakeBin {
@@ -108,13 +138,14 @@ export class FakeBin {
   }
 
   /**
-   * Register a canned reply for calls whose argv starts with `prefix`.
-   * Re-registering the same prefix replaces it, so a test can change what a
-   * command answers without the old entry still being in the table.
+   * Register a canned reply for calls whose argv starts with `prefix` (and, if
+   * `contains` is given, also contains that). Re-registering the same pair
+   * replaces it, so a test can change what a command answers without the old
+   * entry still being in the table.
    */
   reply(bin: string, prefix: string, res: Omit<Reply, "prefix"> = {}): void {
     const list = (this.replies[bin] ??= []);
-    const at = list.findIndex((r) => r.prefix === prefix);
+    const at = list.findIndex((r) => r.prefix === prefix && r.contains === res.contains);
     const entry = { prefix, ...res };
     if (at === -1) list.push(entry);
     else list[at] = entry;

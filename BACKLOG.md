@@ -756,3 +756,23 @@ what unblocks it / where the code lives.
   against that rule; roughly 40 sites.
 - **Where:** `frontend/src/screens/{Project,Session,Inbox,Settings}.tsx`,
   `frontend/src/components/*Panel.tsx`
+
+## The chair's convening has never been watched against a real model
+
+- **What:** A meeting is triggered by the chair opening its reply with
+  `convene: <id>[, <id>]`, which the backend parses and strips. Every test drives
+  a fake `claude` that says exactly that, so what is proven is the plumbing —
+  who gets spawned, what they are given, what lands in the transcript — and not
+  the thing the feature actually rests on: whether a real model reliably emits
+  that line when it should, and does not emit it when it should not.
+- **Why deferred:** It needs a live authenticated CLI and a person reading the
+  answers over a few days. The failure modes are both cheap and visible — a
+  meeting that did not happen is an ordinary answer, and one that happened when
+  it should not have is a mark in the thread saying who was asked — so this is
+  something to watch rather than something to block on.
+- **Unblocked by:** A week of real use. Watch for two shapes: convening on
+  questions the chair could have answered from `status` (expensive, and the
+  persona line about it is the weakest kind of mitigation), and prose before the
+  convene line, which makes it not the first line and so convenes nobody.
+- **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
+  `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)

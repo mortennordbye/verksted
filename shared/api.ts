@@ -438,6 +438,19 @@ export interface Schedule {
    * turn that discovers that still costs a model call.
    */
   skipWhenIdle: boolean;
+  /**
+   * Assistant schedules only: which council member answers this one. Empty is
+   * the chair, which is what every schedule written before the council existed
+   * gets. One advisor, one model call — a schedule never holds a meeting.
+   */
+  member: string;
+  /**
+   * Assistant schedules only: let the chair convene the council on this one.
+   * Off by default, and deliberately opt-in per schedule — turning it on turns
+   * a one-call briefing into up to five, and a morning briefing whose usual
+   * answer is "nothing needs you" should not quietly become the expensive kind.
+   */
+  convenes: boolean;
   enabled: boolean;
   createdAt: string;
   lastRunAt: string | null;
@@ -600,6 +613,11 @@ export interface AssistantEntry {
   failed?: boolean;
   /** Upload names attached to a user turn, served from /api/assistant/uploads. */
   images?: string[];
+  /**
+   * Which council member said this. Absent means the chair, so every thread
+   * written before the council existed reads back unchanged.
+   */
+  member?: string;
 }
 
 export interface AssistantThread {
@@ -618,7 +636,56 @@ export interface AssistantThread {
    * over the socket, never from a plain GET.
    */
   live?: string;
+  /**
+   * Members with a turn in flight right now, by id. Only the chair streams its
+   * tokens through `live`: three members writing at once onto a phone is noise,
+   * and their answers are two or three sentences, so a chip that says who is
+   * speaking carries the same information for none of the traffic.
+   */
+  speaking?: string[];
 }
+
+/**
+ * One member of the council.
+ *
+ * Data rather than code: a member is a JSON file on the volume, so adding one
+ * is a form on the settings page rather than a redeploy. What is deliberately
+ * *not* here is anything that could hand a member a shell — the denied built-in
+ * tools and --strict-mcp-config are fixed in assistant.ts and are not fields.
+ */
+export interface CouncilMember {
+  /** Slug; names the file, so it is validated the way a memory slug is. */
+  id: string;
+  /** What it answers to, and calls itself. */
+  name: string;
+  /** One line: what this one is for. Shown in the UI and given to the chair. */
+  remit: string;
+  /** Free text: how this one thinks. Carried with every turn, so it is capped. */
+  persona: string;
+  model: string;
+  effort: AssistantEffort;
+  /** Verksted MCP tools this member may use; validated against the inventory. */
+  tools: string[];
+  /** Whether it may read the web (WebFetch/WebSearch). */
+  web: boolean;
+  colour: CouncilColour;
+  /**
+   * Which of the pod's voices reads this one aloud. Empty means the device's
+   * default, which is what every advisor sounded like before: one narrator
+   * reading everybody, which is exactly what makes a meeting unlistenable.
+   */
+  voice: string;
+  /** The one who takes every turn and decides who else is convened. */
+  chair: boolean;
+  enabled: boolean;
+}
+
+/**
+ * Which hue attributes a member in the thread. A closed set, because the
+ * palette's other colours already mean things: the state trio (run/wait/fail)
+ * and the three agent brands are not free to reuse.
+ */
+export type CouncilColour = "amber" | "violet" | "teal" | "rose" | "sky" | "lime";
 
 /** One turn from an older conversation, found by searching them. */
 export interface AssistantSearchHit {
@@ -665,12 +732,14 @@ export interface MemoryList {
   dropped: number;
 }
 
+export type AssistantEffort = "low" | "medium" | "high" | "xhigh" | "max";
+
 /** The assistant's identity and settings, editable on the settings page. */
 export interface AssistantConfig {
   /** What it calls itself. Empty means it has no name of its own. */
   name: string;
   model: string;
-  effort: "low" | "medium" | "high" | "xhigh" | "max";
+  effort: AssistantEffort;
   /** Free text appended to its instructions: house style, standing orders. */
   instructions: string;
 }

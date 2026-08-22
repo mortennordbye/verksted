@@ -1,6 +1,6 @@
 import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
-import { runUnattended } from "./assistant.js";
+import { MAX_CONVENED, runUnattended } from "./assistant.js";
 import { env } from "./env.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
@@ -33,16 +33,39 @@ const MAX_UNATTENDED_PER_DAY = 12;
 let unattendedDay = "";
 let unattendedToday = 0;
 
-/** True when today's ceiling is already spent; counts the turn when it is not. */
-function overDailyCeiling(): boolean {
+/**
+ * True when today's ceiling is already spent; counts the turns when it is not.
+ *
+ * Turns rather than runs, because a briefing that convenes the council is
+ * several model calls wearing one schedule's name. A ceiling that counted runs
+ * would let twelve meetings be forty-eight calls, and a backstop that stops
+ * counting the thing it is backstopping is worse than none.
+ *
+ * `n` is what the run is about to spend at most: one for a solo briefing, and
+ * for a meeting the chair's two turns plus everyone it might convene. Reserved
+ * up front rather than charged as it goes, because a meeting that runs out
+ * halfway has already spent the expensive half and has nothing to show for it.
+ */
+function overDailyCeiling(n = 1): boolean {
   const day = new Date().toISOString().slice(0, 10);
   if (day !== unattendedDay) {
     unattendedDay = day;
     unattendedToday = 0;
   }
-  if (unattendedToday >= MAX_UNATTENDED_PER_DAY) return true;
-  unattendedToday++;
+  if (unattendedToday + n > MAX_UNATTENDED_PER_DAY) return true;
+  unattendedToday += n;
   return false;
+}
+
+/**
+ * Hand back what a meeting did not spend.
+ *
+ * The reservation is for the worst case — the chair may convene nobody, or
+ * fewer than the roster — and a budget that only ever went down would make a
+ * quiet morning cost as much as a busy one.
+ */
+function refundCeiling(n: number): void {
+  unattendedToday = Math.max(0, unattendedToday - n);
 }
 
 interface Logger {
@@ -147,14 +170,22 @@ export async function skipForIdle(schedule: Schedule): Promise<boolean> {
  * turn runs at a time, which `runUnattended` refuses past.
  */
 async function briefing(id: string, schedule: Schedule, log: Logger): Promise<RunOutcome | null> {
-  if (overDailyCeiling()) {
+  // Reserved for the worst case this run could cost: the chair's two turns plus
+  // everyone it might convene. Anything it does not use is handed back below.
+  const reserved = schedule.convenes ? MAX_CONVENED + 2 : 1;
+  if (overDailyCeiling(reserved)) {
     await schedules.recordRun(id, {
       error: `${MAX_UNATTENDED_PER_DAY} unattended turns already ran today`,
     });
     log.warn({ schedule: id }, `schedule ${id} skipped: daily unattended ceiling reached`);
     return null;
   }
-  const { text, failed } = await runUnattended(schedule.prompt);
+  const { text, failed, turns } = await runUnattended(
+    schedule.prompt,
+    schedule.member,
+    schedule.convenes,
+  );
+  refundCeiling(reserved - turns);
   if (failed || !text) {
     const error = text || "the turn produced nothing";
     await schedules.recordRun(id, { error });

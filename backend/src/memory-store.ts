@@ -179,6 +179,90 @@ export async function remove(slug: string): Promise<boolean> {
 }
 
 /**
+ * What one advisor alone has been told.
+ *
+ * A directory per member rather than a `scope: council:michael` field, for the
+ * reason the review queue below spells out at length: with a field every reader
+ * has to filter, and one reader that forgets puts a private note into every
+ * session in every repo. With a directory there is nothing to forget — `list()`
+ * reads *.md at the top level and a subdirectory is not one, so the injected
+ * block is trivially correct.
+ *
+ * It also sidesteps a hazard the scope field has no answer to: `toMemory` reads
+ * any scope that is not "global" as a project name, so a member whose id
+ * matched a repo would have its private notes printed into that repo's
+ * sessions as "In michael: ...", with nothing to say it had happened.
+ *
+ * A smaller budget than the shared store, because this is carried on top of it.
+ */
+export const MEMBER_BUDGET_BYTES = 2_000;
+
+function memberDir(id: string): string {
+  return path.join(env.MEMORY_DIR, "members", id);
+}
+
+/** Facts only this advisor is told, newest first. */
+export async function listForMember(id: string): Promise<Memory[]> {
+  if (!SLUG_RE.test(id)) return [];
+  const dir = memberDir(id);
+  const files = await fs.readdir(dir).catch(() => [] as string[]);
+  const out: Memory[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+    const slug = file.slice(0, -3);
+    if (!SLUG_RE.test(slug)) continue;
+    try {
+      const full = path.join(dir, file);
+      const [raw, stat] = await Promise.all([fs.readFile(full, "utf8"), fs.stat(full)]);
+      const memory = toMemory(slug, raw, stat.mtime.toISOString());
+      if (memory) out.push(memory);
+    } catch {
+      // An unreadable fact is one fact, not a broken memory.
+    }
+  }
+  return out.sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+}
+
+/** The block one advisor carries in its own prompt. Never injected anywhere. */
+export async function renderForMember(id: string): Promise<string> {
+  return renderBlock(await listForMember(id), MEMBER_BUDGET_BYTES).text;
+}
+
+export async function saveForMember(
+  id: string,
+  input: { slug: string; text: string; type?: MemoryType; source?: string },
+): Promise<Memory> {
+  if (!SLUG_RE.test(id)) throw new Error("no such member");
+  if (!SLUG_RE.test(input.slug)) throw new Error("slug must be lowercase words joined by dashes");
+  const text = input.text.trim();
+  if (!text) throw new Error("a memory needs something to remember");
+  await fs.mkdir(memberDir(id), { recursive: true });
+  const existing = (await listForMember(id)).find((m) => m.slug === input.slug);
+  await fs.writeFile(
+    path.join(memberDir(id), `${input.slug}.md`),
+    frontmatter(input.slug, text, {
+      type: input.type,
+      // The scope is the directory. Writing one here would be a second answer
+      // to the same question, and the two would disagree eventually.
+      scope: "global",
+      source: input.source ?? "asked directly",
+      created: existing?.createdAt ?? new Date().toISOString(),
+    }),
+  );
+  return (await listForMember(id)).find((m) => m.slug === input.slug)!;
+}
+
+export async function forgetForMember(id: string, slug: string): Promise<boolean> {
+  if (!SLUG_RE.test(id) || !SLUG_RE.test(slug)) return false;
+  try {
+    await fs.unlink(path.join(memberDir(id), `${slug}.md`));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * The review queue: facts something proposed, which are not memory yet.
  *
  * A separate directory rather than a `status: proposed` field on a memory file,
@@ -316,7 +400,10 @@ const SECTIONS: { types: MemoryType[]; heading: string }[] = [
  * which facts survive does not depend on which section they land in — only
  * where they are printed does.
  */
-export function renderBlock(memories: Memory[]): { text: string; used: number; dropped: number } {
+export function renderBlock(
+  memories: Memory[],
+  budget = BUDGET_BYTES,
+): { text: string; used: number; dropped: number } {
   // Nothing learned yet is not the same as "here is what I learned: nothing",
   // which is what a header with no facts under it would tell every session.
   if (!memories.length) return { text: "", used: 0, dropped: 0 };
@@ -330,7 +417,7 @@ export function renderBlock(memories: Memory[]): { text: string; used: number; d
   let dropped = 0;
   for (const m of memories) {
     const line = renderLine(m);
-    if (used + line.length > BUDGET_BYTES - overhead) {
+    if (used + line.length > budget - overhead) {
       dropped++;
       continue;
     }

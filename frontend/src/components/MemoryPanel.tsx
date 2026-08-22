@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Memory, MemoryList, MemoryType, Schedule } from "../../../shared/api";
+import type { CouncilMember, Memory, MemoryList, MemoryType, Schedule } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import { focusIfPointerFine } from "./Sheet";
 
@@ -177,12 +177,61 @@ function Row({
   );
 }
 
+/**
+ * What each advisor has written down for itself.
+ *
+ * Kept apart from the block above because it is a different promise: nothing
+ * here is carried into a session, or into any other advisor's prompt. It is
+ * listed at all for the reason the shared store is editable by hand — a note
+ * you can only change by arguing with the thing that wrote it is one you will
+ * not change.
+ */
+function MemberNotes({ member }: { member: CouncilMember }) {
+  const { data, refresh } = usePoll<{ memories: Memory[] }>(
+    `/api/council/${member.id}/memory`,
+    120_000,
+  );
+  const notes = data?.memories ?? [];
+  if (!notes.length) return null;
+
+  async function forget(slug: string) {
+    await api(`/api/council/${member.id}/memory/${slug}`, { method: "DELETE" }).catch(() => {});
+    refresh();
+  }
+
+  return (
+    <div className="rounded-[11px] border border-line bg-surface px-[15px] py-3">
+      <div className="mb-2 font-mono text-[12px]">
+        {member.name}
+        <span className="ml-2 text-[11px] text-faint">
+          {notes.length} note{notes.length === 1 ? "" : "s"}, read by nobody else
+        </span>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {notes.map((m) => (
+          <div key={m.slug} className="flex items-start gap-2 text-[13px]">
+            <span className="flex-1 text-muted">{m.text}</span>
+            <button
+              onClick={() => void forget(m.slug)}
+              className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 font-mono text-[11px] text-faint hover:border-wait hover:text-wait"
+            >
+              forget
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function MemoryPanel() {
   const { data, refresh } = usePoll<MemoryList>("/api/memory", 30_000);
   const { data: schedules, refresh: refreshSchedules } = usePoll<Schedule[]>(
     "/api/schedules",
     60_000,
   );
+  const { data: council } = usePoll<CouncilMember[]>("/api/council", 120_000);
+  const advisors = (council ?? []).filter((m) => !m.chair);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -314,6 +363,23 @@ export default function MemoryPanel() {
           ),
         )}
       </div>
+
+      {advisors.length > 0 && (
+        <>
+          <h3 className="mt-6 mb-1 text-[15px] font-semibold tracking-tight">
+            What each advisor keeps
+          </h3>
+          <div className="mb-3 text-sm text-muted">
+            Their own notes, on their own subject. None of this reaches a session or another
+            advisor, so it is off the budget above.
+          </div>
+          <div className="flex flex-col gap-2">
+            {advisors.map((m) => (
+              <MemberNotes key={m.id} member={m} />
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

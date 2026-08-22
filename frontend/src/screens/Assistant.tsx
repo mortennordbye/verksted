@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AssistantEntry, AssistantThread } from "../../../shared/api";
-import { api } from "../api";
+import type {
+  AssistantEntry,
+  AssistantThread,
+  CouncilColour,
+  CouncilMember,
+} from "../../../shared/api";
+import { api, usePoll } from "../api";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
 import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
@@ -42,6 +47,16 @@ function Ico({ children }: { children: ReactNode }) {
  */
 
 function ToolChip({ name, detail }: { name: string; detail: string }) {
+  // Convening is the chair handing the question on, not a lookup it performed.
+  // Rendered as what happened rather than as a tool name, because "who was
+  // asked" is the thing worth seeing and a wrong call should be obvious.
+  if (name === "convene") {
+    return (
+      <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-accent/40 bg-accent-tint px-2.5 py-1 font-mono text-[11px] text-accent">
+        <span className="truncate">asks {detail}</span>
+      </span>
+    );
+  }
   return (
     <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-line bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-muted">
       <span className="flex-none text-run">✓</span>
@@ -53,7 +68,35 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   );
 }
 
-function Turn({ entry }: { entry: AssistantEntry }) {
+/** The hue tokens a member may carry, as the classes Tailwind has to see. */
+const MEMBER_TEXT: Record<CouncilColour, string> = {
+  amber: "text-member-amber",
+  violet: "text-member-violet",
+  teal: "text-member-teal",
+  rose: "text-member-rose",
+  sky: "text-member-sky",
+  lime: "text-member-lime",
+};
+
+const MEMBER_DOT: Record<CouncilColour, string> = {
+  amber: "bg-member-amber",
+  violet: "bg-member-violet",
+  teal: "bg-member-teal",
+  rose: "bg-member-rose",
+  sky: "bg-member-sky",
+  lime: "bg-member-lime",
+};
+
+const MEMBER_RULE: Record<CouncilColour, string> = {
+  amber: "border-member-amber/40",
+  violet: "border-member-violet/40",
+  teal: "border-member-teal/40",
+  rose: "border-member-rose/40",
+  sky: "border-member-sky/40",
+  lime: "border-member-lime/40",
+};
+
+function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember }) {
   if (entry.role === "user") {
     return (
       <div className="flex flex-col items-end gap-1.5">
@@ -73,21 +116,92 @@ function Turn({ entry }: { entry: AssistantEntry }) {
       </div>
     );
   }
+  // An advisor is named above what it said and ruled in its own colour. A name
+  // rather than colour alone: four hues is more than anyone reliably tells
+  // apart on a phone, and the name is what you would say out loud anyway.
+  const colour = member?.colour ?? "teal";
   return (
     <div className="flex flex-col gap-2.5">
       {entry.tools.map((t, i) => (
         <ToolChip key={i} name={t.name} detail={t.detail} />
       ))}
       {entry.text && (
-        <div className="flex">
-          <div
-            className={`max-w-[82%] rounded-[14px] rounded-bl-[5px] border px-3 py-2 text-[14px] whitespace-pre-wrap ${
-              entry.failed ? "border-fail/40 bg-fail/10 text-text" : "border-line bg-surface"
-            }`}
-          >
-            {entry.text}
+        <div className="flex flex-col gap-1">
+          {entry.member && (
+            <span className={`font-mono text-[11px] ${MEMBER_TEXT[colour]}`}>
+              {member?.name ?? entry.member}
+            </span>
+          )}
+          <div className="flex">
+            <div
+              className={`max-w-[82%] rounded-[14px] rounded-bl-[5px] border px-3 py-2 text-[14px] whitespace-pre-wrap ${
+                entry.failed
+                  ? "border-fail/40 bg-fail/10 text-text"
+                  : entry.member
+                    ? `${MEMBER_RULE[colour]} border-l-2 bg-surface`
+                    : "border-line bg-surface"
+              }`}
+            >
+              {entry.text}
+            </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Who is in the room, and who is answering right now.
+ *
+ * It earns its place by making the council discoverable: without it the only
+ * way to learn that `@michael` is a thing you can type is to be told.
+ */
+function Roster({
+  members,
+  speaking,
+  addressed,
+  onPick,
+}: {
+  members: CouncilMember[];
+  speaking: string[];
+  addressed: string | null;
+  onPick: (id: string) => void;
+}) {
+  if (members.length < 2) return null;
+  const shown = members.find((m) => m.id === (addressed ?? "")) ?? null;
+  return (
+    <div className="px-1 pb-2">
+      <div className="flex flex-wrap gap-1.5">
+        {members.map((m) => {
+          const busy = speaking.includes(m.id);
+          const picked = addressed === m.id || (m.chair && !addressed);
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onPick(m.id)}
+              title={m.remit}
+              aria-pressed={picked}
+              className={`tap flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                busy
+                  ? `${MEMBER_RULE[m.colour]} ${MEMBER_TEXT[m.colour]} animate-pulse-run`
+                  : picked
+                    ? `${MEMBER_RULE[m.colour]} ${MEMBER_TEXT[m.colour]}`
+                    : "border-line text-faint hover:border-line-strong"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${MEMBER_DOT[m.colour]}`} />
+              {m.chair ? m.name : `@${m.id}`}
+              {busy && " …"}
+            </button>
+          );
+        })}
+      </div>
+      {/* What the one you have picked is for. A remit is one line and it is the
+          answer to "why would I ask them", which a name on its own is not. */}
+      {shown && (
+        <div className={`mt-1.5 text-[12px] ${MEMBER_TEXT[shown.colour]}`}>{shown.remit}</div>
       )}
     </div>
   );
@@ -116,7 +230,17 @@ export default function Assistant() {
   const [showRaccoon, setShowRaccoon] = useState(
     () => localStorage.getItem("vk.assistant.raccoon") === "1",
   );
-  const spokenRef = useRef<string | null>(null);
+  /**
+   * Entries already read out. A set rather than one id, because a meeting lands
+   * several at once and "the last one" would silently drop the rest.
+   */
+  const spokenRef = useRef<Set<string>>(new Set());
+  // The roster changes when somebody edits it in settings, which is rarely, so
+  // it is polled slowly rather than pushed. An empty answer is a bench with no
+  // council on it, and everything below then reads exactly as it did before.
+  const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
+  const members = roster ?? [];
+  const byId = new Map(members.map((m) => [m.id, m]));
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
@@ -168,22 +292,39 @@ export default function Assistant() {
   const { listening, speaking, transcribing } = speech;
 
   /**
-   * Read the newest reply, then listen again. Keyed on the entry id so a
-   * reconnecting socket redelivering the same thread cannot read it twice.
+   * Read what has not been read yet, in order, each in its speaker's voice.
+   *
+   * A meeting produces several replies at once, so this is a queue rather than
+   * "the last one". Reading them all only became the right answer once each
+   * advisor had a voice of its own: in one voice it is four answers that sound
+   * like one person changing their mind, which is why it used to read the
+   * chair's summary alone.
+   *
+   * Keyed on entry ids already spoken, so a reconnecting socket redelivering
+   * the whole thread cannot read anything twice.
    */
   useEffect(() => {
     if ((!voiceMode && !speakReplies) || thinking) return;
-    const last = thread?.entries.at(-1);
-    if (!last || last.role !== "assistant" || !last.text) return;
-    if (spokenRef.current === last.id) return;
-    spokenRef.current = last.id;
-    speech.speak(last.text, () => {
-      // Only hands-free reopens the microphone. Reading a typed exchange aloud
-      // must not start listening, or the next thing typed competes with an open
-      // mic and the reply gets sent twice.
-      if (voiceMode) void speech.listen();
-    });
-  }, [thread, voiceMode, speakReplies, thinking, speech]);
+    const pending = (thread?.entries ?? []).filter(
+      (e) => e.role === "assistant" && e.text && !spokenRef.current.has(e.id),
+    );
+    if (!pending.length) return;
+    for (const e of pending) spokenRef.current.add(e.id);
+
+    const readFrom = (i: number) => {
+      const entry = pending[i];
+      if (!entry) {
+        // Only hands-free reopens the microphone. Reading a typed exchange
+        // aloud must not start listening, or the next thing typed competes
+        // with an open mic and the reply gets sent twice.
+        if (voiceMode) void speech.listen();
+        return;
+      }
+      const who = entry.member ? byId.get(entry.member) : undefined;
+      speech.speak(entry.text, () => readFrom(i + 1), who?.voice || undefined);
+    };
+    readFrom(0);
+  }, [thread, voiceMode, speakReplies, thinking, speech, byId]);
 
   /**
    * Read replies aloud, without opening the microphone.
@@ -200,7 +341,7 @@ export default function Assistant() {
     localStorage.setItem("vk.assistant.speak", next ? "1" : "0");
     if (next) {
       // Whatever is already on screen has been read, or was never meant to be.
-      spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+      for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);
       // This tap is the user gesture iOS wants before any audio may play
       // without one — for the pod's voice as much as the browser's, since a
       // reply arrives long after any tap.
@@ -221,7 +362,7 @@ export default function Assistant() {
     // Turning it on is the user gesture iOS requires before it will ever speak,
     // so prime it here rather than on the first reply.
     setVoiceMode(true);
-    spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+    for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);
     void speech.listen();
   }
 
@@ -261,7 +402,14 @@ export default function Assistant() {
   // middle of a conversation silently is worse than saying it is getting long —
   // so this is the nudge to start a fresh one when the subject has changed.
   const turns = thread?.entries.filter((e) => e.role === "user").length ?? 0;
-  const long = turns >= 15;
+  /**
+   * What the thread actually costs, which is not the same as how often you have
+   * typed. Every reply is a model call carrying the whole conversation, and a
+   * meeting is several: counting questions would put the warning well after the
+   * spending it is meant to warn about.
+   */
+  const calls = thread?.entries.filter((e) => e.role === "assistant").length ?? 0;
+  const long = calls >= 15;
 
   /**
    * The mouth moves when there are words, and only then: while it is writing
@@ -283,7 +431,9 @@ export default function Assistant() {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar crumb={[{ label: "assistant" }]} back="/" />
+      {/* What you opened is the room, not one of the people in it. With no
+          advisors it is still the assistant, so the crumb follows the roster. */}
+      <TopBar crumb={[{ label: members.length > 1 ? "council" : "assistant" }]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
         {showRaccoon && (
@@ -301,6 +451,7 @@ export default function Assistant() {
           {turns > 0 && (
             <span className={long ? "text-wait" : undefined}>
               {turns} turn{turns === 1 ? "" : "s"}
+              {calls > turns && ` · ${calls} replies`}
               {long && " · getting expensive to continue"}
             </span>
           )}
@@ -362,8 +513,17 @@ export default function Assistant() {
         )}
 
         {thread?.entries.map((e) => (
-          <Turn key={e.id} entry={e} />
+          <Turn key={e.id} entry={e} member={e.member ? byId.get(e.member) : undefined} />
         ))}
+
+        {/* Who is still out. An advisor's tokens are deliberately not streamed:
+            three of them writing at once onto a phone is noise, and the names
+            say the same thing for none of the traffic. */}
+        {thread?.speaking?.length ? (
+          <div className="px-1 font-mono text-[12px] text-faint">
+            {thread.speaking.map((id) => byId.get(id)?.name ?? id).join(", ")} answering…
+          </div>
+        ) : null}
 
         {/* The sentence being written. Replaced by the stored entry the moment
             the model finishes it, so it never appears twice. */}
@@ -439,6 +599,17 @@ export default function Assistant() {
           onChange={(e) => {
             if (e.target.files) void attach(e.target.files);
             e.target.value = "";
+          }}
+        />
+        <Roster
+          members={members}
+          speaking={thread?.speaking ?? []}
+          addressed={/^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null}
+          onPick={(id) => {
+            // The chair is who you get by default, so tapping it clears the
+            // address rather than adding one.
+            const stripped = text.replace(/^@[a-z][a-z0-9-]*\s*/, "");
+            setText(id === "chair" ? stripped : `@${id} ${stripped}`);
           }}
         />
         {/* Field on top, controls on their own row underneath. In one row the

@@ -104,6 +104,19 @@
   --color-claude: #f08a4b;
   --color-antigravity: #74a7f7;
   --color-codex: #c3ccd2;
+  /* Who on the council is speaking. A set of its own, because every other hue
+     here already means something: the state trio says how a session is doing
+     and the three above say which CLI is running, so an advisor tinted in one
+     of those would read as a claim about the bench rather than a name. Muted
+     against the agent brands for the same reason the states are — a saturated
+     square is "which CLI", and this is only a label. All six clear 4.5:1 on
+     --color-surface at the 11px they are used at. */
+  --color-member-amber: #d3a75c;
+  --color-member-violet: #b294e0;
+  --color-member-teal: #5cb5ac;
+  --color-member-rose: #d98fa8;
+  --color-member-sky: #74a7c7;
+  --color-member-lime: #9cbb6a;
   /* Was a fourth near-black. Matching --color-bg stops the terminal reading as
      a panel sitting on a different theme. */
   --color-term: #0a0a0a;

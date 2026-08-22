@@ -341,57 +341,63 @@ export function useSpeech(onFinal: (said: string) => void) {
    * and the caller falls back to the browser. A failure later in a reply is not
    * worth restarting the whole thing in a different voice halfway through.
    */
-  const speakOnPod = useCallback(async (body: string, run: number): Promise<boolean> => {
-    const voice = localStorage.getItem(POD_VOICE_KEY) || undefined;
-    const chunks = chunkForSpeech(body);
-    if (!chunks.length) return false;
-    const audio = audioPlayer();
+  const speakOnPod = useCallback(
+    async (body: string, run: number, asVoice?: string): Promise<boolean> => {
+      // The speaker's own voice wins over the device's default: a council read
+      // aloud in one voice is four answers that sound like one person changing
+      // their mind, which is the thing having several of them is meant to fix.
+      const voice = asVoice || localStorage.getItem(POD_VOICE_KEY) || undefined;
+      const chunks = chunkForSpeech(body);
+      if (!chunks.length) return false;
+      const audio = audioPlayer();
 
-    const clip = async (text: string): Promise<string | null> => {
-      try {
-        const res = await fetch("/api/assistant/speak", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(voice ? { text, voice } : { text }),
-        });
-        // 503 is "no voice on this pod", which is an answer, not a failure.
-        if (!res.ok) return null;
-        return URL.createObjectURL(await res.blob());
-      } catch {
-        return null;
-      }
-    };
+      const clip = async (text: string): Promise<string | null> => {
+        try {
+          const res = await fetch("/api/assistant/speak", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(voice ? { text, voice } : { text }),
+          });
+          // 503 is "no voice on this pod", which is an answer, not a failure.
+          if (!res.ok) return null;
+          return URL.createObjectURL(await res.blob());
+        } catch {
+          return null;
+        }
+      };
 
-    let next = clip(chunks[0]);
-    for (let i = 0; i < chunks.length; i++) {
-      const url = await next;
-      if (runRef.current !== run) {
-        if (url) URL.revokeObjectURL(url);
-        return true;
-      }
-      if (!url) return i > 0;
-      next = i + 1 < chunks.length ? clip(chunks[i + 1]) : Promise.resolve(null);
-      try {
-        await new Promise<void>((resolve, reject) => {
-          audio.onended = () => resolve();
-          audio.onerror = () => reject(new Error("playback failed"));
-          audio.src = url;
-          void audio.play().catch(reject);
-        });
-      } catch {
-        // Autoplay refused, or a clip the device would not play: the browser's
-        // own voice has a better chance than the next chunk does.
+      let next = clip(chunks[0]);
+      for (let i = 0; i < chunks.length; i++) {
+        const url = await next;
+        if (runRef.current !== run) {
+          if (url) URL.revokeObjectURL(url);
+          return true;
+        }
+        if (!url) return i > 0;
+        next = i + 1 < chunks.length ? clip(chunks[i + 1]) : Promise.resolve(null);
+        try {
+          await new Promise<void>((resolve, reject) => {
+            audio.onended = () => resolve();
+            audio.onerror = () => reject(new Error("playback failed"));
+            audio.src = url;
+            void audio.play().catch(reject);
+          });
+        } catch {
+          // Autoplay refused, or a clip the device would not play: the browser's
+          // own voice has a better chance than the next chunk does.
+          URL.revokeObjectURL(url);
+          return i > 0;
+        } finally {
+          audio.onended = null;
+          audio.onerror = null;
+        }
         URL.revokeObjectURL(url);
-        return i > 0;
-      } finally {
-        audio.onended = null;
-        audio.onerror = null;
+        if (runRef.current !== run) return true;
       }
-      URL.revokeObjectURL(url);
-      if (runRef.current !== run) return true;
-    }
-    return true;
-  }, []);
+      return true;
+    },
+    [],
+  );
 
   const speakInBrowser = useCallback((body: string, onDone?: () => void) => {
     if (!canSpeak()) {
@@ -433,14 +439,14 @@ export function useSpeech(onFinal: (said: string) => void) {
    * because Safari keeps Siri and the enhanced voices to itself.
    */
   const speak = useCallback(
-    (text: string, onDone?: () => void) => {
+    (text: string, onDone?: () => void, asVoice?: string) => {
       const body = speakable(text);
       if (!body) return onDone?.();
       const run = ++runRef.current;
       if (canSpeak()) speechSynthesis.cancel();
       audioPlayer().pause();
       setSpeaking(true);
-      void speakOnPod(body, run).then((spoken) => {
+      void speakOnPod(body, run, asVoice).then((spoken) => {
         if (runRef.current !== run) return;
         if (spoken) {
           setSpeaking(false);

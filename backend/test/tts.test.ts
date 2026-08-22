@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { AssistantVoices } from "../../shared/api.js";
+import type { AssistantVoices, CouncilMember } from "../../shared/api.js";
 
 /**
  * The voice, without the model.
@@ -47,6 +47,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
 let app: FastifyInstance;
 let dir: string;
 let log: string;
+let councilDir: string;
 
 function saidSoFar(): { text: string; voice: string }[] {
   return fs
@@ -72,6 +73,8 @@ beforeAll(async () => {
   process.env.KOKORO_MODEL = path.join(dir, "model.onnx");
   process.env.KOKORO_VOICES = path.join(dir, "voices.bin");
   process.env.KOKORO_VOICE = "af_heart";
+  councilDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-tts-council-"));
+  process.env.COUNCIL_DIR = councilDir;
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-tts-repos-"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-tts-sess-"));
   process.env.STATIC_DIR = "";
@@ -84,6 +87,7 @@ afterAll(async () => {
   stop();
   await app.close();
   fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(councilDir, { recursive: true, force: true });
 });
 
 describe("GET /api/assistant/voices", () => {
@@ -183,5 +187,60 @@ describe("POST /api/assistant/speak", () => {
     const voices = await app.inject({ url: "/api/assistant/voices" });
     expect(voices.json<AssistantVoices>().voices).toEqual([]);
     fs.writeFileSync(path.join(dir, "model.onnx"), "not really a model");
+  });
+});
+
+/**
+ * The one question the roster asks the voice.
+ *
+ * A member's voice is a name in a JSON file, and on a pod with no model there
+ * is no list to check it against — so the check is here rather than in the
+ * store, and only when there is something to check. Where there is, a typo is
+ * an error on the form instead of a sample button that does nothing.
+ */
+describe("PUT /api/council/:id", () => {
+  const michael = { name: "Michael", remit: "the cluster", tools: ["status"] };
+
+  function saved(): CouncilMember {
+    return JSON.parse(fs.readFileSync(path.join(councilDir, "michael.json"), "utf8"));
+  }
+
+  it("saves a voice the model has", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/council/michael",
+      payload: { ...michael, voice: "bf_emma" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<CouncilMember>().voice).toBe("bf_emma");
+  });
+
+  it("400s a voice the model does not have, and leaves the member alone", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/council/michael",
+      payload: { ...michael, voice: "bf_emmma" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<{ error: string }>().error).toMatch(/no such voice/);
+    expect(saved().voice).toBe("bf_emma");
+  });
+
+  // The trade this check is worth making only one way round: a pod without the
+  // voice model still has a council, and holding the roster hostage to an
+  // optional feature would be the worse failure.
+  it("takes any name on a pod with no voice at all", async () => {
+    fs.rmSync(path.join(dir, "model.onnx"));
+    try {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/council/michael",
+        payload: { ...michael, voice: "whoever" },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(saved().voice).toBe("whoever");
+    } finally {
+      fs.writeFileSync(path.join(dir, "model.onnx"), "not really a model");
+    }
   });
 });

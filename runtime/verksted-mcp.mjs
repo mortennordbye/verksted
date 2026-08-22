@@ -53,6 +53,43 @@ const local = (iso) =>
  */
 const UNATTENDED = process.env.VK_UNATTENDED === "1";
 
+/**
+ * Set when this server was started for one advisor on the council, naming the
+ * tools that advisor holds. Absent means the chair, which holds all of them.
+ *
+ * It is here rather than in `--allowed-tools` because that flag can only name
+ * the whole server (`mcp__verksted`), so there is no argv-level way to narrow
+ * one member — and because it is the same reasoning as the flag above: an allow
+ * list is auto-approval, and a tool that was never offered is not a
+ * classifier's call. A narrow list is also measurably faster, since a large
+ * tool surface costs the CLI a ToolSearch round trip before the model can do
+ * anything at all.
+ *
+ * A filter, not a contract: a name here that is not a tool is ignored. The
+ * backend rejects a typo when the member is saved, which is where a person can
+ * see it.
+ */
+const ALLOW = process.env.VK_TOOLS
+  ? new Set(
+      process.env.VK_TOOLS.split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    )
+  : null;
+
+/**
+ * Which advisor this server is running for, if it is running for one.
+ *
+ * It is what makes `remember` mean something different for a member than for
+ * the chair: the chair writes the bench's memory, which every session in every
+ * repo is told, and a member writes its own, which nothing outside its own
+ * prompt ever sees. The id comes from the environment rather than from a tool
+ * argument, so nothing the model says can change whose memory it is writing —
+ * the same reason VK_UNATTENDED is not something a prompt can ask for.
+ */
+const MEMBER = process.env.VK_MEMBER || null;
+const mine = (path) => `/api/council/${encodeURIComponent(MEMBER)}${path}`;
+
 const TOOLS = [
   {
     name: "status",
@@ -611,51 +648,85 @@ const TOOLS = [
   {
     name: "list_memories",
     unattended: true,
-    description: "Everything currently remembered about how this person works.",
+    description: MEMBER
+      ? "What you alone have been told and kept. What the whole bench knows is already in your instructions; this is only yours."
+      : "Everything currently remembered about how this person works.",
     inputSchema: { type: "object", properties: {} },
     run: async () => {
+      if (MEMBER) {
+        const { memories } = await call("GET", mine("/memory"));
+        return rows(memories, (m) => `${m.slug}  ${m.text}`);
+      }
       const { memories, used, budget } = await call("GET", "/api/memory");
       return `${rows(memories, (m) => `${m.slug}  [${m.type}/${m.scope}]  ${m.text}`)}\n\n${used} of ${budget} bytes used`;
     },
   },
   {
     name: "remember",
-    description:
-      "Record one durable fact about how this person works, carried into every future session in every repo. Something you were just told needs no permission: write it and say in one line that you did. Keep it to a sentence or two, written as an instruction to a future agent.",
+    // A member remembers for itself. The blast radius is the difference: the
+    // chair's memory is carried into every session in every repo, and a
+    // member's is carried nowhere but into its own next turn — which is why a
+    // member may hold this at all, and why it takes no scope.
+    description: MEMBER
+      ? "Record one thing worth keeping about your own subject. Only you are ever told it, so this is your notebook rather than the bench's: use it for what you would otherwise have to be told twice. Something you were just told needs no permission. A sentence or two."
+      : "Record one durable fact about how this person works, carried into every future session in every repo. Something you were just told needs no permission: write it and say in one line that you did. Keep it to a sentence or two, written as an instruction to a future agent.",
     inputSchema: {
       type: "object",
       properties: {
         slug: { type: "string", description: "short-kebab-case name, also the filename" },
         text: { type: "string" },
-        type: { type: "string", enum: ["preference", "project", "reference"] },
-        scope: { type: "string", description: "'global', or a project name" },
+        ...(MEMBER
+          ? {}
+          : {
+              type: { type: "string", enum: ["preference", "project", "reference"] },
+              scope: { type: "string", description: "'global', or a project name" },
+            }),
         source: { type: "string", description: "how you learned it" },
       },
       required: ["slug", "text"],
     },
     run: (a) =>
-      call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
-        text: a.text,
-        ...(a.type ? { type: a.type } : {}),
-        ...(a.scope ? { scope: a.scope } : {}),
-        ...(a.source ? { source: a.source } : {}),
-      }).then((m) => `remembered ${m.slug}`),
+      MEMBER
+        ? call("PUT", mine(`/memory/${encodeURIComponent(a.slug)}`), {
+            text: a.text,
+            ...(a.source ? { source: a.source } : {}),
+          }).then((m) => `remembered ${m.slug}, for yourself only`)
+        : call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
+            text: a.text,
+            ...(a.type ? { type: a.type } : {}),
+            ...(a.scope ? { scope: a.scope } : {}),
+            ...(a.source ? { source: a.source } : {}),
+          }).then((m) => `remembered ${m.slug}`),
   },
   {
     name: "forget",
-    description: "Delete a remembered fact that is wrong or no longer true.",
+    description: MEMBER
+      ? "Delete one of your own notes that is wrong or no longer true."
+      : "Delete a remembered fact that is wrong or no longer true.",
     inputSchema: {
       type: "object",
       properties: { slug: { type: "string" } },
       required: ["slug"],
     },
     run: (a) =>
-      call("DELETE", `/api/memory/${encodeURIComponent(a.slug)}`).then(() => `forgot ${a.slug}`),
+      MEMBER
+        ? call("DELETE", mine(`/memory/${encodeURIComponent(a.slug)}`)).then(
+            () => `forgot ${a.slug}`,
+          )
+        : call("DELETE", `/api/memory/${encodeURIComponent(a.slug)}`).then(
+            () => `forgot ${a.slug}`,
+          ),
   },
 ];
 
-/** The tools this run may use. Filtered once, so list and call agree. */
-const offered = () => (UNATTENDED ? TOOLS.filter((t) => t.unattended) : TOOLS);
+/**
+ * The tools this run may use. Filtered once, so list and call agree.
+ *
+ * The two filters intersect rather than override: an advisor named in VK_TOOLS
+ * that fired from a schedule still loses everything that changes anything.
+ */
+const offered = () =>
+  TOOLS.filter((t) => (!UNATTENDED || t.unattended) && (!ALLOW || ALLOW.has(t.name)));
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);

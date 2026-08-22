@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { AssistantThread, PodFacts, Project, Session } from "../../../shared/api";
+import type {
+  AssistantThread,
+  CouncilMember,
+  PodFacts,
+  Project,
+  Session,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -218,6 +224,8 @@ export default function Hub() {
   // and the hub already polls two other things. Only the status is read now —
   // the strip explains what the assistant is instead of quoting it.
   const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
+  // Only to name the strip: with nobody else on it, this is still the assistant.
+  const { data: council } = usePoll<CouncilMember[]>("/api/council", 120_000);
 
   async function addProject() {
     const value = input.trim();
@@ -273,11 +281,18 @@ export default function Hub() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="mb-0.5 flex items-center gap-2">
-              <span className="text-[14.5px] font-semibold tracking-[-.02em]">Assistant</span>
+              <span className="text-[14.5px] font-semibold tracking-[-.02em]">
+                {council && council.length > 1 ? "Council" : "Assistant"}
+              </span>
               {assistant?.status === "thinking" && (
                 <span className="flex items-center gap-1.5 text-[12px] text-accent">
                   <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                  working
+                  {/* Who is working, when it is not the one you asked. A meeting
+                      takes longer than a turn, and "working" alone reads as
+                      stuck when it is three advisors thinking at once. */}
+                  {assistant.speaking?.length
+                    ? `${assistant.speaking.length} answering`
+                    : "working"}
                 </span>
               )}
             </span>
@@ -286,7 +301,7 @@ export default function Hub() {
                 nothing about why you would open it. */}
             <span className="block text-[12.5px] text-faint">
               Ask what needs you, or tell it something to remember. It reads your projects, sessions
-              and runs, and needs no repo or terminal to answer.
+              and runs, and puts the question to whoever on the council it belongs to.
             </span>
           </span>
           <span className="flex-none pt-1 text-[13px] text-faint">→</span>
