@@ -53,18 +53,6 @@ if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
   fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
 }
 
-// Headroom, the finance app on the same cluster, and the password for it. Both
-// or neither: without them the advisor that reads it is simply not given the
-// server, which is how a bench that does not run headroom stays quiet about it.
-//
-// The URL has to be a host headroom's own ALLOWED_HOSTS accepts — its service
-// DNS name is not one, so this is the ingress hostname rather than the cluster
-// address you would otherwise reach for.
-const headroomUrl = (process.env.HEADROOM_URL ?? "").replace(/\/$/, "");
-if (headroomUrl && !/^https?:\/\//.test(headroomUrl)) {
-  fail(`HEADROOM_URL must be an http(s) URL, got "${headroomUrl}"`);
-}
-
 // Extra browser origins allowed to make mutating and websocket requests, on top
 // of same-origin (see origin.ts). Only needed when the frontend is served from a
 // different origin than the API — the single-container deployment is not.
@@ -105,9 +93,6 @@ export const env = {
   NTFY_URL: ntfyUrl,
   // Where the app is reachable (over the VPN); used for ntfy click-through links.
   PUBLIC_URL: publicUrl,
-  // Headroom and its password; read only by the advisor named in assistant.ts.
-  HEADROOM_URL: headroomUrl,
-  HEADROOM_PASSWORD: process.env.HEADROOM_PASSWORD ?? "",
   // Cross-origin allowlist; empty means same-origin only.
   ALLOWED_ORIGINS: allowedOrigins,
   // IANA zone every cron pattern is read in (see above).

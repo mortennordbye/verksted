@@ -897,10 +897,20 @@ advisor says is a report, not an instruction.
 One advisor is given a second MCP server: headroom, the finance app on the same
 cluster, through the stdio server that repo already ships (`mcp/server.ts`, run
 with the `tsx` in its own `node_modules`). Nothing is copied into this repo and
-nothing new is deployed beside headroom — the pod can already reach it, and the
-two env vars in `env.ts` say where and how to log in. Without both, the server
-is not offered at all, so a bench that does not run headroom is simply quiet
-about it rather than holding tools that fail on every call.
+nothing new is deployed beside headroom — the pod can already reach it, and two
+settings-page vars say where and how to log in. Without both, the server is not
+offered at all, so a bench that does not run headroom is simply quiet about it
+rather than holding tools that fail on every call.
+
+`HEADROOM_URL` and `HEADROOM_PASSWORD` are agent vars rather than deployment
+config, and that is the difference between a secret you can type on your phone
+and a pull request against a public infrastructure repo. The backend never reads
+either: an MCP server inherits the environment its CLI was spawned with, and
+`agentEnv()` already puts every settings var there — checked against the CLI
+rather than assumed. So the only thing the backend knows about headroom is
+whether both vars are set, which is exactly what it needs to decide whether to
+write the server into that advisor's config. Nothing writes the password to a
+second file, and nothing puts it in git.
 
 Which advisor is a constant in `assistant.ts`, not a field on the member, for
 the same reason the denied built-ins are: "may read the household finances" is

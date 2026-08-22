@@ -10,15 +10,16 @@ what unblocks it / where the code lives.
   `HEADROOM_PASSWORD` are unset, so nothing has confirmed the login flow through
   `mcp/client.ts`, the shape of what the read tools return, or that the deny list
   actually blocks a write attempt at run time rather than only in the argv.
-- **Why deferred:** Needs the headroom password in the pod's environment, which
-  is a secret decision rather than a code one.
-- **Unblocked by:** Setting both vars, asking Ariel a budget question, and
-  watching the tool calls in the room. A second thing to watch while there: the
-  server runs `tsx` out of `/data/repos/headroom`, so a branch checkout or a
-  reinstall in that repo changes what the advisor can do, and the failure mode
-  is tools quietly not listing.
+- **Why deferred:** Needs the headroom password typed into the settings page,
+  which is a secret decision rather than a code one.
+- **Unblocked by:** Setting both vars on the settings page, asking Ariel a budget
+  question, and watching the tool calls in the room. A second thing to watch
+  while there: the server runs `tsx` out of `/data/repos/headroom`, so a branch
+  checkout or a reinstall in that repo changes what the advisor can do, and the
+  failure mode is tools quietly not listing.
 - **Where:** `backend/src/assistant.ts` (`HEADROOM_MEMBER`, `HEADROOM_DENIED`,
-  `mcpConfig`), `backend/src/env.ts`, `/data/council/ariel.json`
+  `mcpConfig`), `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
+  `/data/council/ariel.json`
 
 ## gh output fixtures are hand-written, not captured from a real gh
 
