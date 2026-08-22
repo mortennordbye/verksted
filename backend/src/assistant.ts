@@ -10,7 +10,7 @@ import type {
 } from "../../shared/api.js";
 import { memberPrompt, systemPrompt, unattendedPrompt } from "./assistant-persona.js";
 import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
@@ -387,6 +387,17 @@ function announce(live = ""): void {
   announceTimer.unref?.();
 }
 
+/**
+ * A mint in flight, so concurrent callers agree on one conversation.
+ *
+ * The first message on a fresh bench and the poll watching for its answer both
+ * find no file and both would mint: the turn would then write to one thread
+ * while the screen read another, and the first exchange would never appear.
+ * Nothing about that is particular to a test — the screens read this on a timer
+ * while a turn is running.
+ */
+let minting: Promise<string> | null = null;
+
 /** The active conversation id, minting and recording one on first use. */
 export async function currentConversation(): Promise<string> {
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
@@ -397,8 +408,17 @@ export async function currentConversation(): Promise<string> {
     // No conversation yet, or the file is unreadable: start a fresh one rather
     // than failing. The old thread stays on disk either way.
   }
+  minting ??= mintConversation().finally(() => {
+    minting = null;
+  });
+  return minting;
+}
+
+async function mintConversation(): Promise<string> {
   const id = randomUUID();
-  await fs.writeFile(currentPath(), id);
+  // Atomic, because a reader landing mid-write sees an empty file, decides
+  // there is no conversation, and mints one of its own.
+  await writeTextAtomic(currentPath(), id);
   return id;
 }
 
@@ -407,7 +427,7 @@ export async function newConversation(): Promise<string> {
   if (busy(await currentConversation())) throw new Error("a turn is still running");
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   const id = randomUUID();
-  await fs.writeFile(currentPath(), id);
+  await writeTextAtomic(currentPath(), id);
   announce();
   return id;
 }

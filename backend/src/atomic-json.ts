@@ -20,9 +20,25 @@ import path from "node:path";
  * stores would pick it up and try to parse it.
  */
 export async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
+  await writeAtomic(target, JSON.stringify(value, null, 2));
+}
+
+/**
+ * The same, for a file that is not JSON.
+ *
+ * The assistant's `current` is one line holding a conversation id, and it is
+ * read by every poll while a turn is writing it. Truncated, it reads as no
+ * conversation at all — which is worse than unparseable JSON, because the
+ * reader's answer to that is to start a new one.
+ */
+export async function writeTextAtomic(target: string, text: string): Promise<void> {
+  await writeAtomic(target, text);
+}
+
+async function writeAtomic(target: string, body: string): Promise<void> {
   const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await fs.writeFile(tmp, JSON.stringify(value, null, 2));
+    await fs.writeFile(tmp, body);
     await fs.rename(tmp, target);
   } catch (err) {
     await fs.rm(tmp, { force: true });

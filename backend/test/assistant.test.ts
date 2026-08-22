@@ -197,6 +197,31 @@ describe("the thread", () => {
     expect(thread.entries).toHaveLength(2);
   });
 
+  it("mints one conversation however many callers ask at once", async () => {
+    // The first message on a fresh bench and the poll watching for its answer
+    // arrive together and both find no file. Two mints put the turn in one
+    // thread and the screen on another, and the whole first exchange is
+    // invisible: the transcript is written, and nothing is reading it.
+    const { currentConversation } = await import("../src/assistant.js");
+
+    const ids = await Promise.all(Array.from({ length: 8 }, () => currentConversation()));
+
+    expect(new Set(ids).size).toBe(1);
+    expect(fs.readFileSync(path.join(assistantDir, "current"), "utf8").trim()).toBe(ids[0]);
+  });
+
+  it("keeps a question and the poll watching for its answer in one thread", async () => {
+    // The shape the race actually took: a GET landing while the first turn was
+    // still writing came back with a conversation of its own.
+    const [posted, polled] = await Promise.all([
+      say("what needs me today?"),
+      app.inject({ url: "/api/assistant" }),
+    ]);
+
+    expect(polled.json().conversationId).toBe(posted.json().conversationId);
+    expect((await app.inject({ url: "/api/assistant" })).json().entries).toHaveLength(2);
+  });
+
   it("starts a new conversation without destroying the old thread", async () => {
     await say("first thread");
     const before = (await app.inject({ url: "/api/assistant" })).json().conversationId;
