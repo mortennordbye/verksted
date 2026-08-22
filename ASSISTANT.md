@@ -913,7 +913,7 @@ Read-only is the deny list's job, and here it names tools one at a time:
 headroom's nine writes, plus `get_raw_data`, which returns the whole database
 where the aggregates answer the question. The narrowing cannot happen the way
 `VK_TOOLS` does it — that switch is verksted's own server reading its own env —
-and `mcp__headroom` can only be *allowed* whole. Naming individual MCP tools in
+and `mcp__headroom` can only be _allowed_ whole. Naming individual MCP tools in
 `--disallowed-tools` does hold: the CLI refuses the call rather than merely
 leaving it unapproved, which is the difference between a restriction and an
 auto-approval, and it was checked against the CLI rather than assumed.
