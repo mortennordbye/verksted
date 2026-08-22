@@ -396,6 +396,73 @@ describe("a schedule that runs the assistant", () => {
     expect(argv[argv.indexOf("--append-system-prompt") + 1]).not.toContain("sits on the council");
   });
 
+  it("lets a briefing ask the council, and charges every turn it costs", async () => {
+    const { saveMember } = await import("../src/council-store.js");
+    await saveMember({ id: "michael", name: "Michael", remit: "the cluster", tools: [] });
+    await saveMember({ id: "raphael", name: "Raphael", remit: "the code", tools: [] });
+    const s = await store.createSchedule({
+      name: "morning",
+      kind: "assistant",
+      project: "",
+      cron: CRON,
+      prompt: "anything for me?",
+      convenes: true,
+    });
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: reply("convene: michael, raphael") });
+    fake.reply("claude", "-p", {
+      contains: "Your name is Michael.",
+      stdout: reply("Cluster fine."),
+    });
+    fake.reply("claude", "-p", {
+      contains: "Your name is Raphael.",
+      stdout: reply("Two PRs open."),
+    });
+    fake.reply("claude", "-p The council answered.", {
+      stdout: reply("attention: two PRs need you."),
+    });
+    // A fresh registry, because the day's count is module state and a meeting
+    // spends four of it — otherwise this test quietly starves the ones below.
+    vi.resetModules();
+    const fresh = await import("../src/scheduler.js");
+
+    const out = await fresh.runSchedule(s.id, log);
+
+    // Four calls: the chair twice and both advisors once, and the sign-off is
+    // the chair's rather than whichever advisor happened to finish last.
+    expect(out).toEqual({ reply: "attention: two PRs need you." });
+    expect(fake.argvFor("claude")).toHaveLength(4);
+    // The advisors were unattended too: no web, and no tools that change things.
+    const [michael] = fake
+      .argvFor("claude")
+      .filter((argv) => argv.join(" ").includes("Your name is Michael."));
+    expect(michael[michael.indexOf("--disallowed-tools") + 1]).toContain("WebFetch");
+    const config = JSON.parse(
+      fs.readFileSync(michael[michael.indexOf("--mcp-config") + 1], "utf8"),
+    ) as { mcpServers: { verksted: { env: Record<string, string> } } };
+    expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
+  });
+
+  it("does not let a briefing convene unless it was asked to", async () => {
+    // Turning this on turns one call into as many as five, so an existing
+    // schedule must not start holding meetings because a roster appeared.
+    const { saveMember } = await import("../src/council-store.js");
+    await saveMember({ id: "michael", name: "Michael", remit: "the cluster", tools: [] });
+    const s = await assistantSchedule("what needs me today?");
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: reply("convene: michael") });
+    vi.resetModules();
+    const fresh = await import("../src/scheduler.js");
+
+    await fresh.runSchedule(s.id, log);
+
+    // One call, and the convene line stands as the answer because nothing was
+    // listening for it.
+    expect(fake.argvFor("claude")).toHaveLength(1);
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).not.toContain("You chair a council");
+  });
+
   it("never skips a briefing that did not ask to be skipped", async () => {
     // A briefing reports on things that happen without a session ending — a PR
     // somebody else opened, a build that went red — so the idle rule is opt-in.

@@ -78,6 +78,15 @@ const MEMBER_TEXT: Record<CouncilColour, string> = {
   lime: "text-member-lime",
 };
 
+const MEMBER_DOT: Record<CouncilColour, string> = {
+  amber: "bg-member-amber",
+  violet: "bg-member-violet",
+  teal: "bg-member-teal",
+  rose: "bg-member-rose",
+  sky: "bg-member-sky",
+  lime: "bg-member-lime",
+};
+
 const MEMBER_RULE: Record<CouncilColour, string> = {
   amber: "border-member-amber/40",
   violet: "border-member-violet/40",
@@ -151,34 +160,49 @@ function Turn({ entry, member }: { entry: AssistantEntry; member?: CouncilMember
 function Roster({
   members,
   speaking,
+  addressed,
   onPick,
 }: {
   members: CouncilMember[];
   speaking: string[];
+  addressed: string | null;
   onPick: (id: string) => void;
 }) {
   if (members.length < 2) return null;
+  const shown = members.find((m) => m.id === (addressed ?? "")) ?? null;
   return (
-    <div className="flex flex-wrap gap-1.5 px-1 pb-2">
-      {members.map((m) => {
-        const busy = speaking.includes(m.id);
-        return (
-          <button
-            key={m.id}
-            type="button"
-            onClick={() => onPick(m.id)}
-            title={m.remit}
-            className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
-              busy
-                ? `${MEMBER_RULE[m.colour]} ${MEMBER_TEXT[m.colour]} animate-pulse-run`
-                : `border-line text-faint hover:border-line-strong`
-            }`}
-          >
-            {m.chair ? m.name : `@${m.id}`}
-            {busy && " …"}
-          </button>
-        );
-      })}
+    <div className="px-1 pb-2">
+      <div className="flex flex-wrap gap-1.5">
+        {members.map((m) => {
+          const busy = speaking.includes(m.id);
+          const picked = addressed === m.id || (m.chair && !addressed);
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onPick(m.id)}
+              title={m.remit}
+              aria-pressed={picked}
+              className={`tap flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[11px] transition-colors ${
+                busy
+                  ? `${MEMBER_RULE[m.colour]} ${MEMBER_TEXT[m.colour]} animate-pulse-run`
+                  : picked
+                    ? `${MEMBER_RULE[m.colour]} ${MEMBER_TEXT[m.colour]}`
+                    : "border-line text-faint hover:border-line-strong"
+              }`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${MEMBER_DOT[m.colour]}`} />
+              {m.chair ? m.name : `@${m.id}`}
+              {busy && " …"}
+            </button>
+          );
+        })}
+      </div>
+      {/* What the one you have picked is for. A remit is one line and it is the
+          answer to "why would I ask them", which a name on its own is not. */}
+      {shown && (
+        <div className={`mt-1.5 text-[12px] ${MEMBER_TEXT[shown.colour]}`}>{shown.remit}</div>
+      )}
     </div>
   );
 }
@@ -206,7 +230,11 @@ export default function Assistant() {
   const [showRaccoon, setShowRaccoon] = useState(
     () => localStorage.getItem("vk.assistant.raccoon") === "1",
   );
-  const spokenRef = useRef<string | null>(null);
+  /**
+   * Entries already read out. A set rather than one id, because a meeting lands
+   * several at once and "the last one" would silently drop the rest.
+   */
+  const spokenRef = useRef<Set<string>>(new Set());
   // The roster changes when somebody edits it in settings, which is rarely, so
   // it is polled slowly rather than pushed. An empty answer is a bench with no
   // council on it, and everything below then reads exactly as it did before.
@@ -264,26 +292,39 @@ export default function Assistant() {
   const { listening, speaking, transcribing } = speech;
 
   /**
-   * Read the newest reply, then listen again. Keyed on the entry id so a
-   * reconnecting socket redelivering the same thread cannot read it twice.
+   * Read what has not been read yet, in order, each in its speaker's voice.
+   *
+   * A meeting produces several replies at once, so this is a queue rather than
+   * "the last one". Reading them all only became the right answer once each
+   * advisor had a voice of its own: in one voice it is four answers that sound
+   * like one person changing their mind, which is why it used to read the
+   * chair's summary alone.
+   *
+   * Keyed on entry ids already spoken, so a reconnecting socket redelivering
+   * the whole thread cannot read anything twice.
    */
   useEffect(() => {
     if ((!voiceMode && !speakReplies) || thinking) return;
-    const last = thread?.entries.at(-1);
-    if (!last || last.role !== "assistant" || !last.text) return;
-    // Only the chair is read out. A meeting read aloud in one voice is four
-    // answers and a summary that says the same things, and the summary is the
-    // half you asked for — the advisors are on the screen either way.
-    if (last.member) return;
-    if (spokenRef.current === last.id) return;
-    spokenRef.current = last.id;
-    speech.speak(last.text, () => {
-      // Only hands-free reopens the microphone. Reading a typed exchange aloud
-      // must not start listening, or the next thing typed competes with an open
-      // mic and the reply gets sent twice.
-      if (voiceMode) void speech.listen();
-    });
-  }, [thread, voiceMode, speakReplies, thinking, speech]);
+    const pending = (thread?.entries ?? []).filter(
+      (e) => e.role === "assistant" && e.text && !spokenRef.current.has(e.id),
+    );
+    if (!pending.length) return;
+    for (const e of pending) spokenRef.current.add(e.id);
+
+    const readFrom = (i: number) => {
+      const entry = pending[i];
+      if (!entry) {
+        // Only hands-free reopens the microphone. Reading a typed exchange
+        // aloud must not start listening, or the next thing typed competes
+        // with an open mic and the reply gets sent twice.
+        if (voiceMode) void speech.listen();
+        return;
+      }
+      const who = entry.member ? byId.get(entry.member) : undefined;
+      speech.speak(entry.text, () => readFrom(i + 1), who?.voice || undefined);
+    };
+    readFrom(0);
+  }, [thread, voiceMode, speakReplies, thinking, speech, byId]);
 
   /**
    * Read replies aloud, without opening the microphone.
@@ -300,7 +341,7 @@ export default function Assistant() {
     localStorage.setItem("vk.assistant.speak", next ? "1" : "0");
     if (next) {
       // Whatever is already on screen has been read, or was never meant to be.
-      spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+      for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);
       // This tap is the user gesture iOS wants before any audio may play
       // without one — for the pod's voice as much as the browser's, since a
       // reply arrives long after any tap.
@@ -321,7 +362,7 @@ export default function Assistant() {
     // Turning it on is the user gesture iOS requires before it will ever speak,
     // so prime it here rather than on the first reply.
     setVoiceMode(true);
-    spokenRef.current = thread?.entries.at(-1)?.id ?? null;
+    for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);
     void speech.listen();
   }
 
@@ -390,7 +431,9 @@ export default function Assistant() {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar crumb={[{ label: "assistant" }]} back="/" />
+      {/* What you opened is the room, not one of the people in it. With no
+          advisors it is still the assistant, so the crumb follows the roster. */}
+      <TopBar crumb={[{ label: members.length > 1 ? "council" : "assistant" }]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
         {showRaccoon && (
@@ -561,6 +604,7 @@ export default function Assistant() {
         <Roster
           members={members}
           speaking={thread?.speaking ?? []}
+          addressed={/^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null}
           onPick={(id) => {
             // The chair is who you get by default, so tapping it clears the
             // address rather than adding one.

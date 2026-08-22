@@ -67,6 +67,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     prompt: "",
     // Which council member answers an assistant schedule. Empty is the chair.
     member: "",
+    // Off by default: turning it on turns one model call into as many as five.
+    convenes: false,
   });
   const [open, setOpen] = useState<string | null>(null);
   const [edit, setEdit] = useState({ cron: "", jitterMinutes: 0, prompt: "" });
@@ -219,6 +221,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               <span>{s.cron}</span>
               {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
               {s.skipWhenIdle && <span>skips a day when nothing ended</span>}
+              {s.convenes && <span>may ask the council</span>}
               <span>last run {agoLabel(s.lastRunAt)}</span>
               {s.lastSessionId && (
                 <Link to={`/s/${s.lastSessionId}`} className="text-muted hover:text-accent">
@@ -330,6 +333,16 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               aria-label="cron pattern"
               className={`w-[130px] ${field}`}
             />
+            {assistantDraft && !draft.member && (
+              <label className="flex items-center gap-1.5 font-mono text-[11px] text-faint">
+                <input
+                  type="checkbox"
+                  checked={draft.convenes}
+                  onChange={(e) => setDraft((d) => ({ ...d, convenes: e.target.checked }))}
+                />
+                may ask the council
+              </label>
+            )}
             <label className="font-mono text-[11px] text-faint">
               jitter
               <input

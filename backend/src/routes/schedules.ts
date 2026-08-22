@@ -33,6 +33,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       jitterMinutes?: number;
       skipWhenIdle?: boolean;
       member?: string;
+      convenes?: boolean;
     };
   }>(
     "/api/schedules",
@@ -54,6 +55,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             jitterMinutes: JITTER,
             skipWhenIdle: { type: "boolean" },
             member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
+            convenes: { type: "boolean" },
           },
         },
       },
@@ -101,6 +103,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       jitterMinutes?: number;
       skipWhenIdle?: boolean;
       member?: string;
+      convenes?: boolean;
     };
   }>(
     "/api/schedules/:id",
@@ -117,6 +120,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             jitterMinutes: JITTER,
             skipWhenIdle: { type: "boolean" },
             member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
+            convenes: { type: "boolean" },
           },
         },
       },

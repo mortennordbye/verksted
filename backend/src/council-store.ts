@@ -129,6 +129,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     ],
     web: false,
     colour: "teal",
+    voice: "am_michael",
     enabled: true,
   },
   {
@@ -158,6 +159,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     ],
     web: false,
     colour: "violet",
+    voice: "bm_george",
     enabled: true,
   },
   {
@@ -175,6 +177,7 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     tools: ["status", "recall", "list_memories", "remember", "forget", "propose_memory"],
     web: true,
     colour: "amber",
+    voice: "bf_emma",
     enabled: true,
   },
 ];
@@ -217,6 +220,11 @@ export function validate(input: Partial<CouncilMember> & { id: string }): Counci
     tools: [...new Set(tools)],
     web: input.web === true,
     colour,
+    // Not checked against the model's list here: which voices exist depends on
+    // whether this pod has the voice model at all, and a roster that could not
+    // be saved on a pod without one would be a roster held hostage to an
+    // optional feature. An unknown name is refused when it is spoken.
+    voice: (input.voice ?? "").trim().slice(0, 40),
     chair: false,
     enabled: input.enabled !== false,
   };
@@ -248,6 +256,8 @@ export async function chair(): Promise<CouncilMember> {
     tools: TOOL_INVENTORY.map((t) => t.name),
     web: true,
     colour: "amber",
+    // The chair keeps the per-device voice the settings page already sets.
+    voice: "",
     chair: true,
     enabled: true,
   };

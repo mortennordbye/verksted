@@ -295,6 +295,32 @@ function councilBlock(roster: { id: string; name: string; remit: string }[]): st
 }
 
 /**
+ * The same, for a briefing that is allowed to ask the council.
+ *
+ * It says less, because an unattended chair has fewer choices: it cannot act on
+ * what it hears, and the sign-off it owes the inbox is the only output. What it
+ * still needs is the roster and the exact line.
+ */
+function unattendedCouncilBlock(roster: { id: string; name: string; remit: string }[]): string[] {
+  if (!roster.length) return [];
+  return [
+    "",
+    "You chair a council, and on this run you may ask them. They are:",
+    ...roster.map((m) => `- ${m.id} (${m.name}): ${m.remit}`),
+    "",
+    "To ask them, make the FIRST line of your reply exactly:",
+    "",
+    "convene: <id>[, <id>]",
+    "",
+    "and write nothing else. They answer in parallel and you are asked again",
+    "with what they said, which is when you write the sign-off. Any other first",
+    "line is taken as your answer and asks nobody — which is the right choice",
+    "whenever you can answer from status yourself, because each one you ask is",
+    "another model call on a run nobody requested.",
+  ];
+}
+
+/**
  * The whole prompt, for a given identity. Standing orders the user set on the
  * settings page go last, so they win over anything above by being the most
  * recent thing said.
@@ -363,10 +389,19 @@ export function memberPrompt(
 }
 
 /** The same identity and voice, for a turn a schedule started. */
-export function unattendedPrompt(name: string, instructions: string): string {
-  return [...opening(name), "", ...VOICE, ...UNATTENDED_JOB, ...standingOrders(instructions)].join(
-    "\n",
-  );
+export function unattendedPrompt(
+  name: string,
+  instructions: string,
+  roster: { id: string; name: string; remit: string }[] = [],
+): string {
+  return [
+    ...opening(name),
+    "",
+    ...VOICE,
+    ...UNATTENDED_JOB,
+    ...unattendedCouncilBlock(roster),
+    ...standingOrders(instructions),
+  ].join("\n");
 }
 
 function standingOrders(instructions: string): string[] {

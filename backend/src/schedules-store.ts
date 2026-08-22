@@ -34,9 +34,11 @@ type Stored = Omit<
   | "lastError"
   | "lastFiredAt"
   | "member"
+  | "convenes"
 > & {
   /** Absent on every record written before the council existed. */
   member?: string;
+  convenes?: boolean;
   /** Newest first, capped at MAX_RUNS. */
   runs: StoredRun[];
   /** Absent on every record written before catch-up existed. */
@@ -80,6 +82,7 @@ async function toWire(s: Stored): Promise<Schedule> {
     jitterMinutes: s.jitterMinutes ?? 0,
     skipWhenIdle: s.skipWhenIdle ?? false,
     member: s.member ?? "",
+    convenes: s.convenes === true,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
     lastFiredAt: s.lastFiredAt ?? null,
@@ -146,6 +149,7 @@ export async function createSchedule(
     jitterMinutes?: number;
     skipWhenIdle?: boolean;
     member?: string;
+    convenes?: boolean;
   },
 ): Promise<Schedule> {
   const kind = input.kind ?? "session";
@@ -162,6 +166,8 @@ export async function createSchedule(
     // Only an assistant schedule has anyone to run it; storing a member on a
     // session schedule would be a field the UI shows and nothing reads.
     member: kind === "assistant" ? (input.member ?? "") : "",
+    // A named advisor answers alone; convening is the chair's to do.
+    convenes: kind === "assistant" && !input.member && input.convenes === true,
     prompt: input.prompt,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
@@ -176,7 +182,14 @@ export async function updateSchedule(
   patch: Partial<
     Pick<
       Schedule,
-      "name" | "cron" | "jitterMinutes" | "prompt" | "enabled" | "skipWhenIdle" | "member"
+      | "name"
+      | "cron"
+      | "jitterMinutes"
+      | "prompt"
+      | "enabled"
+      | "skipWhenIdle"
+      | "member"
+      | "convenes"
     >
   >,
 ): Promise<Schedule | null> {

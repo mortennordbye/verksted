@@ -1064,10 +1064,12 @@ async function memberSystemPrompt(member: CouncilMember): Promise<string> {
 export async function runUnattended(
   prompt: string,
   memberId = "",
-): Promise<{ text: string; failed: boolean }> {
+  mayConvene = false,
+): Promise<{ text: string; failed: boolean; turns: number }> {
   if (unattendedRunning) throw new Error("an unattended turn is still running");
   const conversationId = randomUUID();
   const config = await readAssistantConfig();
+  const roster = mayConvene && !memberId ? (await listMembers()).filter((m) => m.enabled) : [];
   // A named advisor answers in its own voice, on its own subject, with its own
   // tools narrowed further by the unattended filter. One of them, never a
   // meeting: the daily ceiling counts turns, and a briefing that convened three
@@ -1095,7 +1097,11 @@ export async function runUnattended(
           id: CHAIR_ID,
           model: config.model,
           effort: config.effort,
-          systemPrompt: unattendedPrompt(config.name, config.instructions),
+          systemPrompt: unattendedPrompt(
+            config.name,
+            config.instructions,
+            roster.map(({ id, name, remit }) => ({ id, name, remit })),
+          ),
           builtins: UNATTENDED_BUILTIN_TOOLS,
           allowed: UNATTENDED_ALLOWED_TOOLS,
           denied: UNATTENDED_DENIED_TOOLS,
@@ -1105,7 +1111,10 @@ export async function runUnattended(
           timeoutMs: TURN_TIMEOUT_MS,
         };
   unattendedRunning = true;
+  let turns = 1;
   try {
+    // Set from inside the sink below, which TypeScript cannot see through.
+    const heldBox: { entry: AssistantEntry | null } = { entry: null };
     await turn({
       speaker,
       claudeConversationId: conversationId,
@@ -1113,17 +1122,118 @@ export async function runUnattended(
       prompt,
       images: [],
       unattended: true,
-      sink: (entry) => append(conversationId, entry, true),
+      sink: async (entry) => {
+        const full: AssistantEntry = {
+          ...entry,
+          id: randomUUID(),
+          at: new Date().toISOString(),
+        };
+        if (
+          roster.length &&
+          !heldBox.entry &&
+          full.role === "assistant" &&
+          isConveneLine(full.text)
+        ) {
+          heldBox.entry = full;
+          return full;
+        }
+        return appendEntry(conversationId, full, true);
+      },
       onSpawn: () => {},
       onChange: () => {},
     });
+
+    const held = heldBox.entry;
+    const called = held ? await convened(held.text) : [];
+    if (held && !called.length) await appendEntry(conversationId, held, true);
+    if (held && called.length) {
+      await appendEntry(
+        conversationId,
+        {
+          ...held,
+          text: "",
+          tools: [...held.tools, { name: "convene", detail: called.map((m) => m.name).join(", ") }],
+        },
+        true,
+      );
+      const answers = await Promise.all(
+        called.map(async (member) => {
+          const said = await unattendedMemberTurn(conversationId, member, prompt, config);
+          return { name: member.name, text: said };
+        }),
+      );
+      turns += called.length + 1;
+      await turn({
+        speaker,
+        claudeConversationId: conversationId,
+        resume: true,
+        prompt: briefing(
+          prompt,
+          answers.filter((a) => a.text.trim()),
+        ),
+        images: [],
+        unattended: true,
+        sink: (entry) => append(conversationId, entry, true),
+        onSpawn: () => {},
+        onChange: () => {},
+      });
+    }
   } finally {
     unattendedRunning = false;
   }
   // `failed` is only written on a turn that went wrong, so its absence means
   // the turn was fine — and no entry at all means it produced nothing.
   const last = (await readEntries(conversationId, true))
-    .filter((e) => e.role === "assistant")
+    .filter((e) => e.role === "assistant" && !e.member && e.text.trim())
     .pop();
-  return { text: last?.text.trim() ?? "", failed: !last || last.failed === true };
+  return { text: last?.text.trim() ?? "", failed: !last || last.failed === true, turns };
+}
+
+/**
+ * One advisor answering a briefing nobody asked for.
+ *
+ * A fresh conversation every time, like the chair's: a schedule has no
+ * yesterday in it, and a thread per advisor per schedule would grow forever.
+ * Its answer is recorded under its own name so `claude --resume` opens exactly
+ * what ran, and returned so the chair can sign off on it.
+ */
+async function unattendedMemberTurn(
+  conversationId: string,
+  member: CouncilMember,
+  prompt: string,
+  config: { instructions: string },
+): Promise<string> {
+  const own = randomUUID();
+  const { text } = await turn({
+    speaker: {
+      id: member.id,
+      model: member.model,
+      effort: member.effort,
+      systemPrompt: memberPrompt(
+        member,
+        config.instructions,
+        await renderForMember(member.id),
+        true,
+      ),
+      builtins: UNATTENDED_BUILTIN_TOOLS,
+      allowed: UNATTENDED_ALLOWED_TOOLS,
+      denied: UNATTENDED_DENIED_TOOLS,
+      tools: member.tools,
+      timeoutMs: MEMBER_TURN_TIMEOUT_MS,
+    },
+    claudeConversationId: own,
+    resume: false,
+    prompt,
+    images: [],
+    unattended: true,
+    sink: (entry) =>
+      appendEntry(
+        conversationId,
+        { ...entry, member: member.id, id: randomUUID(), at: new Date().toISOString() },
+        true,
+      ),
+    onSpawn: () => {},
+    onChange: () => {},
+  });
+  return text;
 }

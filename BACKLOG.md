@@ -777,37 +777,18 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
 
-## A schedule still cannot hold a meeting
+## An advisor's voice is not checked until it is spoken
 
-- **What:** A schedule can now name which council member answers it, so a 07:00
-  cluster briefing runs as Michael with Michael's tools. What it cannot do is
-  convene several: `runUnattended` runs exactly one participant, and the chair's
-  `convene:` line is never parsed out of an unattended reply.
-- **Why deferred:** The ceiling is wrong for it. `MAX_UNATTENDED_PER_DAY` counts
-  turns, so twelve meetings would quietly be forty-eight model calls — a
-  backstop that stops counting what it is backstopping is worse than none. The
-  cheap half, one named advisor per schedule, is shipped and is probably all
-  that was wanted: a briefing's usual answer is "ok: nothing needs you", which
-  is not worth four calls.
-- **Unblocked by:** Wanting a briefing that genuinely needs two subjects at
-  once. Then make the daily ceiling count participants rather than runs, and
-  give `unattendedPrompt` the roster and `runUnattended` the convene handling
-  `runChair` already has.
-- **Where:** `backend/src/scheduler.ts` (`MAX_UNATTENDED_PER_DAY`,
-  `overDailyCeiling`), `backend/src/assistant.ts` (`runUnattended`),
-  `backend/src/assistant-persona.ts` (`UNATTENDED_MEMBER_JOB`)
-
-## The council has no voices
-
-- **What:** Every advisor would be read aloud in the pod's one voice, so the
-  chat speaks the chair's answer and skips theirs. A meeting read out loud is
-  currently one narrator reading the summary.
-- **Why deferred:** Explicitly out of scope for the first cut. Skipping the
-  advisors is the right behaviour either way — their answers are on the screen,
-  and the summary is the half you asked for — so this only becomes worth
-  building if you want to listen to a meeting rather than read it.
-- **Unblocked by:** Wanting to hear who said what. Then a `voice` field on
-  `CouncilMember` validated against `GET /api/assistant/voices`, and picking the
-  voice per entry rather than per device in `useSpeech`.
-- **Where:** `frontend/src/screens/Assistant.tsx` (the speak effect),
-  `backend/src/tts.ts`, `shared/api.ts` (`CouncilMember`)
+- **What:** `voice` on a member is stored as written and only validated when the
+  pod is asked to speak it, which answers 400 for an unknown name. A typo
+  therefore shows as a sample button that does nothing rather than as an error
+  on the form.
+- **Why deferred:** Checking it on save would make the roster unsaveable on a
+  pod without the voice model — the voice list comes from the model's own ready
+  line, so there is no list to check against when it is absent, and holding the
+  whole council hostage to an optional feature is the worse trade.
+- **Unblocked by:** Validating only when `tts.available()`, and saying so in the
+  400 when it is not. Cheap; it just needs deciding that a pod without a voice
+  should silently accept any name.
+- **Where:** `backend/src/council-store.ts` (`validate`),
+  `backend/src/routes/council.ts`, `backend/src/tts.ts` (`voices`)

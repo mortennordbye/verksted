@@ -444,6 +444,13 @@ export interface Schedule {
    * gets. One advisor, one model call — a schedule never holds a meeting.
    */
   member: string;
+  /**
+   * Assistant schedules only: let the chair convene the council on this one.
+   * Off by default, and deliberately opt-in per schedule — turning it on turns
+   * a one-call briefing into up to five, and a morning briefing whose usual
+   * answer is "nothing needs you" should not quietly become the expensive kind.
+   */
+  convenes: boolean;
   enabled: boolean;
   createdAt: string;
   lastRunAt: string | null;
@@ -662,6 +669,12 @@ export interface CouncilMember {
   /** Whether it may read the web (WebFetch/WebSearch). */
   web: boolean;
   colour: CouncilColour;
+  /**
+   * Which of the pod's voices reads this one aloud. Empty means the device's
+   * default, which is what every advisor sounded like before: one narrator
+   * reading everybody, which is exactly what makes a meeting unlistenable.
+   */
+  voice: string;
   /** The one who takes every turn and decides who else is convened. */
   chair: boolean;
   enabled: boolean;

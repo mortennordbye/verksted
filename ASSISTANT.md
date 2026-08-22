@@ -757,15 +757,24 @@ The convening decision is the chair's, and the prompt says outright that
 convening is for questions genuinely not its own. Being thorough is the
 expensive failure mode. `@michael` is the cheap way past a bad call.
 
-A schedule runs exactly one participant, and can say which: `member` on an
-assistant schedule picks who answers, so the 07:00 cluster briefing runs as
-Michael with Michael's tools and Michael's notes rather than as the chair
-relaying it. It still convenes nobody — a briefing whose usual answer is
-"ok: nothing needs you" is not worth four calls, and `MAX_UNATTENDED_PER_DAY`
-counts turns rather than meetings, so a convening schedule would spend four
-against a budget that counted one. An advisor on an unattended run gets the same
-`ok:` / `attention:` / `failed:` sign-off contract every scheduled run is asked
-for, so the inbox files it the way it files everything else.
+A schedule can say who answers it. `member` picks one advisor, so the 07:00
+cluster briefing runs as Michael with Michael's tools and Michael's notes rather
+than as the chair relaying it; `convenes` lets the chair ask the council on that
+run, the same `convene:` line and the same ceiling. Both are opt-in and off by
+default, because turning the second one on turns a one-call briefing into as
+many as five, and a schedule whose usual answer is "ok: nothing needs you"
+should not quietly become the expensive kind.
+
+`MAX_UNATTENDED_PER_DAY` counts **turns**, not runs, which is what makes this
+safe: a convening briefing reserves the worst case up front — the chair's two
+turns plus everyone it could convene — and hands back what it did not use. A
+ceiling that counted runs would let twelve meetings be forty-eight calls, and a
+backstop that stops counting the thing it is backstopping is worse than none.
+
+An advisor on an unattended run gets the same `ok:` / `attention:` / `failed:`
+sign-off contract every scheduled run is asked for, so the inbox files it the
+way it files everything else, and the sign-off is always the chair's rather than
+whichever advisor happened to finish last.
 
 ### What an advisor may do
 
@@ -841,9 +850,21 @@ on its next turn and forgot everything it had said. No error, no symptom.
 
 Only the chair streams its tokens. Three advisors writing at once onto a phone
 is noise, their answers are two or three sentences, and a chip saying who is
-still out carries the same information for none of the traffic. For the same
-reason, read-aloud speaks the chair and skips the advisors: the summary is the
-half you asked for.
+still out carries the same information for none of the traffic.
+
+### Voices
+
+Each advisor names one of the pod's voices, and read-aloud reads a whole meeting
+in order, each in the voice of whoever said it. It used to read the chair's
+summary and skip the rest, and that was right at the time: in one voice, four
+answers sound like one person changing their mind. Giving them voices is what
+removed the reason to skip them, so the queue now reads everything unspoken
+rather than the last thing to land.
+
+A voice is stored as written and only checked when the pod is asked to speak it.
+The voice list comes from the model's own ready line, so a pod without the voice
+model has no list to check against — and a roster that could not be saved on
+such a pod would be one held hostage to an optional feature.
 
 ## Keeping it off the usage meter
 

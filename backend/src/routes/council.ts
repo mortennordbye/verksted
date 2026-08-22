@@ -39,6 +39,7 @@ export default async function councilRoutes(app: FastifyInstance) {
             effort: { type: "string", enum: ["low", "medium", "high", "xhigh", "max"] },
             tools: { type: "array", maxItems: 40, items: { type: "string", maxLength: 40 } },
             web: { type: "boolean" },
+            voice: { type: "string", maxLength: 40 },
             colour: {
               type: "string",
               enum: ["amber", "violet", "teal", "rose", "sky", "lime"],
