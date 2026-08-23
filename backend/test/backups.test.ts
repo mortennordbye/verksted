@@ -36,6 +36,8 @@ function fixture(): string {
   return dir;
 }
 
+const silent = { info: () => {}, warn: () => {} };
+
 async function settle(timeoutMs = 120_000): Promise<void> {
   const until = Date.now() + timeoutMs;
   for (;;) {
@@ -92,9 +94,11 @@ describe("GET /api/backups", () => {
 
 describe("POST /api/backups", () => {
   it("takes a backup the listing can then describe", async () => {
+    // 202, not 200: the run outlives the request. Whether it is still going by
+    // the time the response is built is not something to assert on — a small
+    // fixture can finish first, and a real volume never will.
     const res = await app.inject({ method: "POST", url: "/api/backups" });
     expect(res.statusCode).toBe(202);
-    expect(res.json().running).toBe(true);
     await settle();
 
     const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
@@ -127,10 +131,15 @@ describe("POST /api/backups", () => {
   });
 
   it("refuses a second run while one is in flight", async () => {
-    const first = await app.inject({ method: "POST", url: "/api/backups" });
-    expect(first.statusCode).toBe(202);
-    const second = await app.inject({ method: "POST", url: "/api/backups" });
-    expect(second.statusCode).toBe(409);
+    // Started through the store rather than a first POST: start() flips the
+    // flag synchronously, so the 409 is deterministic instead of a race
+    // against however long tarring the fixture happens to take.
+    const store = await import("../src/backups-store.js");
+    expect(store.start(0, silent)).toBe(true);
+
+    const res = await app.inject({ method: "POST", url: "/api/backups" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/already running/);
     await settle();
   });
 
