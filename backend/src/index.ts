@@ -6,6 +6,7 @@ import { killAll } from "./browser.js";
 import { setEventLogger } from "./events.js";
 import { stop as stopVoice } from "./tts.js";
 import { startMaintenance } from "./maintenance.js";
+import { startNightly as startNightlyBackup } from "./backups-store.js";
 import { startNotifier } from "./notifier.js";
 import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
@@ -41,6 +42,7 @@ await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
 startNotifier(app.log);
 startMaintenance(app.log);
+startNightlyBackup(app.log);
 // A pod killed mid-write leaves a temp file behind; sessions sweep theirs in
 // restoreSessions, and this is the schedules' equivalent.
 await sweepTempFiles(env.SCHEDULES_DIR);

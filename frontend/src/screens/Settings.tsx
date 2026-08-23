@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import type {
+  BackupStatus,
   PushStatus,
   PushTestResult,
   Settings as SettingsInfo,
   SettingVar,
   SshKey,
 } from "../../../shared/api";
-import { api, usePoll } from "../api";
+import { agoLabel, api, usePoll } from "../api";
 import { copyText } from "../clipboard";
 import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
@@ -158,6 +159,7 @@ export default function Settings() {
           vars. Changes apply to sessions started afterwards.
         </div>
         <SshKeys />
+        <Backups />
         <AppReset />
       </main>
     </>
@@ -348,6 +350,131 @@ function Notifications() {
  * The way out when the installed PWA is stuck on an old build: drops the
  * service worker and every cache it holds, then reloads from the pod.
  */
+/**
+ * Where the exports go, what is there, and a way to take one now.
+ *
+ * The list is whatever `vk backups --json` reports, so this panel and a session
+ * terminal are reading the same directory through the same code. A run outlives
+ * the request that starts it by minutes, hence the 202 and the faster poll
+ * while one is in flight rather than a held-open connection.
+ */
+function Backups() {
+  const { data, refresh } = usePoll<BackupStatus>("/api/backups", 30_000);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const running = busy || data?.running === true;
+
+  useEffect(() => {
+    if (!data?.running) return;
+    const t = setInterval(refresh, 3_000);
+    return () => clearInterval(t);
+  }, [data?.running, refresh]);
+
+  async function backUpNow() {
+    setBusy(true);
+    setNote(null);
+    try {
+      await api("/api/backups", { method: "POST" });
+      refresh();
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const latest = data?.archives.filter((a) => a.createdAt).sort((a, b) => b.mtime - a.mtime)[0];
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        Backups
+      </div>
+      <div className="mb-3 text-sm text-muted">
+        One archive of the whole volume — settings, credentials, sessions, memory and every repo
+        including its <code className="font-mono text-[12px]">.git</code>. Caches and build output
+        are left out.
+      </div>
+
+      {note && <div className="mb-3 font-mono text-[12px] text-wait">{note}</div>}
+      {data?.lastError && !running && (
+        <div className="mb-3 font-mono text-[12px] text-fail">
+          last run failed: {data.lastError}
+        </div>
+      )}
+
+      <div className="mb-3 overflow-hidden rounded-xl border border-line">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px]">
+          <span className="text-text">{data?.dir ?? "…"}</span>
+          {data && !data.offVolume && <StatusChip kind="wait" label="on the data volume" />}
+          {data && data.totalBytes > 0 && (
+            <span className="ml-auto text-muted">{gib(data.freeBytes)} free</span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-surface px-[15px] py-2.5 font-mono text-[12.5px]">
+          <span className="text-muted">nightly</span>
+          <span className="text-text">
+            {data ? (data.keep > 0 ? `on, keeping ${data.keep}` : "off") : "…"}
+          </span>
+          <span className="ml-auto text-muted">
+            {running ? "backing up…" : `last ${agoLabel(latest?.createdAt ?? null)}`}
+          </span>
+        </div>
+      </div>
+
+      {data && data.archives.length > 0 && (
+        <div className="mb-3 flex flex-col gap-2">
+          {[...data.archives]
+            .sort((a, b) => b.mtime - a.mtime)
+            .map((a) => (
+              <div
+                key={a.name}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[11px] border border-line bg-surface px-[15px] py-2.5 font-mono text-[12px]"
+              >
+                <span className="text-text">{a.name}</span>
+                {a.createdAt === null ? (
+                  <StatusChip kind="wait" label="not a vk archive" />
+                ) : (
+                  <span className="text-muted">
+                    {a.repos} repos{a.dirty ? `, ${a.dirty} dirty` : ""}
+                  </span>
+                )}
+                <span className="ml-auto text-muted">{a.size}</span>
+                <span className="w-[72px] text-right text-faint">
+                  {agoLabel(a.createdAt ?? new Date(a.mtime * 1000).toISOString())}
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+        <span className="font-mono text-[12.5px]">back up now</span>
+        <button
+          onClick={backUpNow}
+          disabled={running}
+          className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+        >
+          {running ? "backing up…" : "back up"}
+        </button>
+      </div>
+
+      <div className="mt-5 text-[13px] text-muted">
+        The archive is not encrypted: it holds every token, private key and OAuth login on the
+        volume in cleartext. Keep it where you would keep a password database. Restoring is a
+        terminal job — <code className="font-mono text-[12px]">vk restore &lt;archive&gt;</code>,
+        which needs the app stopped if it is going back onto the live volume.
+      </div>
+    </>
+  );
+}
+
+/** Free space, the only figure here the backend reports in bytes. */
+function gib(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(0)}G`;
+}
+
 function AppReset() {
   const [busy, setBusy] = useState(false);
   const [confirm, confirmDialog] = useConfirm();

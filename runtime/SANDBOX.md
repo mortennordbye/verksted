@@ -77,10 +77,10 @@ else on a shared machine.
   Anything written outside `/data` is gone with the container.
 - **`vk backup` exports the volume.** One `tar.gz` of all of `/data` —
   settings, credentials, sessions, memory, and every repo including its `.git`
-  — into `/data/backups`, with `vk restore` to put it back. Take one before
-  anything you would not want to redo; nothing runs it on a schedule. The
-  archive is unencrypted and holds every token on the box, so do not copy it
-  anywhere you would not keep a password file.
+  — into `$VK_BACKUP_DIR`, with `vk restore` to put it back. One runs nightly;
+  take one by hand before anything you would not want to redo. The archive is
+  unencrypted and holds every token on the box, so do not copy it anywhere you
+  would not keep a password file.
 - **Never set `ANTHROPIC_API_KEY`.** It silently overrides Claude Max
   subscription auth and bills per token.
 - **Commit messages are filtered.** A system-wide `commit-msg` hook strips AI

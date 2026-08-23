@@ -12,16 +12,21 @@ PROBE_IMAGE=busybox:stable
 # The volume, and where its exports land on it. VK_DATA_DIR is for testing the
 # backup path against a scratch tree; the app itself never reads it.
 DATA_DIR=${VK_DATA_DIR:-/data}
-BACKUP_DIR=$DATA_DIR/backups
+# Where the archives land. In the pod this points at an NFS mount off the NAS,
+# so an export is not sitting on the volume it exists to replace; without it,
+# beside the data it came from, which is all a laptop or `make run` can offer.
+BACKUP_DIR=${VK_BACKUP_DIR:-$DATA_DIR/backups}
 MIN_FREE_KB=10485760
+DEFAULT_KEEP=7
 
 usage() {
   echo "usage: vk doctor              report this session's docker and cluster topology"
-  echo "       vk backup [--out DIR] [--name NAME]"
+  echo "       vk backup [--out DIR] [--name NAME] [--keep N]"
   echo "                             export all of $DATA_DIR to one tar.gz"
   echo "       vk restore ARCHIVE [--target DIR] [--force]"
   echo "                             import one back"
-  echo "       vk backups [DIR]      list the archives in $BACKUP_DIR"
+  echo "       vk backups [DIR] [--json]"
+  echo "                             list the archives in $BACKUP_DIR"
   echo
   echo "/etc/verksted/SANDBOX.md explains what the doctor report means."
 }
@@ -139,19 +144,51 @@ repos_json() {
   printf ']'
 }
 
+# Timestamped to the second, and then past any collision. Two backups inside
+# one second are rare but not impossible on a small volume, and without this the
+# second silently overwrites the first while its checksum file is rewritten to
+# match — a lost archive that leaves no trace of having been lost.
+auto_name() {
+  base=verksted-$(date +%Y%m%d-%H%M%S)
+  n=$base.tar.gz
+  i=2
+  while [ -e "$1/$n" ]; do
+    n=$base-$i.tar.gz
+    i=$((i + 1))
+  done
+  printf '%s' "$n"
+}
+
+# Keep the N newest and drop the rest, with their checksums. Only the
+# timestamp-named archives this script writes itself are eligible: a --name
+# archive is somebody's deliberate keepsake, and whatever else is in the
+# directory is not ours to delete.
+prune() {
+  n=0
+  ls -1t "$1"/verksted-????????-??????*.tar.gz 2>/dev/null | while read -r f; do
+    n=$((n + 1))
+    [ "$n" -gt "$2" ] || continue
+    rm -f "$f" "$f.sha256"
+    echo "pruned $(basename "$f")"
+  done
+}
+
 backup() {
   outdir=$BACKUP_DIR
   name=""
+  keep=0
   while [ $# -gt 0 ]; do
     case $1 in
       --out) outdir=${2:?--out needs a directory}; shift 2 ;;
       --name) name=${2:?--name needs a file name}; shift 2 ;;
+      --keep) keep=${2:?--keep needs a count}; shift 2 ;;
       *) die "backup: unknown option $1" ;;
     esac
   done
+  case $keep in ''|*[!0-9]*) die "--keep wants a whole number, got '$keep'" ;; esac
   [ -d "$DATA_DIR" ] || die "$DATA_DIR does not exist"
-  [ -n "$name" ] || name="verksted-$(date +%Y%m%d-%H%M%S).tar.gz"
   mkdir -p "$outdir"
+  [ -n "$name" ] || name=$(auto_name "$outdir")
 
   # The share behind this mount is shared with every other PVC in the cluster,
   # so filling it is not a local mistake.
@@ -199,6 +236,7 @@ backup() {
   rm -rf "$tmp"
 
   echo "wrote $out ($(du -h "$out" | cut -f1)), checksum in $out.sha256"
+  [ "$keep" -eq 0 ] || prune "$outdir" "$keep"
   echo
   echo "this archive holds every token, OAuth login and private key on the volume,"
   echo "unencrypted. It also sits on the same NAS share it is protecting — copy it"
@@ -278,24 +316,84 @@ restore() {
   echo "verksted blocks in \$HOME/.claude/CLAUDE.md on boot."
 }
 
-backups() {
-  dir=${1:-$BACKUP_DIR}
-  found=0
-  for f in "$dir"/*.tar.gz; do
+# One JSON array describing the directory, which is both what `vk backups`
+# formats and what the settings page reads — the panel and the terminal cannot
+# disagree about what is on disk because there is only one reader.
+backups_json() {
+  first=1
+  printf '['
+  for f in "$1"/*.tar.gz; do
     [ -f "$f" ] || continue
-    found=1
     m=$(tar -xzOf "$f" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
-    if printf '%s' "$m" | jq -e . >/dev/null 2>&1; then
-      when=$(printf '%s' "$m" | jq -r '.createdAt')
-      n="$(printf '%s' "$m" | jq -r '.repos | length') repos"
-    else
-      # A .tar.gz someone else left here. Named, so it is not mistaken for one.
-      when="-"
-      n="not a vk archive"
-    fi
-    printf '%-40s %7s  %-22s %s\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)" "$when" "$n"
+    printf '%s' "$m" | jq -e . >/dev/null 2>&1 || m=null
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    jq -nc --arg name "$(basename "$f")" --arg path "$f" \
+           --arg size "$(du -h "$f" | cut -f1)" \
+           --argjson bytes "$(stat -c %s "$f")" \
+           --argjson mtime "$(stat -c %Y "$f")" \
+           --argjson m "$m" \
+      '"'"'{name: $name, path: $path, size: $size, bytes: $bytes, mtime: $mtime}
+       + (if $m == null then {createdAt: null, repos: null, dirty: null}
+          else {createdAt: $m.createdAt,
+                repos: ($m.repos | length),
+                dirty: ($m.repos | map(select(.dirtyTracked > 0)) | length)} end)'"'"'
   done
-  [ "$found" -eq 1 ] || echo "no archives in $dir"
+  printf ']'
+}
+
+# One JSON array describing the directory, which is both what `vk backups`
+# formats and what the settings page reads — the panel and the terminal cannot
+# disagree about what is on disk because there is only one reader.
+backups_json() {
+  first=1
+  printf '['
+  for f in "$1"/*.tar.gz; do
+    [ -f "$f" ] || continue
+    m=$(tar -xzOf "$f" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
+    printf '%s' "$m" | jq -e . >/dev/null 2>&1 || m=null
+    [ "$first" -eq 1 ] || printf ','
+    first=0
+    jq -nc --arg name "$(basename "$f")" --arg path "$f" \
+           --arg size "$(du -h "$f" | cut -f1)" \
+           --argjson bytes "$(stat -c %s "$f")" \
+           --argjson mtime "$(stat -c %Y "$f")" \
+           --argjson m "$m" \
+      '{name: $name, path: $path, size: $size, bytes: $bytes, mtime: $mtime}
+       + (if $m == null then {createdAt: null, repos: null, dirty: null}
+          else {createdAt: $m.createdAt,
+                repos: ($m.repos | length),
+                dirty: ($m.repos | map(select(.dirtyTracked > 0)) | length)} end)'
+  done
+  printf ']'
+}
+
+backups() {
+  dir=$BACKUP_DIR
+  json=0
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --json) json=1; shift ;;
+      -*) die "backups: unknown option $1" ;;
+      *) dir=$1; shift ;;
+    esac
+  done
+  out=$(backups_json "$dir")
+  if [ "$json" -eq 1 ]; then
+    printf '%s\n' "$out"
+    return
+  fi
+  if [ "$(printf '%s' "$out" | jq 'length')" -eq 0 ]; then
+    echo "no archives in $dir"
+    return
+  fi
+  # A .tar.gz someone else left here still gets a row, named, so it is not
+  # mistaken for a backup.
+  printf '%s' "$out" \
+    | jq -r '.[] | [.name, .size, (.createdAt // "-"), (if .repos == null then "not a vk archive" else "\(.repos) repos" end)] | @tsv' \
+    | while IFS='	' read -r n sz when what; do
+        printf '%-40s %7s  %-22s %s\n' "$n" "$sz" "$when" "$what"
+      done
 }
 
 case "${1:-}" in
