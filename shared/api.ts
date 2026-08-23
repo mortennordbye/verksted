@@ -769,3 +769,35 @@ export interface AssistantConfig {
   /** Free text appended to its instructions: house style, standing orders. */
   instructions: string;
 }
+
+/** One archive in the backup directory, as `vk backups --json` reports it. */
+export interface BackupArchive {
+  name: string;
+  path: string;
+  /** Human-readable size, as du prints it. */
+  size: string;
+  bytes: number;
+  /** Seconds since the epoch. */
+  mtime: number;
+  /** Null for a .tar.gz in the directory that is not one of ours. */
+  createdAt: string | null;
+  repos: number | null;
+  /** Repos that had uncommitted tracked changes when it was taken. */
+  dirty: number | null;
+}
+
+/** The backup panel: where archives go, what is there, and what is happening. */
+export interface BackupStatus {
+  dir: string;
+  /** False when archives land on the same volume they are protecting. */
+  offVolume: boolean;
+  freeBytes: number;
+  totalBytes: number;
+  /** Archives the nightly run keeps; 0 means nothing is scheduled. */
+  keep: number;
+  archives: BackupArchive[];
+  running: boolean;
+  /** Result of the last run this process started, if any. */
+  lastError: string | null;
+  lastFinishedAt: string | null;
+}

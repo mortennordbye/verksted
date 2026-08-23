@@ -68,17 +68,19 @@ write it. A `MANIFEST.json` rides
 along at the front recording when, from which host and image, and every repo's
 remote, branch, commit and whether it was dirty.
 
-Backups are manual. Nothing runs on a timer, so take one before anything you
-would not want to redo.
+Archives land in `VK_BACKUP_DIR`. In the pod that is an NFS mount off the NAS
+rather than the PVC — an export stored on the volume it exists to replace is an
+undo button, not a backup — and the settings page says so plainly if it is ever
+pointed back at `/data`. One runs nightly, keeping the last `VK_BACKUP_KEEP`
+(default 7); set it to `0` to turn that off. **Settings → Backups** shows where
+they go, what is there and how old, and takes one on demand.
 
 **The archive is not encrypted.** It holds every token, private key and OAuth
-login on the volume in cleartext, and `/data/backups` is a real folder on the
-NAS behind the PVC — treat the file the way you would treat a password
-database. It is also on the same disk as the thing it protects, which makes it
-an undo button, not a backup. Move it somewhere else:
+login on the volume in cleartext — treat the file the way you would treat a
+password database. To pull one off the box:
 
 ```bash
-kubectl cp verksted/<pod>:data/backups/<file> ./<file>
+kubectl cp verksted/<pod>:mnt/backups/<file> ./<file>
 ```
 
 Restoring is the same in reverse — `kubectl cp` it back, then `vk restore`.

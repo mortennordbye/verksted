@@ -14,6 +14,7 @@ import settingsRoutes from "./routes/settings.js";
 import scheduleRoutes from "./routes/schedules.js";
 import sshRoutes from "./routes/ssh.js";
 import pushRoutes from "./routes/push.js";
+import backupRoutes from "./routes/backups.js";
 import githubRoutes from "./routes/github.js";
 import assistantRoutes from "./routes/assistant.js";
 import memoryRoutes from "./routes/memory.js";
@@ -71,6 +72,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(eventRoutes);
   await app.register(sshRoutes);
   await app.register(pushRoutes);
+  await app.register(backupRoutes);
   await app.register(githubRoutes);
   // Raw image bodies for the assistant's upload endpoint (the same shape the
   // per-project upload uses; a phone has no clipboard to paste a screenshot from).

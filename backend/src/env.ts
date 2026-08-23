@@ -48,6 +48,12 @@ try {
   fail(`TZ must be an IANA timezone name, got "${timezone}"`);
 }
 
+// 0 disables the nightly run, leaving backups entirely manual.
+const backupKeep = Number(process.env.VK_BACKUP_KEEP ?? "7");
+if (!Number.isInteger(backupKeep) || backupKeep < 0) {
+  fail(`VK_BACKUP_KEEP must be a whole number of archives, got "${process.env.VK_BACKUP_KEEP}"`);
+}
+
 const publicUrl = (process.env.PUBLIC_URL ?? "").replace(/\/$/, "");
 if (publicUrl && !/^https?:\/\//.test(publicUrl)) {
   fail(`PUBLIC_URL must be an http(s) URL, got "${publicUrl}"`);
@@ -89,6 +95,13 @@ export const env = {
   SSH_DIR: process.env.SSH_DIR ?? `${process.env.HOME ?? "/data/home"}/.ssh`,
   // Web-push VAPID keypair and device subscriptions (on the PVC, self-managing).
   PUSH_FILE: process.env.PUSH_FILE ?? "/data/push.json",
+  // Where `vk backup` writes its archives. In the pod this is an NFS mount off
+  // the NAS, deliberately not the PVC: an export stored on the volume it exists
+  // to replace is an undo button, not a backup. The default is the fallback for
+  // a laptop or `make run`, where there is nowhere else to put it.
+  VK_BACKUP_DIR: process.env.VK_BACKUP_DIR ?? "/data/backups",
+  // How many timestamped archives the nightly run keeps (see maintenance.ts).
+  VK_BACKUP_KEEP: backupKeep,
   // ntfy topic URL for session pushes; empty disables the notifier.
   NTFY_URL: ntfyUrl,
   // Where the app is reachable (over the VPN); used for ntfy click-through links.
