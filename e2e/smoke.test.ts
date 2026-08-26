@@ -121,8 +121,11 @@ beforeAll(async () => {
     // browser.ts passes these to the session's own chromium.
     args: ["--no-sandbox", "--disable-dev-shm-usage"],
   });
-  // A phone, because that is what this app is used from.
-  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  // A phone, because that is what this app is used from — and hasTouch, because
+  // without it the pointer stays fine and every `@media (pointer: coarse)` rule
+  // in theme.css is inert. That is most of what makes this app usable on a
+  // phone: the 44px tap targets and the 16px fields that stop iOS zooming.
+  page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   page.on("console", (m) => m.type() === "error" && problems.push(`console: ${m.text()}`));
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
   page.on("requestfailed", (r) => problems.push(`request: ${r.url()}`));
@@ -234,6 +237,32 @@ describe("the app in a real browser", () => {
       offenders.push(...wide.map((w) => `${route} ${w}`));
     }
     expect(offenders).toEqual([]);
+  });
+
+  // Settings is the page a thumb actually uses on a bus — pause a schedule, run
+  // one now — and every control on it was about 30px until now, the back arrow
+  // on every screen with it. Only the visible box is asserted here; `tap-hit`,
+  // which reaches the finger without growing the box, is not covered by this.
+  it("gives a thumb something to hit on every control on settings", async () => {
+    await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(500);
+    const small = await page.evaluate(() => {
+      const { document } = globalThis as unknown as {
+        document: {
+          querySelectorAll(selector: string): Iterable<{
+            textContent: string | null;
+            getBoundingClientRect(): { width: number; height: number };
+          }>;
+        };
+      };
+      return [...document.querySelectorAll("button")]
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.height < 44;
+        })
+        .map((el) => (el.textContent ?? "").trim().slice(0, 30));
+    });
+    expect(small).toEqual([]);
   });
 
   it("did all of that without a console error or a failed request", () => {

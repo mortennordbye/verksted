@@ -143,7 +143,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   const field =
     "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
   const ghost =
-    "rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
+    "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
 
   return (
     <>
@@ -211,7 +211,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 <button
                   onClick={() => remove(s)}
                   disabled={busy}
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
                 >
                   delete
                 </button>
@@ -266,7 +266,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 <button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
                   disabled={busy || !edit.cron.trim() || !edit.prompt.trim()}
-                  className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                  className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   save
                 </button>
@@ -359,7 +359,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               <button
                 key={p.cron}
                 onClick={() => setDraft((d) => ({ ...d, cron: p.cron }))}
-                className="font-mono text-[11px] text-faint hover:text-accent"
+                className="tap font-mono text-[11px] text-faint hover:text-accent"
               >
                 {p.label}
               </button>
@@ -385,7 +385,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               !draft.prompt.trim() ||
               (!project && !assistantDraft && !projects?.length)
             }
-            className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             add schedule
           </button>

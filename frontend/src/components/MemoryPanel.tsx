@@ -118,13 +118,13 @@ function Editor({
         <button
           onClick={() => void save()}
           disabled={busy || !text.trim()}
-          className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {memory ? "save" : "remember"}
         </button>
         <button
           onClick={onCancel}
-          className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+          className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
         >
           cancel
         </button>
@@ -284,7 +284,7 @@ export default function MemoryPanel() {
             setEditing(null);
             setAdding(true);
           }}
-          className="flex-none rounded-lg bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+          className="tap flex-none rounded-lg bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
         >
           + remember
         </button>
@@ -319,7 +319,7 @@ export default function MemoryPanel() {
           <button
             onClick={startHarvesting}
             disabled={busy}
-            className="flex-none rounded-lg border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+            className="tap flex-none rounded-lg border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
           >
             learn nightly
           </button>

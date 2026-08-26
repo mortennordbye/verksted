@@ -47,12 +47,12 @@ export default function ToolChip({
   }
 
   return (
-    <div className="flex max-w-full flex-col gap-1.5 self-start">
+    <div className="flex max-w-full flex-col gap-2.5 self-start">
       <button
         onClick={() => void toggle()}
         aria-expanded={open}
         disabled={!tool.id}
-        className={`tap inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-left font-mono text-[11px] disabled:cursor-default ${
+        className={`tap-hit inline-flex max-w-full items-center gap-2 rounded-full border px-2.5 py-1 text-left font-mono text-[11px] disabled:cursor-default ${
           tool.failed ? "border-fail/40 bg-fail/5 text-fail" : "border-line bg-surface-2 text-muted"
         } ${tool.id ? "hover:border-faint hover:text-text" : ""}`}
       >
