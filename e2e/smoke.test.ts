@@ -246,7 +246,20 @@ describe("the app in a real browser", () => {
   it("gives a thumb something to hit on every control on settings", async () => {
     await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
-    const small = await page.evaluate(() => {
+    expect(await smallButtons()).toEqual([]);
+  });
+
+  // The session screen's own row, because the ⋯ on it is the way to delete a
+  // session and it was a bare 13px glyph 6px from the full-screen button — a
+  // coin toss for a thumb, between two controls that were not what you meant.
+  it("gives a thumb something to hit on the session screen too", async () => {
+    await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
+    await page.waitForTimeout(500);
+    expect(await smallButtons()).toEqual([]);
+  });
+
+  async function smallButtons() {
+    return await page.evaluate(() => {
       const { document } = globalThis as unknown as {
         document: {
           querySelectorAll(selector: string): Iterable<{
@@ -262,8 +275,7 @@ describe("the app in a real browser", () => {
         })
         .map((el) => (el.textContent ?? "").trim().slice(0, 30));
     });
-    expect(small).toEqual([]);
-  });
+  }
 
   it("did all of that without a console error or a failed request", () => {
     expect(problems).toEqual([]);

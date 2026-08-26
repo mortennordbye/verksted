@@ -321,3 +321,10 @@ select:focus-visible {
    sized `--vvh - 200px`, which the on-screen keyboard collapses to nothing.
    540px of height clears every phone in landscape and no tablet. */
 @custom-variant desk (@media (min-width: 800px) and (min-height: 540px));
+
+/* The on-screen keyboard, as a variant. Set by useVisualViewport from the gap
+   between the layout and visual viewports, because nothing in CSS reports it:
+   env(safe-area-inset-bottom) does not drop to 0 when the keyboard covers the
+   home indicator, so a bar padded for the indicator floats above the keys with
+   a dead band under it — and on a phone that band is conversation. */
+@custom-variant kbd ([data-kbd="1"] &);

@@ -71,14 +71,25 @@ function CrumbLabel({ crumb, first }: { crumb: Crumb; first: boolean }) {
   );
 }
 
-export default function TopBar({ crumb, back }: { crumb?: Crumb[]; back?: string }) {
+export default function TopBar({
+  crumb,
+  back,
+  className = "",
+}: {
+  crumb?: Crumb[];
+  back?: string;
+  /** Extra classes on the header itself. A wrapper would break its sticky. */
+  className?: string;
+}) {
   const navigate = useNavigate();
   // A harvested memory that nobody notices is a harvest that did not happen:
   // the queue is the one thing in the inbox that arrives without a session or a
   // run to announce it. Polled slowly on purpose — it changes once a night.
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
   return (
-    <header className="sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))]">
+    <header
+      className={`sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
+    >
       {back !== undefined && (
         <button
           // Pop rather than push: pushing meant the browser's own Back
