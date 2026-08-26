@@ -21,6 +21,22 @@ export function StatusChip({ kind, label }: { kind: keyof typeof styles; label: 
 }
 
 /**
+ * The same colours, for a whole sentence rather than a state word. A schedule's
+ * sign-off is free text of any length, and a chip that will not wrap takes its
+ * full width with it — past the card, past the page, until the phone pans
+ * sideways into black. This one wraps and breaks.
+ */
+export function ReportLine({ kind, text }: { kind: keyof typeof styles; text: string }) {
+  return (
+    <p
+      className={`rounded-md border px-2 py-0.5 text-[12px] font-semibold break-words ${styles[kind]}`}
+    >
+      {text}
+    </p>
+  );
+}
+
+/**
  * How far a run has been read, and what was concluded — a row's answer to "have
  * I dealt with this one?", which is the question an inbox of overnight runs
  * mostly asks. Renders nothing until somebody has started.

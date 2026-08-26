@@ -121,7 +121,7 @@ export default function AssistantPanel() {
   }
 
   const field =
-    "rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
 
   return (
     <section className="mt-8">

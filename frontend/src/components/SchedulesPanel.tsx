@@ -8,7 +8,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { useConfirm } from "../useConfirm";
-import { StatusChip } from "./StatusChip";
+import { ReportLine, StatusChip } from "./StatusChip";
 
 /** A cron pattern's next fire time, in this device's timezone. */
 function whenLabel(iso: string | null): string {
@@ -23,7 +23,7 @@ function whenLabel(iso: string | null): string {
 /** A run's own verdict, coloured by the word it starts with. */
 function reportChip(report: string) {
   const kind = /^attention\b/i.test(report) ? "wait" : /^failed\b/i.test(report) ? "fail" : "run";
-  return <StatusChip kind={kind} label={report} />;
+  return <ReportLine kind={kind} text={report} />;
 }
 
 const CRON_PRESETS = [
@@ -141,7 +141,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   }
 
   const field =
-    "rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
   const ghost =
     "rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
 
@@ -217,7 +217,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 </button>
               </span>
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-faint">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
               <span>{s.cron}</span>
               {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
               {s.skipWhenIdle && <span>skips a day when nothing ended</span>}
@@ -228,7 +228,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   {s.lastSessionId}
                 </Link>
               )}
-              {s.lastError && <span className="text-wait">{s.lastError}</span>}
+              {s.lastError && <span className="min-w-0 break-words text-wait">{s.lastError}</span>}
             </div>
             {s.lastReport && <div className="mt-1.5">{reportChip(s.lastReport)}</div>}
             {open === s.id ? (

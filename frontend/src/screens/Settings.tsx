@@ -85,8 +85,8 @@ export default function Settings() {
               key={key}
               className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px] last:border-b-0"
             >
-              <span className="text-text">{key}</span>
-              <span className="ml-auto text-muted">{value}</span>
+              <span className="break-all text-text">{key}</span>
+              <span className="ml-auto break-all text-muted">{value}</span>
             </div>
           ))}
         </div>
@@ -406,7 +406,7 @@ function Backups() {
 
       <div className="mb-3 overflow-hidden rounded-xl border border-line">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px]">
-          <span className="text-text">{data?.dir ?? "…"}</span>
+          <span className="min-w-0 break-all text-text">{data?.dir ?? "…"}</span>
           {data && !data.offVolume && <StatusChip kind="wait" label="on the data volume" />}
           {data && data.totalBytes > 0 && (
             <span className="ml-auto text-muted">{gib(data.freeBytes)} free</span>
@@ -432,7 +432,7 @@ function Backups() {
                 key={a.name}
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[11px] border border-line bg-surface px-[15px] py-2.5 font-mono text-[12px]"
               >
-                <span className="text-text">{a.name}</span>
+                <span className="min-w-0 break-all text-text">{a.name}</span>
                 {a.createdAt === null ? (
                   <StatusChip kind="wait" label="not a vk archive" />
                 ) : (

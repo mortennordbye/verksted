@@ -210,7 +210,7 @@ function MemberNotes({ member }: { member: CouncilMember }) {
       <div className="flex flex-col gap-1.5">
         {notes.map((m) => (
           <div key={m.slug} className="flex items-start gap-2 text-[13px]">
-            <span className="flex-1 text-muted">{m.text}</span>
+            <span className="min-w-0 flex-1 break-words text-muted">{m.text}</span>
             <button
               onClick={() => void forget(m.slug)}
               className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 font-mono text-[11px] text-faint hover:border-wait hover:text-wait"

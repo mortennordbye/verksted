@@ -193,7 +193,7 @@ export default function Inbox() {
                 )}
                 <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(r.at)}</span>
               </div>
-              <div className="mt-1.5 text-[12.5px] text-muted">
+              <div className="mt-1.5 break-words text-[12.5px] text-muted">
                 {r.report ?? r.error ?? "no sign-off"}
               </div>
               {r.work && (

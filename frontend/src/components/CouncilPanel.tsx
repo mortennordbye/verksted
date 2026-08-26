@@ -24,7 +24,7 @@ const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
 
 const field =
-  "rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
 
 /**
  * One line in this advisor's own voice, so the sample is a sample of them.
