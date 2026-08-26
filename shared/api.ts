@@ -206,6 +206,35 @@ export interface ChatMessage {
   href?: string;
 }
 
+/**
+ * One tool call opened up: fetched when somebody taps a chip, never polled.
+ *
+ * This is the other half of the bargain the chip makes. The poll stays flat
+ * whatever the session did — a chip for a test run that printed a megabyte
+ * costs the same as one for `ls` — and the megabyte only moves when a person
+ * asks to read it.
+ */
+export type ChatDetail =
+  | {
+      kind: "tool";
+      name: string;
+      /** The arguments: the one that matters verbatim, else the whole input. */
+      input: string;
+      /** What came back, capped. Empty for a call still in flight. */
+      output: string;
+      /**
+       * An edit as unified-diff lines, ready for `diffLineClass`. Empty for
+       * every other tool — a diff is the one output worth drawing rather than
+       * printing.
+       */
+      patch: string[];
+      failed: boolean;
+      /** Either half hit the cap; the rest is only readable in a terminal. */
+      truncated: boolean;
+    }
+  /** The reference is not in the window the caller asked about. */
+  | { kind: "none" };
+
 /** One item of the agent's own checklist, as the CLI shows on ctrl+t. */
 export interface ChatTodo {
   subject: string;

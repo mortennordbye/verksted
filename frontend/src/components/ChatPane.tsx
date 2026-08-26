@@ -8,6 +8,7 @@ import type {
   SessionChat,
 } from "../../../shared/api";
 import { api } from "../api";
+import ToolChip from "./chat/ToolChip";
 
 /**
  * A session read as a conversation.
@@ -21,22 +22,6 @@ import { api } from "../api";
  * It costs a file read: the backend parses the transcript the agent already
  * writes (see backend/src/chat.ts). Nothing here asks a model anything.
  */
-
-function ToolChip({ tool }: { tool: ChatToolCall }) {
-  return (
-    <span
-      className={`inline-flex max-w-full items-center gap-2 self-start rounded-full border px-2.5 py-1 font-mono text-[11px] ${
-        tool.failed ? "border-fail/40 bg-fail/5 text-fail" : "border-line bg-surface-2 text-muted"
-      }`}
-    >
-      <span className="flex-none">{tool.failed ? "✕" : "✓"}</span>
-      <span className="truncate">
-        {tool.name}
-        {tool.detail && <span className="text-faint"> · {tool.detail}</span>}
-      </span>
-    </span>
-  );
-}
 
 /**
  * How an agent writes: headings, bold, bullets, and a great deal of `code`.
@@ -158,7 +143,15 @@ function Todos({ todos, mode }: { todos: ChatTodo[]; mode: string }) {
   );
 }
 
-function Turn({ message }: { message: ChatMessage }) {
+function Turn({
+  message,
+  sessionId,
+  bytes,
+}: {
+  message: ChatMessage;
+  sessionId: string;
+  bytes: number;
+}) {
   if (message.role === "event") {
     return <Rail message={message} />;
   }
@@ -174,7 +167,7 @@ function Turn({ message }: { message: ChatMessage }) {
   return (
     <div className="flex flex-col gap-2">
       {message.tools.map((t, i) => (
-        <ToolChip key={i} tool={t} />
+        <ToolChip key={t.id || i} tool={t} sessionId={sessionId} bytes={bytes} />
       ))}
       {message.text && (
         <div className="flex">
@@ -352,12 +345,12 @@ export default function ChatPane({ session }: { session: Session }) {
         )}
 
         {messages.map((m) => (
-          <Turn key={m.id} message={m} />
+          <Turn key={m.id} message={m} sessionId={session.id} bytes={bytes} />
         ))}
 
         {/* Work in flight: the calls it has made since the last thing it said. */}
         {pending.map((t, i) => (
-          <ToolChip key={`p${i}`} tool={t} />
+          <ToolChip key={t.id || `p${i}`} tool={t} sessionId={session.id} bytes={bytes} />
         ))}
         {live && pending.length > 0 && (
           <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />

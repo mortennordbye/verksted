@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { SessionChat } from "../../shared/api.js";
+import type { ChatDetail, SessionChat } from "../../shared/api.js";
 
 /**
  * Reading a session back as a conversation.
@@ -96,6 +96,20 @@ function attach(type: string, body: Record<string, unknown>): string {
     uuid: `at${++uuids}`,
     timestamp: stamp(),
     attachment: { type, ...body },
+  });
+}
+
+/** A result with the payload the CLI records beside the content block. */
+function returned(id: string, toolUseResult: unknown, isError = false): string {
+  return JSON.stringify({
+    type: "user",
+    uuid: `rr${++uuids}`,
+    timestamp: stamp(),
+    toolUseResult,
+    message: {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: id, content: "", is_error: isError }],
+    },
   });
 }
 
@@ -533,5 +547,154 @@ describe("GET /api/sessions/:id/chat", () => {
       url: `/api/sessions/${SESSION}/chat?bytes=${chat.MAX_WINDOW + 1}`,
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("findDetail", () => {
+  it("opens a command onto what it printed", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Bash", { command: "make test" }, "t1"),
+        returned("t1", { stdout: "47 passed", stderr: "", interrupted: false }),
+      ].join("\n"),
+      "t1",
+    );
+    expect(detail).toMatchObject({
+      kind: "tool",
+      name: "Bash",
+      input: "make test",
+      output: "47 passed",
+      failed: false,
+      patch: [],
+    });
+  });
+
+  it("keeps stderr, which is the half worth reading when it failed", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Bash", { command: "make lint" }, "t1"),
+        returned("t1", { stdout: "checking", stderr: "1 error" }, true),
+      ].join("\n"),
+      "t1",
+    );
+    expect(detail).toMatchObject({ kind: "tool", output: "checking\n1 error", failed: true });
+  });
+
+  it("draws an edit as a diff rather than printing its arguments twice", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Edit", { file_path: "src/a.ts", old_string: "one", new_string: "two" }, "t1"),
+        returned("t1", {
+          type: "update",
+          filePath: "src/a.ts",
+          structuredPatch: [
+            { oldStart: 3, oldLines: 1, newStart: 3, newLines: 1, lines: ["-one", "+two"] },
+          ],
+        }),
+      ].join("\n"),
+      "t1",
+    );
+    expect(detail).toMatchObject({ kind: "tool", input: "src/a.ts" });
+    expect((detail as { patch: string[] }).patch).toEqual(["@@ -3,1 +3,1 @@", "-one", "+two"]);
+    // The old and new strings are the diff; spelling them out again is noise.
+    expect(JSON.stringify(detail)).not.toContain("old_string");
+  });
+
+  it("writes a new file out as a diff of its own, which has no hunks", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Write", { file_path: "src/new.ts", content: "a\nb" }, "t1"),
+        returned("t1", {
+          type: "create",
+          filePath: "src/new.ts",
+          structuredPatch: [],
+          content: "a\nb",
+        }),
+      ].join("\n"),
+      "t1",
+    );
+    expect((detail as { patch: string[] }).patch).toEqual(["@@ -0,0 +1,2 @@", "+a", "+b"]);
+  });
+
+  it("says an image is an image rather than handing back its base64", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Read", { file_path: "shot.png" }, "t1"),
+        returned("t1", { type: "image", file: { type: "image/png", base64: "AAAAstillnotwords" } }),
+      ].join("\n"),
+      "t1",
+    );
+    expect(detail).toMatchObject({ kind: "tool", output: "(an image)" });
+    expect(JSON.stringify(detail)).not.toContain("AAAAstillnotwords");
+  });
+
+  it("caps what one call can hand back, and says it did", () => {
+    const detail = chat.findDetail(
+      [
+        calls("Bash", { command: "cat big" }, "t1"),
+        returned("t1", { stdout: "x".repeat(chat.MAX_DETAIL_CHARS + 5_000) }),
+      ].join("\n"),
+      "t1",
+    );
+    expect(detail).toMatchObject({ kind: "tool", truncated: true });
+    expect((detail as { output: string }).output).toHaveLength(chat.MAX_DETAIL_CHARS);
+  });
+
+  it("shows a lone argument bare rather than wrapped in its braces", () => {
+    const one = chat.findDetail(calls("Read", { file_path: "src/a.ts" }, "t1"), "t1");
+    expect(one).toMatchObject({ input: "src/a.ts" });
+    // More than one, and guessing which mattered is how the one that did gets
+    // hidden — so all of them, as JSON.
+    const many = chat.findDetail(
+      calls("Grep", { pattern: "TODO", path: "src", output_mode: "content" }, "t2"),
+      "t2",
+    );
+    expect((many as { input: string }).input).toContain('"pattern": "TODO"');
+    expect((many as { input: string }).input).toContain('"path": "src"');
+  });
+
+  it("is nothing to show for a reference outside the window", () => {
+    expect(chat.findDetail(says("hello"), "t9")).toEqual({ kind: "none" });
+  });
+
+  it("opens a call that has not come back yet", () => {
+    const detail = chat.findDetail(calls("Bash", { command: "sleep 30" }, "t1"), "t1");
+    expect(detail).toMatchObject({ kind: "tool", input: "sleep 30", output: "", failed: false });
+  });
+});
+
+describe("GET /api/sessions/:id/chat/detail", () => {
+  it("hands back one call out of a real transcript", async () => {
+    writeTranscript("demo", [
+      human("run them"),
+      calls("Bash", { command: "make test" }, "tt1"),
+      returned("tt1", { stdout: "all green" }),
+      says("All green."),
+    ]);
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=tt1` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ChatDetail>()).toMatchObject({ kind: "tool", output: "all green" });
+  });
+
+  it("refuses a reference that is shaped like a path", async () => {
+    const res = await app.inject({
+      url: `/api/sessions/${SESSION}/chat/detail?ref=${encodeURIComponent("../../etc/passwd")}`,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("will not say whether an unknown reference ever existed", async () => {
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=nosuchcall` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ kind: "none" });
+  });
+
+  it("404s an unknown session, and says nothing for an agent with no transcript", async () => {
+    expect(
+      (await app.inject({ url: "/api/sessions/vk-demo-99/chat/detail?ref=t1" })).statusCode,
+    ).toBe(404);
+    const none = await app.inject({ url: "/api/sessions/vk-demo-2/chat/detail?ref=t1" });
+    expect(none.statusCode).toBe(200);
+    expect(none.json()).toEqual({ kind: "none" });
   });
 });

@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import type {
+  ChatDetail,
   ChatEventKind,
   ChatMessage,
   ChatTodo,
@@ -52,6 +53,15 @@ export const MAX_WINDOW = 8_000_000;
 /** A queued prompt or an API error: enough to recognise, not to re-read. */
 const EVENT_TEXT_CHARS = 200;
 
+/**
+ * The most of one call's arguments or output to hand back.
+ *
+ * Generous, because this is what somebody asked to see and a truncated stack
+ * trace is worth less than none; bounded, because a test run can print
+ * megabytes and past this the terminal is the right place to read it.
+ */
+export const MAX_DETAIL_CHARS = 128_000;
+
 /** One block of a message's content array. */
 interface Block {
   type?: string;
@@ -61,6 +71,16 @@ interface Block {
   id?: string;
   tool_use_id?: string;
   is_error?: boolean;
+  content?: unknown;
+}
+
+/** One hunk of the patch an edit records against itself. */
+interface Hunk {
+  oldStart?: number;
+  oldLines?: number;
+  newStart?: number;
+  newLines?: number;
+  lines?: string[];
 }
 
 /** One item of the checklist, as the `task_reminder` attachment carries it. */
@@ -87,6 +107,8 @@ interface Entry {
   subtype?: string;
   durationMs?: number;
   hookErrors?: unknown[];
+  /** What a tool actually returned, which the content block only summarises. */
+  toolUseResult?: unknown;
 }
 
 /** What the CLI wrote when the person hit escape. */
@@ -404,4 +426,148 @@ export async function readChat(
     todos,
     permissionMode,
   };
+}
+
+/** The text a tool_result block carries, ignoring anything that is not words. */
+function resultBlockText(block: Block): string {
+  const { content } = block;
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  // Never the image blocks: their base64 is the thing this whole design keeps
+  // off the wire, and it is served as bytes by its own route instead.
+  return (content as Block[])
+    .filter((b) => b?.type === "text" && typeof b.text === "string")
+    .map((b) => b.text!)
+    .join("\n");
+}
+
+/**
+ * An edit as diff lines, out of the patch the transcript already recorded.
+ *
+ * A new file has no hunks — the whole thing is the change — so it is written
+ * out as one, which is what makes a Write render like an Edit rather than like
+ * a blob of JSON.
+ */
+function patchLines(result: Record<string, unknown>): string[] {
+  const hunks = result.structuredPatch;
+  if (!Array.isArray(hunks)) return [];
+  if (hunks.length) {
+    return (hunks as Hunk[]).flatMap((h) => [
+      `@@ -${h.oldStart ?? 0},${h.oldLines ?? 0} +${h.newStart ?? 0},${h.newLines ?? 0} @@`,
+      ...(Array.isArray(h.lines) ? h.lines : []),
+    ]);
+  }
+  const content = result.content;
+  if (typeof content !== "string" || !content) return [];
+  const lines = content.split("\n");
+  return [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((l) => `+${l}`)];
+}
+
+/**
+ * A call's arguments, as the CLI would show them.
+ *
+ * A command is the whole story and reads as itself; a lone argument is a path
+ * or a pattern and reads better bare than wrapped in braces. Everything else
+ * gets its JSON, because guessing which of five arguments mattered is how you
+ * end up hiding the one that did.
+ */
+function shownInput(input: Record<string, unknown> | undefined, hasPatch: boolean): string {
+  if (!input) return "";
+  // With a diff to draw, the arguments are just noise: the old and new strings
+  // are the diff, spelled out twice.
+  if (hasPatch && typeof input.file_path === "string") return input.file_path;
+  if (typeof input.command === "string") return input.command;
+  const keys = Object.keys(input);
+  if (keys.length === 1 && typeof input[keys[0]] === "string") return input[keys[0]] as string;
+  return JSON.stringify(input, null, 2);
+}
+
+/** What a tool returned, as the one string worth reading of it. */
+function resultText(result: unknown, fallback: string): string {
+  if (typeof result === "string") return result;
+  if (!result || typeof result !== "object") return fallback;
+  const r = result as Record<string, unknown>;
+  // A file that came back as a picture. The bytes have their own route; saying
+  // so beats printing a megabyte of base64 or an empty pane.
+  const file = r.file as Record<string, unknown> | undefined;
+  if (file && typeof file.base64 === "string") return "(an image)";
+  if (file && typeof file.content === "string") return file.content;
+  if (typeof r.stdout === "string" || typeof r.stderr === "string") {
+    const out = typeof r.stdout === "string" ? r.stdout : "";
+    const err = typeof r.stderr === "string" ? r.stderr : "";
+    return err ? `${out}${out ? "\n" : ""}${err}` : out;
+  }
+  return JSON.stringify(r, null, 2);
+}
+
+/**
+ * One call, opened.
+ *
+ * The window is the one the caller is already displaying, so the reference is
+ * inside it by construction — a client can only offer to open a chip it was
+ * given. A reference that is not found is not an error and does not say whether
+ * it ever existed; it is simply nothing to show.
+ */
+export function findDetail(text: string, ref: string): ChatDetail {
+  let name = "";
+  let input: Record<string, unknown> | undefined;
+  let found = false;
+  let result: unknown = null;
+  let blockText = "";
+  let failed = false;
+
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let entry: Entry;
+    try {
+      entry = JSON.parse(line) as Entry;
+    } catch {
+      continue;
+    }
+    if (entry.isSidechain) continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content as Block[]) {
+      if (b?.type === "tool_use" && b.id === ref && typeof b.name === "string") {
+        found = true;
+        name = b.name;
+        input = b.input;
+      } else if (b?.type === "tool_result" && b.tool_use_id === ref) {
+        if (b.is_error) failed = true;
+        result = entry.toolUseResult ?? null;
+        blockText = resultBlockText(b);
+      }
+    }
+  }
+  if (!found) return { kind: "none" };
+
+  const patch =
+    result && typeof result === "object" ? patchLines(result as Record<string, unknown>) : [];
+  const shown = shownInput(input, patch.length > 0);
+  const output = resultText(result, blockText);
+  const capped = shown.length > MAX_DETAIL_CHARS || output.length > MAX_DETAIL_CHARS;
+  return {
+    kind: "tool",
+    name,
+    input: shown.slice(0, MAX_DETAIL_CHARS),
+    output: output.slice(0, MAX_DETAIL_CHARS),
+    patch,
+    failed,
+    truncated: capped,
+  };
+}
+
+/** One call out of a transcript's tail, or nothing when it is not in it. */
+export async function readDetail(
+  file: string | null,
+  ref: string,
+  bytes?: number,
+): Promise<ChatDetail> {
+  if (!file) return { kind: "none" };
+  try {
+    const window = await tail(file, Math.min(bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
+    return findDetail(window.text, ref);
+  } catch {
+    return { kind: "none" };
+  }
 }

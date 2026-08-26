@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type {
   AgentName,
+  ChatDetail,
   ReviewVerdict,
   SessionCapture,
   SessionChanges,
@@ -9,7 +10,7 @@ import type {
   SessionPatch,
   SessionReview,
 } from "../../../shared/api.js";
-import { DEFAULT_WINDOW, MAX_WINDOW, readChat } from "../chat.js";
+import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail } from "../chat.js";
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
@@ -19,6 +20,28 @@ import * as tmux from "../tmux.js";
 /** Same ceiling the project's file diff uses: enough for any one file, and a
  *  phone is not where a bigger one gets read. */
 const MAX_DIFF_BYTES = 512 * 1024;
+
+/**
+ * Where a session's transcript is, if it has one.
+ *
+ * Three answers, and the difference matters at the route: `undefined` is a
+ * session that does not exist, `null` is one that has written nothing to read —
+ * an agent other than claude, or a session in its first seconds — and a string
+ * is a path derived from the conversation id the session itself recorded.
+ * Nothing a client sends takes part in building it.
+ */
+async function transcriptFor(id: string): Promise<string | null | undefined> {
+  const session = await store.getSession(id);
+  if (!session) return undefined;
+  const conversationId = await store.readConv(id);
+  if (!conversationId) return null;
+  try {
+    return transcriptPath(resolveInsideRepos(session.project), conversationId);
+  } catch {
+    // The project has been deleted; there is no cwd to derive a path from.
+    return null;
+  }
+}
 
 export default async function sessionRoutes(app: FastifyInstance) {
   // Every session across every project. The store already took an optional
@@ -191,6 +214,47 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * `since` is the last timestamp the caller holds, so a poll that finds
    * nothing new answers with an empty list instead of the window again.
    */
+  /**
+   * One tool call, opened.
+   *
+   * The chat carries a chip per call and nothing of what the call printed,
+   * which is what keeps a poll the same size whether the session ran `ls` or a
+   * test suite that printed a megabyte. This is where that megabyte lives, and
+   * it only moves when somebody taps the chip.
+   *
+   * `ref` is the transcript's own tool_use id. It is matched against ids read
+   * out of the file and never touches a path, so the only thing on disk this
+   * can reach is the session's own transcript — the same one `/chat` derives
+   * from the conversation id it recorded. A reference that is not in the window
+   * answers "nothing to show" rather than saying whether it ever existed.
+   */
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+    "/api/sessions/:id/chat/detail",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["ref"],
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            bytes: {
+              type: "integer",
+              minimum: 1_000,
+              maximum: MAX_WINDOW,
+              default: DEFAULT_WINDOW,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply): Promise<ChatDetail | void> => {
+      const file = await transcriptFor(req.params.id);
+      if (file === undefined) return reply.code(404).send({ error: "not found" });
+      return readDetail(file, req.query.ref, req.query.bytes);
+    },
+  );
+
   app.get<{ Params: { id: string }; Querystring: { bytes?: number; since?: string } }>(
     "/api/sessions/:id/chat",
     {
@@ -214,14 +278,8 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
       const conversationId = await store.readConv(req.params.id);
-      let file: string | null = null;
-      if (conversationId) {
-        try {
-          file = transcriptPath(resolveInsideRepos(session.project), conversationId);
-        } catch {
-          // The project has been deleted; there is no cwd to derive a path from.
-        }
-      }
+      const file = await transcriptFor(req.params.id);
+      if (file === undefined) return reply.code(404).send({ error: "not found" });
       return readChat(file, conversationId, { bytes: req.query.bytes, since: req.query.since });
     },
   );
