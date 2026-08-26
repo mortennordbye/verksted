@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from "react";
-import type { Session, SessionPrompt, TuiPrompt } from "../../../../shared/api";
-import { api } from "../../api";
+import type { Session, TuiPrompt } from "../../../../shared/api";
 
 /**
  * What the session is being asked right now, and the buttons to answer it.
@@ -9,6 +7,9 @@ import { api } from "../../api";
  * outlives the session. This does not: a dialog is drawn on the pane and never
  * written down, so the only way to know a session is blocked — or what it is
  * blocked on — is to look at what the terminal is showing.
+ *
+ * The scrape itself belongs to ChatPane, which needs the same pane for the
+ * permission mode. One capture per poll rather than one per thing read off it.
  *
  * The two halves are kept apart on purpose. The question card above renders
  * from the transcript and is always right about *what was asked*; this strip
@@ -22,15 +23,15 @@ import { api } from "../../api";
  */
 export default function LivePrompt({
   session,
-  ask,
+  prompt,
   onAnswer,
   onKey,
   onSend,
   sending,
 }: {
   session: Session;
-  /** True when a question card is on screen with no answer yet. */
-  ask: boolean;
+  /** What the pane is drawing, or null when it is drawing no dialog. */
+  prompt: TuiPrompt | null;
   /** Presses one option's number. Sends no Return — see ChatPane's `answer`. */
   onAnswer: (digit: string) => Promise<void> | void;
   /** Presses a named key, for moving on from a question with several answers. */
@@ -39,54 +40,7 @@ export default function LivePrompt({
   onSend: (value: string) => Promise<void> | void;
   sending: boolean;
 }) {
-  const [prompt, setPrompt] = useState<TuiPrompt | null>(null);
-  const lookNow = useRef<(() => Promise<void>) | null>(null);
   const waiting = session.status === "waiting";
-  // Two reasons to look, and both are needed. A permission prompt flips the
-  // session to waiting through its hook; a question does not — every tool call
-  // writes "running" first — so an unanswered card is the other half of it.
-  const worthLooking = session.status !== "done" && (waiting || ask);
-
-  useEffect(() => {
-    if (!worthLooking) {
-      setPrompt(null);
-      return;
-    }
-    let stopped = false;
-    async function look() {
-      try {
-        const res = await api<SessionPrompt>(`/api/sessions/${session.id}/prompt`);
-        if (!stopped) setPrompt(res.prompt);
-      } catch {
-        // A pane that cannot be read is not a pane that is asking anything.
-        if (!stopped) setPrompt(null);
-      }
-    }
-    void look();
-    lookNow.current = look;
-    const timer = setInterval(() => {
-      if (!document.hidden) void look();
-    }, 2_000);
-    return () => {
-      stopped = true;
-      lookNow.current = null;
-      clearInterval(timer);
-    };
-  }, [session.id, worthLooking]);
-
-  /**
-   * Press something, then look again straight away.
-   *
-   * Ticking a box changes what the pane draws and nothing else — no transcript
-   * entry, no status change — so without this the tick appears whenever the
-   * next poll happens to land. Waiting up to two seconds to find out whether a
-   * tap registered is how people end up tapping twice, which on a toggle undoes
-   * what they just did.
-   */
-  async function press(send: () => Promise<void> | void) {
-    await send();
-    await lookNow.current?.();
-  }
 
   if (session.status === "done") return null;
 
@@ -103,7 +57,7 @@ export default function LivePrompt({
               // open. Both were watched against a real one. What is never sent
               // is Return: it does not submit, it toggles whatever the cursor
               // happens to be sitting on.
-              onClick={() => void press(() => onAnswer(String(o.number)))}
+              onClick={() => void onAnswer(String(o.number))}
               disabled={sending}
               aria-pressed={prompt.multiSelect ? o.checked === true : undefined}
               className={`tap max-w-full truncate rounded-md border px-2.5 py-1 text-left font-mono text-[12px] disabled:opacity-50 ${
@@ -127,7 +81,7 @@ export default function LivePrompt({
             "submit answers" button, from the same parse. */}
         {prompt.multiSelect && (
           <button
-            onClick={() => void press(() => onKey("right"))}
+            onClick={() => void onKey("right")}
             disabled={sending}
             className="tap self-start rounded-md border border-accent px-2.5 py-1 font-mono text-[12px] text-accent disabled:opacity-50"
           >

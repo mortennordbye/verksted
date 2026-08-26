@@ -5,6 +5,7 @@ import { api, usePoll } from "../api";
 import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import TopBar from "../components/TopBar";
+import { useGrow } from "../useGrow";
 import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
 
 /**
@@ -333,6 +334,7 @@ export default function Chat({ room }: { room: ChatRoom }) {
   const [params, setParams] = useSearchParams();
   const [thread, setThread] = useState<AssistantThread | null>(null);
   const [text, setText] = useState(() => params.get("ask") ?? "");
+  const grow = useGrow(text);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -797,6 +799,7 @@ export default function Chat({ room }: { room: ChatRoom }) {
             and the field gets the full width at any size. */}
         <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
           <textarea
+            ref={grow}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {

@@ -17,14 +17,14 @@ import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
-import { parsePrompt } from "../tui-prompt.js";
+import { parseActivity, parseMode, parsePrompt } from "../tui-prompt.js";
 
 /** Same ceiling the project's file diff uses: enough for any one file, and a
  *  phone is not where a bigger one gets read. */
 const MAX_DIFF_BYTES = 512 * 1024;
 
 /** The keys a client may press, and what tmux calls them. */
-const KEYS = { escape: "Escape", right: "Right" } as const;
+const KEYS = { escape: "Escape", right: "Right", "shift-tab": "BTab" } as const;
 
 /**
  * Where a session's transcript is, if it has one.
@@ -146,7 +146,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
    */
   app.post<{
     Params: { id: string };
-    Body: { text?: string; enter?: boolean; key?: "escape" | "right" };
+    Body: { text?: string; enter?: boolean; key?: "escape" | "right" | "shift-tab" };
   }>(
     "/api/sessions/:id/input",
     {
@@ -163,8 +163,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
             // A closed set, so no tmux key name can arrive from a client.
             // Escape interrupts a working agent and backs out of a dialog;
             // right is how a question with several answers moves on from
-            // ticking boxes to the screen that submits them.
-            key: { enum: ["escape", "right"] },
+            // ticking boxes to the screen that submits them; shift-tab is the
+            // permission-mode toggle, the one thing the terminal's chip could
+            // do that the chat could only report on.
+            key: { enum: ["escape", "right", "shift-tab"] },
           },
         },
       },
@@ -224,7 +226,8 @@ export default async function sessionRoutes(app: FastifyInstance) {
   );
 
   /**
-   * What the session is blocked on, as its terminal is drawing it.
+   * What the session is blocked on, whether it is working, and which mode it is
+   * in — all as its terminal is drawing them.
    *
    * Deliberately not part of `/chat`. That endpoint is a file read and cannot
    * drift from what happened; this one scrapes a pane, which is a different
@@ -240,13 +243,16 @@ export default async function sessionRoutes(app: FastifyInstance) {
     async (req, reply): Promise<SessionPrompt | void> => {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
-      if (session.status === "done") return { prompt: null };
+      const quiet = { prompt: null, mode: null, busy: false, doing: null };
+      if (session.status === "done") return quiet;
       try {
-        return { prompt: parsePrompt(await tmux.capturePane(req.params.id, 40)) };
+        // One capture, three readings — the pane is the same pane.
+        const pane = await tmux.capturePane(req.params.id, 40);
+        return { prompt: parsePrompt(pane), mode: parseMode(pane), ...parseActivity(pane) };
       } catch (err) {
         // A pane that cannot be read is not a pane that is asking anything.
         req.log.error(err, "capture-pane failed");
-        return { prompt: null };
+        return quiet;
       }
     },
   );
