@@ -1,11 +1,13 @@
 import fs from "node:fs/promises";
+import path from "node:path";
 import type {
   ChatAsk,
   ChatDetail,
   ChatEventKind,
+  ChatImage,
+  ChatMessage,
   ChatPlan,
   ChatQuestion,
-  ChatMessage,
   ChatTodo,
   ChatToolCall,
   SessionChat,
@@ -65,6 +67,15 @@ const EVENT_TEXT_CHARS = 200;
  */
 export const MAX_DETAIL_CHARS = 128_000;
 
+/**
+ * What may be served out of a transcript as an image.
+ *
+ * An allowlist rather than a passthrough, and svg is deliberately not on it: an
+ * SVG is arbitrary markup, and one that arrived in a tool result would be
+ * served from the app's own origin. No screenshot is worth that.
+ */
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
 /** One block of a message's content array. */
 interface Block {
   type?: string;
@@ -75,6 +86,7 @@ interface Block {
   tool_use_id?: string;
   is_error?: boolean;
   content?: unknown;
+  source?: { type?: string; media_type?: string; data?: string };
 }
 
 /** One hunk of the patch an edit records against itself. */
@@ -177,6 +189,37 @@ function slashCommand(text: string): string | null {
   return args ? `${name} ${args}` : name;
 }
 
+/**
+ * The image a tool result carries, if it carries one.
+ *
+ * Both shapes lead to the same bytes: a picture read off disk is recorded as a
+ * `file` with its base64, and everything else — a screenshot, most of all —
+ * arrives as an `image` content block. Only the media type comes back here;
+ * the bytes stay in the file until somebody's browser asks for them.
+ */
+function imageTypeOf(blocks: Block[], result: unknown): string | null {
+  for (const b of blocks) {
+    if (b?.type === "image" && typeof b.source?.media_type === "string") return b.source.media_type;
+  }
+  const file = (result as { file?: { type?: string; base64?: string } } | undefined)?.file;
+  if (file && typeof file.base64 === "string" && typeof file.type === "string") return file.type;
+  return null;
+}
+
+/**
+ * Where an image lives in the repo, when it does.
+ *
+ * A path means the file viewer's own route can serve it, already scoped the way
+ * every other file read is scoped. No path — a screenshot, or a file outside
+ * the project — means the bytes only exist in the transcript.
+ */
+function repoRelative(filePath: unknown, repoDir: string | undefined): string | null {
+  if (typeof filePath !== "string" || !repoDir) return null;
+  const rel = path.relative(repoDir, filePath);
+  if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) return null;
+  return rel;
+}
+
 /** The questions an AskUserQuestion put, as the card will draw them. */
 function questionsOf(input: Record<string, unknown> | undefined): ChatQuestion[] {
   const asked = input?.questions;
@@ -238,7 +281,10 @@ function applyAnswers(ask: ChatAsk, answers: Record<string, unknown>): void {
  * `pending` rather than being hidden until the reply lands — on a live session
  * that is the difference between watching it work and watching nothing.
  */
-export function parseTranscript(text: string): {
+export function parseTranscript(
+  text: string,
+  opts: { repoDir?: string } = {},
+): {
   messages: ChatMessage[];
   pending: ChatToolCall[];
   todos: ChatTodo[];
@@ -261,6 +307,12 @@ export function parseTranscript(text: string): {
   // read it — and there are a handful of these in a session where there are
   // hundreds of chips, so the map does not grow into anything.
   const byCardId = new Map<string, { ask?: ChatAsk; plan?: ChatPlan }>();
+  // Rides forward with `pending` and lands on the same turn its call does: an
+  // image is something a call produced, so it belongs where the chip belongs.
+  let pendingImages: ChatImage[] = [];
+  // What each pending call was asked to read, so an image result can be told
+  // whether it names a file this project could serve on its own.
+  const pathByToolId = new Map<string, unknown>();
 
   /**
    * Where a rail hangs.
@@ -290,8 +342,16 @@ export function parseTranscript(text: string): {
   /** Whatever it was doing belongs before what interrupted it, not after. */
   function flushTools(id: string, at: string): void {
     if (!pending.length) return;
-    messages.push({ id: `${id}:tools`, role: "assistant", text: "", tools: pending, at });
+    messages.push({
+      id: `${id}:tools`,
+      role: "assistant",
+      text: "",
+      tools: pending,
+      at,
+      ...(pendingImages.length ? { images: pendingImages } : {}),
+    });
     pending = [];
+    pendingImages = [];
     byToolId = new Map();
   }
 
@@ -349,7 +409,19 @@ export function parseTranscript(text: string): {
             const chip = byToolId.get(b.tool_use_id ?? "");
             if (chip) chip.failed = true;
           }
-          const card = byCardId.get(b.tool_use_id ?? "");
+          const ref = b.tool_use_id ?? "";
+          const mediaType = imageTypeOf(
+            Array.isArray(b.content) ? (b.content as Block[]) : [],
+            entry.toolUseResult,
+          );
+          if (mediaType && IMAGE_TYPES.has(mediaType) && ref) {
+            pendingImages.push({
+              id: ref,
+              path: repoRelative(pathByToolId.get(ref), opts.repoDir),
+              mediaType,
+            });
+          }
+          const card = byCardId.get(ref);
           if (!card) continue;
           const answers = (entry.toolUseResult as { answers?: unknown } | undefined)?.answers;
           if (card.ask && answers && typeof answers === "object") {
@@ -386,8 +458,16 @@ export function parseTranscript(text: string): {
       // Text first, then this message's own calls: the sentence was written
       // before the call it leads into, so the call belongs to the next turn.
       if (said) {
-        messages.push({ id, role: "assistant", text: said, tools: pending, at });
+        messages.push({
+          id,
+          role: "assistant",
+          text: said,
+          tools: pending,
+          at,
+          ...(pendingImages.length ? { images: pendingImages } : {}),
+        });
         pending = [];
+        pendingImages = [];
         byToolId = new Map();
       }
       for (const b of blocks) {
@@ -420,7 +500,10 @@ export function parseTranscript(text: string): {
         }
         const chip: ChatToolCall = { id: b.id ?? "", name: b.name, detail: toolDetail(b.input) };
         pending.push(chip);
-        if (b.id) byToolId.set(b.id, chip);
+        if (b.id) {
+          byToolId.set(b.id, chip);
+          pathByToolId.set(b.id, b.input?.file_path);
+        }
       }
       continue;
     }
@@ -493,7 +576,7 @@ export function parseTranscript(text: string): {
 export async function readChat(
   file: string | null,
   conversationId: string | null,
-  opts: { bytes?: number; since?: string } = {},
+  opts: { bytes?: number; since?: string; repoDir?: string } = {},
 ): Promise<SessionChat> {
   const empty: SessionChat = {
     conversationId,
@@ -510,7 +593,9 @@ export async function readChat(
   } catch {
     return empty;
   }
-  const { messages, pending, todos, permissionMode } = parseTranscript(window.text);
+  const { messages, pending, todos, permissionMode } = parseTranscript(window.text, {
+    repoDir: opts.repoDir,
+  });
   return {
     conversationId,
     // Everything the caller has not got. A poll that finds nothing new is then
@@ -680,5 +765,63 @@ export async function readDetail(
     return findDetail(window.text, ref);
   } catch {
     return { kind: "none" };
+  }
+}
+
+/**
+ * The bytes of one image out of a transcript.
+ *
+ * Reached only for an image that is not a file in the project — a screenshot,
+ * or something read from outside the repo. Anything with a path is served by
+ * the file viewer's own route instead, which is already scoped and already
+ * cached.
+ *
+ * The caller names a transcript key and nothing else. There is no path here to
+ * traverse, and the only file opened is the session's own transcript.
+ */
+export function findImage(text: string, ref: string): { mediaType: string; data: Buffer } | null {
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let entry: Entry;
+    try {
+      entry = JSON.parse(line) as Entry;
+    } catch {
+      continue;
+    }
+    if (entry.isSidechain) continue;
+    const content = entry.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const b of content as Block[]) {
+      if (b?.type !== "tool_result" || b.tool_use_id !== ref) continue;
+      const blocks = Array.isArray(b.content) ? (b.content as Block[]) : [];
+      for (const inner of blocks) {
+        if (inner?.type !== "image") continue;
+        const { media_type: mediaType, data } = inner.source ?? {};
+        if (!mediaType || !IMAGE_TYPES.has(mediaType) || typeof data !== "string") continue;
+        return { mediaType, data: Buffer.from(data, "base64") };
+      }
+      const file = (
+        entry.toolUseResult as { file?: { type?: string; base64?: string } } | undefined
+      )?.file;
+      if (file?.type && IMAGE_TYPES.has(file.type) && typeof file.base64 === "string") {
+        return { mediaType: file.type, data: Buffer.from(file.base64, "base64") };
+      }
+    }
+  }
+  return null;
+}
+
+/** One image out of a transcript's tail, or nothing when it is not in it. */
+export async function readImage(
+  file: string | null,
+  ref: string,
+  bytes?: number,
+): Promise<{ mediaType: string; data: Buffer } | null> {
+  if (!file) return null;
+  try {
+    const window = await tail(file, Math.min(bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
+    return findImage(window.text, ref);
+  } catch {
+    return null;
   }
 }

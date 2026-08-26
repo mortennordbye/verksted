@@ -550,6 +550,129 @@ describe("GET /api/sessions/:id/chat", () => {
   });
 });
 
+describe("images", () => {
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const b64 = PNG.toString("base64");
+
+  /** A screenshot: an image block, and no file it could have come from. */
+  function shot(id: string): string {
+    return JSON.stringify({
+      type: "user",
+      uuid: `s${++uuids}`,
+      timestamp: stamp(),
+      toolUseResult: { stdout: "", stderr: "" },
+      message: {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: id,
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/png", data: b64 } },
+            ],
+          },
+        ],
+      },
+    });
+  }
+
+  it("points an image in the repo at the route that already serves files", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        calls("Read", { file_path: `${reposDir}/demo/shots/a.png` }, "i1"),
+        returned("i1", { type: "image", file: { type: "image/png", base64: b64 } }),
+        says("That is the bug."),
+      ].join("\n"),
+      { repoDir: `${reposDir}/demo` },
+    );
+    expect(messages.at(-1)!.images).toEqual([
+      { id: "i1", path: "shots/a.png", mediaType: "image/png" },
+    ]);
+    // Bytes never travel with a turn, by either route.
+    expect(JSON.stringify(messages)).not.toContain(b64);
+  });
+
+  it("leaves a screenshot pathless, because there is no file behind it", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        calls("mcp__browser__browser_take_screenshot", {}, "i1"),
+        shot("i1"),
+        says("Here it is."),
+      ].join("\n"),
+      { repoDir: `${reposDir}/demo` },
+    );
+    expect(messages.at(-1)!.images).toEqual([{ id: "i1", path: null, mediaType: "image/png" }]);
+  });
+
+  it("will not claim a file outside the project as one of its own", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        calls("Read", { file_path: "/etc/somewhere/else.png" }, "i1"),
+        returned("i1", { type: "image", file: { type: "image/png", base64: b64 } }),
+        says("ok"),
+      ].join("\n"),
+      { repoDir: `${reposDir}/demo` },
+    );
+    expect(messages.at(-1)!.images![0].path).toBeNull();
+  });
+
+  it("serves the bytes of one that has nowhere else to come from", async () => {
+    writeTranscript("demo", [
+      human("show me"),
+      calls("mcp__browser__browser_take_screenshot", {}, "shot1"),
+      shot("shot1"),
+      says("Here."),
+    ]);
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/image?ref=shot1` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+    expect(res.rawPayload.equals(PNG)).toBe(true);
+  });
+
+  it("refuses to serve anything that is not a raster image", async () => {
+    writeTranscript("demo", [
+      calls("Read", { file_path: "a.svg" }, "svg1"),
+      JSON.stringify({
+        type: "user",
+        uuid: "sv1",
+        timestamp: stamp(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "svg1",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: "image/svg+xml", data: b64 },
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ]);
+    // An SVG is arbitrary markup and would be served from this app's origin.
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/image?ref=svg1` });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404s a reference with no image, and refuses one shaped like a path", async () => {
+    expect(
+      (await app.inject({ url: `/api/sessions/${SESSION}/chat/image?ref=nothing` })).statusCode,
+    ).toBe(404);
+    const traversal = await app.inject({
+      url: `/api/sessions/${SESSION}/chat/image?ref=${encodeURIComponent("../../etc/passwd")}`,
+    });
+    expect(traversal.statusCode).toBe(400);
+  });
+});
+
 describe("the cards", () => {
   const QUESTION = {
     questions: [

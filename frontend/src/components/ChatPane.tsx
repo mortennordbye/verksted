@@ -9,6 +9,7 @@ import type {
 } from "../../../shared/api";
 import { api } from "../api";
 import AskCard from "./chat/AskCard";
+import Images from "./chat/Images";
 import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
 import { MD } from "./chat/markdown";
@@ -109,10 +110,12 @@ function Todos({ todos, mode }: { todos: ChatTodo[]; mode: string }) {
 function Turn({
   message,
   sessionId,
+  project,
   bytes,
 }: {
   message: ChatMessage;
   sessionId: string;
+  project: string;
   bytes: number;
 }) {
   if (message.role === "event") {
@@ -138,6 +141,9 @@ function Turn({
       {message.tools.map((t, i) => (
         <ToolChip key={t.id || i} tool={t} sessionId={sessionId} bytes={bytes} />
       ))}
+      {message.images && message.images.length > 0 && (
+        <Images images={message.images} sessionId={sessionId} project={project} bytes={bytes} />
+      )}
       {message.text && (
         <div className="flex">
           <div className="max-w-[82%] min-w-0 rounded-[14px] rounded-bl-[5px] border border-line bg-surface px-3 py-2 text-[14px]">
@@ -314,7 +320,13 @@ export default function ChatPane({ session }: { session: Session }) {
         )}
 
         {messages.map((m) => (
-          <Turn key={m.id} message={m} sessionId={session.id} bytes={bytes} />
+          <Turn
+            key={m.id}
+            message={m}
+            sessionId={session.id}
+            project={session.project}
+            bytes={bytes}
+          />
         ))}
 
         {/* Work in flight: the calls it has made since the last thing it said. */}

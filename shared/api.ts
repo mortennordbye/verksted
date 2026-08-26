@@ -208,6 +208,25 @@ export interface ChatMessage {
   ask?: ChatAsk;
   /** role "assistant": a plan put up for approval. */
   plan?: ChatPlan;
+  /** Images this turn's calls read or produced. */
+  images?: ChatImage[];
+}
+
+/**
+ * An image the session read or produced. Its bytes are never in this object.
+ *
+ * Two ways to reach them, and the difference is worth the field. A file in the
+ * repo is already served by the route the file viewer uses, scoped the way
+ * every other file read is scoped — so `path` is set and nothing has to be
+ * decoded out of the transcript. Anything else, a browser screenshot most of
+ * all, exists only inside the transcript and comes from the chat's own route.
+ */
+export interface ChatImage {
+  /** The tool_use id whose result carries it. */
+  id: string;
+  /** Repo-relative when it is a file in this project; null otherwise. */
+  path: string | null;
+  mediaType: string;
 }
 
 /** One option of a question the agent put to the person. */

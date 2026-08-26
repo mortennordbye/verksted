@@ -10,7 +10,7 @@ import type {
   SessionPatch,
   SessionReview,
 } from "../../../shared/api.js";
-import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail } from "../chat.js";
+import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail, readImage } from "../chat.js";
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
@@ -205,6 +205,59 @@ export default async function sessionRoutes(app: FastifyInstance) {
   );
 
   /**
+   * The bytes of one image a session produced.
+   *
+   * Only for the images that exist nowhere but the transcript — a browser
+   * screenshot, or a file read from outside the project. Anything the agent
+   * read out of the repo carries a path instead, and the file viewer's own
+   * route serves it, already scoped and already cached.
+   *
+   * The client names a transcript key and a nothing else: there is no path here
+   * for it to traverse, and the only file opened is the session's own
+   * transcript. What comes back is checked against an allowlist of raster
+   * types — an SVG out of a tool result is arbitrary markup and would be served
+   * from this app's origin, which no screenshot is worth.
+   */
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+    "/api/sessions/:id/chat/image",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["ref"],
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            bytes: {
+              type: "integer",
+              minimum: 1_000,
+              maximum: MAX_WINDOW,
+              default: DEFAULT_WINDOW,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const file = await transcriptFor(req.params.id);
+      if (file === undefined) return reply.code(404).send({ error: "not found" });
+      const image = await readImage(file, req.query.ref, req.query.bytes);
+      if (!image) return reply.code(404).send({ error: "not found" });
+      return (
+        reply
+          .header("content-type", image.mediaType)
+          .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
+          .header("x-content-type-options", "nosniff")
+          .header("content-disposition", 'inline; filename="image"')
+          // A transcript entry never changes, so this is safe to hold on to — and
+          // on a phone it is the difference between one fetch and one per poll.
+          .header("cache-control", "private, max-age=3600, immutable")
+          .send(image.data)
+      );
+    },
+  );
+
+  /**
    * The session as a conversation rather than a terminal.
    *
    * Unlike capture, this outlives the session: the transcript is on the volume,
@@ -280,7 +333,20 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const conversationId = await store.readConv(req.params.id);
       const file = await transcriptFor(req.params.id);
       if (file === undefined) return reply.code(404).send({ error: "not found" });
-      return readChat(file, conversationId, { bytes: req.query.bytes, since: req.query.since });
+      // The repo is what lets an image the agent read be recognised as a file
+      // this project can serve on its own, rather than one to decode out of the
+      // transcript. Its absence only costs the cheaper of the two routes.
+      let repoDir: string | undefined;
+      try {
+        repoDir = resolveInsideRepos(session.project);
+      } catch {
+        // The project has been deleted; every image falls back to its bytes.
+      }
+      return readChat(file, conversationId, {
+        bytes: req.query.bytes,
+        since: req.query.since,
+        repoDir,
+      });
     },
   );
 
