@@ -295,6 +295,31 @@ export default function ChatPane({ session }: { session: Session }) {
     }
   }
 
+  /**
+   * Answer a dialog by pressing the option's number.
+   *
+   * Without a Return, and that is the whole point of it being its own function.
+   * The digit submits on its own — watched against a real trust dialog and a
+   * real question, both of which closed on the keypress — so a Return sent
+   * after it would land in the composer instead. On an empty one that is
+   * harmless, but an agent that is busy queues what you type, and there the
+   * stray Return would send a half-written message you had not finished.
+   */
+  async function answer(digit: string) {
+    setSending(true);
+    setError(null);
+    try {
+      await api(`/api/sessions/${session.id}/input`, {
+        method: "POST",
+        body: JSON.stringify({ text: digit, enter: false }),
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
+
   async function send(value: string) {
     if (!value.trim() || sending) return;
     setSending(true);
@@ -376,7 +401,13 @@ export default function ChatPane({ session }: { session: Session }) {
       {/* A dialog is drawn by the TUI and never written to the transcript, so
           without this the chat looks idle at exactly the moment the agent is
           blocked on an answer. */}
-      <LivePrompt session={session} ask={openAsk} onSend={send} sending={sending} />
+      <LivePrompt
+        session={session}
+        ask={openAsk}
+        onAnswer={answer}
+        onSend={send}
+        sending={sending}
+      />
 
       {error && (
         <div className="flex-none border-t border-line px-3.5 py-1.5 font-mono text-[12px] text-fail">

@@ -23,12 +23,16 @@ import { api } from "../../api";
 export default function LivePrompt({
   session,
   ask,
+  onAnswer,
   onSend,
   sending,
 }: {
   session: Session;
   /** True when a question card is on screen with no answer yet. */
   ask: boolean;
+  /** Presses one option's number. Sends no Return — see ChatPane's `answer`. */
+  onAnswer: (digit: string) => Promise<void> | void;
+  /** Types a line, for the dialogs this cannot read. */
   onSend: (value: string) => Promise<void> | void;
   sending: boolean;
 }) {
@@ -74,8 +78,10 @@ export default function LivePrompt({
           {prompt.options.map((o) => (
             <button
               key={o.number}
-              // The number is what the CLI is listening for; Enter confirms it.
-              onClick={() => void onSend(String(o.number))}
+              // The number alone is what the CLI is listening for: watched
+              // against a real dialog, the keypress submits and a Return after
+              // it would go to the composer instead.
+              onClick={() => void onAnswer(String(o.number))}
               disabled={sending}
               className={`tap max-w-full truncate rounded-md border px-2.5 py-1 text-left font-mono text-[12px] disabled:opacity-50 ${
                 o.selected ? "border-accent text-accent" : "border-line text-muted"

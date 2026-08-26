@@ -77,6 +77,77 @@ describe("parsePrompt", () => {
     ]);
   });
 
+  /** The trust dialog, captured from a fresh claude in a scratch directory. */
+  const TRUST = `───────────────────────────────────────────────────────────────────
+
+ Accessing workspace:
+
+ /tmp/vk-tui-probe
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or
+ work from your team). If not, take a moment to review what's in this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel
+`;
+
+  it("finds the sentence that asks, not the link sitting next to the options", () => {
+    const prompt = parsePrompt(TRUST);
+    expect(prompt).not.toBeNull();
+    // Between the question and the options sit a note and a documentation link,
+    // so the nearest line above the options is "Security guide".
+    expect(prompt!.question).toContain("Quick safety check");
+    expect(prompt!.question).not.toBe("Security guide");
+    expect(prompt!.options).toEqual([
+      { number: 1, label: "Yes, I trust this folder", selected: true },
+      { number: 2, label: "No, exit", selected: false },
+    ]);
+  });
+
+  /**
+   * An AskUserQuestion, captured live. The hardest shape: every option carries
+   * a description beneath it, and a rule is drawn between the real answers and
+   * the escape hatches under them.
+   */
+  const ASK = ` \u2610 Shed colour
+
+What colour should the shed be painted?
+
+\u276f 1. Falu red
+     Classic Nordic barn red — traditional, hides weathering well, pairs with white trim.
+  2. Charcoal grey
+     Modern and understated; recedes into the garden and shows less dirt than light tones.
+  3. Sage green
+     Soft muted green that blends with planting and looks less industrial than grey.
+  4. Type something.
+${"─".repeat(60)}
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+
+  it("reads a question the agent asked, descriptions and all", () => {
+    const prompt = parsePrompt(ASK);
+    expect(prompt).not.toBeNull();
+    expect(prompt!.question).toBe("What colour should the shed be painted?");
+    expect(prompt!.options.map((o) => [o.number, o.label])).toEqual([
+      [1, "Falu red"],
+      [2, "Charcoal grey"],
+      [3, "Sage green"],
+      [4, "Type something."],
+      [5, "Chat about this"],
+    ]);
+    expect(prompt!.options[0].selected).toBe(true);
+    // The descriptions are the CLI's, not labels — they must not become buttons.
+    expect(prompt!.options.some((o) => o.label.includes("Classic Nordic"))).toBe(false);
+  });
+
   it("does not mistake the survey for something the session is waiting on", () => {
     // It is a numbered list, and it is answerable, and the session is still
     // working with a message half-typed under it. Buttons here would say a
