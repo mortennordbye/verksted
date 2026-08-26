@@ -148,3 +148,87 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   const multiSelect = options.some((o) => o.checked !== undefined);
   return { question, multiSelect, options };
 }
+
+/**
+ * The permission mode claude prints on its status line, or null when the pane
+ * shows none.
+ *
+ * The same bet as everything above it, read off the same pane: the CLI draws
+ * that line as `<symbol> <indicator> on`, and the indicators below are its full
+ * set. An unknown one is null, which is what the chip showed before this
+ * existed.
+ *
+ * Why the pane rather than the transcript, which carries a permission-mode
+ * entry of its own: that entry is written per turn, so it says which mode the
+ * last turn ran in, not which mode the session is in now. Cycling the mode
+ * between turns changes nothing on disk until the agent next speaks — and a
+ * chip that does not move when tapped is a chip that gets tapped twice.
+ *
+ * Only the last lines are read. The status line is the bottom of the pane, and
+ * further up is scrollback where an earlier screen's mode would win.
+ */
+const MODES: { re: RegExp; label: string }[] = [
+  { re: /bypass permissions on\b/i, label: "bypass" },
+  { re: /don['’]t ask on\b/i, label: "don't ask" },
+  { re: /accept edits on\b/i, label: "accept edits" },
+  { re: /auto mode on\b/i, label: "auto" },
+  { re: /plan mode on\b/i, label: "plan" },
+  { re: /manual mode on\b/i, label: "manual" },
+];
+
+/** How far up from the bottom the status line can be. */
+const MODE_TAIL_LINES = 4;
+
+export function parseMode(pane: string): string | null {
+  const lines = pane.split("\n").map((l) => l.replace(/\s+$/, ""));
+  const tail = lines.filter(Boolean).slice(-MODE_TAIL_LINES);
+  for (let i = tail.length - 1; i >= 0; i--) {
+    const hit = MODES.find((m) => m.re.test(tail[i]));
+    if (hit) return hit.label;
+  }
+  return null;
+}
+
+/**
+ * Whether the agent is mid-turn, and what it says it is doing.
+ *
+ * The status a session carries is written by the hooks and only distinguishes
+ * "needs you" from everything else — an agent thinking hard and an agent sat at
+ * an empty prompt are both "running". In the terminal you can see which; in the
+ * chat you could not, and "is it working or is it stuck" is the question being
+ * asked of that screen most often.
+ *
+ * The pane knows. Claude prints "esc to interrupt" on its status line while a
+ * turn is running and never when one is not, so that is the signal — the one
+ * bit that matters. The verb above it is decoration: nice when it parses,
+ * absent without consequence when it does not.
+ */
+const BUSY_RE = /esc to interrupt/i;
+
+/**
+ * `✻ Building the live prompt strip… (35m 21s · ↓ 85.8k tokens)`
+ *
+ * The ellipsis and the timer in brackets are both required, which is what keeps
+ * this off the line the CLI draws when a turn *finishes* — that one reads
+ * `✻ Sautéed for 1m 21s · done 11:06 AM` and has neither.
+ */
+const ACTIVITY_RE = /^\s*[✻✽✢✶●*·※]\s+(\S.*?)…\s*\(/;
+
+export function parseActivity(pane: string): { busy: boolean; doing: string | null } {
+  const lines = pane.split("\n").map((l) => l.replace(/\s+$/, ""));
+  // Blanks dropped before the tail is taken, the same as `parseMode`: a real
+  // capture is the pane's full height, so the last lines of one are the empty
+  // rows under the composer rather than the status line.
+  const busy = lines
+    .filter(Boolean)
+    .slice(-MODE_TAIL_LINES - 2)
+    .some((l) => BUSY_RE.test(l));
+  if (!busy) return { busy: false, doing: null };
+  // Nearest first: the CLI redraws this line in place, so the last one on the
+  // pane is the turn that is running now.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = ACTIVITY_RE.exec(lines[i]);
+    if (m) return { busy, doing: m[1].slice(0, MAX_QUESTION) };
+  }
+  return { busy, doing: null };
+}

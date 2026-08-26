@@ -129,6 +129,17 @@ describe("POST /api/sessions/:id/input", () => {
     expect(out.text).not.toContain("Right");
   });
 
+  // The permission-mode toggle. Same rule as escape and right: a key, not the
+  // six characters that spell it — which on a pane that queues input would
+  // otherwise end up inside somebody's half-written message.
+  it("presses shift+tab without typing it either", async () => {
+    expect((await send(TMUX, { key: "shift-tab" })).statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    const out = (await app.inject({ url: `/api/sessions/${TMUX}/capture` })).json();
+    expect(out.text).not.toContain("shift-tab");
+    expect(out.text).not.toContain("BTab");
+  });
+
   it("404s an unknown session and 409s an ended one", async () => {
     expect((await send("vk-ghost-9", { text: "x" })).statusCode).toBe(404);
     expect((await send("vk-demo-2", { text: "x" })).statusCode).toBe(409);
@@ -147,13 +158,14 @@ describe("POST /api/sessions/:id/input", () => {
     const res = await app.inject({ url: `/api/sessions/${TMUX}/prompt` });
     expect(res.statusCode).toBe(200);
     // A pane running `cat` is the ordinary case this must not false-positive on.
-    expect(res.json()).toEqual({ prompt: null });
+    // No agent on it, so no status line either.
+    expect(res.json()).toEqual({ prompt: null, mode: null, busy: false, doing: null });
   });
 
   it("says nothing is being asked by a session that has ended, and 404s a ghost", async () => {
     const ended = await app.inject({ url: "/api/sessions/vk-demo-2/prompt" });
     expect(ended.statusCode).toBe(200);
-    expect(ended.json()).toEqual({ prompt: null });
+    expect(ended.json()).toEqual({ prompt: null, mode: null, busy: false, doing: null });
     expect((await app.inject({ url: "/api/sessions/vk-ghost-9/prompt" })).statusCode).toBe(404);
   });
 

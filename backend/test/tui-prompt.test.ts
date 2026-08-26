@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePrompt } from "../src/tui-prompt.js";
+import { parseActivity, parseMode, parsePrompt } from "../src/tui-prompt.js";
 
 /**
  * Reading a dialog off the pane.
@@ -277,5 +277,113 @@ Ready to submit your answers?
 
   it("does not answer with a dialog that has no question above it", () => {
     expect(parsePrompt("  1. yes\n  2. no\n\n  Enter to confirm\n")).toBeNull();
+  });
+});
+
+/**
+ * Reading the permission mode off the same pane.
+ *
+ * Cheaper to be wrong here than above — the worst case is a chip with the wrong
+ * word on it, not a keystroke sent at the wrong dialog — but the negative cases
+ * still matter: the label is what somebody reads before deciding whether to
+ * cycle, and "auto" on a session that is actually in manual is worse than no
+ * label at all.
+ */
+describe("parseMode", () => {
+  it("reads the mode off the status line", () => {
+    expect(parseMode(WORKING)).toBe("auto");
+    expect(parseMode(SURVEY)).toBe("auto");
+  });
+
+  it("reads each mode the CLI draws", () => {
+    const line = (s: string) =>
+      `some output\n\n\u2500\u2500\u2500\u2500\n\u276f\n\u2500\u2500\u2500\u2500\n  ${s}\n`;
+    expect(parseMode(line("\u23f8 plan mode on (shift+tab to cycle)"))).toBe("plan");
+    expect(parseMode(line("\u23f5\u23f5 accept edits on (shift+tab to cycle)"))).toBe(
+      "accept edits",
+    );
+    expect(parseMode(line("\u23f5\u23f5 bypass permissions on"))).toBe("bypass");
+    expect(parseMode(line("\u23f5 manual mode on"))).toBe("manual");
+    expect(parseMode(line("\u23f5\u23f5 don\u2019t ask on"))).toBe("don't ask");
+  });
+
+  it("says nothing when the pane shows no status line", () => {
+    expect(parseMode("just some output\nand some more")).toBeNull();
+    expect(parseMode("")).toBeNull();
+  });
+
+  it("will not take a stale mode out of the scrollback", () => {
+    // The mode line from a screen that has since been redrawn, with plenty of
+    // output under it. Reading it would leave the chip claiming a mode the
+    // session left long ago.
+    const stale = `  \u23f5\u23f5 auto mode on (shift+tab to cycle)
+\u25cf Right, here is the plan.
+  1. one
+  2. two
+  3. three
+  4. four
+`;
+    expect(parseMode(stale)).toBeNull();
+  });
+});
+
+/**
+ * Working, or sat there.
+ *
+ * The status a session carries cannot tell these apart, so this is the only
+ * thing that can, and being wrong the "yes it is working" way is the expensive
+ * direction: it turns "nothing is happening" into "give it another minute".
+ */
+describe("parseActivity", () => {
+  it("says it is working, and what it is doing", () => {
+    expect(parseActivity(WORKING)).toEqual({
+      busy: true,
+      doing: "Building the live prompt strip",
+    });
+  });
+
+  it("says it is not working when the status line offers no interrupt", () => {
+    // The same pane, mid-survey, with a half-typed message under it. "\u2190 for
+    // agents" rather than "esc to interrupt" is the whole difference.
+    expect(parseActivity(SURVEY)).toEqual({ busy: false, doing: null });
+  });
+
+  it("is busy without a verb rather than not busy", () => {
+    const bare = `some output it printed
+
+\u2500\u2500\u2500\u2500
+\u276f
+\u2500\u2500\u2500\u2500
+  \u23f5\u23f5 auto mode on (shift+tab to cycle) \u00b7 esc to interrupt
+`;
+    expect(parseActivity(bare)).toEqual({ busy: true, doing: null });
+  });
+
+  it("will not read the line a finished turn leaves behind as a verb", () => {
+    // No ellipsis and no timer in brackets: this is what the CLI draws when a
+    // turn is over, and reading it would report a finished session as working.
+    const finished = `\u273b Saut\u00e9ed for 1m 21s \u00b7 done 11:06 AM
+
+\u2500\u2500\u2500\u2500
+\u276f
+\u2500\u2500\u2500\u2500
+  \u23f5\u23f5 auto mode on (shift+tab to cycle) \u00b7 \u2190 for agents
+`;
+    expect(parseActivity(finished)).toEqual({ busy: false, doing: null });
+  });
+
+  it("says nothing about an empty pane", () => {
+    expect(parseActivity("")).toEqual({ busy: false, doing: null });
+  });
+
+  // A real capture is the pane's full height, so the status line sits well
+  // above the last row. Taking the tail without dropping the blanks first read
+  // the empty rows under the composer and reported every working session idle.
+  it("finds the status line under a pane's worth of blank rows", () => {
+    expect(parseActivity(`${WORKING}${"\n".repeat(30)}`)).toEqual({
+      busy: true,
+      doing: "Building the live prompt strip",
+    });
+    expect(parseMode(`${WORKING}${"\n".repeat(30)}`)).toBe("auto");
   });
 });

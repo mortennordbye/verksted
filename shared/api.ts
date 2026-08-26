@@ -351,6 +351,19 @@ export interface TuiPrompt {
 export interface SessionPrompt {
   /** Null when nothing parses — which includes "it simply finished its turn". */
   prompt: TuiPrompt | null;
+  /**
+   * The permission mode the pane's status line shows, or null when it shows
+   * none. Live, unlike `SessionChat.permissionMode`, which is per-turn.
+   */
+  mode: string | null;
+  /**
+   * True while a turn is actually running. `Session.status` cannot say this:
+   * it is "running" both for an agent thinking and an agent sat idle at an
+   * empty prompt.
+   */
+  busy: boolean;
+  /** What it says it is doing, when that parses. Decoration. */
+  doing: string | null;
 }
 
 /** One item of the agent's own checklist, as the CLI shows on ctrl+t. */
