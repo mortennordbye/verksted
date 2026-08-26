@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type {
   AgentName,
   ChatDetail,
+  SessionPrompt,
   ReviewVerdict,
   SessionCapture,
   SessionChanges,
@@ -16,6 +17,7 @@ import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
+import { parsePrompt } from "../tui-prompt.js";
 
 /** Same ceiling the project's file diff uses: enough for any one file, and a
  *  phone is not where a bigger one gets read. */
@@ -139,17 +141,23 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * socket carries arbitrary keystrokes to the same pane — so the guard is the
    * same one, the Origin check in app.ts.
    */
-  app.post<{ Params: { id: string }; Body: { text: string; enter?: boolean } }>(
+  app.post<{ Params: { id: string }; Body: { text?: string; enter?: boolean; key?: "escape" } }>(
     "/api/sessions/:id/input",
     {
       schema: {
         body: {
           type: "object",
-          required: ["text"],
           additionalProperties: false,
+          // One or the other. Text is typed literally, which is why a key needs
+          // its own field rather than being spelled inside a message.
+          anyOf: [{ required: ["text"] }, { required: ["key"] }],
           properties: {
             text: { type: "string", maxLength: 10_000 },
             enter: { type: "boolean", default: true },
+            // A closed set, so no tmux key name can arrive from a client. Escape
+            // is what interrupts a working agent and backs out of a dialog, and
+            // it is the only key anything here needs.
+            key: { enum: ["escape"] },
           },
         },
       },
@@ -161,7 +169,11 @@ export default async function sessionRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: "session has ended" });
       }
       try {
-        await tmux.sendText(req.params.id, req.body.text, req.body.enter !== false);
+        if (req.body.key === "escape") {
+          await tmux.sendKey(req.params.id, "Escape");
+        } else {
+          await tmux.sendText(req.params.id, req.body.text ?? "", req.body.enter !== false);
+        }
       } catch (err) {
         req.log.error(err, "send-keys failed");
         return reply.code(502).send({ error: "could not reach the session" });
@@ -200,6 +212,34 @@ export default async function sessionRoutes(app: FastifyInstance) {
       } catch (err) {
         req.log.error(err, "capture-pane failed");
         return reply.code(502).send({ error: "could not read the session" });
+      }
+    },
+  );
+
+  /**
+   * What the session is blocked on, as its terminal is drawing it.
+   *
+   * Deliberately not part of `/chat`. That endpoint is a file read and cannot
+   * drift from what happened; this one scrapes a pane, which is a different
+   * kind of answer with a different shelf life, and mixing them would make the
+   * whole conversation only as trustworthy as the scrape.
+   *
+   * It is also why this is polled separately and only when there is reason to
+   * think somebody is being asked something. Null is not an error — it is the
+   * common case, and it is what a session that simply finished its turn says.
+   */
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/prompt",
+    async (req, reply): Promise<SessionPrompt | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      if (session.status === "done") return { prompt: null };
+      try {
+        return { prompt: parsePrompt(await tmux.capturePane(req.params.id, 40)) };
+      } catch (err) {
+        // A pane that cannot be read is not a pane that is asking anything.
+        req.log.error(err, "capture-pane failed");
+        return { prompt: null };
       }
     },
   );

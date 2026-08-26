@@ -309,6 +309,24 @@ export type ChatDetail =
   /** The reference is not in the window the caller asked about. */
   | { kind: "none" };
 
+/**
+ * A numbered menu the CLI is drawing right now, scraped off the pane.
+ *
+ * The only part of this view that does not come from the transcript, because a
+ * permission dialog is drawn and never written down. See backend/src/tui-prompt.ts
+ * for why that is worth one exception and how the bet is hedged.
+ */
+export interface TuiPrompt {
+  question: string;
+  options: { number: number; label: string; selected: boolean }[];
+}
+
+/** What a session is blocked on, if anything, as its terminal shows it. */
+export interface SessionPrompt {
+  /** Null when nothing parses — which includes "it simply finished its turn". */
+  prompt: TuiPrompt | null;
+}
+
 /** One item of the agent's own checklist, as the CLI shows on ctrl+t. */
 export interface ChatTodo {
   subject: string;

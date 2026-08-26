@@ -10,6 +10,7 @@ import type {
 import { api } from "../api";
 import AskCard from "./chat/AskCard";
 import Images from "./chat/Images";
+import LivePrompt from "./chat/LivePrompt";
 import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
 import { MD } from "./chat/markdown";
@@ -184,6 +185,10 @@ export default function ChatPane({ session }: { session: Session }) {
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   const live = session.status !== "done";
+  // A question does not flip the session to waiting — every tool call writes
+  // "running" first — so an unanswered card is the other signal that somebody
+  // is being asked something.
+  const openAsk = messages.some((m) => m.ask && !m.ask.answered);
 
   /**
    * Poll, and append.
@@ -271,6 +276,25 @@ export default function ChatPane({ session }: { session: Session }) {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, pending, echoes]);
 
+  /**
+   * Escape, which is what stops a working agent.
+   *
+   * Not `send`: that types literally, so the word "escape" would arrive as six
+   * characters in the composer. The route takes a key from a closed set for
+   * exactly this.
+   */
+  async function interrupt() {
+    setError(null);
+    try {
+      await api(`/api/sessions/${session.id}/input`, {
+        method: "POST",
+        body: JSON.stringify({ key: "escape" }),
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function send(value: string) {
     if (!value.trim() || sending) return;
     setSending(true);
@@ -349,28 +373,10 @@ export default function ChatPane({ session }: { session: Session }) {
         ))}
       </div>
 
-      {session.status === "waiting" && (
-        // A permission prompt is drawn by the TUI and never written to the
-        // transcript, so without this the chat looks idle at exactly the moment
-        // the agent is blocked on an answer.
-        <div className="flex flex-none flex-wrap items-center gap-2 border-t border-wait/40 bg-wait/5 px-3.5 py-2 font-mono text-[12px] text-wait">
-          <span className="min-w-0 flex-1">it is waiting for you</span>
-          <button
-            onClick={() => void send("y")}
-            disabled={sending}
-            className="tap rounded-md border border-run/50 px-2.5 py-1 text-run disabled:opacity-50"
-          >
-            yes
-          </button>
-          <button
-            onClick={() => void send("n")}
-            disabled={sending}
-            className="tap rounded-md border border-fail/50 px-2.5 py-1 text-fail disabled:opacity-50"
-          >
-            no
-          </button>
-        </div>
-      )}
+      {/* A dialog is drawn by the TUI and never written to the transcript, so
+          without this the chat looks idle at exactly the moment the agent is
+          blocked on an answer. */}
+      <LivePrompt session={session} ask={openAsk} onSend={send} sending={sending} />
 
       {error && (
         <div className="flex-none border-t border-line px-3.5 py-1.5 font-mono text-[12px] text-fail">
@@ -396,6 +402,18 @@ export default function ChatPane({ session }: { session: Session }) {
             aria-label="message the agent"
             className="max-h-32 min-h-[24px] flex-1 resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
           />
+          {/* Only while it is actually doing something — an esc against an
+              idle prompt clears whatever you were halfway through typing. */}
+          {session.status === "running" && (
+            <button
+              onClick={() => void interrupt()}
+              aria-label="interrupt"
+              title="stop what it is doing"
+              className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-fail/50 hover:text-fail"
+            >
+              esc
+            </button>
+          )}
           <button
             onClick={() => void send(text)}
             disabled={sending || !text.trim()}
