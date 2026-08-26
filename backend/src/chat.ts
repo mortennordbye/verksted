@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import type {
+  ChatAsk,
   ChatDetail,
   ChatEventKind,
+  ChatPlan,
+  ChatQuestion,
   ChatMessage,
   ChatTodo,
   ChatToolCall,
@@ -174,6 +177,58 @@ function slashCommand(text: string): string | null {
   return args ? `${name} ${args}` : name;
 }
 
+/** The questions an AskUserQuestion put, as the card will draw them. */
+function questionsOf(input: Record<string, unknown> | undefined): ChatQuestion[] {
+  const asked = input?.questions;
+  if (!Array.isArray(asked)) return [];
+  return (asked as Record<string, unknown>[])
+    .filter((q) => typeof q?.question === "string")
+    .map((q) => ({
+      header: typeof q.header === "string" ? q.header : "",
+      question: q.question as string,
+      multiSelect: q.multiSelect === true,
+      options: Array.isArray(q.options)
+        ? (q.options as Record<string, unknown>[])
+            .filter((o) => typeof o?.label === "string")
+            .map((o) => ({
+              label: o.label as string,
+              description: typeof o.description === "string" ? o.description : "",
+              ...(typeof o.preview === "string" && o.preview ? { preview: o.preview } : {}),
+            }))
+        : [],
+      chosen: [],
+    }));
+}
+
+/** What a plan is called: its first heading, or failing that its first line. */
+function planTitle(markdown: string): string {
+  for (const line of markdown.split("\n")) {
+    const said = line.trim();
+    if (!said) continue;
+    return said.replace(/^#+\s*/, "");
+  }
+  return "a plan";
+}
+
+/**
+ * The answer the person gave, put back on the question it answered.
+ *
+ * The transcript keys the answers by the question's own text and joins the
+ * chosen labels with a comma, which is lossy in principle — a label containing
+ * ", " would split wrongly — so a split is only trusted when every piece of it
+ * is a label that was actually offered.
+ */
+function applyAnswers(ask: ChatAsk, answers: Record<string, unknown>): void {
+  ask.answered = true;
+  for (const question of ask.questions) {
+    const given = answers[question.question];
+    if (typeof given !== "string" || !given) continue;
+    const labels = question.options.map((o) => o.label);
+    const split = given.split(", ");
+    question.chosen = split.every((piece) => labels.includes(piece)) ? split : [given];
+  }
+}
+
 /**
  * Turn a run of transcript lines into turns.
  *
@@ -201,6 +256,11 @@ export function parseTranscript(text: string): {
   // window of any length carries the same link dozens of times. Only the first
   // sighting is news; the rest is the same fact restated.
   const prsSeen = new Set<string>();
+  // Kept for the whole window, unlike `byToolId`. A chip's result lands within
+  // a turn, but a question can sit unanswered for as long as somebody takes to
+  // read it — and there are a handful of these in a session where there are
+  // hundreds of chips, so the map does not grow into anything.
+  const byCardId = new Map<string, { ask?: ChatAsk; plan?: ChatPlan }>();
 
   /**
    * Where a rail hangs.
@@ -284,9 +344,28 @@ export function parseTranscript(text: string): {
         // A result. The output is dropped; only a failure marks its chip, and
         // the rest is fetched by id if anybody wants to read it.
         for (const b of blocks) {
-          if (b?.type !== "tool_result" || !b.is_error) continue;
-          const chip = byToolId.get(b.tool_use_id ?? "");
-          if (chip) chip.failed = true;
+          if (b?.type !== "tool_result") continue;
+          if (b.is_error) {
+            const chip = byToolId.get(b.tool_use_id ?? "");
+            if (chip) chip.failed = true;
+          }
+          const card = byCardId.get(b.tool_use_id ?? "");
+          if (!card) continue;
+          const answers = (entry.toolUseResult as { answers?: unknown } | undefined)?.answers;
+          if (card.ask && answers && typeof answers === "object") {
+            applyAnswers(card.ask, answers as Record<string, unknown>);
+          } else if (card.ask) {
+            // It came back without an answers map at all — dismissed, or
+            // interrupted. Still not open, so it stops asking.
+            card.ask.answered = true;
+          }
+          if (card.plan) {
+            // Approval is matched positively and everything else is a refusal:
+            // the wordings for going back to planning vary, and reading a
+            // refusal as an approval is the expensive direction to be wrong in.
+            const said = typeof b.content === "string" ? b.content : "";
+            card.plan.approved = said.startsWith("User has approved your plan");
+          }
         }
         if (blocks.some((b) => b?.type === "text" && b.text?.includes(INTERRUPTED))) {
           flushTools(id, at);
@@ -313,6 +392,32 @@ export function parseTranscript(text: string): {
       }
       for (const b of blocks) {
         if (b.type !== "tool_use" || typeof b.name !== "string") continue;
+        // Two calls are the CLI's own interface rather than work it did, and
+        // they get a card each. They flush a turn of their own because a
+        // tool-only entry produces no message — a question left riding in
+        // `pending` would never be drawn, which is exactly when it matters.
+        if (b.name === "AskUserQuestion") {
+          const questions = questionsOf(b.input);
+          if (!questions.length) continue;
+          flushTools(id, at);
+          const ask: ChatAsk = { id: b.id ?? "", questions, answered: false };
+          messages.push({ id: `${id}:ask`, role: "assistant", text: "", tools: [], at, ask });
+          if (b.id) byCardId.set(b.id, { ask });
+          continue;
+        }
+        if (b.name === "ExitPlanMode" && typeof b.input?.plan === "string") {
+          flushTools(id, at);
+          const markdown = b.input.plan;
+          const plan: ChatPlan = {
+            id: b.id ?? "",
+            title: planTitle(markdown),
+            chars: markdown.length,
+            approved: null,
+          };
+          messages.push({ id: `${id}:plan`, role: "assistant", text: "", tools: [], at, plan });
+          if (b.id) byCardId.set(b.id, { plan });
+          continue;
+        }
         const chip: ChatToolCall = { id: b.id ?? "", name: b.name, detail: toolDetail(b.input) };
         pending.push(chip);
         if (b.id) byToolId.set(b.id, chip);
@@ -540,6 +645,12 @@ export function findDetail(text: string, ref: string): ChatDetail {
     }
   }
   if (!found) return { kind: "none" };
+
+  // A plan is prose to be read at length, not a call to be inspected: it is the
+  // one thing here that comes back as itself.
+  if (name === "ExitPlanMode" && typeof input?.plan === "string") {
+    return { kind: "plan", markdown: input.plan.slice(0, MAX_DETAIL_CHARS) };
+  }
 
   const patch =
     result && typeof result === "object" ? patchLines(result as Record<string, unknown>) : [];

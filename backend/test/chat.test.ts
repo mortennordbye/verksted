@@ -550,6 +550,148 @@ describe("GET /api/sessions/:id/chat", () => {
   });
 });
 
+describe("the cards", () => {
+  const QUESTION = {
+    questions: [
+      {
+        question: "Which scope should I implement?",
+        header: "Scope",
+        multiSelect: false,
+        options: [
+          { label: "Both repos", description: "the full fix" },
+          { label: "Infra only", description: "smallest diff" },
+        ],
+      },
+    ],
+  };
+
+  it("draws a question as a card, not as a chip, and does not wait for a reply", () => {
+    const { messages, pending } = chat.parseTranscript(
+      [human("what should I do?"), calls("AskUserQuestion", QUESTION, "q1")].join("\n"),
+    );
+    const card = messages.at(-1)!;
+    expect(card.ask).toMatchObject({ id: "q1", answered: false });
+    expect(card.ask!.questions[0]).toMatchObject({
+      header: "Scope",
+      question: "Which scope should I implement?",
+      multiSelect: false,
+      chosen: [],
+    });
+    expect(card.ask!.questions[0].options).toHaveLength(2);
+    // A question left riding in `pending` would never be drawn, which is
+    // exactly the moment it matters.
+    expect(pending).toEqual([]);
+    expect(card.tools).toEqual([]);
+  });
+
+  it("puts the answer back on the question it answered", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        calls("AskUserQuestion", QUESTION, "q1"),
+        returned("q1", {
+          questions: QUESTION.questions,
+          answers: { "Which scope should I implement?": "Both repos" },
+          annotations: {},
+        }),
+      ].join("\n"),
+    );
+    const ask = messages.at(-1)!.ask!;
+    expect(ask.answered).toBe(true);
+    expect(ask.questions[0].chosen).toEqual(["Both repos"]);
+  });
+
+  it("splits several answers only when every piece was really an option", () => {
+    const multi = {
+      questions: [
+        {
+          question: "Which fixes?",
+          header: "Fixes",
+          multiSelect: true,
+          options: [
+            { label: "Disable it", description: "" },
+            { label: "Fix the config", description: "" },
+          ],
+        },
+      ],
+    };
+    const { messages } = chat.parseTranscript(
+      [
+        calls("AskUserQuestion", multi, "q1"),
+        returned("q1", { answers: { "Which fixes?": "Disable it, Fix the config" } }),
+      ].join("\n"),
+    );
+    expect(messages.at(-1)!.ask!.questions[0].chosen).toEqual(["Disable it", "Fix the config"]);
+
+    // A label that contains ", " itself would split wrongly, so an answer whose
+    // pieces are not all real options is kept whole.
+    const commas = {
+      questions: [
+        {
+          question: "Which?",
+          header: "Pick",
+          multiSelect: false,
+          options: [{ label: "Yes, and keep going", description: "" }],
+        },
+      ],
+    };
+    const { messages: kept } = chat.parseTranscript(
+      [
+        calls("AskUserQuestion", commas, "q2"),
+        returned("q2", { answers: { "Which?": "Yes, and keep going" } }),
+      ].join("\n"),
+    );
+    expect(kept.at(-1)!.ask!.questions[0].chosen).toEqual(["Yes, and keep going"]);
+  });
+
+  it("stops asking when the question came back with no answer at all", () => {
+    const { messages } = chat.parseTranscript(
+      [calls("AskUserQuestion", QUESTION, "q1"), returned("q1", { annotations: {} })].join("\n"),
+    );
+    const ask = messages.at(-1)!.ask!;
+    expect(ask.answered).toBe(true);
+    expect(ask.questions[0].chosen).toEqual([]);
+  });
+
+  it("carries a plan as a title and a length, never as its body", () => {
+    const markdown = `# Build the chat view out\n\n## Context\n\n${"word ".repeat(2_000)}`;
+    const { messages } = chat.parseTranscript(
+      calls("ExitPlanMode", { plan: markdown, planFilePath: "/plans/x.md" }, "p1"),
+    );
+    const plan = messages.at(-1)!.plan!;
+    expect(plan).toMatchObject({
+      id: "p1",
+      title: "Build the chat view out",
+      chars: markdown.length,
+      approved: null,
+    });
+    // Thousands of words have no business in a poll that runs every 3 seconds.
+    expect(JSON.stringify(messages)).not.toContain("## Context");
+  });
+
+  it("reads approval positively and everything else as a refusal", () => {
+    const approvedLines = [
+      calls("ExitPlanMode", { plan: "# a plan" }, "p1"),
+      result("p1", "User has approved your plan. You can now start coding."),
+    ];
+    expect(chat.parseTranscript(approvedLines.join("\n")).messages.at(-1)!.plan!.approved).toBe(
+      true,
+    );
+    // The wordings for going back to planning vary, and reading a refusal as an
+    // approval is the expensive direction to be wrong in.
+    const sentBack = [
+      calls("ExitPlanMode", { plan: "# a plan" }, "p2"),
+      result("p2", "The user doesn't want to proceed with this plan."),
+    ];
+    expect(chat.parseTranscript(sentBack.join("\n")).messages.at(-1)!.plan!.approved).toBe(false);
+  });
+
+  it("hands back the plan itself only when somebody opens it", () => {
+    const markdown = "# a plan\n\nwith a body";
+    const detail = chat.findDetail(calls("ExitPlanMode", { plan: markdown }, "p1"), "p1");
+    expect(detail).toEqual({ kind: "plan", markdown });
+  });
+});
+
 describe("findDetail", () => {
   it("opens a command onto what it printed", () => {
     const detail = chat.findDetail(

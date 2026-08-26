@@ -204,6 +204,60 @@ export interface ChatMessage {
   event?: ChatEventKind;
   /** role "event", kind "pr": where it points. */
   href?: string;
+  /** role "assistant": a question put to the person, in full. */
+  ask?: ChatAsk;
+  /** role "assistant": a plan put up for approval. */
+  plan?: ChatPlan;
+}
+
+/** One option of a question the agent put to the person. */
+export interface ChatQuestionOption {
+  label: string;
+  description: string;
+  /** A sketch of what choosing this would mean. Often absent. */
+  preview?: string;
+}
+
+export interface ChatQuestion {
+  /** The two or three words the CLI puts on the card's chip. */
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: ChatQuestionOption[];
+  /** The labels chosen, once it was answered. Empty while it is still asking. */
+  chosen: string[];
+}
+
+/**
+ * A question the agent put to the person, as a card rather than a chip.
+ *
+ * The whole thing — every option, every description — is written to the
+ * transcript, so this is the one part of the CLI's own interface that can be
+ * rebuilt exactly rather than scraped, and it reads the same on a session that
+ * ended weeks ago as it did on the day.
+ */
+export interface ChatAsk {
+  /** The tool_use id: what an answer would be sent against. */
+  id: string;
+  questions: ChatQuestion[];
+  /** False while it is still waiting for somebody. */
+  answered: boolean;
+}
+
+/**
+ * A plan put up for approval.
+ *
+ * The markdown is thousands of words and does not travel with the poll: the
+ * card carries what it is called and how long it is, and asks for the rest when
+ * somebody opens it.
+ */
+export interface ChatPlan {
+  id: string;
+  /** Its first heading, or its first line when it has no heading. */
+  title: string;
+  chars: number;
+  /** Null while it is still up; true approved, false sent back for more work. */
+  approved: boolean | null;
 }
 
 /**
@@ -232,6 +286,7 @@ export type ChatDetail =
       /** Either half hit the cap; the rest is only readable in a terminal. */
       truncated: boolean;
     }
+  | { kind: "plan"; markdown: string }
   /** The reference is not in the window the caller asked about. */
   | { kind: "none" };
 
