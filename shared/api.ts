@@ -306,6 +306,16 @@ export type ChatDetail =
       truncated: boolean;
     }
   | { kind: "plan"; markdown: string }
+  | {
+      kind: "agent";
+      /** "Explore", "Plan", "general-purpose"… */
+      agentType: string;
+      description: string;
+      /** The subagent's own conversation, read exactly as this one is. */
+      messages: ChatMessage[];
+      /** Its transcript was longer than the window opened on it. */
+      truncated: boolean;
+    }
   /** The reference is not in the window the caller asked about. */
   | { kind: "none" };
 

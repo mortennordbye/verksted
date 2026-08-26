@@ -15,7 +15,7 @@ import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail, readImage } from "../
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
-import { transcriptPath } from "../transcripts.js";
+import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
 import { parsePrompt } from "../tui-prompt.js";
 
@@ -342,9 +342,24 @@ export default async function sessionRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply): Promise<ChatDetail | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
       const file = await transcriptFor(req.params.id);
-      if (file === undefined) return reply.code(404).send({ error: "not found" });
-      return readDetail(file, req.query.ref, req.query.bytes);
+      const conversationId = await store.readConv(req.params.id);
+      // Where this conversation's subagents kept their own transcripts, for the
+      // one kind of call whose detail is in a second file.
+      let subagents: string | undefined;
+      if (conversationId) {
+        try {
+          subagents = subagentDir(resolveInsideRepos(session.project), conversationId);
+        } catch {
+          // The project is gone; a subagent chip then opens onto nothing.
+        }
+      }
+      return readDetail(file ?? null, req.query.ref, {
+        bytes: req.query.bytes,
+        subagentDir: subagents,
+      });
     },
   );
 

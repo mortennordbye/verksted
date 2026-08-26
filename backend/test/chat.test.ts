@@ -928,6 +928,87 @@ describe("findDetail", () => {
   });
 });
 
+describe("subagents", () => {
+  /** Every line of a subagent's own file is sidechain-tagged. */
+  function side(text: string, extra: Record<string, unknown> = {}): string {
+    return JSON.stringify({
+      type: "assistant",
+      uuid: `sc${++uuids}`,
+      timestamp: stamp(),
+      isSidechain: true,
+      message: { role: "assistant", content: [{ type: "text", text }] },
+      ...extra,
+    });
+  }
+
+  it("reads a subagent's own conversation, which is entirely sidechain", () => {
+    // The parent's parse drops these on the floor, which is what keeps a
+    // subagent from reading as the agent talking to itself.
+    expect(chat.parseTranscript(side("found it")).messages).toEqual([]);
+    // Read as the file it is, they are the whole point.
+    const { messages } = chat.parseTranscript(side("found it"), { sidechain: true });
+    expect(messages.map((m) => m.text)).toEqual(["found it"]);
+  });
+
+  it("opens an Agent chip onto what its subagent actually did", async () => {
+    const conversationDir = path.join(transcriptDir("demo"), CONV, "subagents");
+    fs.mkdirSync(conversationDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(conversationDir, "agent-abc123.meta.json"),
+      JSON.stringify({ agentType: "Explore", description: "Map the balance page", spawnDepth: 1 }),
+    );
+    fs.writeFileSync(
+      path.join(conversationDir, "agent-abc123.jsonl"),
+      [side("Looking."), side("It is in src/balance.tsx.")].join("\n") + "\n",
+    );
+    writeTranscript("demo", [
+      human("find it"),
+      calls("Agent", { description: "Map the balance page", subagent_type: "Explore" }, "ag1"),
+      returned("ag1", { agentId: "abc123", description: "Map the balance page", status: "done" }),
+      says("It is in src/balance.tsx."),
+    ]);
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=ag1` });
+    expect(res.statusCode).toBe(200);
+    const detail = res.json<ChatDetail>();
+    expect(detail).toMatchObject({ kind: "agent", agentType: "Explore" });
+    expect((detail as { messages: { text: string }[] }).messages.map((m) => m.text)).toEqual([
+      "Looking.",
+      "It is in src/balance.tsx.",
+    ]);
+  });
+
+  it("says nothing rather than guessing when the subagent kept no file", async () => {
+    writeTranscript("demo", [
+      calls("Agent", { description: "gone" }, "ag2"),
+      returned("ag2", { agentId: "nosuchagent", status: "done" }),
+    ]);
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=ag2` });
+    expect(res.json()).toMatchObject({ kind: "agent", messages: [] });
+  });
+
+  it("will not follow an agent id shaped like a path", async () => {
+    writeTranscript("demo", [
+      calls("Agent", { description: "sneaky" }, "ag3"),
+      returned("ag3", { agentId: "../../../etc/passwd", status: "done" }),
+    ]);
+    // The id comes out of the transcript rather than off the wire, but it is
+    // the one value here that becomes part of a path. Rejecting it drops back
+    // to the ordinary view of the call — nothing is followed, and the chip
+    // still opens onto something.
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=ag3` });
+    // It never becomes an agent detail, so no directory is ever joined and
+    // opened. The rejected id still shows up in the call's own output, because
+    // that is the transcript quoting itself.
+    expect(res.json<ChatDetail>().kind).toBe("tool");
+  });
+
+  it("opens onto what it was asked to do while it is still running", () => {
+    // No result yet, so no agent id — the call is still just a call.
+    const detail = chat.findDetail(calls("Agent", { description: "still going" }, "ag4"), "ag4");
+    expect(detail).toMatchObject({ kind: "tool", name: "Agent" });
+  });
+});
+
 describe("GET /api/sessions/:id/chat/detail", () => {
   it("hands back one call out of a real transcript", async () => {
     writeTranscript("demo", [

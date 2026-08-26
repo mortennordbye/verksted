@@ -76,6 +76,16 @@ export const MAX_DETAIL_CHARS = 128_000;
  */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
+/**
+ * An agent id, checked before it is ever joined onto a directory. It comes out
+ * of the transcript rather than off the wire, but it is the only value in this
+ * file that becomes part of a path, so it is checked like one.
+ */
+const AGENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A subagent's conversation is one screen of reading, not a scroll-back. */
+export const SUBAGENT_WINDOW = 64_000;
+
 /** One block of a message's content array. */
 interface Block {
   type?: string;
@@ -283,7 +293,7 @@ function applyAnswers(ask: ChatAsk, answers: Record<string, unknown>): void {
  */
 export function parseTranscript(
   text: string,
-  opts: { repoDir?: string } = {},
+  opts: { repoDir?: string; sidechain?: boolean } = {},
 ): {
   messages: ChatMessage[];
   pending: ChatToolCall[];
@@ -366,8 +376,10 @@ export function parseTranscript(
     }
     // A subagent's turns. The current CLI writes these to their own file beside
     // the conversation; older transcripts interleave them here, where rendered
-    // in line they read as the agent suddenly talking to itself.
-    if (entry.isSidechain) continue;
+    // in line they read as the agent suddenly talking to itself. Reading that
+    // separate file is the one case where they are the point rather than the
+    // noise, and every line in it is tagged.
+    if (entry.isSidechain && !opts.sidechain) continue;
     const content = entry.message?.content;
     const at = entry.timestamp ?? "";
     const id = entry.uuid ?? "";
@@ -618,6 +630,21 @@ export async function readChat(
   };
 }
 
+/**
+ * What one pass over the transcript can settle on its own.
+ *
+ * A subagent is the exception: its conversation is in a second file, so all
+ * that comes out of the first pass is which file to open.
+ */
+type FoundDetail = ChatDetail | { kind: "agent-ref"; agentId: string; description: string };
+
+/** The subagent a spawning call reports it started, if it reported one. */
+function agentIdOf(name: string, result: unknown): string | null {
+  if (name !== "Agent" && name !== "Task") return null;
+  const id = (result as { agentId?: unknown } | undefined)?.agentId;
+  return typeof id === "string" && AGENT_ID_RE.test(id) ? id : null;
+}
+
 /** The text a tool_result block carries, ignoring anything that is not words. */
 function resultBlockText(block: Block): string {
   const { content } = block;
@@ -698,7 +725,7 @@ function resultText(result: unknown, fallback: string): string {
  * given. A reference that is not found is not an error and does not say whether
  * it ever existed; it is simply nothing to show.
  */
-export function findDetail(text: string, ref: string): ChatDetail {
+export function findDetail(text: string, ref: string): FoundDetail {
   let name = "";
   let input: Record<string, unknown> | undefined;
   let found = false;
@@ -736,6 +763,17 @@ export function findDetail(text: string, ref: string): ChatDetail {
   if (name === "ExitPlanMode" && typeof input?.plan === "string") {
     return { kind: "plan", markdown: input.plan.slice(0, MAX_DETAIL_CHARS) };
   }
+  // A subagent kept its own conversation. Which one is in the result, so this
+  // is only answerable once the call has come back — until then the chip opens
+  // onto what it was asked to do, which is what `input` already holds.
+  const spawned = agentIdOf(name, result);
+  if (spawned) {
+    return {
+      kind: "agent-ref",
+      agentId: spawned,
+      description: typeof input?.description === "string" ? input.description : "",
+    };
+  }
 
   const patch =
     result && typeof result === "object" ? patchLines(result as Record<string, unknown>) : [];
@@ -757,15 +795,62 @@ export function findDetail(text: string, ref: string): ChatDetail {
 export async function readDetail(
   file: string | null,
   ref: string,
-  bytes?: number,
+  opts: { bytes?: number; subagentDir?: string } = {},
 ): Promise<ChatDetail> {
   if (!file) return { kind: "none" };
+  let found: FoundDetail;
   try {
-    const window = await tail(file, Math.min(bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
-    return findDetail(window.text, ref);
+    const window = await tail(file, Math.min(opts.bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
+    found = findDetail(window.text, ref);
   } catch {
     return { kind: "none" };
   }
+  if (found.kind !== "agent-ref") return found;
+  return readSubagent(opts.subagentDir, found.agentId, found.description);
+}
+
+/**
+ * A subagent's conversation, read exactly the way its parent's is.
+ *
+ * The same parser, because it is the same file format and a subagent runs
+ * tools and says things like anything else — so its turns get chips that open
+ * the same way, and its own subagents, if it had any, are one more level down.
+ *
+ * A smaller window than the parent gets: this is a nested view, opened to find
+ * out what one delegated job actually did, and a scroll-back inside a scroll-
+ * back is not a thing a phone wants.
+ */
+async function readSubagent(
+  dir: string | undefined,
+  agentId: string,
+  description: string,
+): Promise<ChatDetail> {
+  // The id is checked where it is read, but it is joined onto a path here, so
+  // it is checked again next to the join it could escape.
+  if (!dir || !AGENT_ID_RE.test(agentId)) return { kind: "none" };
+  const base = path.join(dir, `agent-${agentId}`);
+  let agentType = "";
+  try {
+    const meta = JSON.parse(await fs.readFile(`${base}.meta.json`, "utf8")) as {
+      agentType?: unknown;
+      description?: unknown;
+    };
+    if (typeof meta.agentType === "string") agentType = meta.agentType;
+    if (!description && typeof meta.description === "string") description = meta.description;
+  } catch {
+    // No sidecar, or one this version does not understand. The conversation is
+    // the part worth having.
+  }
+  let window: { text: string; truncated: boolean };
+  try {
+    window = await tail(`${base}.jsonl`, SUBAGENT_WINDOW);
+  } catch {
+    // It ran, but nothing of it was kept — or it is still being written.
+    return { kind: "agent", agentType, description, messages: [], truncated: false };
+  }
+  // Every line in this file is sidechain-tagged: here they are the point.
+  const { messages } = parseTranscript(window.text, { sidechain: true });
+  return { kind: "agent", agentType, description, messages, truncated: window.truncated };
 }
 
 /**

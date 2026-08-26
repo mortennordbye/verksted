@@ -1,7 +1,9 @@
 import { useState } from "react";
+import Markdown from "react-markdown";
 import type { ChatDetail, ChatToolCall } from "../../../../shared/api";
 import { api } from "../../api";
 import { diffLineClass } from "../../diff";
+import { MD } from "./markdown";
 
 /**
  * One thing the agent did, and — when you ask — what it actually did.
@@ -74,6 +76,49 @@ export default function ToolChip({
             <p className="px-2.5 py-2 font-mono text-[11px] text-faint">
               that call is older than the part of the conversation loaded — load earlier to reach it
             </p>
+          )}
+          {/* A subagent kept a conversation of its own. Nested rather than
+              flattened into this one: read in line it is the agent suddenly
+              talking to itself about a job you did not watch it start. */}
+          {detail?.kind === "agent" && (
+            <div className="flex flex-col gap-2 px-2.5 py-2">
+              <p className="font-mono text-[11px] text-faint">
+                {detail.agentType || "agent"}
+                {detail.description && ` · ${detail.description}`}
+              </p>
+              {detail.truncated && (
+                <p className="font-mono text-[11px] text-faint">
+                  only the end of what it did is kept here
+                </p>
+              )}
+              {detail.messages.length === 0 && (
+                <p className="font-mono text-[11px] text-faint">it wrote nothing down</p>
+              )}
+              {detail.messages.map((m) => (
+                <div key={m.id} className="flex flex-col gap-1">
+                  {m.tools.map((t, i) => (
+                    <span key={t.id || i} className="self-start font-mono text-[11px] text-faint">
+                      {t.failed ? "✕" : "✓"} {t.name}
+                      {t.detail && ` · ${t.detail}`}
+                    </span>
+                  ))}
+                  {m.text && (
+                    <div
+                      className={`text-[13px] ${
+                        m.role === "user" ? "text-muted italic" : "text-text"
+                      }`}
+                    >
+                      <Markdown components={MD}>{m.text}</Markdown>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {detail?.kind === "plan" && (
+            <div className="px-2.5 py-2 text-[13px]">
+              <Markdown components={MD}>{detail.markdown}</Markdown>
+            </div>
           )}
           {detail?.kind === "tool" && (
             <>
