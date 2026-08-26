@@ -515,8 +515,8 @@ export default function Hub() {
                   )}
                 </span>
               </div>
-              <div className="flex items-center gap-3.5 font-mono text-[11px] text-faint">
-                <span>
+              <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-faint">
+                <span className="min-w-0 truncate">
                   ⎇ {p.branch}
                   {p.dirty ? "*" : ""}
                 </span>

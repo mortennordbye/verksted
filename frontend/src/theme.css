@@ -192,6 +192,14 @@ body {
   /* The grey flash on every tap belongs to a document, not to an app whose
      controls already have their own pressed states. */
   -webkit-tap-highlight-color: transparent;
+  /* A backstop, not a fix: one unbounded server string in an element that will
+     not wrap is enough to make the whole page pan sideways on a phone, and the
+     symptom (black space beside the layout) points nowhere near the cause.
+     `clip` rather than `hidden` because it creates no scroll container, so the
+     top bar keeps its `position: sticky` and the vertical axis stays visible.
+     Anything that still overflows is a bug to fix at the element; the e2e suite
+     checks for those per element, which this cannot hide. */
+  overflow-x: clip;
 }
 
 button,

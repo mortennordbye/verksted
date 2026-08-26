@@ -74,7 +74,40 @@ beforeAll(async () => {
 
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
-  process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
+  const schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
+  process.env.SCHEDULES_DIR = schedulesDir;
+
+  // A schedule whose last run signed off at length. The report is free text of
+  // any length and it is the one server string that reaches a chip, so it is
+  // what the no-sideways-scroll test below is actually aimed at.
+  fs.writeFileSync(
+    path.join(schedulesDir, "sch-1a2b3c4d.json"),
+    JSON.stringify({
+      // The id has to match the store's SCHEDULE_ID_RE, or the file is skipped
+      // on read and the page shows "no schedules" instead.
+      id: "sch-1a2b3c4d",
+      name: "morning briefing",
+      kind: "assistant",
+      project: "",
+      cron: "0 7 * * *",
+      jitterMinutes: 0,
+      prompt: "what needs me today?",
+      skipWhenIdle: false,
+      member: "",
+      convenes: false,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      runs: [
+        {
+          at: new Date().toISOString(),
+          sessionId: null,
+          reply:
+            "ok: three idle sessions, none stuck, one still holding uncommitted work, " +
+            "two pull requests waiting on review and a nightly render that finished clean",
+        },
+      ],
+    }),
+  );
   process.env.STATIC_DIR = dist;
   const { buildApp } = await import("../backend/src/app.js");
   app = await buildApp({ logger: false });
@@ -162,6 +195,45 @@ describe("the app in a real browser", () => {
     await page.getByLabel("verksted — home").click();
     await page.waitForURL((u) => u.pathname === "/");
     await page.getByText("demo").first().waitFor({ timeout: 15_000 });
+  });
+
+  // A phone is the main way in, and a single element that will not wrap is
+  // enough to make a whole screen pannable — the symptom being black space
+  // beside the layout, which points nowhere near the cause. Asserted per
+  // element rather than on documentElement.scrollWidth, because `body` carries
+  // an overflow-x backstop that would make the document-level check pass while
+  // the element still overflowed.
+  it("has nothing hanging off the side of a phone screen", async () => {
+    const offenders: string[] = [];
+    for (const route of ["/", "/settings", "/runs", "/p/demo", "/s/vk-demo-1"]) {
+      await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      await page.waitForTimeout(300);
+      const wide = await page.evaluate(() => {
+        // This closure runs in the browser, but it is compiled by the backend's
+        // tsconfig, whose lib is ES2022 with no DOM — deliberately, since the
+        // rest of that project is a server. Hence the local shape rather than a
+        // `dom` lib that would also let `document` typecheck in `backend/src`.
+        const { document } = globalThis as unknown as {
+          document: {
+            documentElement: { clientWidth: number };
+            querySelectorAll(selector: string): Iterable<{
+              tagName: string;
+              className: unknown;
+              getBoundingClientRect(): { width: number; right: number };
+            }>;
+          };
+        };
+        const limit = document.documentElement.clientWidth;
+        return [...document.querySelectorAll("body *")]
+          .filter((el) => {
+            const box = el.getBoundingClientRect();
+            return box.width > 0 && box.right > limit + 1;
+          })
+          .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 80)}`);
+      });
+      offenders.push(...wide.map((w) => `${route} ${w}`));
+    }
+    expect(offenders).toEqual([]);
   });
 
   it("did all of that without a console error or a failed request", () => {
