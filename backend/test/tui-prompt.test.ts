@@ -148,6 +148,76 @@ Enter to select · ↑/↓ to navigate · Esc to cancel
     expect(prompt!.options.some((o) => o.label.includes("Classic Nordic"))).toBe(false);
   });
 
+  /**
+   * A multi-select, captured live. Two ticked, and the descriptions are lined
+   * up with the options above them rather than indented past their numbers —
+   * the opposite of how the single-select above draws them.
+   */
+  const MULTI = `←  ☒ Garden jobs  ✔ Submit  →
+
+Which garden jobs do you want to tackle this weekend?
+
+\u276f 1. [ ] Mow and edge the lawn
+  Cut the grass, trim edges along beds and paths, and rake up clippings.
+  2. [✔] Weed the beds
+  Clear weeds from flower and vegetable beds, then top up mulch to slow regrowth.
+  3. [✔] Prune shrubs and hedges
+  Cut back overgrown shrubs, shape hedges, and remove dead or crossing branches.
+  4. [ ] Plant and tidy pots
+  Repot or refresh containers, plant out seedlings, and clear spent plants.
+  5. [ ] Type something
+     Submit
+${"─".repeat(60)}
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`;
+
+  /** Where the right arrow lands: an ordinary numbered dialog again. */
+  const REVIEW = `←  ☒ Garden jobs  ✔ Submit  →
+
+Review your answers
+
+ ● Which garden jobs do you want to tackle this weekend?
+   → Weed the beds, Prune shrubs and hedges
+
+Ready to submit your answers?
+
+\u276f 1. Submit answers
+  2. Cancel
+`;
+
+  it("reads a multi-select, and which boxes are already ticked", () => {
+    const prompt = parsePrompt(MULTI);
+    expect(prompt).not.toBeNull();
+    expect(prompt!.multiSelect).toBe(true);
+    expect(prompt!.question).toBe("Which garden jobs do you want to tackle this weekend?");
+    expect(prompt!.options.map((o) => [o.number, o.label, o.checked])).toEqual([
+      [1, "Mow and edge the lawn", false],
+      [2, "Weed the beds", true],
+      [3, "Prune shrubs and hedges", true],
+      [4, "Plant and tidy pots", false],
+      [5, "Type something", false],
+      // The escape hatch under the rule carries no box at all.
+      [6, "Chat about this", undefined],
+    ]);
+  });
+
+  it("knows the review screen is an ordinary dialog again", () => {
+    const prompt = parsePrompt(REVIEW);
+    expect(prompt).not.toBeNull();
+    // Nothing here has a box, so the number submits rather than toggling.
+    expect(prompt!.multiSelect).toBe(false);
+    expect(prompt!.question).toBe("Ready to submit your answers?");
+    expect(prompt!.options.map((o) => o.label)).toEqual(["Submit answers", "Cancel"]);
+  });
+
+  it("still reads a single-select as one, so its number answers outright", () => {
+    expect(parsePrompt(RESUME)!.multiSelect).toBe(false);
+    expect(parsePrompt(TRUST)!.multiSelect).toBe(false);
+    expect(parsePrompt(ASK)!.multiSelect).toBe(false);
+  });
+
   it("does not mistake the survey for something the session is waiting on", () => {
     // It is a numbered list, and it is answerable, and the session is still
     // working with a message half-typed under it. Buttons here would say a

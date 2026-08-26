@@ -277,18 +277,19 @@ export default function ChatPane({ session }: { session: Session }) {
   }, [messages, pending, echoes]);
 
   /**
-   * Escape, which is what stops a working agent.
+   * Press a key, which `send` deliberately cannot.
    *
-   * Not `send`: that types literally, so the word "escape" would arrive as six
-   * characters in the composer. The route takes a key from a closed set for
-   * exactly this.
+   * That types literally, so "escape" would arrive as six characters in the
+   * composer. The route takes a key from a closed set for exactly this: escape
+   * stops a working agent, and right moves a question with several answers on
+   * to the screen that submits them.
    */
-  async function interrupt() {
+  async function press(key: "escape" | "right") {
     setError(null);
     try {
       await api(`/api/sessions/${session.id}/input`, {
         method: "POST",
-        body: JSON.stringify({ key: "escape" }),
+        body: JSON.stringify({ key }),
       });
     } catch (e) {
       setError((e as Error).message);
@@ -405,6 +406,7 @@ export default function ChatPane({ session }: { session: Session }) {
         session={session}
         ask={openAsk}
         onAnswer={answer}
+        onKey={press}
         onSend={send}
         sending={sending}
       />
@@ -437,7 +439,7 @@ export default function ChatPane({ session }: { session: Session }) {
               idle prompt clears whatever you were halfway through typing. */}
           {session.status === "running" && (
             <button
-              onClick={() => void interrupt()}
+              onClick={() => void press("escape")}
               aria-label="interrupt"
               title="stop what it is doing"
               className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-fail/50 hover:text-fail"

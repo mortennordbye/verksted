@@ -21,8 +21,14 @@ import type { TuiPrompt } from "../../shared/api.js";
  * Every rule below was read off a real pane rather than guessed.
  */
 
-/** `  ❯ 1. Resume from summary` — the cursor is optional, the number is not. */
-const OPTION_RE = /^\s*([❯>])?\s*(\d+)[.:]\s+(\S.*?)\s*$/;
+/**
+ * `  ❯ 1. Resume from summary`, or `  2. [✔] Weed the beds`.
+ *
+ * The cursor is optional and the number is not. The box is what says this is a
+ * question with several answers rather than one — the CLI draws no other
+ * marker for it that survives to the pane.
+ */
+const OPTION_RE = /^\s*([❯>])?\s*(\d+)[.:]\s+(?:\[([^\]]*)\]\s+)?(\S.*?)\s*$/;
 
 /**
  * The line a blocking dialog signs off with. Its presence is not required —
@@ -30,8 +36,16 @@ const OPTION_RE = /^\s*([❯>])?\s*(\d+)[.:]\s+(\S.*?)\s*$/;
  */
 const CAPTION_RE = /(enter to confirm|esc to cancel|esc to interrupt)/i;
 
-/** An option's own description, written under it and indented past its number. */
-const DESCRIPTION_RE = /^\s{4,}\S/;
+/**
+ * An option's own description, written under it.
+ *
+ * Any indent at all, because the CLI does not use a consistent one: a
+ * single-select indents a description well past its number, a multi-select
+ * lines it up with the option above it. What keeps this from swallowing the
+ * question is the blank line the CLI always leaves between the two, which stops
+ * the walk before it gets here.
+ */
+const DESCRIPTION_RE = /^\s+\S/;
 
 /** The rules the composer is drawn between, and the status line under it. */
 const CHROME_RE = /^[─━╌—\s]+$/;
@@ -64,15 +78,19 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   // stepped over rather than treated as the end of the list: an AskUserQuestion
   // writes a description under each option, and draws a rule between the real
   // answers and the "chat about this" escape hatch below them.
-  const options: { number: number; label: string; selected: boolean }[] = [];
+  const options: TuiPrompt["options"] = [];
   while (i >= 0) {
     const line = lines[i];
     const m = OPTION_RE.exec(line);
     if (m) {
+      const box = m[3];
       options.unshift({
         number: Number(m[2]),
-        label: m[3].slice(0, MAX_LABEL),
+        label: m[4].slice(0, MAX_LABEL),
         selected: Boolean(m[1]),
+        // Anything in the box but space is a tick; the CLI has used more than
+        // one glyph for it.
+        ...(box === undefined ? {} : { checked: box.trim() !== "" }),
       });
       i--;
       continue;
@@ -125,5 +143,8 @@ export function parsePrompt(pane: string): TuiPrompt | null {
     0,
     MAX_QUESTION,
   );
-  return { question, options };
+  // One box makes it a multi-select; the escape hatches under the real answers
+  // ("type something", "chat about this") never carry one.
+  const multiSelect = options.some((o) => o.checked !== undefined);
+  return { question, multiSelect, options };
 }

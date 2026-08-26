@@ -328,7 +328,23 @@ export type ChatDetail =
  */
 export interface TuiPrompt {
   question: string;
-  options: { number: number; label: string; selected: boolean }[];
+  /**
+   * Several answers, ticked one at a time and then submitted together.
+   *
+   * The difference is not cosmetic: on a single-select the number *is* the
+   * answer and submits on its own, and on a multi-select it toggles a box and
+   * the dialog stays open. Sending the same keystroke to the wrong one either
+   * answers a question nobody finished or ticks a box nobody wanted.
+   */
+  multiSelect: boolean;
+  options: {
+    number: number;
+    label: string;
+    /** The cursor is on this one. */
+    selected: boolean;
+    /** Multi-select only: its box is ticked. */
+    checked?: boolean;
+  }[];
 }
 
 /** What a session is blocked on, if anything, as its terminal shows it. */

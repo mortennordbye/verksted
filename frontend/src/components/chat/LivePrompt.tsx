@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Session, SessionPrompt, TuiPrompt } from "../../../../shared/api";
 import { api } from "../../api";
 
@@ -24,6 +24,7 @@ export default function LivePrompt({
   session,
   ask,
   onAnswer,
+  onKey,
   onSend,
   sending,
 }: {
@@ -32,11 +33,14 @@ export default function LivePrompt({
   ask: boolean;
   /** Presses one option's number. Sends no Return — see ChatPane's `answer`. */
   onAnswer: (digit: string) => Promise<void> | void;
+  /** Presses a named key, for moving on from a question with several answers. */
+  onKey: (key: "right") => Promise<void> | void;
   /** Types a line, for the dialogs this cannot read. */
   onSend: (value: string) => Promise<void> | void;
   sending: boolean;
 }) {
   const [prompt, setPrompt] = useState<TuiPrompt | null>(null);
+  const lookNow = useRef<(() => Promise<void>) | null>(null);
   const waiting = session.status === "waiting";
   // Two reasons to look, and both are needed. A permission prompt flips the
   // session to waiting through its hook; a question does not — every tool call
@@ -59,14 +63,30 @@ export default function LivePrompt({
       }
     }
     void look();
+    lookNow.current = look;
     const timer = setInterval(() => {
       if (!document.hidden) void look();
     }, 2_000);
     return () => {
       stopped = true;
+      lookNow.current = null;
       clearInterval(timer);
     };
   }, [session.id, worthLooking]);
+
+  /**
+   * Press something, then look again straight away.
+   *
+   * Ticking a box changes what the pane draws and nothing else — no transcript
+   * entry, no status change — so without this the tick appears whenever the
+   * next poll happens to land. Waiting up to two seconds to find out whether a
+   * tap registered is how people end up tapping twice, which on a toggle undoes
+   * what they just did.
+   */
+  async function press(send: () => Promise<void> | void) {
+    await send();
+    await lookNow.current?.();
+  }
 
   if (session.status === "done") return null;
 
@@ -78,19 +98,42 @@ export default function LivePrompt({
           {prompt.options.map((o) => (
             <button
               key={o.number}
-              // The number alone is what the CLI is listening for: watched
-              // against a real dialog, the keypress submits and a Return after
-              // it would go to the composer instead.
-              onClick={() => void onAnswer(String(o.number))}
+              // The number alone, either way. On a single-select it answers
+              // outright; on a multi-select it ticks a box and the dialog stays
+              // open. Both were watched against a real one. What is never sent
+              // is Return: it does not submit, it toggles whatever the cursor
+              // happens to be sitting on.
+              onClick={() => void press(() => onAnswer(String(o.number)))}
               disabled={sending}
+              aria-pressed={prompt.multiSelect ? o.checked === true : undefined}
               className={`tap max-w-full truncate rounded-md border px-2.5 py-1 text-left font-mono text-[12px] disabled:opacity-50 ${
-                o.selected ? "border-accent text-accent" : "border-line text-muted"
+                o.checked
+                  ? "border-run/60 text-run"
+                  : o.selected && !prompt.multiSelect
+                    ? "border-accent text-accent"
+                    : "border-line text-muted"
               }`}
             >
+              {prompt.multiSelect && o.checked !== undefined && (
+                <span className="mr-1.5">{o.checked ? "☑" : "☐"}</span>
+              )}
               {o.number}. {o.label}
             </button>
           ))}
         </div>
+        {/* Ticking boxes does not answer anything on its own. The CLI moves
+            from the boxes to a review screen, and that screen is an ordinary
+            numbered dialog — so the next thing this strip draws is its own
+            "submit answers" button, from the same parse. */}
+        {prompt.multiSelect && (
+          <button
+            onClick={() => void press(() => onKey("right"))}
+            disabled={sending}
+            className="tap self-start rounded-md border border-accent px-2.5 py-1 font-mono text-[12px] text-accent disabled:opacity-50"
+          >
+            review and submit →
+          </button>
+        )}
       </div>
     );
   }

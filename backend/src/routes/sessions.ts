@@ -23,6 +23,9 @@ import { parsePrompt } from "../tui-prompt.js";
  *  phone is not where a bigger one gets read. */
 const MAX_DIFF_BYTES = 512 * 1024;
 
+/** The keys a client may press, and what tmux calls them. */
+const KEYS = { escape: "Escape", right: "Right" } as const;
+
 /**
  * Where a session's transcript is, if it has one.
  *
@@ -141,7 +144,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * socket carries arbitrary keystrokes to the same pane — so the guard is the
    * same one, the Origin check in app.ts.
    */
-  app.post<{ Params: { id: string }; Body: { text?: string; enter?: boolean; key?: "escape" } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { text?: string; enter?: boolean; key?: "escape" | "right" };
+  }>(
     "/api/sessions/:id/input",
     {
       schema: {
@@ -154,10 +160,11 @@ export default async function sessionRoutes(app: FastifyInstance) {
           properties: {
             text: { type: "string", maxLength: 10_000 },
             enter: { type: "boolean", default: true },
-            // A closed set, so no tmux key name can arrive from a client. Escape
-            // is what interrupts a working agent and backs out of a dialog, and
-            // it is the only key anything here needs.
-            key: { enum: ["escape"] },
+            // A closed set, so no tmux key name can arrive from a client.
+            // Escape interrupts a working agent and backs out of a dialog;
+            // right is how a question with several answers moves on from
+            // ticking boxes to the screen that submits them.
+            key: { enum: ["escape", "right"] },
           },
         },
       },
@@ -169,8 +176,8 @@ export default async function sessionRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: "session has ended" });
       }
       try {
-        if (req.body.key === "escape") {
-          await tmux.sendKey(req.params.id, "Escape");
+        if (req.body.key) {
+          await tmux.sendKey(req.params.id, KEYS[req.body.key]);
         } else {
           await tmux.sendText(req.params.id, req.body.text ?? "", req.body.enter !== false);
         }

@@ -793,27 +793,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
 
-## Multi-select questions cannot be answered from the chat view
-
-- **What:** The chat view draws an `AskUserQuestion` as the CLI draws it and
-  offers its options as buttons, which send the option's number. That is right
-  for a single-select question — watched against a real dialog, the digit
-  selects and submits on its own — but a multi-select needs several options
-  toggled and then confirmed, and the keymap for toggling was not observed. So
-  a multi-select card renders read-only and the terminal is still the place to
-  answer one.
-- **Why deferred:** The gap is guessing a keymap against a live agent. Getting
-  it wrong does not fail visibly — it submits a different answer than the one
-  that was tapped, to a session that then acts on it, and nothing about the
-  chat view would say so. That is much worse than a missing button.
-- **Unblocked by:** Capturing a real multi-select pane and watching what space,
-  the digits and Enter each do to it. The probe that settled the single-select
-  case was a throwaway `claude` in a scratch directory driven with
-  `tmux send-keys`, which is the cheapest way to see one.
-- **Where:** `backend/src/tui-prompt.ts` (`parsePrompt`),
-  `frontend/src/components/chat/LivePrompt.tsx`,
-  `frontend/src/components/chat/AskCard.tsx`
-
 ## The chat view is polled, not pushed
 
 - **What:** `ChatPane` runs its own 3s timer against `GET /api/sessions/:id/chat`

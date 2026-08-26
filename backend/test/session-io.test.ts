@@ -116,6 +116,17 @@ describe("POST /api/sessions/:id/input", () => {
     expect((await send(TMUX, {})).statusCode).toBe(400);
     // Nothing outside the closed set can be pressed.
     expect((await send(TMUX, { key: "C-c" })).statusCode).toBe(400);
+    expect((await send(TMUX, { key: "Enter" })).statusCode).toBe(400);
+  });
+
+  // How a question with several answers moves from ticking boxes to the screen
+  // that submits them.
+  it("presses right without typing it either", async () => {
+    expect((await send(TMUX, { key: "right" })).statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    const out = (await app.inject({ url: `/api/sessions/${TMUX}/capture` })).json();
+    expect(out.text).not.toContain("right");
+    expect(out.text).not.toContain("Right");
   });
 
   it("404s an unknown session and 409s an ended one", async () => {
