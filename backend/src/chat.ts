@@ -1,5 +1,11 @@
 import fs from "node:fs/promises";
-import type { ChatMessage, ChatToolCall, SessionChat } from "../../shared/api.js";
+import type {
+  ChatEventKind,
+  ChatMessage,
+  ChatTodo,
+  ChatToolCall,
+  SessionChat,
+} from "../../shared/api.js";
 import { toolDetail } from "./assistant-stream.js";
 
 /**
@@ -18,23 +24,33 @@ import { toolDetail } from "./assistant-stream.js";
  * second model is asked what happened — the same view would otherwise be a
  * per-poll model call over a megabyte of transcript.
  *
- * What is dropped is as deliberate as what is kept:
+ * What travels here is what a phone can hold: turns, chips, and one-line rails
+ * for the things that happened to the session rather than in it. What is
+ * *large* — a tool's output, an edit's diff, a plan, an image — is fetched by
+ * id when somebody taps it, so the cost of a poll does not move with the size
+ * of a test run. That is the whole bargain, and it is why the chip carries the
+ * transcript's own `tool_use` id rather than a summary of the call.
  *
- * - **Tool results.** They are the bulk of the file — whole test runs, whole
- *   files — and they are what makes the terminal unreadable in the first
- *   place. The call survives as a chip; only a result that came back an error
- *   leaves a mark, on the chip it belongs to.
- * - **Thinking.** Reasoning towards an answer is not the answer, and it is the
- *   longest thing in the transcript after tool results.
- * - **Sidechains.** A subagent's conversation is interleaved into the same
- *   file. Rendered in line it reads as the main agent suddenly talking to
- *   itself about something else.
+ * What stays dropped is per-turn bookkeeping that shows nothing: `mode`,
+ * `ai-title` and `last-prompt` are written once per turn each and say only what
+ * the screen already says, and `total_tokens_reminder` is five sixths of the
+ * attachments. Unknown entry types are ignored rather than guessed at — the CLI
+ * adds them (`atis-latch` arrived without warning), and one must never take the
+ * line after it down with it.
+ *
+ * Not dropped but not available: `thinking` blocks are written with an empty
+ * body and a signature, so what it reasoned is not on disk to show. The
+ * duration rail is the honest substitute — it says a turn took a while without
+ * pretending to know what was in it.
  */
 
 /** How much of the tail to read when the caller does not say. */
 export const DEFAULT_WINDOW = 256_000;
 /** The most any one request may read, so "load earlier" cannot ask for a GB. */
 export const MAX_WINDOW = 8_000_000;
+
+/** A queued prompt or an API error: enough to recognise, not to re-read. */
+const EVENT_TEXT_CHARS = 200;
 
 /** One block of a message's content array. */
 interface Block {
@@ -47,15 +63,34 @@ interface Block {
   is_error?: boolean;
 }
 
+/** One item of the checklist, as the `task_reminder` attachment carries it. */
+interface ReminderItem {
+  subject?: string;
+  status?: string;
+}
+
 /** One line of the transcript. Only the fields this file reads. */
 interface Entry {
   type?: string;
   uuid?: string;
   timestamp?: string;
   isSidechain?: boolean;
+  isMeta?: boolean;
+  isApiErrorMessage?: boolean;
   origin?: { kind?: string };
   message?: { role?: string; content?: unknown };
+  /** Entries the CLI writes beside the conversation rather than in it. */
+  attachment?: { type?: string; content?: unknown; prompt?: unknown };
+  permissionMode?: string;
+  prUrl?: string;
+  prNumber?: number;
+  subtype?: string;
+  durationMs?: number;
+  hookErrors?: unknown[];
 }
+
+/** What the CLI wrote when the person hit escape. */
+const INTERRUPTED = "[Request interrupted by user]";
 
 /**
  * The last `bytes` of a file, from the first line boundary inside the window.
@@ -97,6 +132,26 @@ function textOf(blocks: Block[]): string {
     .join("\n\n");
 }
 
+function trim(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/** A duration the way the CLI says it: "3.2s", "1m 21s". */
+function saidDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+/** The name and arguments of a slash command, out of the scaffolding around it. */
+function slashCommand(text: string): string | null {
+  const name = /<command-name>([^<]*)<\/command-name>/.exec(text)?.[1]?.trim();
+  if (!name) return null;
+  const args = /<command-args>([^<]*)<\/command-args>/.exec(text)?.[1]?.trim();
+  return args ? `${name} ${args}` : name;
+}
+
 /**
  * Turn a run of transcript lines into turns.
  *
@@ -109,6 +164,8 @@ function textOf(blocks: Block[]): string {
 export function parseTranscript(text: string): {
   messages: ChatMessage[];
   pending: ChatToolCall[];
+  todos: ChatTodo[];
+  permissionMode: string;
 } {
   const messages: ChatMessage[] = [];
   let pending: ChatToolCall[] = [];
@@ -116,6 +173,45 @@ export function parseTranscript(text: string): {
   // its result has long since been seen, and keeping every id would grow with
   // the conversation for nothing.
   let byToolId = new Map<string, ChatToolCall>();
+  let todos: ChatTodo[] = [];
+  let permissionMode = "";
+  // The CLI re-states the pull request on every turn once there is one, so a
+  // window of any length carries the same link dozens of times. Only the first
+  // sighting is news; the rest is the same fact restated.
+  const prsSeen = new Set<string>();
+
+  /**
+   * Where a rail hangs.
+   *
+   * `permission-mode` and `pr-link` are written with no uuid at all, and the
+   * client accumulates by id while the server filters by timestamp — so a rail
+   * borrows both from the last entry that had them, plus its position after
+   * that entry. Stable across polls and across a widened window, because the
+   * anchor is the transcript's own uuid rather than anything counted here.
+   */
+  let anchorId = "";
+  let anchorAt = "";
+  let anchorSeq = 0;
+
+  function rail(event: ChatEventKind, said: string, at?: string, href?: string): void {
+    messages.push({
+      id: `${anchorId}:e${++anchorSeq}`,
+      role: "event",
+      text: said,
+      tools: [],
+      at: at || anchorAt,
+      event,
+      ...(href ? { href } : {}),
+    });
+  }
+
+  /** Whatever it was doing belongs before what interrupted it, not after. */
+  function flushTools(id: string, at: string): void {
+    if (!pending.length) return;
+    messages.push({ id: `${id}:tools`, role: "assistant", text: "", tools: pending, at });
+    pending = [];
+    byToolId = new Map();
+  }
 
   for (const line of text.split("\n")) {
     if (!line.startsWith("{")) continue;
@@ -126,35 +222,53 @@ export function parseTranscript(text: string): {
       // One torn line costs one turn, never the rest of the window.
       continue;
     }
-    // A subagent's turns, in the same file as the agent that spawned it.
+    // A subagent's turns. The current CLI writes these to their own file beside
+    // the conversation; older transcripts interleave them here, where rendered
+    // in line they read as the agent suddenly talking to itself.
     if (entry.isSidechain) continue;
     const content = entry.message?.content;
     const at = entry.timestamp ?? "";
     const id = entry.uuid ?? "";
+    if (id) {
+      anchorId = id;
+      anchorAt = at || anchorAt;
+      anchorSeq = 0;
+    }
 
     if (entry.type === "user") {
-      // The person at the keyboard: tagged by the record, and always a plain
-      // string. A tool result wears the same role with structured content, and
-      // this is the check that tells them apart (see transcripts.ts).
-      if (entry.origin?.kind === "human" && typeof content === "string") {
-        const text = content.trim();
-        if (!text) continue;
-        // Whatever it was doing when the user cut in belongs before them, not
-        // attached to whatever it says next.
-        if (pending.length) {
-          messages.push({ id: `${id}:tools`, role: "assistant", text: "", tools: pending, at });
-          pending = [];
-          byToolId = new Map();
+      if (typeof content === "string") {
+        const said = content.trim();
+        // Scaffolding the CLI writes as though the person had typed it: system
+        // reminders, the caveat on a local command, the note left where an
+        // image was. All of it is tagged, and none of it is words.
+        if (!said || entry.isMeta) continue;
+        // `origin` separates the person from a notification wearing their role.
+        // Absent entirely on older entries, which are the person by default.
+        if (entry.origin?.kind && entry.origin.kind !== "human") continue;
+        // A slash command arrives as its own XML rather than as the line that
+        // was typed. It is worth a rail — "/clear happened here" — and it is
+        // emphatically not worth a user bubble full of tags.
+        if (said.startsWith("<")) {
+          const command = slashCommand(said);
+          if (command) rail("command", command, at);
+          continue;
         }
-        messages.push({ id, role: "user", text, tools: [], at });
+        flushTools(id, at);
+        messages.push({ id, role: "user", text: said, tools: [], at });
         continue;
       }
-      // A result. The output is dropped; only a failure marks its chip.
       if (Array.isArray(content)) {
-        for (const b of content as Block[]) {
+        const blocks = content as Block[];
+        // A result. The output is dropped; only a failure marks its chip, and
+        // the rest is fetched by id if anybody wants to read it.
+        for (const b of blocks) {
           if (b?.type !== "tool_result" || !b.is_error) continue;
           const chip = byToolId.get(b.tool_use_id ?? "");
           if (chip) chip.failed = true;
+        }
+        if (blocks.some((b) => b?.type === "text" && b.text?.includes(INTERRUPTED))) {
+          flushTools(id, at);
+          rail("interrupted", "you interrupted it", at);
         }
       }
       continue;
@@ -162,23 +276,84 @@ export function parseTranscript(text: string): {
 
     if (entry.type === "assistant" && Array.isArray(content)) {
       const blocks = content as Block[];
-      const text = textOf(blocks);
+      const said = textOf(blocks);
+      // A turn the API failed rather than one the agent wrote.
+      if (entry.isApiErrorMessage) {
+        if (said) rail("error", trim(said, EVENT_TEXT_CHARS), at);
+        continue;
+      }
       // Text first, then this message's own calls: the sentence was written
       // before the call it leads into, so the call belongs to the next turn.
-      if (text) {
-        messages.push({ id, role: "assistant", text, tools: pending, at });
+      if (said) {
+        messages.push({ id, role: "assistant", text: said, tools: pending, at });
         pending = [];
         byToolId = new Map();
       }
       for (const b of blocks) {
         if (b.type !== "tool_use" || typeof b.name !== "string") continue;
-        const chip: ChatToolCall = { name: b.name, detail: toolDetail(b.input) };
+        const chip: ChatToolCall = { id: b.id ?? "", name: b.name, detail: toolDetail(b.input) };
         pending.push(chip);
         if (b.id) byToolId.set(b.id, chip);
       }
+      continue;
+    }
+
+    if (entry.type === "attachment") {
+      const kind = entry.attachment?.type;
+      if (kind === "task_reminder") {
+        // The whole list, every time — so the newest one in the window is the
+        // checklist, and nothing has to be reconstructed from the calls that
+        // built it.
+        const items = entry.attachment?.content;
+        todos = Array.isArray(items)
+          ? (items as ReminderItem[])
+              .filter((i) => typeof i?.subject === "string")
+              .map((i) => ({
+                subject: i.subject!,
+                status:
+                  i.status === "in_progress" || i.status === "completed" ? i.status : "pending",
+              }))
+          : [];
+      } else if (kind === "queued_command" && typeof entry.attachment?.prompt === "string") {
+        // Typed while it was busy: it happened here, and it will be taken later.
+        const said = entry.attachment.prompt.trim();
+        if (said) {
+          flushTools(id, at);
+          rail("queued", trim(said, EVENT_TEXT_CHARS), at);
+        }
+      }
+      continue;
+    }
+
+    if (entry.type === "pr-link" && typeof entry.prUrl === "string") {
+      if (!prsSeen.has(entry.prUrl)) {
+        prsSeen.add(entry.prUrl);
+        rail("pr", entry.prNumber ? `#${entry.prNumber}` : "pull request", at, entry.prUrl);
+      }
+      continue;
+    }
+
+    if (entry.type === "permission-mode" && typeof entry.permissionMode === "string") {
+      const mode = entry.permissionMode;
+      if (!mode || mode === permissionMode) continue;
+      // The first value a window sees is the mode it was already in, not a
+      // change somebody made — a rail for it would be a lie on every reconnect
+      // and on every widening of the window.
+      if (permissionMode) rail("mode", `${mode} mode`, at);
+      permissionMode = mode;
+      continue;
+    }
+
+    if (entry.type === "system") {
+      if (entry.subtype === "turn_duration" && typeof entry.durationMs === "number") {
+        rail("duration", saidDuration(entry.durationMs), at);
+      } else if (entry.subtype === "stop_hook_summary" && entry.hookErrors?.length) {
+        rail("hook", "a stop hook reported an error", at);
+      }
+      continue;
     }
   }
-  return { messages, pending };
+  return { messages, pending, todos, permissionMode };
 }
 
 /**
@@ -193,7 +368,14 @@ export async function readChat(
   conversationId: string | null,
   opts: { bytes?: number; since?: string } = {},
 ): Promise<SessionChat> {
-  const empty: SessionChat = { conversationId, messages: [], pending: [], truncated: false };
+  const empty: SessionChat = {
+    conversationId,
+    messages: [],
+    pending: [],
+    truncated: false,
+    todos: [],
+    permissionMode: "",
+  };
   if (!file) return empty;
   let window: { text: string; truncated: boolean };
   try {
@@ -201,7 +383,7 @@ export async function readChat(
   } catch {
     return empty;
   }
-  const { messages, pending } = parseTranscript(window.text);
+  const { messages, pending, todos, permissionMode } = parseTranscript(window.text);
   return {
     conversationId,
     // Everything the caller has not got. A poll that finds nothing new is then
@@ -216,5 +398,10 @@ export async function readChat(
     messages: opts.since ? messages.filter((m) => m.at >= opts.since!) : messages,
     pending,
     truncated: window.truncated,
+    // State, not a delta: both are what the window last saw, so neither is
+    // filtered by `since`. A client that has caught up still needs to know what
+    // the checklist says and which mode it is in.
+    todos,
+    permissionMode,
   };
 }

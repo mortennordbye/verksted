@@ -8,14 +8,22 @@ import type { SessionChat } from "../../shared/api.js";
 /**
  * Reading a session back as a conversation.
  *
- * Two things are worth pinning here. The first is what never comes out: tool
- * results, thinking, and a subagent's turns are the bulk of a transcript and
- * the reason a terminal is hard to read — if any of them start appearing, the
- * chat view has become the thing it replaced.
+ * Three things are worth pinning here. The first is what never rides the poll:
+ * a tool's output is the bulk of a transcript and the reason a terminal is hard
+ * to read, so the chip carries an id and the output is fetched only if somebody
+ * asks for it. If output starts arriving here, the chat view has become the
+ * thing it replaced.
  *
- * The second is the tail window. It is what keeps this cheap on a five-megabyte
+ * The second is that the CLI writes a great deal beside the conversation, and
+ * most of it is bookkeeping. What earns a rail is what a person would go
+ * looking for later — a mode change, a slash command, a PR, an interruption —
+ * and everything else is dropped, including entry types that do not exist yet.
+ *
+ * The third is the tail window. It is what keeps this cheap on a five-megabyte
  * transcript, and it necessarily starts mid-line, so the torn first line has to
- * be dropped rather than parsed.
+ * be dropped rather than parsed. Its awkward corner is the entries the CLI
+ * writes with no uuid and no timestamp at all: they have to borrow both, and
+ * borrow the same ones every time the window moves.
  */
 
 let chat: typeof import("../src/chat.js");
@@ -74,6 +82,20 @@ function result(id: string, content: string, isError = false): string {
       role: "user",
       content: [{ type: "tool_result", tool_use_id: id, content, is_error: isError }],
     },
+  });
+}
+
+/** An entry the CLI writes with no uuid and no timestamp of its own. */
+function bare(type: string, fields: Record<string, unknown> = {}): string {
+  return JSON.stringify({ type, ...fields });
+}
+
+function attach(type: string, body: Record<string, unknown>): string {
+  return JSON.stringify({
+    type: "attachment",
+    uuid: `at${++uuids}`,
+    timestamp: stamp(),
+    attachment: { type, ...body },
   });
 }
 
@@ -155,7 +177,7 @@ describe("parseTranscript", () => {
     );
     const reply = messages.at(-1)!;
     expect(reply.text).toBe("All green.");
-    expect(reply.tools).toEqual([{ name: "Bash", detail: "make test" }]);
+    expect(reply.tools).toEqual([{ id: "t1", name: "Bash", detail: "make test" }]);
     // The whole reason this view exists: the 50kB of output is not in it.
     expect(JSON.stringify(messages)).not.toContain("aaaa");
   });
@@ -171,12 +193,15 @@ describe("parseTranscript", () => {
       ].join("\n"),
     );
     expect(messages.at(-1)!.tools).toEqual([
-      { name: "Bash", detail: "make lint", failed: true },
-      { name: "Read", detail: "/tmp/x" },
+      { id: "t1", name: "Bash", detail: "make lint", failed: true },
+      { id: "t2", name: "Read", detail: "/tmp/x" },
     ]);
   });
 
-  it("leaves out thinking", () => {
+  // The CLI writes a thinking block with an empty body and a signature, so
+  // there is nothing to show even if we wanted to. This pins that we do not
+  // invent a turn out of one.
+  it("leaves out thinking, which is not written down anyway", () => {
     const thinks = JSON.stringify({
       type: "assistant",
       uuid: "th1",
@@ -210,7 +235,7 @@ describe("parseTranscript", () => {
       ),
     );
     expect(messages.at(-1)!.text).toBe("Looking.");
-    expect(pending).toEqual([{ name: "Edit", detail: "src/a.ts" }]);
+    expect(pending).toEqual([{ id: "t1", name: "Edit", detail: "src/a.ts" }]);
   });
 
   it("puts what it was doing before the person who interrupted it", () => {
@@ -237,6 +262,187 @@ describe("parseTranscript", () => {
     expect(messages.at(-1)!.tools).toEqual([]);
     expect(pending).toEqual([]);
   });
+
+  // The regression that would ruin the view: a slash command arrives wearing
+  // the person's role, and rendered as one it is a bubble full of XML.
+  it("draws a slash command as a rail, never as something the person said", () => {
+    const slash = JSON.stringify({
+      type: "user",
+      uuid: "c1",
+      timestamp: stamp(),
+      message: {
+        role: "user",
+        content:
+          "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>",
+      },
+    });
+    const { messages } = chat.parseTranscript([slash, says("Cleared.")].join("\n"));
+    expect(messages.map((m) => [m.role, m.event ?? "", m.text])).toEqual([
+      ["event", "command", "/clear"],
+      ["assistant", "", "Cleared."],
+    ]);
+    expect(JSON.stringify(messages)).not.toContain("command-name");
+  });
+
+  it("still reads a typed turn that carries no origin at all", () => {
+    const old = JSON.stringify({
+      type: "user",
+      uuid: "o1",
+      timestamp: stamp(),
+      message: { role: "user", content: "call repo_status and say one word" },
+    });
+    const { messages } = chat.parseTranscript([old].join("\n"));
+    expect(messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "call repo_status and say one word"],
+    ]);
+  });
+
+  it("drops the scaffolding that wears the person's role", () => {
+    const meta = JSON.stringify({
+      type: "user",
+      uuid: "m1",
+      timestamp: stamp(),
+      isMeta: true,
+      message: { role: "user", content: "Caveat: the messages below were generated" },
+    });
+    const notification = JSON.stringify({
+      type: "user",
+      uuid: "n1",
+      timestamp: stamp(),
+      origin: { kind: "task-notification" },
+      message: { role: "user", content: "an agent finished" },
+    });
+    const { messages } = chat.parseTranscript([meta, notification, says("ok")].join("\n"));
+    expect(messages.map((m) => m.text)).toEqual(["ok"]);
+  });
+
+  it("rails a mode change, but not the mode it was already in", () => {
+    const { messages, permissionMode } = chat.parseTranscript(
+      [
+        human("go"),
+        bare("permission-mode", { permissionMode: "default" }),
+        bare("permission-mode", { permissionMode: "default" }),
+        bare("permission-mode", { permissionMode: "auto" }),
+        says("done"),
+      ].join("\n"),
+    );
+    // The first value seen is the state, not a change somebody made — railing it
+    // would be a lie on every reconnect and every widening of the window.
+    expect(messages.filter((m) => m.event === "mode").map((m) => m.text)).toEqual(["auto mode"]);
+    expect(permissionMode).toBe("auto");
+  });
+
+  it("gives a uuid-less entry an id that does not move between polls", () => {
+    const lines = [
+      human("ship it"),
+      bare("permission-mode", { permissionMode: "default" }),
+      bare("permission-mode", { permissionMode: "auto" }),
+      bare("pr-link", { prUrl: "https://example.test/pull/7", prNumber: 7, timestamp: stamp() }),
+    ].join("\n");
+    const first = chat.parseTranscript(lines).messages.map((m) => m.id);
+    const again = chat.parseTranscript(lines).messages.map((m) => m.id);
+    expect(again).toEqual(first);
+    // Borrowed from the entry before it, so `since` can still reach it.
+    const rails = chat.parseTranscript(lines).messages.filter((m) => m.role === "event");
+    expect(rails.every((m) => m.at)).toBe(true);
+    expect(rails.map((m) => m.event)).toEqual(["mode", "pr"]);
+    expect(rails.at(-1)!.href).toBe("https://example.test/pull/7");
+    expect(rails.at(-1)!.text).toBe("#7");
+  });
+
+  it("rails a pull request once, however often the CLI restates it", () => {
+    const link = (n: number) =>
+      bare("pr-link", { prUrl: `https://example.test/pull/${n}`, prNumber: n, timestamp: stamp() });
+    const { messages } = chat.parseTranscript(
+      [human("open it"), link(66), link(66), link(66), link(67)].join("\n"),
+    );
+    expect(messages.filter((m) => m.event === "pr").map((m) => m.text)).toEqual(["#66", "#67"]);
+  });
+
+  it("takes the checklist as state, whole, from the newest one it saw", () => {
+    const { todos } = chat.parseTranscript(
+      [
+        attach("task_reminder", { content: [{ subject: "first", status: "completed" }] }),
+        attach("task_reminder", {
+          content: [
+            { subject: "wire the parser", status: "completed" },
+            { subject: "draw the rails", status: "in_progress" },
+            { subject: "write it up", status: "pending" },
+          ],
+        }),
+      ].join("\n"),
+    );
+    expect(todos).toEqual([
+      { subject: "wire the parser", status: "completed" },
+      { subject: "draw the rails", status: "in_progress" },
+      { subject: "write it up", status: "pending" },
+    ]);
+  });
+
+  it("rails a prompt typed while it was busy, and an interruption", () => {
+    const interrupted = JSON.stringify({
+      type: "user",
+      uuid: "i1",
+      timestamp: stamp(),
+      message: {
+        role: "user",
+        content: [{ type: "text", text: "[Request interrupted by user]" }],
+      },
+    });
+    const { messages } = chat.parseTranscript(
+      [
+        calls("Bash", { command: "sleep 300" }, "t1"),
+        attach("queued_command", { prompt: "actually, stop" }),
+        interrupted,
+      ].join("\n"),
+    );
+    expect(messages.filter((m) => m.role === "event").map((m) => [m.event, m.text])).toEqual([
+      ["queued", "actually, stop"],
+      ["interrupted", "you interrupted it"],
+    ]);
+    // What it was doing still belongs before the thing that stopped it.
+    expect(messages[0].tools).toHaveLength(1);
+  });
+
+  it("says how long a turn took, and reports a hook that failed", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        says("done"),
+        JSON.stringify({
+          type: "system",
+          uuid: "s1",
+          timestamp: stamp(),
+          subtype: "turn_duration",
+          durationMs: 81_000,
+        }),
+        JSON.stringify({
+          type: "system",
+          uuid: "s2",
+          timestamp: stamp(),
+          subtype: "stop_hook_summary",
+          hookErrors: ["boom"],
+        }),
+      ].join("\n"),
+    );
+    expect(messages.filter((m) => m.role === "event").map((m) => [m.event, m.text])).toEqual([
+      ["duration", "1m 21s"],
+      ["hook", "a stop hook reported an error"],
+    ]);
+  });
+
+  it("ignores an entry type it has never heard of, and the noise it knows", () => {
+    const { messages } = chat.parseTranscript(
+      [
+        bare("atis-latch", { whatever: true }),
+        bare("ai-title", { aiTitle: "a title" }),
+        bare("last-prompt", { lastPrompt: "a prompt" }),
+        bare("mode", { mode: "normal" }),
+        attach("total_tokens_reminder", { content: "you have used 40k tokens" }),
+        says("still here"),
+      ].join("\n"),
+    );
+    expect(messages.map((m) => m.text)).toEqual(["still here"]);
+  });
 });
 
 describe("readChat", () => {
@@ -246,6 +452,8 @@ describe("readChat", () => {
       messages: [],
       pending: [],
       truncated: false,
+      todos: [],
+      permissionMode: "",
     });
   });
 
@@ -310,6 +518,8 @@ describe("GET /api/sessions/:id/chat", () => {
       messages: [],
       pending: [],
       truncated: false,
+      todos: [],
+      permissionMode: "",
     });
   });
 

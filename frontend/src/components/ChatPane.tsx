@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
-import type { ChatMessage, ChatToolCall, Session, SessionChat } from "../../../shared/api";
+import type {
+  ChatMessage,
+  ChatTodo,
+  ChatToolCall,
+  Session,
+  SessionChat,
+} from "../../../shared/api";
 import { api } from "../api";
 
 /**
@@ -72,7 +78,90 @@ const MD: Components = {
   ),
 };
 
+/**
+ * Something that happened to the session rather than in the conversation.
+ *
+ * One centred line between two hairlines, deliberately the quietest thing on
+ * screen: a rail is there to be found when you go looking for when a mode
+ * changed or which PR this was, not to be read on the way past.
+ */
+function Rail({ message }: { message: ChatMessage }) {
+  const tone =
+    message.event === "error" || message.event === "hook"
+      ? "text-fail"
+      : message.event === "interrupted"
+        ? "text-wait"
+        : "text-faint";
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="h-px flex-1 bg-line" />
+      <span className={`flex-none font-mono text-[11px] ${tone}`}>
+        {message.event === "pr" && message.href ? (
+          <a href={message.href} target="_blank" rel="noreferrer" className="text-accent underline">
+            {message.text}
+          </a>
+        ) : (
+          message.text
+        )}
+      </span>
+      <span className="h-px flex-1 bg-line" />
+    </div>
+  );
+}
+
+/**
+ * The agent's own checklist, pinned rather than in the flow.
+ *
+ * It is state, not something that was said: drawn where it was written it would
+ * sit at whatever point in history the agent last touched it, which is never
+ * where you are looking.
+ */
+function Todos({ todos, mode }: { todos: ChatTodo[]; mode: string }) {
+  const [open, setOpen] = useState(false);
+  const done = todos.filter((t) => t.status === "completed").length;
+  if (!todos.length && !mode) return null;
+  return (
+    <div className="flex-none border-b border-line bg-surface-2/40 px-3.5 py-1.5">
+      <div className="flex items-center gap-2 font-mono text-[11px] text-muted">
+        {mode && <span className="rounded-full border border-line px-2 py-0.5">{mode}</span>}
+        {todos.length > 0 && (
+          <button
+            onClick={() => setOpen((o) => !o)}
+            aria-expanded={open}
+            className="tap flex items-center gap-1.5 hover:text-text"
+          >
+            <span>{open ? "▾" : "▸"}</span>
+            <span>
+              todos {done}/{todos.length}
+            </span>
+          </button>
+        )}
+      </div>
+      {open && (
+        <ul className="mt-1.5 flex flex-col gap-1">
+          {todos.map((t, i) => (
+            <li
+              key={i}
+              className={`flex gap-2 text-[12px] ${
+                t.status === "completed" ? "text-faint line-through" : "text-muted"
+              }`}
+            >
+              <span className="flex-none font-mono">
+                {t.status === "completed" ? "✓" : t.status === "in_progress" ? "▸" : "·"}
+              </span>
+              <span className="min-w-0">{t.subject}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Turn({ message }: { message: ChatMessage }) {
+  if (message.role === "event") {
+    return <Rail message={message} />;
+  }
   if (message.role === "user") {
     return (
       <div className="flex justify-end">
@@ -116,6 +205,8 @@ export default function ChatPane({ session }: { session: Session }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState<ChatToolCall[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [todos, setTodos] = useState<ChatTodo[]>([]);
+  const [mode, setMode] = useState("");
   const [bytes, setBytes] = useState(WINDOW);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -142,6 +233,8 @@ export default function ChatPane({ session }: { session: Session }) {
     let conversation: string | null = null;
     setMessages([]);
     setPending([]);
+    setTodos([]);
+    setMode("");
     setLoading(true);
 
     async function tick() {
@@ -169,6 +262,10 @@ export default function ChatPane({ session }: { session: Session }) {
       conversation = chat.conversationId;
       setTruncated(chat.truncated);
       setPending(chat.pending);
+      // Replaced rather than appended: both are what the window last saw, so
+      // they arrive on every poll including the ones that carry no new turns.
+      setTodos(chat.todos);
+      setMode(chat.permissionMode);
       if (chat.messages.length) {
         since = chat.messages.at(-1)!.at || since;
         setMessages((prev) => {
@@ -226,6 +323,7 @@ export default function ChatPane({ session }: { session: Session }) {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface">
+      <Todos todos={todos} mode={mode} />
       <div
         ref={scroller}
         onScroll={(e) => {

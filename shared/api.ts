@@ -154,6 +154,13 @@ export interface SessionCapture {
 
 /** One thing the agent did, shown as a chip rather than its output. */
 export interface ChatToolCall {
+  /**
+   * The transcript's own tool_use id. The chip is an address, not a summary:
+   * everything worth reading about the call — the whole command, what came
+   * back, the diff it made — is fetched against this when somebody taps it,
+   * and so never rides the poll.
+   */
+  id: string;
   name: string;
   /** The one argument worth reading: a command, a path, a pattern. */
   detail: string;
@@ -161,15 +168,48 @@ export interface ChatToolCall {
   failed?: boolean;
 }
 
+/**
+ * Something that happened to the session that is not a turn, drawn as a thin
+ * centred rail.
+ *
+ * Everything here is one line by construction: a rail that needs a paragraph is
+ * a turn, and a rail nobody reads is noise.
+ */
+export type ChatEventKind =
+  | "command" /** a slash command the person ran */
+  | "mode" /** the permission mode changed */
+  | "pr" /** a pull request this session opened */
+  | "queued" /** a prompt typed while it was busy */
+  | "interrupted" /** esc */
+  | "error" /** an API error recorded against a turn */
+  | "duration" /** how long a turn took */
+  | "hook"; /** a stop hook that had something to say */
+
 /** One turn of a session, read back out of the agent's own transcript. */
 export interface ChatMessage {
-  /** The transcript's uuid for the entry, stable across polls. */
+  /**
+   * The transcript's uuid for the entry, stable across polls. The entries the
+   * CLI writes without one — a mode switch, a pull request link — borrow the
+   * uuid of the entry they follow and add their position after it, which is
+   * stable for the same reason.
+   */
   id: string;
-  role: "user" | "assistant";
+  /** "event" is not a turn: a mode switch, a slash command, an interruption. */
+  role: "user" | "assistant" | "event";
   text: string;
-  /** What it did on the way to saying this. Empty for user turns. */
+  /** What it did on the way to saying this. Empty for user and event rows. */
   tools: ChatToolCall[];
   at: string;
+  /** role "event": which rail to draw. */
+  event?: ChatEventKind;
+  /** role "event", kind "pr": where it points. */
+  href?: string;
+}
+
+/** One item of the agent's own checklist, as the CLI shows on ctrl+t. */
+export interface ChatTodo {
+  subject: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 /**
@@ -186,6 +226,16 @@ export interface SessionChat {
   pending: ChatToolCall[];
   /** The window did not reach the start of the conversation. */
   truncated: boolean;
+  /**
+   * The checklist as the window last saw it.
+   *
+   * State rather than a delta, so it is re-sent every poll — a handful of
+   * subjects is a couple of hundred bytes, and a delta protocol for a list that
+   * is replaced wholesale is not worth the bug.
+   */
+  todos: ChatTodo[];
+  /** The permission mode it is in; "" when it never said. */
+  permissionMode: string;
 }
 
 export interface TreeNode {
