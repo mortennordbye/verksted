@@ -85,7 +85,7 @@ export default function TopBar({ crumb, back }: { crumb?: Crumb[]; back?: string
           // then went forward into the screen you had just left.
           onClick={() => (history.length > 1 ? navigate(-1) : navigate(back))}
           aria-label="back"
-          className="flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+          className="tap-sq flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
         >
           ←
         </button>

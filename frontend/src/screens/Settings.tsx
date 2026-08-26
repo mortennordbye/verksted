@@ -112,7 +112,7 @@ export default function Settings() {
               {drafts[v.key]?.trim() && (
                 <button
                   onClick={() => saveDraft(v.key)}
-                  className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
                 >
                   save
                 </button>
@@ -121,7 +121,7 @@ export default function Settings() {
                 <button
                   onClick={() => save({ [v.key]: null })}
                   title="remove the stored value"
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait"
                 >
                   clear
                 </button>
@@ -147,7 +147,7 @@ export default function Settings() {
             <button
               onClick={addVar}
               disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add
             </button>
@@ -298,14 +298,14 @@ function Notifications() {
             <button
               onClick={test}
               disabled={busy}
-              className="ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+              className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
             >
               send test
             </button>
             <button
               onClick={disable}
               disabled={busy}
-              className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               turn off
             </button>
@@ -315,7 +315,7 @@ function Notifications() {
           <button
             onClick={enable}
             disabled={busy}
-            className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "enabling…" : "enable"}
           </button>
@@ -454,7 +454,7 @@ function Backups() {
         <button
           onClick={backUpNow}
           disabled={running}
-          className="ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {running ? "backing up…" : "back up"}
         </button>
@@ -507,7 +507,7 @@ function AppReset() {
         <button
           onClick={hardReset}
           disabled={busy}
-          className="ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
         >
           {busy ? "resetting…" : "clear cache and reload"}
         </button>
@@ -537,7 +537,7 @@ function CopyButton({ text }: { text: string }) {
         setTimeout(() => setState("idle"), 1500);
       }}
       title="copy public key"
-      className={`rounded-[7px] border px-2.5 py-1.5 font-mono text-[12px] ${
+      className={`tap rounded-[7px] border px-2.5 py-1.5 font-mono text-[12px] ${
         state === "fail"
           ? "border-fail/50 text-fail"
           : state === "ok"
@@ -623,14 +623,14 @@ function SshKeys() {
               <span className="ml-auto flex gap-2">
                 <button
                   onClick={() => setShown(shown === k.name ? null : k.name)}
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
                 >
                   {shown === k.name ? "hide" : "public key"}
                 </button>
                 <button
                   onClick={() => remove(k)}
                   disabled={busy}
-                  className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
                 >
                   delete
                 </button>
@@ -663,7 +663,7 @@ function SshKeys() {
               disabled={busy || !name.trim()}
               title="generate an ed25519 keypair in the pod — the private key never leaves it"
               aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
-              className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
             </button>
@@ -681,7 +681,7 @@ function SshKeys() {
             <button
               onClick={add}
               disabled={busy || !name.trim()}
-              className="self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add key
             </button>

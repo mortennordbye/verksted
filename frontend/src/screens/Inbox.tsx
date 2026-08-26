@@ -148,14 +148,14 @@ export default function Inbox() {
                       <button
                         onClick={() => review(p.slug, true)}
                         disabled={busy !== null}
-                        className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                        className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                       >
                         keep
                       </button>
                       <button
                         onClick={() => review(p.slug, false)}
                         disabled={busy !== null}
-                        className="rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                        className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
                       >
                         drop
                       </button>

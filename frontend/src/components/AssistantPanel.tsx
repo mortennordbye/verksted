@@ -229,7 +229,7 @@ export default function AssistantPanel() {
           <button
             onClick={() => void save()}
             disabled={!draft}
-            className="rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             save
           </button>

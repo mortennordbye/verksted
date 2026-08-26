@@ -62,7 +62,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${addr.port}`;
 
   browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-  page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
 });
 
 afterAll(async () => {

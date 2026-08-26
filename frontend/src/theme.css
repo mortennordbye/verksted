@@ -260,6 +260,31 @@ textarea,
   }
 }
 
+/* The same 44px, for controls that must not be 44px tall. `tap` grows the box,
+   which is right for a button in a stacked list and wrong for an 11px pill
+   sitting in a row of its own: the row is `items-center`, so one chip opting in
+   stretched everything beside it, and a mode chip ended up owning 57px to show
+   18px of text. This reaches the finger without touching the layout.
+
+   It overhangs its neighbours by design, so mind the gap where these stack: the
+   band between two of them belongs to whichever comes later in the DOM. Keep
+   stacked lists at gap-2.5 or wider and the overlap stays inside the gap, where
+   both answers are harmless. */
+@media (pointer: coarse) {
+  .tap-hit {
+    position: relative;
+  }
+  .tap-hit::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    height: 44px;
+    transform: translateY(-50%);
+  }
+}
+
 /* From mock.html:32, never ported. Without it there is no keyboard focus
    indicator anywhere: Tab moves an invisible cursor around the app. */
 button:focus-visible,

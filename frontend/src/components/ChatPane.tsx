@@ -109,7 +109,7 @@ function Todos({
               onClick={onCycleMode}
               title="cycle permission mode (shift+tab)"
               aria-label={`permission mode: ${mode}. tap to cycle`}
-              className={`tap rounded-full border px-2 py-0.5 hover:brightness-125 ${tone}`}
+              className={`tap-hit rounded-full border px-2 py-0.5 hover:brightness-125 ${tone}`}
             >
               {mode}
             </button>
@@ -120,7 +120,7 @@ function Todos({
           <button
             onClick={() => setOpen((o) => !o)}
             aria-expanded={open}
-            className="tap flex items-center gap-1.5 hover:text-text"
+            className="tap-hit flex items-center gap-1.5 hover:text-text"
           >
             <span>{open ? "▾" : "▸"}</span>
             <span>
@@ -180,7 +180,7 @@ function Turn({
     return <PlanCard plan={message.plan} sessionId={sessionId} bytes={bytes} />;
   }
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2.5">
       {message.tools.map((t, i) => (
         <ToolChip key={t.id || i} tool={t} sessionId={sessionId} bytes={bytes} />
       ))}
