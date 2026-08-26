@@ -62,6 +62,11 @@ function useVisualViewport() {
     const apply = () => {
       root.style.setProperty("--vvh", `${vv.height}px`);
       root.style.setProperty("--vvt", `${vv.offsetTop}px`);
+      // The keyboard, as a boolean, for the `kbd` variant in theme.css. The
+      // layout viewport keeps its full height while the visual one shrinks, so
+      // the gap is the keyboard — 150px clears the browser's own toolbars,
+      // which are what account for the difference when no keyboard is up.
+      root.dataset.kbd = innerHeight - vv.height > 150 ? "1" : "";
     };
     apply();
     vv.addEventListener("resize", apply);
@@ -71,6 +76,7 @@ function useVisualViewport() {
       vv.removeEventListener("scroll", apply);
       root.style.removeProperty("--vvh");
       root.style.removeProperty("--vvt");
+      delete root.dataset.kbd;
     };
   }, []);
 }
@@ -426,7 +432,13 @@ export default function Session() {
           against the layout viewport, which is what makes the offset the whole
           correction. */}
       <div className="fixed inset-x-0 top-[var(--vvt,0px)] flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:static desk:h-auto desk:overflow-visible">
+        {/* Gone while the keyboard is up, on a phone only. It is 116px of pure
+            navigation that cannot be used mid-sentence, and on a 874px screen
+            with the keys open that is a quarter of everything left. Dismissing
+            the keyboard brings it straight back, so nothing is behind a
+            gesture nobody advertises. */}
         <TopBar
+          className="kbd:hidden kbd:desk:flex"
           back={session ? `/p/${session.project}` : "/"}
           crumb={
             session
@@ -436,7 +448,13 @@ export default function Session() {
         />
         {/* max-w to match the other screens: without it the kill and delete
             buttons sat a screen-width away from the title on an ultrawide. */}
-        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-2.5 pb-[max(10px,env(safe-area-inset-bottom))] desk:pt-[18px] desk:pb-6">
+        {/* No bottom padding on a phone: it was holding the pane box ~34px clear
+            of the screen edge for the home indicator, which is 34px of terminal
+            or conversation spent on a band that is already black. The inset
+            moves inside the box instead (see the pane box below), so the box's
+            own background bleeds under the indicator and the content stops
+            above it. */}
+        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-2.5 pb-0 desk:pt-[18px] desk:pb-6">
           {/* Phone folds this row into the pane strip below: four stacked bars
               before the first terminal row left the agent a fifth of the
               screen. The title lives in the top bar crumb there instead. */}
@@ -501,7 +519,7 @@ export default function Session() {
               directly above a terminal that also scrolls. One button that says
               what you are looking at, opening a list, costs one tap and hides
               nothing. */}
-          <div className="mb-2 flex flex-none items-center gap-1.5 desk:hidden">
+          <div className="mb-2 flex flex-none items-center gap-2.5 desk:hidden">
             <button
               onClick={() => setPicker(true)}
               aria-haspopup="dialog"
@@ -531,7 +549,11 @@ export default function Session() {
               <button
                 onClick={() => setMenu(true)}
                 aria-label="session actions"
-                className="ml-auto flex flex-none items-center gap-1"
+                // Bordered and 44px like everything beside it. It used to be a
+                // bare chip with a 13px ⋯ next to it, about 26px tall and 6px
+                // from the full-screen button — the way to delete a session,
+                // and it read as decoration wedged between two real controls.
+                className="tap ml-auto flex flex-none items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5"
               >
                 <StatusChip
                   kind={
@@ -543,13 +565,13 @@ export default function Session() {
                   }
                   label={live ? session.status : "done"}
                 />
-                <span className="font-mono text-[13px] text-muted">⋯</span>
+                <span className="font-mono text-[15px] leading-none text-muted">⋯</span>
               </button>
             )}
             <button
               onClick={() => setFull(true)}
               aria-label="full screen"
-              className={`${session ? "" : "ml-auto"} flex-none rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[12.5px] text-muted`}
+              className={`${session ? "" : "ml-auto"} tap-sq flex-none rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[12.5px] text-muted`}
             >
               ⛶
             </button>
@@ -684,8 +706,15 @@ export default function Session() {
                     // indicator included, so full screen has to inset itself —
                     // otherwise the pane strip lands under the status bar and
                     // the terminal's last row under the home indicator.
-                    "fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
-                  : `${pane === "term" ? "flex" : "hidden desk:flex"} min-h-0 flex-col overflow-hidden rounded-xl border border-line bg-term desk:h-[calc(var(--vvh,100dvh)-200px)] desk:min-h-[380px]`
+                    "fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:pt-0 kbd:pb-0"
+                  : // Square-bottomed and edge-to-edge on a phone, because it now
+                    // ends where the screen does; the home-indicator inset is
+                    // padding inside it, so its own background carries under the
+                    // indicator and its last line stops above it. `kbd:pb-0`
+                    // because that inset does not fall to zero when the keyboard
+                    // covers the indicator, and the band it reserves is the
+                    // conversation you are typing into.
+                    `${pane === "term" ? "flex" : "hidden desk:flex"} min-h-0 flex-col overflow-hidden rounded-t-xl border border-b-0 border-line bg-term pb-[env(safe-area-inset-bottom)] kbd:pb-0 desk:rounded-xl desk:border-b desk:pb-0 desk:h-[calc(var(--vvh,100dvh)-200px)] desk:min-h-[380px]`
               }
             >
               {/* On a phone the pane strip above the box carries these controls,
