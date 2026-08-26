@@ -141,6 +141,20 @@ export async function sendText(name: string, text: string, enter: boolean): Prom
   }
 }
 
+/**
+ * Press one named key, which `sendText` deliberately cannot.
+ *
+ * That function runs send-keys with "-l" so a message containing the word
+ * "Enter" is typed rather than pressed — which is the right default when what
+ * you have is a person's prose. This is the other half, for when what you have
+ * is a key. The caller's key name never comes out of a request: the route that
+ * uses this takes an enum, so the set of things that can be pressed is fixed
+ * here and at the schema rather than being whatever arrived.
+ */
+export async function sendKey(name: string, key: string): Promise<void> {
+  await exec("tmux", ["send-keys", "-t", `=${name}:`, key], { timeout: 5_000 });
+}
+
 /** The last `lines` rows of a pane, as plain text. */
 export async function capturePane(name: string, lines: number): Promise<string> {
   const { stdout } = await exec(

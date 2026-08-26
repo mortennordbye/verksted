@@ -154,6 +154,13 @@ export interface SessionCapture {
 
 /** One thing the agent did, shown as a chip rather than its output. */
 export interface ChatToolCall {
+  /**
+   * The transcript's own tool_use id. The chip is an address, not a summary:
+   * everything worth reading about the call — the whole command, what came
+   * back, the diff it made — is fetched against this when somebody taps it,
+   * and so never rides the poll.
+   */
+  id: string;
   name: string;
   /** The one argument worth reading: a command, a path, a pattern. */
   detail: string;
@@ -161,15 +168,195 @@ export interface ChatToolCall {
   failed?: boolean;
 }
 
+/**
+ * Something that happened to the session that is not a turn, drawn as a thin
+ * centred rail.
+ *
+ * Everything here is one line by construction: a rail that needs a paragraph is
+ * a turn, and a rail nobody reads is noise.
+ */
+export type ChatEventKind =
+  | "command" /** a slash command the person ran */
+  | "mode" /** the permission mode changed */
+  | "pr" /** a pull request this session opened */
+  | "queued" /** a prompt typed while it was busy */
+  | "interrupted" /** esc */
+  | "error" /** an API error recorded against a turn */
+  | "duration" /** how long a turn took */
+  | "hook"; /** a stop hook that had something to say */
+
 /** One turn of a session, read back out of the agent's own transcript. */
 export interface ChatMessage {
-  /** The transcript's uuid for the entry, stable across polls. */
+  /**
+   * The transcript's uuid for the entry, stable across polls. The entries the
+   * CLI writes without one — a mode switch, a pull request link — borrow the
+   * uuid of the entry they follow and add their position after it, which is
+   * stable for the same reason.
+   */
   id: string;
-  role: "user" | "assistant";
+  /** "event" is not a turn: a mode switch, a slash command, an interruption. */
+  role: "user" | "assistant" | "event";
   text: string;
-  /** What it did on the way to saying this. Empty for user turns. */
+  /** What it did on the way to saying this. Empty for user and event rows. */
   tools: ChatToolCall[];
   at: string;
+  /** role "event": which rail to draw. */
+  event?: ChatEventKind;
+  /** role "event", kind "pr": where it points. */
+  href?: string;
+  /** role "assistant": a question put to the person, in full. */
+  ask?: ChatAsk;
+  /** role "assistant": a plan put up for approval. */
+  plan?: ChatPlan;
+  /** Images this turn's calls read or produced. */
+  images?: ChatImage[];
+}
+
+/**
+ * An image the session read or produced. Its bytes are never in this object.
+ *
+ * Two ways to reach them, and the difference is worth the field. A file in the
+ * repo is already served by the route the file viewer uses, scoped the way
+ * every other file read is scoped — so `path` is set and nothing has to be
+ * decoded out of the transcript. Anything else, a browser screenshot most of
+ * all, exists only inside the transcript and comes from the chat's own route.
+ */
+export interface ChatImage {
+  /** The tool_use id whose result carries it. */
+  id: string;
+  /** Repo-relative when it is a file in this project; null otherwise. */
+  path: string | null;
+  mediaType: string;
+}
+
+/** One option of a question the agent put to the person. */
+export interface ChatQuestionOption {
+  label: string;
+  description: string;
+  /** A sketch of what choosing this would mean. Often absent. */
+  preview?: string;
+}
+
+export interface ChatQuestion {
+  /** The two or three words the CLI puts on the card's chip. */
+  header: string;
+  question: string;
+  multiSelect: boolean;
+  options: ChatQuestionOption[];
+  /** The labels chosen, once it was answered. Empty while it is still asking. */
+  chosen: string[];
+}
+
+/**
+ * A question the agent put to the person, as a card rather than a chip.
+ *
+ * The whole thing — every option, every description — is written to the
+ * transcript, so this is the one part of the CLI's own interface that can be
+ * rebuilt exactly rather than scraped, and it reads the same on a session that
+ * ended weeks ago as it did on the day.
+ */
+export interface ChatAsk {
+  /** The tool_use id: what an answer would be sent against. */
+  id: string;
+  questions: ChatQuestion[];
+  /** False while it is still waiting for somebody. */
+  answered: boolean;
+}
+
+/**
+ * A plan put up for approval.
+ *
+ * The markdown is thousands of words and does not travel with the poll: the
+ * card carries what it is called and how long it is, and asks for the rest when
+ * somebody opens it.
+ */
+export interface ChatPlan {
+  id: string;
+  /** Its first heading, or its first line when it has no heading. */
+  title: string;
+  chars: number;
+  /** Null while it is still up; true approved, false sent back for more work. */
+  approved: boolean | null;
+}
+
+/**
+ * One tool call opened up: fetched when somebody taps a chip, never polled.
+ *
+ * This is the other half of the bargain the chip makes. The poll stays flat
+ * whatever the session did — a chip for a test run that printed a megabyte
+ * costs the same as one for `ls` — and the megabyte only moves when a person
+ * asks to read it.
+ */
+export type ChatDetail =
+  | {
+      kind: "tool";
+      name: string;
+      /** The arguments: the one that matters verbatim, else the whole input. */
+      input: string;
+      /** What came back, capped. Empty for a call still in flight. */
+      output: string;
+      /**
+       * An edit as unified-diff lines, ready for `diffLineClass`. Empty for
+       * every other tool — a diff is the one output worth drawing rather than
+       * printing.
+       */
+      patch: string[];
+      failed: boolean;
+      /** Either half hit the cap; the rest is only readable in a terminal. */
+      truncated: boolean;
+    }
+  | { kind: "plan"; markdown: string }
+  | {
+      kind: "agent";
+      /** "Explore", "Plan", "general-purpose"… */
+      agentType: string;
+      description: string;
+      /** The subagent's own conversation, read exactly as this one is. */
+      messages: ChatMessage[];
+      /** Its transcript was longer than the window opened on it. */
+      truncated: boolean;
+    }
+  /** The reference is not in the window the caller asked about. */
+  | { kind: "none" };
+
+/**
+ * A numbered menu the CLI is drawing right now, scraped off the pane.
+ *
+ * The only part of this view that does not come from the transcript, because a
+ * permission dialog is drawn and never written down. See backend/src/tui-prompt.ts
+ * for why that is worth one exception and how the bet is hedged.
+ */
+export interface TuiPrompt {
+  question: string;
+  /**
+   * Several answers, ticked one at a time and then submitted together.
+   *
+   * The difference is not cosmetic: on a single-select the number *is* the
+   * answer and submits on its own, and on a multi-select it toggles a box and
+   * the dialog stays open. Sending the same keystroke to the wrong one either
+   * answers a question nobody finished or ticks a box nobody wanted.
+   */
+  multiSelect: boolean;
+  options: {
+    number: number;
+    label: string;
+    /** The cursor is on this one. */
+    selected: boolean;
+    /** Multi-select only: its box is ticked. */
+    checked?: boolean;
+  }[];
+}
+
+/** What a session is blocked on, if anything, as its terminal shows it. */
+export interface SessionPrompt {
+  /** Null when nothing parses — which includes "it simply finished its turn". */
+  prompt: TuiPrompt | null;
+}
+
+/** One item of the agent's own checklist, as the CLI shows on ctrl+t. */
+export interface ChatTodo {
+  subject: string;
+  status: "pending" | "in_progress" | "completed";
 }
 
 /**
@@ -186,6 +373,16 @@ export interface SessionChat {
   pending: ChatToolCall[];
   /** The window did not reach the start of the conversation. */
   truncated: boolean;
+  /**
+   * The checklist as the window last saw it.
+   *
+   * State rather than a delta, so it is re-sent every poll — a handful of
+   * subjects is a couple of hundred bytes, and a delta protocol for a list that
+   * is replaced wholesale is not worth the bug.
+   */
+  todos: ChatTodo[];
+  /** The permission mode it is in; "" when it never said. */
+  permissionMode: string;
 }
 
 export interface TreeNode {

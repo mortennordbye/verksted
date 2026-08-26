@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type {
   AgentName,
+  ChatDetail,
+  SessionPrompt,
   ReviewVerdict,
   SessionCapture,
   SessionChanges,
@@ -9,16 +11,42 @@ import type {
   SessionPatch,
   SessionReview,
 } from "../../../shared/api.js";
-import { DEFAULT_WINDOW, MAX_WINDOW, readChat } from "../chat.js";
+import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail, readImage } from "../chat.js";
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
-import { transcriptPath } from "../transcripts.js";
+import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
+import { parsePrompt } from "../tui-prompt.js";
 
 /** Same ceiling the project's file diff uses: enough for any one file, and a
  *  phone is not where a bigger one gets read. */
 const MAX_DIFF_BYTES = 512 * 1024;
+
+/** The keys a client may press, and what tmux calls them. */
+const KEYS = { escape: "Escape", right: "Right" } as const;
+
+/**
+ * Where a session's transcript is, if it has one.
+ *
+ * Three answers, and the difference matters at the route: `undefined` is a
+ * session that does not exist, `null` is one that has written nothing to read —
+ * an agent other than claude, or a session in its first seconds — and a string
+ * is a path derived from the conversation id the session itself recorded.
+ * Nothing a client sends takes part in building it.
+ */
+async function transcriptFor(id: string): Promise<string | null | undefined> {
+  const session = await store.getSession(id);
+  if (!session) return undefined;
+  const conversationId = await store.readConv(id);
+  if (!conversationId) return null;
+  try {
+    return transcriptPath(resolveInsideRepos(session.project), conversationId);
+  } catch {
+    // The project has been deleted; there is no cwd to derive a path from.
+    return null;
+  }
+}
 
 export default async function sessionRoutes(app: FastifyInstance) {
   // Every session across every project. The store already took an optional
@@ -116,17 +144,27 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * socket carries arbitrary keystrokes to the same pane — so the guard is the
    * same one, the Origin check in app.ts.
    */
-  app.post<{ Params: { id: string }; Body: { text: string; enter?: boolean } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { text?: string; enter?: boolean; key?: "escape" | "right" };
+  }>(
     "/api/sessions/:id/input",
     {
       schema: {
         body: {
           type: "object",
-          required: ["text"],
           additionalProperties: false,
+          // One or the other. Text is typed literally, which is why a key needs
+          // its own field rather than being spelled inside a message.
+          anyOf: [{ required: ["text"] }, { required: ["key"] }],
           properties: {
             text: { type: "string", maxLength: 10_000 },
             enter: { type: "boolean", default: true },
+            // A closed set, so no tmux key name can arrive from a client.
+            // Escape interrupts a working agent and backs out of a dialog;
+            // right is how a question with several answers moves on from
+            // ticking boxes to the screen that submits them.
+            key: { enum: ["escape", "right"] },
           },
         },
       },
@@ -138,7 +176,11 @@ export default async function sessionRoutes(app: FastifyInstance) {
         return reply.code(409).send({ error: "session has ended" });
       }
       try {
-        await tmux.sendText(req.params.id, req.body.text, req.body.enter !== false);
+        if (req.body.key) {
+          await tmux.sendKey(req.params.id, KEYS[req.body.key]);
+        } else {
+          await tmux.sendText(req.params.id, req.body.text ?? "", req.body.enter !== false);
+        }
       } catch (err) {
         req.log.error(err, "send-keys failed");
         return reply.code(502).send({ error: "could not reach the session" });
@@ -182,6 +224,87 @@ export default async function sessionRoutes(app: FastifyInstance) {
   );
 
   /**
+   * What the session is blocked on, as its terminal is drawing it.
+   *
+   * Deliberately not part of `/chat`. That endpoint is a file read and cannot
+   * drift from what happened; this one scrapes a pane, which is a different
+   * kind of answer with a different shelf life, and mixing them would make the
+   * whole conversation only as trustworthy as the scrape.
+   *
+   * It is also why this is polled separately and only when there is reason to
+   * think somebody is being asked something. Null is not an error — it is the
+   * common case, and it is what a session that simply finished its turn says.
+   */
+  app.get<{ Params: { id: string } }>(
+    "/api/sessions/:id/prompt",
+    async (req, reply): Promise<SessionPrompt | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      if (session.status === "done") return { prompt: null };
+      try {
+        return { prompt: parsePrompt(await tmux.capturePane(req.params.id, 40)) };
+      } catch (err) {
+        // A pane that cannot be read is not a pane that is asking anything.
+        req.log.error(err, "capture-pane failed");
+        return { prompt: null };
+      }
+    },
+  );
+
+  /**
+   * The bytes of one image a session produced.
+   *
+   * Only for the images that exist nowhere but the transcript — a browser
+   * screenshot, or a file read from outside the project. Anything the agent
+   * read out of the repo carries a path instead, and the file viewer's own
+   * route serves it, already scoped and already cached.
+   *
+   * The client names a transcript key and a nothing else: there is no path here
+   * for it to traverse, and the only file opened is the session's own
+   * transcript. What comes back is checked against an allowlist of raster
+   * types — an SVG out of a tool result is arbitrary markup and would be served
+   * from this app's origin, which no screenshot is worth.
+   */
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+    "/api/sessions/:id/chat/image",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["ref"],
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            bytes: {
+              type: "integer",
+              minimum: 1_000,
+              maximum: MAX_WINDOW,
+              default: DEFAULT_WINDOW,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const file = await transcriptFor(req.params.id);
+      if (file === undefined) return reply.code(404).send({ error: "not found" });
+      const image = await readImage(file, req.query.ref, req.query.bytes);
+      if (!image) return reply.code(404).send({ error: "not found" });
+      return (
+        reply
+          .header("content-type", image.mediaType)
+          .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'")
+          .header("x-content-type-options", "nosniff")
+          .header("content-disposition", 'inline; filename="image"')
+          // A transcript entry never changes, so this is safe to hold on to — and
+          // on a phone it is the difference between one fetch and one per poll.
+          .header("cache-control", "private, max-age=3600, immutable")
+          .send(image.data)
+      );
+    },
+  );
+
+  /**
    * The session as a conversation rather than a terminal.
    *
    * Unlike capture, this outlives the session: the transcript is on the volume,
@@ -191,6 +314,62 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * `since` is the last timestamp the caller holds, so a poll that finds
    * nothing new answers with an empty list instead of the window again.
    */
+  /**
+   * One tool call, opened.
+   *
+   * The chat carries a chip per call and nothing of what the call printed,
+   * which is what keeps a poll the same size whether the session ran `ls` or a
+   * test suite that printed a megabyte. This is where that megabyte lives, and
+   * it only moves when somebody taps the chip.
+   *
+   * `ref` is the transcript's own tool_use id. It is matched against ids read
+   * out of the file and never touches a path, so the only thing on disk this
+   * can reach is the session's own transcript — the same one `/chat` derives
+   * from the conversation id it recorded. A reference that is not in the window
+   * answers "nothing to show" rather than saying whether it ever existed.
+   */
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+    "/api/sessions/:id/chat/detail",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["ref"],
+          additionalProperties: false,
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            bytes: {
+              type: "integer",
+              minimum: 1_000,
+              maximum: MAX_WINDOW,
+              default: DEFAULT_WINDOW,
+            },
+          },
+        },
+      },
+    },
+    async (req, reply): Promise<ChatDetail | void> => {
+      const session = await store.getSession(req.params.id);
+      if (!session) return reply.code(404).send({ error: "not found" });
+      const file = await transcriptFor(req.params.id);
+      const conversationId = await store.readConv(req.params.id);
+      // Where this conversation's subagents kept their own transcripts, for the
+      // one kind of call whose detail is in a second file.
+      let subagents: string | undefined;
+      if (conversationId) {
+        try {
+          subagents = subagentDir(resolveInsideRepos(session.project), conversationId);
+        } catch {
+          // The project is gone; a subagent chip then opens onto nothing.
+        }
+      }
+      return readDetail(file ?? null, req.query.ref, {
+        bytes: req.query.bytes,
+        subagentDir: subagents,
+      });
+    },
+  );
+
   app.get<{ Params: { id: string }; Querystring: { bytes?: number; since?: string } }>(
     "/api/sessions/:id/chat",
     {
@@ -214,15 +393,22 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
       const conversationId = await store.readConv(req.params.id);
-      let file: string | null = null;
-      if (conversationId) {
-        try {
-          file = transcriptPath(resolveInsideRepos(session.project), conversationId);
-        } catch {
-          // The project has been deleted; there is no cwd to derive a path from.
-        }
+      const file = await transcriptFor(req.params.id);
+      if (file === undefined) return reply.code(404).send({ error: "not found" });
+      // The repo is what lets an image the agent read be recognised as a file
+      // this project can serve on its own, rather than one to decode out of the
+      // transcript. Its absence only costs the cheaper of the two routes.
+      let repoDir: string | undefined;
+      try {
+        repoDir = resolveInsideRepos(session.project);
+      } catch {
+        // The project has been deleted; every image falls back to its bytes.
       }
-      return readChat(file, conversationId, { bytes: req.query.bytes, since: req.query.since });
+      return readChat(file, conversationId, {
+        bytes: req.query.bytes,
+        since: req.query.since,
+        repoDir,
+      });
     },
   );
 

@@ -792,3 +792,57 @@ what unblocks it / where the code lives.
   convene line, which makes it not the first line and so convenes nobody.
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
+
+## The chat view is polled, not pushed
+
+- **What:** `ChatPane` runs its own 3s timer against `GET /api/sessions/:id/chat`
+  with a `since` cursor, and a second 2s timer against `/prompt` while something
+  is being asked. The `/api/events` SSE stream carries neither.
+- **Why deferred:** The stream broadcasts two global topics whose payload every
+  client wants identically — that is what makes one server-side watcher cheaper
+  than N clients polling. A session's chat is per-session and per-client, since
+  `since` differs for each, so it does not fit the topic model without giving
+  the stream per-client state. And `frontend/src/events.ts` is explicit that the
+  push is an optimisation and the poll is the contract, so this would be push
+  _plus_ poll rather than instead of it. What it would buy is latency, not
+  bytes: the poll is already a delta and an idle one is a few hundred bytes.
+- **Unblocked by:** Wanting sub-second turn latency in the chat view. Then: a
+  per-conversation topic fed by one `fs.watch` on the transcript, with the timer
+  kept as the backstop — `fs.watch` on the NFS-backed `/data` volume is not
+  reliable enough to be the only signal.
+- **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
+  (`TOPICS`), `frontend/src/components/ChatPane.tsx`
+
+## Nothing in CI reads a real transcript, and the chat view now leans on six shapes
+
+- **What:** Every fixture in `backend/test/chat.test.ts` is hand-written. The
+  chat view reads six load-bearing shapes out of the transcript now — human
+  turns, tool calls and their results, `task_reminder` attachments, `pr-link`
+  and `permission-mode` entries, `AskUserQuestion` and `ExitPlanMode` payloads,
+  and the `subagents/` directory — where before it read two. A CLI release that
+  renames or moves any of them shows up as a silently emptier view, with every
+  test still green.
+- **Why deferred:** Same reason as the entry above about `transcripts.ts`, which
+  this widens rather than replaces: a check that reads a real transcript needs
+  one to exist, which is true in the pod and not in CI.
+- **Unblocked by:** A check that runs in the pod against one real file from
+  `$HOME/.claude/projects/` and asserts that a turn, a chip, a rail, an image
+  reference and a question all come out of it. The parser is pure, so this is a
+  script and an assertion rather than a harness.
+- **Where:** `backend/src/chat.ts` (`parseTranscript`, `findDetail`),
+  `backend/test/chat.test.ts`
+
+## A subagent's conversation is read at a fixed window with no way to page back
+
+- **What:** Opening an Agent chip reads the last 64 kB of that subagent's
+  transcript, and says so when that did not reach the start. There is no "load
+  earlier" for it the way there is for the conversation itself.
+- **Why deferred:** A subagent is opened to find out what one delegated job
+  concluded, and the conclusion is the last thing it wrote — which the tail
+  always contains. A second window control on a nested view is more UI than the
+  question deserves until somebody actually wants to scroll one.
+- **Unblocked by:** Wanting to read a long subagent run rather than its result.
+  `readDetail` already takes a window for the parent; this would be the same
+  parameter threaded one level down.
+- **Where:** `backend/src/chat.ts` (`SUBAGENT_WINDOW`, `readSubagent`),
+  `frontend/src/components/chat/ToolChip.tsx`

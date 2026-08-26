@@ -50,6 +50,23 @@ session persistence.
   said, and on a finished session, whose terminal is gone but whose transcript
   is not.
 
+  That view aims to show everything the CLI does, which is not the same as
+  carrying everything on every poll. What travels is what a phone can hold —
+  turns, tool chips, one-line rails for the things that happened to the session
+  rather than in it, and the question and plan cards in full, because those are
+  the decisions somebody comes back to read. What is large is fetched by id
+  when a chip is tapped: a call's output, an edit's diff, a plan's body, a
+  subagent's conversation, an image's bytes. So a session that printed a
+  megabyte costs the same to read as one that ran `ls`, and only the megabyte
+  somebody asked for ever moves.
+
+  One thing in it is not a file read, and it is quarantined for that reason.
+  A permission dialog is drawn on the pane and never written down, so knowing a
+  session is blocked — and on what — means scraping the terminal. That lives in
+  `backend/src/tui-prompt.ts` behind its own endpoint, returns null for anything
+  it does not recognise, and null is what the screen showed before it existed.
+  Reading stays a file read; only the scrape is allowed to rot.
+
 ## Product shape
 
 Three levels:

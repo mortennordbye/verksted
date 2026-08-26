@@ -232,6 +232,8 @@ backend/src/
 ├── tts.ts            # the assistant's voice: one warm Kokoro worker on the pod
 ├── env.ts            # validated env, fail fast
 ├── paths.ts          # path-scoping helper — the security surface
+├── chat.ts           # a session read back out of the transcript it writes
+├── tui-prompt.ts     # the one scrape: what dialog the pane is drawing
 ├── tmux.ts           # execFile wrappers around tmux
 ├── sessions-store.ts # session metadata JSON + tmux liveness
 ├── projects-store.ts # the repos on the volume, as the hub sees them
@@ -244,6 +246,7 @@ backend/test/         # vitest; the path-traversal suite is the one that matters
 frontend/src/
 ├── screens/          # Hub, Project, Session, Chat (assistant + council), Inbox, Settings
 ├── components/       # Terminal, FileTree, TopBar, StatusChip
+│   └── chat/         # the session-as-conversation view: turns, chips, cards
 ├── api.ts            # fetch helpers + usePoll
 ├── events.ts         # the shared EventSource usePoll takes its data from
 └── theme.css         # mock.html palette as Tailwind v4 @theme

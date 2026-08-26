@@ -101,6 +101,34 @@ describe("POST /api/sessions/:id/input", () => {
     expect(out.text).toContain("literal Enter and C-c here");
   });
 
+  // The other half of the rule above: a key has to have its own field, because
+  // a literal sender cannot press anything and a non-literal one would press
+  // half of what people type.
+  it("presses a key rather than typing its name", async () => {
+    expect((await send(TMUX, { key: "escape" })).statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    const out = (await app.inject({ url: `/api/sessions/${TMUX}/capture` })).json();
+    expect(out.text).not.toContain("escape");
+    expect(out.text).not.toContain("Escape");
+  });
+
+  it("takes text or a key, but not a body with neither", async () => {
+    expect((await send(TMUX, {})).statusCode).toBe(400);
+    // Nothing outside the closed set can be pressed.
+    expect((await send(TMUX, { key: "C-c" })).statusCode).toBe(400);
+    expect((await send(TMUX, { key: "Enter" })).statusCode).toBe(400);
+  });
+
+  // How a question with several answers moves from ticking boxes to the screen
+  // that submits them.
+  it("presses right without typing it either", async () => {
+    expect((await send(TMUX, { key: "right" })).statusCode).toBe(200);
+    await new Promise((r) => setTimeout(r, 300));
+    const out = (await app.inject({ url: `/api/sessions/${TMUX}/capture` })).json();
+    expect(out.text).not.toContain("right");
+    expect(out.text).not.toContain("Right");
+  });
+
   it("404s an unknown session and 409s an ended one", async () => {
     expect((await send("vk-ghost-9", { text: "x" })).statusCode).toBe(404);
     expect((await send("vk-demo-2", { text: "x" })).statusCode).toBe(409);
@@ -115,6 +143,20 @@ describe("POST /api/sessions/:id/input", () => {
   // false strips an unknown key rather than rejecting the request. Asserting the
   // stripping is the accurate contract; asserting a 400 would be asserting a
   // behaviour this app does not have.
+  it("says a working pane is not asking anything", async () => {
+    const res = await app.inject({ url: `/api/sessions/${TMUX}/prompt` });
+    expect(res.statusCode).toBe(200);
+    // A pane running `cat` is the ordinary case this must not false-positive on.
+    expect(res.json()).toEqual({ prompt: null });
+  });
+
+  it("says nothing is being asked by a session that has ended, and 404s a ghost", async () => {
+    const ended = await app.inject({ url: "/api/sessions/vk-demo-2/prompt" });
+    expect(ended.statusCode).toBe(200);
+    expect(ended.json()).toEqual({ prompt: null });
+    expect((await app.inject({ url: "/api/sessions/vk-ghost-9/prompt" })).statusCode).toBe(404);
+  });
+
   it("strips unknown body keys instead of failing", async () => {
     expect((await send(TMUX, { text: "kept", extra: 1 })).statusCode).toBe(200);
   });
