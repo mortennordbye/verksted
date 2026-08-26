@@ -38,6 +38,15 @@ function fixture(): string {
 
 const silent = { info: () => {}, warn: () => {} };
 
+/**
+ * These tests shell out to tar and wait for it. `settle` is willing to wait two
+ * minutes, but vitest's own per-test default is five seconds, so on a runner
+ * slower than a laptop the test was killed long before the backup it is waiting
+ * for could finish — and the three that follow then fell over on the archive it
+ * never wrote. Every test that calls `settle` carries this instead.
+ */
+const SETTLES = 130_000;
+
 async function settle(timeoutMs = 120_000): Promise<void> {
   const until = Date.now() + timeoutMs;
   for (;;) {
@@ -93,31 +102,35 @@ describe("GET /api/backups", () => {
 });
 
 describe("POST /api/backups", () => {
-  it("takes a backup the listing can then describe", async () => {
-    // 202, not 200: the run outlives the request. Whether it is still going by
-    // the time the response is built is not something to assert on — a small
-    // fixture can finish first, and a real volume never will.
-    const res = await app.inject({ method: "POST", url: "/api/backups" });
-    expect(res.statusCode).toBe(202);
-    await settle();
+  it(
+    "takes a backup the listing can then describe",
+    async () => {
+      // 202, not 200: the run outlives the request. Whether it is still going by
+      // the time the response is built is not something to assert on — a small
+      // fixture can finish first, and a real volume never will.
+      const res = await app.inject({ method: "POST", url: "/api/backups" });
+      expect(res.statusCode).toBe(202);
+      await settle();
 
-    const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
-    expect(body.lastError).toBeNull();
-    expect(body.archives).toHaveLength(1);
-    const [archive] = body.archives;
-    expect(archive.name).toMatch(/^verksted-\d{8}-\d{6}\.tar\.gz$/);
-    expect(archive.bytes).toBeGreaterThan(0);
-    // Read out of the manifest inside the archive, not guessed from the name.
-    expect(archive.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(archive.repos).toBe(1);
+      const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
+      expect(body.lastError).toBeNull();
+      expect(body.archives).toHaveLength(1);
+      const [archive] = body.archives;
+      expect(archive.name).toMatch(/^verksted-\d{8}-\d{6}\.tar\.gz$/);
+      expect(archive.bytes).toBeGreaterThan(0);
+      // Read out of the manifest inside the archive, not guessed from the name.
+      expect(archive.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(archive.repos).toBe(1);
 
-    // The checksum is written beside it, and it verifies.
-    expect(fs.existsSync(path.join(backupDir, `${archive.name}.sha256`))).toBe(true);
-    execFileSync("sha256sum", ["-c", "--status", `${archive.name}.sha256`], {
-      cwd: backupDir,
-      stdio: "pipe",
-    });
-  });
+      // The checksum is written beside it, and it verifies.
+      expect(fs.existsSync(path.join(backupDir, `${archive.name}.sha256`))).toBe(true);
+      execFileSync("sha256sum", ["-c", "--status", `${archive.name}.sha256`], {
+        cwd: backupDir,
+        stdio: "pipe",
+      });
+    },
+    SETTLES,
+  );
 
   it("carries the repo's git history, which is where uncommitted work lives", async () => {
     const [archive] = (await app.inject({ method: "GET", url: "/api/backups" })).json().archives;
@@ -130,27 +143,35 @@ describe("POST /api/backups", () => {
     expect(members).toContain(".verksted-backup/MANIFEST.json");
   });
 
-  it("refuses a second run while one is in flight", async () => {
-    // Started through the store rather than a first POST: start() flips the
-    // flag synchronously, so the 409 is deterministic instead of a race
-    // against however long tarring the fixture happens to take.
-    const store = await import("../src/backups-store.js");
-    expect(store.start(0, silent)).toBe(true);
+  it(
+    "refuses a second run while one is in flight",
+    async () => {
+      // Started through the store rather than a first POST: start() flips the
+      // flag synchronously, so the 409 is deterministic instead of a race
+      // against however long tarring the fixture happens to take.
+      const store = await import("../src/backups-store.js");
+      expect(store.start(0, silent)).toBe(true);
 
-    const res = await app.inject({ method: "POST", url: "/api/backups" });
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).toMatch(/already running/);
-    await settle();
-  });
+      const res = await app.inject({ method: "POST", url: "/api/backups" });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toMatch(/already running/);
+      await settle();
+    },
+    SETTLES,
+  );
 
-  it("keeps VK_BACKUP_KEEP archives and prunes their checksums with them", async () => {
-    // Two runs already happened; a third must push the oldest out at keep=2.
-    await app.inject({ method: "POST", url: "/api/backups" });
-    await settle();
+  it(
+    "keeps VK_BACKUP_KEEP archives and prunes their checksums with them",
+    async () => {
+      // Two runs already happened; a third must push the oldest out at keep=2.
+      await app.inject({ method: "POST", url: "/api/backups" });
+      await settle();
 
-    const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
-    expect(body.archives).toHaveLength(2);
-    const sums = fs.readdirSync(backupDir).filter((f) => f.endsWith(".sha256"));
-    expect(sums).toHaveLength(2);
-  });
+      const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
+      expect(body.archives).toHaveLength(2);
+      const sums = fs.readdirSync(backupDir).filter((f) => f.endsWith(".sha256"));
+      expect(sums).toHaveLength(2);
+    },
+    SETTLES,
+  );
 });
