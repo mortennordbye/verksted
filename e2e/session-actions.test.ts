@@ -76,7 +76,10 @@ afterAll(async () => {
 describe("deleting a session from its own screen", () => {
   it("asks first, and the question survives the sheet it was opened from", async () => {
     await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "session actions" }).first().click();
+    await page
+      .getByRole("button", { name: /^session actions/ })
+      .first()
+      .click();
     await page.getByRole("button", { name: "delete session" }).click();
 
     // The confirm, still on screen a moment later rather than dismissed by the
@@ -99,7 +102,7 @@ describe("deleting a session from its own screen", () => {
   it("still closes a sheet on Back, without leaving the session", async () => {
     seedSession("vk-demo-2");
     await page.goto(`${base}/s/vk-demo-2`, { waitUntil: "networkidle" });
-    const actions = page.getByRole("button", { name: "session actions" }).first();
+    const actions = page.getByRole("button", { name: /^session actions/ }).first();
     await actions.click();
     await page.getByRole("button", { name: "delete session" }).waitFor({ timeout: 5_000 });
 

@@ -3,6 +3,43 @@ import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
 
 /**
+ * A count worth interrupting for, in the corner of whatever carries it. Nothing
+ * is drawn at zero.
+ *
+ * Its own component because the phone session screen shows no top bar, so the
+ * same pill has to ride on the ⋯ that took the bar's place.
+ */
+export function Badge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span className="absolute -top-1 -right-1 min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
+/**
+ * The way up, as a pop rather than a push: pushing meant the browser's own Back
+ * then went forward into the screen you had just left. `to` is where a tab
+ * opened straight onto this screen goes instead.
+ *
+ * Exported because the phone session screen carries it without the bar around
+ * it, and this rule is worth having in one place.
+ */
+export function BackButton({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button
+      onClick={() => (history.length > 1 ? navigate(-1) : navigate(to))}
+      aria-label="back"
+      className="tap-sq flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+    >
+      ←
+    </button>
+  );
+}
+
+/**
  * The two bar icons were the text glyphs "✉" and "⚙". No mono font ships
  * either, so both came from whatever fallback the platform picked: they landed
  * at different weights and sizes next to each other, and on iOS — the device
@@ -41,11 +78,7 @@ function IconLink({
       >
         {children}
       </svg>
-      {badge ? (
-        <span className="absolute -top-1 -right-1 min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent">
-          {badge > 9 ? "9+" : badge}
-        </span>
-      ) : null}
+      <Badge count={badge ?? 0} />
     </Link>
   );
 }
@@ -81,7 +114,6 @@ export default function TopBar({
   /** Extra classes on the header itself. A wrapper would break its sticky. */
   className?: string;
 }) {
-  const navigate = useNavigate();
   // A harvested memory that nobody notices is a harvest that did not happen:
   // the queue is the one thing in the inbox that arrives without a session or a
   // run to announce it. Polled slowly on purpose — it changes once a night.
@@ -90,17 +122,7 @@ export default function TopBar({
     <header
       className={`sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
     >
-      {back !== undefined && (
-        <button
-          // Pop rather than push: pushing meant the browser's own Back
-          // then went forward into the screen you had just left.
-          onClick={() => (history.length > 1 ? navigate(-1) : navigate(back))}
-          aria-label="back"
-          className="tap-sq flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
-        >
-          ←
-        </button>
-      )}
+      {back !== undefined && <BackButton to={back} />}
       {/* The mark is a dot with a halo, carried over from the northlight header,
           rather than the mono lockup and blinking block it replaces — that read
           as a CLI that happens to have a web page. The dot is the accent, so it

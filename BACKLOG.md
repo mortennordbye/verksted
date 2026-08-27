@@ -3,6 +3,27 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## The phone screen may still end short with the keyboard up
+
+- **What:** The session shell is `dvh` with the keyboard down and `--vvh` with it
+  up. The `dvh` half is what closed the black band under the pane box. The
+  `--vvh` half is unchanged, so if the band's cause turns out to be
+  `visualViewport.height` under-reporting by the top safe-area inset — rather
+  than a browser toolbar, which `dvh` accounts for by itself — then the same
+  band comes back above the on-screen keyboard, where it costs the line you are
+  typing into.
+- **Why deferred:** Which of the two it is cannot be read off a desktop:
+  headless Chromium reports `visualViewport.height === innerHeight`, so
+  `100dvh` and `--vvh` are the same number there and the difference is invisible
+  to the suite. Guessing the correction would be fixing a number nobody has
+  measured.
+- **Unblocked by:** One readout on the phone, on a session screen, comparing a
+  `100dvh` probe against `visualViewport.height`, `innerHeight` and
+  `navigator.standalone`. If `dvh` is the larger, the keyboard-up path needs the
+  same inset added back; if they match, there is nothing here.
+- **Where:** `frontend/src/screens/Session.tsx` (`useVisualViewport`, the root
+  shell's `kbd:h-[var(--vvh,100dvh)]`, and the full-screen pane branch)
+
 ## Ariel's headroom server runs out of a working tree
 
 - **What:** The server is `tsx mcp/server.ts` under `/data/repos/headroom`, so
