@@ -480,10 +480,16 @@ export default function Session() {
             own background bleeds under the indicator and the content stops
             above it. */}
         {/* And the top inset, which the top bar used to pay and no longer can
-            on a phone: without it the row below lands under the status bar,
-            where a tap does not reach the page at all. `max(10px, …)` is
-            exactly the old pt-2.5 wherever there is no inset. */}
-        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-[max(10px,env(safe-area-inset-top))] pb-0 kbd:pt-2.5 desk:pt-[18px] desk:pb-6">
+            on a phone: without it whatever is topmost lands under the status
+            bar, where a tap does not reach the page at all. `max(10px, …)` is
+            exactly the old pt-2.5 wherever there is no inset.
+
+            No `kbd:` exception. The keyboard does not move the camera: with the
+            row hidden it is the terminal's key bar that reaches the top, and at
+            10px it sat under the Dynamic Island — eight keys that could be seen
+            and not pressed. The inset costs rows the keyboard was going to take
+            anyway; keys nobody can hit cost all of them. */}
+        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-[max(10px,env(safe-area-inset-top))] pb-0 desk:pt-[18px] desk:pb-6">
           {/* Phone folds this row into the pane strip below: four stacked bars
               before the first terminal row left the agent a fifth of the
               screen. The title lives in the top bar crumb there instead. */}
@@ -581,14 +587,18 @@ export default function Session() {
                 <path d="m6 9 6 6 6-6" />
               </svg>
             </button>
-            {/* The last crumb, which is where this screen's name lived until the
-                top bar left the phone. `flex-1` from a zero basis, so it is the
-                slack in the row rather than a claim on it: the pane label keeps
-                its own width and the title takes whatever is left, down to
-                nothing. On a narrow row that is the first few characters, and
-                the whole of it is the heading of the sheet the ⋯ opens. */}
+            {/* The project, not the session. The top bar's crumb read
+                `verksted / claude-15` and only one of the two survived the fold
+                — the session's own name, which is the half you already know,
+                since getting here meant picking it off a list. Which repo the
+                agent is loose in is the thing worth having on screen, and the
+                session name is the heading of the sheet the ⋯ opens.
+
+                `flex-1` from a zero basis, so it is the slack in the row rather
+                than a claim on it: the pane label keeps its own width and this
+                takes whatever is left, down to nothing. */}
             <h1 className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted">
-              {session?.title ?? "…"}
+              {session?.project ?? "…"}
             </h1>
             {session && (
               // Doubles as the actions trigger: two separate controls plus the
@@ -754,7 +764,13 @@ export default function Session() {
                     // indicator included, so full screen has to inset itself —
                     // otherwise the pane strip lands under the status bar and
                     // the terminal's last row under the home indicator.
-                    "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:pt-0 kbd:pb-0"
+                    //
+                    // `kbd:pb-0` only. The keyboard covers the home indicator,
+                    // so that inset reserves a band nothing is drawn under any
+                    // more — but it does not cover the camera, and zeroing the
+                    // top inset too put the key bar under the Dynamic Island,
+                    // where it could be seen and not pressed.
+                    "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:pb-0"
                   : // Square-bottomed and edge-to-edge on a phone, because it now
                     // ends where the screen does; the home-indicator inset is
                     // padding inside it, so its own background carries under the
