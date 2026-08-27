@@ -159,8 +159,16 @@ const KEYS: { label: string; seq: string; title?: string; row: 1 | 2 }[] = [
 // press that didn't land. :active covers the finger-down moment; `flash` holds
 // the same look for a moment after release, which is what makes a quick tap
 // visible at all.
-const KEY =
-  "tap flex-none items-center justify-center rounded-md border px-2 py-1 font-mono text-[12px] transition-colors";
+const KEY_BOX =
+  "flex-none items-center justify-center rounded-md border px-2 py-1 font-mono text-[12px] transition-colors";
+/** In the `more` sheet, where there is room to be 44px tall, so it is. */
+const KEY = `tap ${KEY_BOX}`;
+/**
+ * In the bar, where 44px of box is 16px of terminal: 44px to a finger, 28px to
+ * the layout. `tap-hit`'s overlay overhangs the box by 8px a side, so the bar
+ * needs a row gap wider than that — see the bar itself, and theme.css.
+ */
+const KEY_TIGHT = `tap-hit ${KEY_BOX}`;
 const KEY_PRESS = "active:border-accent active:bg-accent/25 active:text-accent";
 const KEY_IDLE = "border-line text-muted";
 const KEY_LIT = "border-accent bg-accent/25 text-accent";
@@ -314,8 +322,8 @@ export default function Terminal({
   }
 
   /** Class list for a toolbar key: idle look unless pressed or already lit. */
-  function keyClass(id: string, base = KEY_IDLE) {
-    return `${KEY} ${KEY_PRESS} ${flash === id ? KEY_LIT : base}`;
+  function keyClass(id: string, base = KEY_IDLE, box = KEY) {
+    return `${box} ${KEY_PRESS} ${flash === id ? KEY_LIT : base}`;
   }
 
   /**
@@ -715,13 +723,21 @@ export default function Terminal({
           overlays the bottom of the box and would hide a bottom key row. */}
       {/* One row, and it wraps rather than scrolls: a key that is off the edge
           of the screen is a key that does not exist. */}
-      <div className="hidden flex-none flex-wrap gap-1 border-b border-line bg-surface px-1.5 py-1 pointer-coarse:flex">
+      {/* The keys are `tap-hit`, not `tap`: 44px of box here is 16px of
+          terminal, and the same finger target comes from an overlay instead.
+          That overlay overhangs 8px above and below, which is why the row gap
+          is 10px and not the 4px between columns — two wrapped lines at gap-1
+          would put each line's overlay over the other's visible keys, and the
+          later one in the DOM wins the tap. The same 8px reaches ~5px up into
+          the `mb-2` above the pane box, so if that gap is ever trimmed the top
+          key row starts stealing the bottom of the ⋯ beside it. */}
+      <div className="hidden flex-none flex-wrap gap-x-1 gap-y-2.5 border-b border-line bg-surface px-1.5 py-0.5 pointer-coarse:flex">
         {/* First, and it doubles as the readout for a status line the on-screen
             keyboard covers. */}
         <button
           onClick={() => tapKey("mode", () => sendInput(MODE_SEQ))}
           title="cycle permission mode (shift+tab)"
-          className={keyClass("mode", mode ? mode.tone : KEY_IDLE)}
+          className={keyClass("mode", mode ? mode.tone : KEY_IDLE, KEY_TIGHT)}
         >
           {mode?.label ?? "mode"}
         </button>
@@ -731,7 +747,7 @@ export default function Terminal({
             onClick={() => tapKey(k.label, () => sendInput(k.seq))}
             title={k.title}
             aria-label={k.title ?? k.label}
-            className={keyClass(k.label)}
+            className={keyClass(k.label, KEY_IDLE, KEY_TIGHT)}
           >
             {k.label}
           </button>
@@ -748,7 +764,7 @@ export default function Terminal({
           aria-haspopup="dialog"
           aria-expanded={moreKeys}
           title="more keys, paste, mic, text size"
-          className={keyClass("more", ctrl || listening ? KEY_LIT : KEY_IDLE)}
+          className={keyClass("more", ctrl || listening ? KEY_LIT : KEY_IDLE, KEY_TIGHT)}
         >
           more
         </button>

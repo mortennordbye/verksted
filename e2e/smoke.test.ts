@@ -193,9 +193,17 @@ describe("the app in a real browser", () => {
 
   it("gets home from a session by the wordmark, not only the back arrow", async () => {
     // The way to the hub used to be a 9px dot with no label, which is not a
-    // thing anyone finds. The name is the link now, at a thumb-sized target.
+    // thing anyone finds. The name is the link now, at a thumb-sized target —
+    // one tap in rather than zero, since the phone session screen stopped
+    // showing a top bar and the name moved into the ⋯ sheet with it.
     await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
-    await page.getByLabel("verksted — home").click();
+    await page.getByRole("button", { name: /^session actions/ }).click();
+    // Scoped to the dialog: the top bar is still in the DOM for a wide screen,
+    // display:none, and getByLabel — unlike getByRole — matches it.
+    await page
+      .getByRole("dialog", { name: "overnight tidy" })
+      .getByLabel("verksted — home")
+      .click();
     await page.waitForURL((u) => u.pathname === "/");
     await page.getByText("demo").first().waitFor({ timeout: 15_000 });
   });
@@ -250,8 +258,9 @@ describe("the app in a real browser", () => {
   });
 
   // The session screen's own row, because the ⋯ on it is the way to delete a
-  // session and it was a bare 13px glyph 6px from the full-screen button — a
-  // coin toss for a thumb, between two controls that were not what you meant.
+  // session and it was a bare 13px glyph 6px from the next control — a coin
+  // toss for a thumb, between two things that were not what you meant. It now
+  // also carries the back arrow, which is the only way up on that screen.
   it("gives a thumb something to hit on the session screen too", async () => {
     await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
@@ -264,18 +273,48 @@ describe("the app in a real browser", () => {
         document: {
           querySelectorAll(selector: string): Iterable<{
             textContent: string | null;
+            className: unknown;
             getBoundingClientRect(): { width: number; height: number };
           }>;
         };
       };
       return [...document.querySelectorAll("button")]
         .filter((el) => {
+          // `tap-hit` answers this question with a 44px ::after rather than a
+          // 44px box, which is the whole reason it exists — measuring the box
+          // here would report every control that has already opted in. What
+          // the overlay is actually doing is asserted below instead.
+          if (String(el.className).split(/\s+/).includes("tap-hit")) return false;
           const box = el.getBoundingClientRect();
           return box.width > 0 && box.height < 44;
         })
         .map((el) => (el.textContent ?? "").trim().slice(0, 30));
     });
   }
+
+  // The other half of the exemption above: a `tap-hit` is only allowed to be
+  // 28px because of its overlay, so something has to check the overlay is
+  // there. It is the one thing that catches it silently doing nothing — an
+  // ancestor that clips it, or the class landing on an element the rule's
+  // `position: relative` cannot anchor.
+  it("gives the tap-hit controls the 44px they are exempt on", async () => {
+    for (const route of ["/settings", "/s/vk-demo-1"]) {
+      await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      await page.waitForTimeout(500);
+      const bad = await page.evaluate(() => {
+        // Not destructured: `getComputedStyle` called off `globalThis` throws
+        // an illegal invocation without its receiver.
+        const g = globalThis as unknown as {
+          document: { querySelectorAll(selector: string): Iterable<{ className: unknown }> };
+          getComputedStyle(el: unknown, pseudo: string): { height: string };
+        };
+        return [...g.document.querySelectorAll(".tap-hit")]
+          .filter((el) => g.getComputedStyle(el, "::after").height !== "44px")
+          .map((el) => String(el.className).slice(0, 60));
+      });
+      expect(bad).toEqual([]);
+    }
+  });
 
   it("did all of that without a console error or a failed request", () => {
     expect(problems).toEqual([]);

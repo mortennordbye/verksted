@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import hljs from "highlight.js/lib/common";
 import "highlight.js/styles/github-dark-dimmed.css";
 import type {
@@ -8,13 +8,14 @@ import type {
   FileContent,
   GitFileStatus,
   GitStatus,
+  Memory,
   Session as SessionInfo,
   SessionFileDiff,
   Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
-import TopBar from "../components/TopBar";
+import TopBar, { Badge, BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
 import ChangesPanel from "../components/ChangesPanel";
@@ -53,6 +54,10 @@ interface Viewed {
  * height that reflects the keyboard; sizing the screen to it (and never letting
  * the document scroll) keeps the prompt above the keyboard, and shrinking the
  * terminal box refits xterm, which resizes tmux to match.
+ *
+ * The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
+ * down it is `dvh`, which needs none of this and cannot go stale — see the
+ * shell below.
  */
 function useVisualViewport() {
   useEffect(() => {
@@ -214,6 +219,12 @@ export default function Session() {
     session ? `/api/projects/${session.project}/git` : null,
     8_000,
   );
+  // The badge the top bar carried, which this screen no longer shows on a
+  // phone — so the count has to reach the ⋯ that took the bar's place. The bar
+  // keeps its own poll for every other screen; one extra GET every two minutes
+  // on a desktop session is cheaper than a context for two call sites.
+  const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
+  const waiting = proposed?.proposals.length ?? 0;
   const [pane, setPane] = useState<"tree" | "term">(wantsSide === "changes" ? "tree" : "term");
   const [side, setSide] = useState<Side>(wantsSide === "changes" ? "changes" : "files");
   // Companion panes next to the agent terminal; on desktop all three can
@@ -424,21 +435,35 @@ export default function Session() {
           scrolls — the terminal takes whatever room the keyboard leaves.
           Desktop keeps the ordinary scrolling page.
 
-          Pinned to `--vvt`, not to the top of the page. iOS pans the visual
-          viewport inside a layout viewport that stays put, so a shell anchored
-          at layout-y 0 slides out from under the screen the moment the keyboard
-          opens — with the chat composer focused, what was left on screen was
-          the shell's bottom edge and black beneath it. `fixed` positions
-          against the layout viewport, which is what makes the offset the whole
-          correction. */}
-      <div className="fixed inset-x-0 top-[var(--vvt,0px)] flex h-[var(--vvh,100dvh)] flex-col overflow-hidden desk:static desk:h-auto desk:overflow-visible">
-        {/* Gone while the keyboard is up, on a phone only. It is 116px of pure
-            navigation that cannot be used mid-sentence, and on a 874px screen
-            with the keys open that is a quarter of everything left. Dismissing
-            the keyboard brings it straight back, so nothing is behind a
-            gesture nobody advertises. */}
+          Two viewports, each used for the one thing it knows. `dvh` follows the
+          browser's own toolbars retracting and expanding and is deliberately
+          blind to the keyboard; the visual viewport is the reverse. So the
+          shell is `dvh` until the keyboard is up, which is what stops it
+          ending short of the screen by whatever the visual viewport is not
+          counting — and switches to `--vvh` under `kbd:`, where the keyboard is
+          the only thing that matters.
+
+          Pinned to `--vvt` there, not to the top of the page: iOS pans the
+          visual viewport inside a layout viewport that stays put, so a shell
+          anchored at layout-y 0 slides out from under the screen the moment the
+          keyboard opens — with the chat composer focused, what was left on
+          screen was the shell's bottom edge and black beneath it. `fixed`
+          positions against the layout viewport, which is what makes the offset
+          the whole correction.
+
+          `kbd:desk:h-auto` is not decoration: `kbd` is an attribute selector
+          and outranks `desk`'s media query, so without it a tablet with a
+          keyboard up gets a `static` element holding a fixed height. `top`
+          needs no such guard — `desk:static` makes it inert. */}
+      <div className="fixed inset-x-0 top-0 flex h-dvh flex-col overflow-hidden kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:desk:h-auto desk:static desk:h-auto desk:overflow-visible">
+        {/* Gone from a phone, not just while the keyboard is up. It is 75px of
+            pure navigation stacked on top of a row that was already there, and
+            on an 874px screen that is a twelfth of everything before the first
+            terminal line. The row below carries its jobs: the back arrow and
+            the session name in the row itself, the way home and the inbox and
+            settings in the sheet its ⋯ opens. */}
         <TopBar
-          className="kbd:hidden kbd:desk:flex"
+          className="hidden desk:flex"
           back={session ? `/p/${session.project}` : "/"}
           crumb={
             session
@@ -454,7 +479,11 @@ export default function Session() {
             moves inside the box instead (see the pane box below), so the box's
             own background bleeds under the indicator and the content stops
             above it. */}
-        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-2.5 pb-0 desk:pt-[18px] desk:pb-6">
+        {/* And the top inset, which the top bar used to pay and no longer can
+            on a phone: without it the row below lands under the status bar,
+            where a tap does not reach the page at all. `max(10px, …)` is
+            exactly the old pt-2.5 wherever there is no inset. */}
+        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-[max(10px,env(safe-area-inset-top))] pb-0 kbd:pt-2.5 desk:pt-[18px] desk:pb-6">
           {/* Phone folds this row into the pane strip below: four stacked bars
               before the first terminal row left the agent a fifth of the
               screen. The title lives in the top bar crumb there instead. */}
@@ -519,12 +548,21 @@ export default function Session() {
               directly above a terminal that also scrolls. One button that says
               what you are looking at, opening a list, costs one tap and hides
               nothing. */}
-          <div className="mb-2 flex flex-none items-center gap-2.5 desk:hidden">
+          {/* Gone with the keyboard up, the way the top bar used to be: under
+              the keyboard-up top padding this row would sit inside the status
+              bar strip, visible and unhittable, which is worse than absent.
+              Dismissing the keyboard brings it straight back. */}
+          <div className="mb-2 flex flex-none items-center gap-2.5 kbd:hidden desk:hidden">
+            <BackButton to={session ? `/p/${session.project}` : "/"} />
             <button
               onClick={() => setPicker(true)}
               aria-haspopup="dialog"
               aria-expanded={picker}
-              className="tap flex min-w-0 flex-none items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13.5px] font-semibold hover:border-line-strong"
+              // Not `flex-none` any more: it holds its content width while
+              // there is room, and gives once the title beside it has already
+              // shrunk to nothing. Its label is truncated either way, so a
+              // long pane name costs the title rather than the row.
+              className="tap flex min-w-0 items-center gap-2 rounded-lg border border-line bg-surface px-3 py-1.5 text-[13.5px] font-semibold hover:border-line-strong"
             >
               <PaneIcon name={currentPaneKey} className="text-muted" />
               <span className="truncate">{currentPaneLabel}</span>
@@ -543,17 +581,30 @@ export default function Session() {
                 <path d="m6 9 6 6 6-6" />
               </svg>
             </button>
+            {/* The last crumb, which is where this screen's name lived until the
+                top bar left the phone. `flex-1` from a zero basis, so it is the
+                slack in the row rather than a claim on it: the pane label keeps
+                its own width and the title takes whatever is left, down to
+                nothing. On a narrow row that is the first few characters, and
+                the whole of it is the heading of the sheet the ⋯ opens. */}
+            <h1 className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted">
+              {session?.title ?? "…"}
+            </h1>
             {session && (
               // Doubles as the actions trigger: two separate controls plus the
               // tabs don't fit a phone width, and the sheet repeats the status.
               <button
                 onClick={() => setMenu(true)}
-                aria-label="session actions"
+                // The zero case stays exactly "session actions" — it is what
+                // the e2e suite reaches this sheet by.
+                aria-label={
+                  waiting ? `session actions, ${waiting} waiting in the inbox` : "session actions"
+                }
                 // Bordered and 44px like everything beside it. It used to be a
                 // bare chip with a 13px ⋯ next to it, about 26px tall and 6px
                 // from the full-screen button — the way to delete a session,
                 // and it read as decoration wedged between two real controls.
-                className="tap ml-auto flex flex-none items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5"
+                className="tap relative ml-auto flex flex-none items-center gap-1.5 rounded-lg border border-line bg-surface px-2.5 py-1.5"
               >
                 <StatusChip
                   kind={
@@ -566,15 +617,12 @@ export default function Session() {
                   label={live ? session.status : "done"}
                 />
                 <span className="font-mono text-[15px] leading-none text-muted">⋯</span>
+                {/* The inbox count, which lost its home when the top bar left.
+                    It rides here so the one thing that arrives without a
+                    session to announce it still interrupts, at no width. */}
+                <Badge count={waiting} />
               </button>
             )}
-            <button
-              onClick={() => setFull(true)}
-              aria-label="full screen"
-              className={`${session ? "" : "ml-auto"} tap-sq flex-none rounded-lg border border-line bg-surface px-3 py-1.5 font-mono text-[12.5px] text-muted`}
-            >
-              ⛶
-            </button>
           </div>
 
           <div
@@ -706,7 +754,7 @@ export default function Session() {
                     // indicator included, so full screen has to inset itself —
                     // otherwise the pane strip lands under the status bar and
                     // the terminal's last row under the home indicator.
-                    "fixed inset-x-0 top-[var(--vvt,0px)] z-50 flex h-[var(--vvh,100dvh)] flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:pt-0 kbd:pb-0"
+                    "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:pt-0 kbd:pb-0"
                   : // Square-bottomed and edge-to-edge on a phone, because it now
                     // ends where the screen does; the home-indicator inset is
                     // padding inside it, so its own background carries under the
@@ -943,6 +991,42 @@ export default function Session() {
           sub={`${session.agent} · ${live ? session.status : "done"}${git ? ` · ⎇ ${git.branch}${git.files.length > 0 ? "*" : ""}` : ""}`}
           onClose={() => setMenu(false)}
         >
+          {/* What the top bar carried before this screen stopped showing one on
+              a phone — the way home, the inbox and its count, settings — plus
+              full screen, which gave up its place in the row to the back arrow.
+              It buys ~52px now rather than the ~160px it used to, and it is a
+              mode you enter once; the way out of it is the pane strip's own
+              ✕ full, which is untouched. */}
+          <div className="mb-2 flex flex-col gap-2 desk:hidden">
+            <button
+              onClick={() => {
+                setMenu(false);
+                setFull(true);
+              }}
+              className="tap w-full rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+            >
+              ⛶ full screen
+            </button>
+            <Link
+              to="/"
+              aria-label="verksted — home"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+            >
+              verksted — home
+            </Link>
+            <Link
+              to="/runs"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+            >
+              inbox{waiting ? ` · ${waiting} waiting` : ""}
+            </Link>
+            <Link
+              to="/settings"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+            >
+              settings
+            </Link>
+          </div>
           <div className="flex flex-col gap-2">
             {live && (
               <button
