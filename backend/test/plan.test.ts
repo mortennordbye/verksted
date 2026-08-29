@@ -11,6 +11,7 @@ beforeAll(async () => {
   process.env.USAGE_DIR = usageDir;
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
   process.env.SETTINGS_FILE = path.join(usageDir, "settings.json");
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "vk-home-"));
   process.env.STATIC_DIR = "";
   plan = await import("../src/plan.js");
 });
@@ -103,6 +104,35 @@ describe("plan history", () => {
 });
 
 describe("the token the plan is read with", () => {
+  const credentialsFile = () => path.join(process.env.HOME!, ".claude", ".credentials.json");
+  const login = (accessToken: string, expiresAt: number) => {
+    fs.mkdirSync(path.dirname(credentialsFile()), { recursive: true });
+    fs.writeFileSync(
+      credentialsFile(),
+      JSON.stringify({ claudeAiOauth: { accessToken, expiresAt } }),
+    );
+  };
+
+  it("falls back to the login claude keeps on the volume, unless it has expired", async () => {
+    const before = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    try {
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      fs.rmSync(credentialsFile(), { force: true });
+      expect(await plan.oauthToken()).toBeUndefined();
+      login("sk-ant-oat01-from-the-pod", Date.now() + 3_600_000);
+      expect(await plan.oauthToken()).toBe("sk-ant-oat01-from-the-pod");
+      login("sk-ant-oat01-stale", Date.now() - 1);
+      expect(await plan.oauthToken()).toBeUndefined();
+      // Anything configured wins over the file.
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-configured";
+      expect(await plan.oauthToken()).toBe("sk-ant-oat01-configured");
+    } finally {
+      if (before === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = before;
+      fs.rmSync(credentialsFile(), { force: true });
+    }
+  });
+
   it("comes from the settings page, else from the process environment", async () => {
     const store = await import("../src/settings-store.js");
     const before = process.env.CLAUDE_CODE_OAUTH_TOKEN;

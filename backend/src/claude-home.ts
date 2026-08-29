@@ -24,3 +24,13 @@ export function transcriptPath(repoDir: string, conversationId: string): string 
 export function subagentDir(repoDir: string, conversationId: string): string {
   return path.join(claudeProjectDir(repoDir), conversationId, "subagents");
 }
+
+/**
+ * Where claude keeps the login it made for itself: the OAuth access token it
+ * refreshes as it runs, with when it expires. What a pod with no token in its
+ * environment signs in with, and so what the plan is read with there.
+ */
+export function claudeCredentialsFile(): string {
+  const home = process.env.HOME ?? "/data/home";
+  return path.join(home, ".claude", ".credentials.json");
+}
