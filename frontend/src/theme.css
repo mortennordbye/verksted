@@ -142,6 +142,11 @@
   /* A council face's mouth while it is answering. */
   --animate-vk-talk: vk-talk 0.3s ease-in-out infinite;
 
+  /* A card arriving on the table: it rises into place rather than appearing. */
+  --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  /* A seat whose occupant is talking. currentColor, so the halo is theirs. */
+  --animate-glow: glow 2.2s ease-in-out infinite;
+
   @keyframes blink {
     50% {
       opacity: 0;
@@ -150,6 +155,22 @@
   @keyframes pulse-run {
     50% {
       box-shadow: 0 0 0 5px rgba(142, 199, 152, 0.14);
+    }
+  }
+
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+  }
+  @keyframes glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 38%, transparent);
     }
   }
 
@@ -318,8 +339,10 @@ select:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .animate-blink,
+  .animate-glow,
   .animate-pulse-run,
   .animate-rc-chew,
+  .animate-rise,
   .animate-vk-talk {
     animation: none;
   }
