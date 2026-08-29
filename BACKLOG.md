@@ -871,30 +871,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/chat.ts` (`SUBAGENT_WINDOW`, `readSubagent`),
   `frontend/src/components/chat/ToolChip.tsx`
 
-## The maintainer's build and gate have never run in the pod
-
-- **What:** The scout has: on 2026-08-29 it ran on headroom, verified `main`,
-  filed three `queued` issues and signed off `ok:`. The build stage (worktree,
-  verify, push, pull request, label moves) and the gate stage (fresh checkout,
-  verify, review, `gh pr merge --squash --auto` for `tier:auto` only, `attention:`
-  for `tier:review`) are covered against a fake tmux and a fake gh, and the
-  guard's per-stage rules — including the merge rule that reads the pull
-  request's labels — against the real script. What a fake cannot answer: whether
-  a build's `git push` and `gh pr create` go through under dontAsk on the pod,
-  whether the gate's own `git worktree add` beside the repo behaves on the NFS
-  volume, and whether the two prompts hold up against a real issue.
-- **Why deferred:** Needs a queued issue on headroom and two nights.
-- **Unblocked by:** Add a `build` schedule on headroom (01:00) and a `gate`
-  schedule (04:00), then "run now" the build: a PR should appear from
-  `maint/<n>`, CI should go green, the issue should read `done`, and the
-  worktree should be gone once the session ends. Then "run now" the gate: it
-  should approve, arm auto-merge for a `tier:auto` PR, and GitHub should merge
-  when the checks finish; a `tier:review` PR should come back as `attention:`.
-- **Where:** `backend/src/scheduler.ts` (`stageRun`, the build branch),
-  `backend/src/maintainer.ts` (`pickIssue`, `claimIssue`, `listQueue`),
-  `backend/src/projects-store.ts` (`addWorktree`, `removeWorktree`),
-  `runtime/vk-guard` (the `build` and `gate` blocks), `runtime/maintainer/`
-
 ## Still outside the maintainer
 
 - **What:** Three things the plan named and left out on purpose. cargo and go
