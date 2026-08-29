@@ -1,0 +1,20 @@
+[  472289ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/events:0
+[  473088ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/projects:0
+[  473088ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/sessions:0
+[  478092ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/sessions:0
+[  478092ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/projects:0
+[  480092ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/memory/proposed:0
+[  480092ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/assistant:0
+[  480094ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/facts:0
+[  480094ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/usage:0
+[  480094ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/assistant?room=council:0
+[  480094ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/council:0
+[  480094ms] Failed to update a ServiceWorker for scope ('https://verksted.local.bigd.no/') with script ('https://verksted.local.bigd.no/sw.js'): A bad HTTP response code (503) was received when fetching the script.
+[  483089ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/projects:0
+[  483089ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/sessions:0
+[  488097ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/sessions:0
+[  488097ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/projects:0
+[  490084ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/assistant:0
+[  490084ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/assistant?room=council:0
+[  493094ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/projects:0
+[  493095ms] [ERROR] Failed to load resource: the server responded with a status of 503 () @ https://verksted.local.bigd.no/api/sessions:0

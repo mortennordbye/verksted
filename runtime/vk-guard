@@ -46,8 +46,9 @@ inside() {
   [ -n "$report" ] && [ "$r" = "$report" ] && return 0
   case "$r" in
     "$worktree" | "$worktree"/*) return 0 ;;
-    *) return 1 ;;
+    /data/repos/"${VK_PROJECT:-}"--gate-*) [ "$stage" = gate ] && return 0 ;;
   esac
+  return 1
 }
 
 case "$tool" in
@@ -55,7 +56,16 @@ case "$tool" in
   Edit | Write | MultiEdit | NotebookEdit)
     [ "$stage" = scout ] && deny "the scout reads; it does not edit"
     file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
-    if [ -n "$file" ] && ! inside "$file"; then deny "edit outside the worktree: $file"; fi
+    if [ "$stage" = gate ]; then
+      # The gate's own checkouts are the only place it may write, and it
+      # writes there only to run what the branch needs run.
+      case "$file" in
+        /data/repos/"${VK_PROJECT:-}"--gate-*) ;;
+        *) deny "the gate edits only inside its own checkouts: $file" ;;
+      esac
+    elif [ -n "$file" ] && ! inside "$file"; then
+      deny "edit outside the worktree: $file"
+    fi
     allow
     ;;
   *) allow ;;
@@ -134,6 +144,45 @@ for seg in $(printf '%s' "$flat" | tr ';|&' "$nl"); do
   IFS=$nl
 done
 IFS=$old_ifs
+
+# --- worktrees: a stage may add or remove only its own, beside its repo ---
+if has '(^|[;&|(] *)git worktree (add|remove|move)'; then
+  ok=0
+  for tok in $flat; do
+    case "$tok" in
+      /data/repos/"${VK_PROJECT:-}"--maint-* | /data/repos/"${VK_PROJECT:-}"--gate-*) ok=1 ;;
+    esac
+  done
+  [ $ok = 1 ] || deny "a worktree may only be added or removed as /data/repos/${VK_PROJECT:-<project>}--maint-* or --gate-*"
+fi
+
+# --- the builder works on one branch and opens one pull request ---
+if [ "$stage" = build ]; then
+  has '(^|[;&|(] *)gh pr (merge|review|close|reopen|edit|comment)' && deny "the builder opens pull requests; the gate judges them"
+  has '(^|[;&|(] *)gh issue (create|close|delete|reopen|transfer|pin|lock)' && deny "the builder moves its own issue's labels and files nothing"
+  has '(^|[;&|(] *)git (rebase|commit --amend|merge)' && deny "the builder adds commits; it does not rewrite them"
+fi
+
+# --- the gate reads, verifies and reviews; it merges only what may merge ---
+if [ "$stage" = gate ]; then
+  has '(^|[;&|(] *)git push' && deny "the gate pushes nothing"
+  has '(^|[;&|(] *)gh pr create' && deny "the gate opens no pull requests"
+  has '(^|[;&|(] *)git (commit|checkout -b|switch -c|rebase|cherry-pick)' && deny "the gate changes no branch: $flat"
+  if has '(^|[;&|(] *)gh pr merge'; then
+    n=$(printf '%s' "$flat" | sed -n 's/.*gh pr merge \([0-9][0-9]*\).*/\1/p')
+    [ -n "$n" ] || deny "merge by pull request number"
+    has "gh pr merge $n [^;&|]*--squash" && has "gh pr merge $n [^;&|]*--auto" || deny "a merge is --squash --auto or nothing"
+    view=$(gh pr view "$n" --json labels,headRefName --jq '[.headRefName, (.labels[].name)] | join(" ")' 2>/dev/null) || deny "could not read pull request #$n"
+    case " $view " in
+      *" tier:auto "*) ;;
+      *) deny "pull request #$n is not tier:auto; it is the owner's to merge" ;;
+    esac
+    case "$view" in
+      maint/*) ;;
+      *) deny "pull request #$n is not on a maint/ branch" ;;
+    esac
+  fi
+fi
 
 # --- the scout reads and files issues, and that is all ---
 if [ "$stage" = scout ]; then

@@ -10,7 +10,7 @@ const CRON = { type: "string", minLength: 1, maxLength: 120 };
 // Empty is allowed by the schema and refused by the handler, since a stage
 // schedule has a prompt of its own and this is then only notes.
 const PROMPT = { type: "string", maxLength: 4000 };
-const STAGE = { enum: ["scout"] };
+const STAGE = { enum: ["scout", "build", "gate"] };
 // Up to 12h of spread; beyond that the schedule no longer means what it says.
 const JITTER = { type: "integer", minimum: 0, maximum: 720 };
 

@@ -246,7 +246,7 @@ backend/src/
 ├── schedules-store.ts# recurring prompts: one JSON file per schedule
 ├── scheduler.ts      # cron timers -> unattended sessions
 ├── events.ts         # one watcher -> every client: what the UI used to poll for
-├── routes/           # projects, sessions, files
+├── routes/           # projects, sessions, files, usage, maintainer (the queue)
 └── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
 backend/test/         # vitest; the path-traversal suite is the one that matters
 frontend/src/

@@ -201,9 +201,21 @@ or after ninety minutes, and a pod restart fails it in its own words rather than
 resuming it. What a stage knows about the repo comes from the repo: the
 `## Maintainer` section of its CLAUDE.md, with the command that verifies it, what
 may merge on its own and what is never to be touched unasked, read at launch.
-The first stage is the scout, which reads a repo and files the work it finds as
-labelled issues and changes nothing else; the stages that build and gate that
-work follow it.
+Three stages, each a schedule of its own. The scout reads a repo and files
+the work it finds as issues labelled `queued` and `tier:auto` or
+`tier:review`, and changes nothing else. The build takes the oldest queued
+issue into a worktree of its own (`<repo>--maint-<n>`, branch `maint/<n>`),
+runs the contract's verify command before and after, pushes, opens a pull
+request that closes the issue, and moves the issue's label on — `done`, or
+`blocked` with a comment when the issue is not clear enough to do unasked.
+The gate checks each open `maint/` pull request out fresh beside the repo,
+runs verify itself, reviews the diff against the issue and the contract's
+no-go list, posts one review, and arms `gh pr merge --squash --auto` for a
+`tier:auto` change it approved — the guard reads the pull request's labels
+before it lets that command through — while a `tier:review` one is reported
+as attention: the owner merges it from the phone. The queue is the repo's own
+issues, which is what makes it something the owner can add to by hand, and
+the inbox lists it.
 
 One such schedule is how the workbench learns: nightly it reads back what you
 typed into the sessions that ended that day — only your own words, never model

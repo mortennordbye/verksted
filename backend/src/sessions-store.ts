@@ -539,6 +539,8 @@ export interface LaunchOptions {
    * combined with autoPermissions; one says "ask me", the other "you cannot".
    */
   unattended?: MaintainerStage;
+  /** The issue a build run is for; travels to the guard and the prompt. */
+  issue?: number;
 }
 
 /**
@@ -616,6 +618,7 @@ async function launchAgent(
       extraEnv.VK_PROJECT = meta.project;
       extraEnv.VK_WORKTREE = projectDir;
       extraEnv.VK_EXIT_FILE = exitPath(meta.id);
+      if (opts.issue) extraEnv.VK_ISSUE = String(opts.issue);
     } else if (opts.autoPermissions) {
       command += " --permission-mode auto";
     }

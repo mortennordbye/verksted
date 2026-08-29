@@ -2,8 +2,10 @@ import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
 import { MAX_CONVENED, runUnattended } from "./assistant.js";
 import { env } from "./env.js";
-import { readContract, stagePrompt } from "./maintainer.js";
+import { syncDefaultBranch } from "./git.js";
+import { claimIssue, pickIssue, readContract, stagePrompt } from "./maintainer.js";
 import { resolveInsideRepos } from "./paths.js";
+import { addWorktree, removeWorktree } from "./projects-store.js";
 import * as schedules from "./schedules-store.js";
 import {
   REPORT_CONTRACT,
@@ -15,7 +17,7 @@ import {
   listSessions,
   writeReport,
 } from "./sessions-store.js";
-import { schedulesPaused } from "./settings-store.js";
+import { execEnv, schedulesPaused } from "./settings-store.js";
 
 /**
  * How many sessions may be alive before a schedule declines to add another.
@@ -236,19 +238,51 @@ async function roomForSession(id: string, schedule: Schedule, log: Logger): Prom
  */
 async function stageRun(id: string, schedule: Schedule, log: Logger): Promise<RunOutcome | null> {
   const stage = schedule.stage!;
-  const dir = resolveInsideRepos(schedule.project);
+  const repoDir = resolveInsideRepos(schedule.project);
+  const contract = await readContract(repoDir);
+  if (stage !== "build") {
+    const prompt = await stagePrompt(
+      stage,
+      { project: schedule.project, dir: repoDir, contract },
+      schedule.prompt,
+    );
+    const session = await createSession(schedule.project, repoDir, "claude", {
+      title: schedule.name,
+      prompt: prompt + REPORT_CONTRACT,
+      unattended: stage,
+    });
+    await schedules.recordRun(id, { sessionId: session.id });
+    log.info(`schedule ${id} started ${stage} session ${session.id}`);
+    return { session };
+  }
+
+  // A build works in a worktree of its own, branched from an up-to-date
+  // default branch, so the repo itself stays where the person left it. The
+  // sync happens here because createSession skips it for a worktree.
+  await syncDefaultBranch(repoDir, await execEnv());
+  const issue = await pickIssue(repoDir);
+  if (!issue) {
+    await schedules.recordRun(id, { error: "queue empty" });
+    log.info(`schedule ${id} skipped: nothing queued`);
+    return null;
+  }
+  const wt = await addWorktree(schedule.project, `maint/${issue.number}`);
+  // Claimed only once the worktree exists: a failed add leaves it queued.
+  await claimIssue(repoDir, issue.number);
   const prompt = await stagePrompt(
     stage,
-    { project: schedule.project, dir, contract: await readContract(dir) },
+    { project: schedule.project, dir: wt.dir, contract },
     schedule.prompt,
+    issue,
   );
-  const session = await createSession(schedule.project, dir, "claude", {
-    title: schedule.name,
+  const session = await createSession(wt.name, wt.dir, "claude", {
+    title: `${schedule.name} · #${issue.number}`,
     prompt: prompt + REPORT_CONTRACT,
     unattended: stage,
+    issue: issue.number,
   });
   await schedules.recordRun(id, { sessionId: session.id });
-  log.info(`schedule ${id} started ${stage} session ${session.id}`);
+  log.info(`schedule ${id} started build session ${session.id} for #${issue.number}`);
   return { session };
 }
 
@@ -317,7 +351,20 @@ let watcher: NodeJS.Timeout | undefined;
  */
 export async function watchUnattended(log: Logger, now = Date.now()): Promise<void> {
   for (const s of await listSessions()) {
-    if (!s.unattended || s.status === "done") continue;
+    if (!s.unattended) continue;
+    if (s.status === "done") {
+      // A build's worktree has done its job once the session is over and
+      // everything in it reached the remote; what is left is the pull request.
+      // One with unpushed or uncommitted work is left for a person to read.
+      if (s.unattended === "build" && s.work && s.work.dirty === 0 && !s.work.unpushed) {
+        await removeWorktree(s.project)
+          .then(() => log.info(`removed worktree ${s.project} after ${s.id}`))
+          .catch(() => {
+            // Already gone, or not a worktree: nothing to do.
+          });
+      }
+      continue;
+    }
     const code = await agentExited(s.id);
     if (code !== null) {
       if (!s.report) {

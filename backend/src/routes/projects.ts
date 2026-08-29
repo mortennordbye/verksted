@@ -6,7 +6,7 @@ import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
 import { git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
-import { listProjects } from "../projects-store.js";
+import { WorktreeError, addWorktree, listProjects } from "../projects-store.js";
 import * as store from "../sessions-store.js";
 import { execEnv } from "../settings-store.js";
 
@@ -132,52 +132,21 @@ export default async function projectRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let repoDir: string;
       try {
-        repoDir = resolveInsideRepos(req.params.name);
+        resolveInsideRepos(req.params.name);
       } catch {
         return reply.code(404).send({ error: "not found" });
       }
-      const branch = req.body.branch.trim();
       try {
-        await exec("git", ["check-ref-format", "--branch", branch]);
-      } catch {
-        return reply.code(400).send({ error: "invalid branch name" });
-      }
-      const wtName = `${req.params.name}--${branch.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
-      if (!PROJECT_NAME_RE.test(wtName) || wtName.length > 150) {
-        return reply.code(400).send({ error: "invalid branch name" });
-      }
-      const dest = path.join(env.REPOS_DIR, wtName);
-      try {
-        await fs.access(dest);
-        return reply.code(409).send({ error: "worktree already exists" });
-      } catch {
-        // dest is free
-      }
-      try {
-        // Existing branch (local, or unique remote match via git's DWIM).
-        await exec("git", ["-C", repoDir, "worktree", "add", dest, branch], { timeout: 60_000 });
+        const wt = await addWorktree(req.params.name, req.body.branch.trim());
+        return reply.code(201).send({ name: wt.name, branch: wt.branch });
       } catch (err) {
-        const stderr = String((err as { stderr?: string }).stderr ?? "");
-        if (stderr.includes("already checked out") || stderr.includes("already used by worktree")) {
-          return reply
-            .code(409)
-            .send({ error: "branch is already checked out in another worktree" });
+        if (err instanceof WorktreeError) {
+          if (err.status === 502) req.log.error(err, "worktree add failed");
+          return reply.code(err.status).send({ error: err.message });
         }
-        try {
-          // New branch from HEAD.
-          await exec("git", ["-C", repoDir, "worktree", "add", "-b", branch, dest], {
-            timeout: 60_000,
-          });
-        } catch (err2) {
-          req.log.error(err2, "worktree add failed");
-          return reply
-            .code(502)
-            .send({ error: "could not create worktree (does the repo have a commit?)" });
-        }
+        throw err;
       }
-      return reply.code(201).send({ name: wtName, branch });
     },
   );
 
