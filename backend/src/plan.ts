@@ -2,8 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { PlanSample, PlanUsage } from "../../shared/api.js";
 import { ttlCache } from "./cache.js";
+import { claudeCredentialsFile } from "./claude-home.js";
 import { env } from "./env.js";
-import { agentEnv } from "./settings-store.js";
+import { credential } from "./settings-store.js";
 
 /**
  * What is left of the subscription, from the account itself.
@@ -64,8 +65,30 @@ export function parsePlan(body: unknown, fetchedAt = new Date().toISOString()): 
   return { session, week, models, fetchedAt, history: [] };
 }
 
+/**
+ * The token to read the plan with, wherever the pod keeps it: the settings
+ * page or the environment first, else the login claude made for itself on the
+ * volume — which is how the pod actually signs in, with a token claude renews
+ * as sessions run. An expired one is no token; the next session renews it.
+ */
+export async function oauthToken(now = Date.now()): Promise<string | undefined> {
+  const configured = await credential("CLAUDE_CODE_OAUTH_TOKEN");
+  if (configured) return configured;
+  try {
+    const raw = JSON.parse(await fs.readFile(claudeCredentialsFile(), "utf8")) as {
+      claudeAiOauth?: { accessToken?: string; expiresAt?: number };
+    };
+    const login = raw.claudeAiOauth;
+    if (!login?.accessToken) return undefined;
+    if (typeof login.expiresAt === "number" && login.expiresAt <= now) return undefined;
+    return login.accessToken;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchPlan(): Promise<PlanUsage | null> {
-  const token = (await agentEnv()).CLAUDE_CODE_OAUTH_TOKEN;
+  const token = await oauthToken();
   if (!token) return null;
   try {
     const res = await fetch(USAGE_URL, {
