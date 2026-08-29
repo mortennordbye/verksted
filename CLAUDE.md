@@ -232,6 +232,7 @@ backend/src/
 ├── index.ts          # bootstrap: env, fastify, routes, static serving
 ├── maintainer.ts     # a stage's prompt: shipped text + the repo's own contract
 ├── usage.ts          # what a session cost in tokens, read from its transcript
+├── plan.ts           # what is left of the subscription, read from the account
 ├── claude-home.ts    # where claude keeps transcripts; no imports, so anyone may use it
 ├── sandbox-doc.ts    # points each agent's global memory file at SANDBOX.md
 ├── tts.ts            # the assistant's voice: one warm Kokoro worker on the pod

@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Session, SessionUsage, UsageSummary } from "../../shared/api.js";
+import type { PlanUsage, Session, SessionUsage, UsageDay, UsageSummary } from "../../shared/api.js";
 import { subagentDir, transcriptPath } from "./claude-home.js";
+import { env } from "./env.js";
 
 /**
  * What a session cost, in tokens, read out of the transcript it wrote.
@@ -97,11 +98,29 @@ const WINDOWS: { label: string; days: number }[] = [
 /** How many projects the thirty-day list names; the rest fold into "other". */
 const MAX_PROJECTS = 6;
 
+/** Days on the bar row. */
+const DAYS = 30;
+
+/** A timestamp's calendar day where the pod is, as YYYY-MM-DD. */
+const dayOf = (() => {
+  const fmt = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: env.TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return (ms: number) => fmt.format(new Date(ms));
+})();
+
 /**
  * The dashboard's numbers from the session list. Only finished sessions have
  * a measurement, and a session counts in the window its end fell in.
  */
-export function summarize(sessions: Session[], now = Date.now()): UsageSummary {
+export function summarize(
+  sessions: Session[],
+  now = Date.now(),
+  plan: PlanUsage | null = null,
+): UsageSummary {
   const measured = sessions.filter(
     (s): s is Session & { usage: SessionUsage; endedAt: string } => !!s.usage && !!s.endedAt,
   );
@@ -142,5 +161,19 @@ export function summarize(sessions: Session[], now = Date.now()): UsageSummary {
       sessions: rest.reduce((n, r) => n + r.sessions, 0),
     });
   }
-  return { windows, projects };
+
+  // Every day present, zero or not: a gap in a bar row reads as missing data,
+  // and a quiet day is data.
+  const byDay = new Map<string, UsageDay>();
+  for (let i = DAYS - 1; i >= 0; i--) {
+    const date = dayOf(now - i * 24 * 60 * 60_000);
+    byDay.set(date, { date, total: 0, unattended: 0 });
+  }
+  for (const s of measured) {
+    const day = byDay.get(dayOf(Date.parse(s.endedAt)));
+    if (!day) continue;
+    day.total += totalTokens(s.usage);
+    if (s.unattended) day.unattended += totalTokens(s.usage);
+  }
+  return { windows, projects, days: [...byDay.values()], plan };
 }

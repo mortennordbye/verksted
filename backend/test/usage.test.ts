@@ -181,6 +181,42 @@ describe("summarize", () => {
     ]);
   });
 
+  it("gives every one of the last thirty days a bar, zero or not", () => {
+    const { days } = usage.summarize(
+      [
+        session({
+          id: "vk-a-1",
+          project: "a",
+          endedAt: new Date(now - day).toISOString(),
+          usage: u(500),
+        }),
+        session({
+          id: "vk-a-2",
+          project: "a",
+          endedAt: new Date(now - day).toISOString(),
+          usage: u(200),
+          unattended: "scout",
+        }),
+      ],
+      now,
+    );
+    expect(days).toHaveLength(30);
+    expect(days.at(-1)!.date).toBe("2026-08-29");
+    expect(days.at(-2)).toEqual({ date: "2026-08-28", total: 700, unattended: 200 });
+    expect(days[0]).toEqual({ date: "2026-07-31", total: 0, unattended: 0 });
+  });
+
+  it("carries the plan through untouched, null included", () => {
+    expect(usage.summarize([], now).plan).toBeNull();
+    const plan = {
+      session: { percent: 47, resetsAt: null },
+      week: { percent: 24, resetsAt: null },
+      models: [],
+      fetchedAt: "x",
+    };
+    expect(usage.summarize([], now, plan).plan).toBe(plan);
+  });
+
   it("folds the long tail of projects into one row", () => {
     const sessions = "abcdefgh".split("").map((p, i) =>
       session({

@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { planUsage } from "../plan.js";
 import { backfillUsage, listSessions } from "../sessions-store.js";
 import { summarize } from "../usage.js";
 
@@ -8,6 +9,9 @@ export default async function usageRoutes(app: FastifyInstance) {
   // backfill measures the ones that ended before there was a measurement.
   app.get("/api/usage", async () => {
     await backfillUsage();
-    return summarize(await listSessions());
+    // Side by side: what was spent, from the transcripts, and what is left,
+    // from the account. The second is best effort and null when it fails.
+    const [sessions, plan] = await Promise.all([listSessions(), planUsage()]);
+    return summarize(sessions, Date.now(), plan);
   });
 }
