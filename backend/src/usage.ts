@@ -1,6 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { PlanUsage, Session, SessionUsage, UsageDay, UsageSummary } from "../../shared/api.js";
+import type {
+  PlanUsage,
+  Session,
+  SessionUsage,
+  UsageDay,
+  UsageMonth,
+  UsageSummary,
+} from "../../shared/api.js";
 import { subagentDir, transcriptPath } from "./claude-home.js";
 import { env } from "./env.js";
 
@@ -135,10 +142,12 @@ export function totalTokens(u: SessionUsage): number {
   return u.input + u.output + u.cacheRead + u.cacheWrite;
 }
 
+/** Trailing windows; 0 days is everything the volume remembers. */
 const WINDOWS: { label: string; days: number }[] = [
   { label: "24 hours", days: 1 },
   { label: "7 days", days: 7 },
   { label: "30 days", days: 30 },
+  { label: "all time", days: 0 },
 ];
 
 /** How many projects the thirty-day list names; the rest fold into "other". */
@@ -158,6 +167,25 @@ const dayOf = (() => {
   return (ms: number) => fmt.format(new Date(ms));
 })();
 
+/** The same, to the month: YYYY-MM. */
+const monthOf = (ms: number) => dayOf(ms).slice(0, 7);
+
+/** Every month from `from` to `to`, inclusive, as YYYY-MM. */
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  let [y, m] = from.split("-").map(Number);
+  while (true) {
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    out.push(key);
+    if (key >= to || out.length > 240) break;
+    if (++m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  return out;
+}
+
 /**
  * The dashboard's numbers from the session list. Only finished sessions have
  * a measurement, and a session counts in the window its end fell in.
@@ -171,7 +199,7 @@ export function summarize(
     (s): s is Session & { usage: SessionUsage; endedAt: string } => !!s.usage && !!s.endedAt,
   );
   const windows = WINDOWS.map(({ label, days }) => {
-    const since = now - days * 24 * 60 * 60_000;
+    const since = days ? now - days * 24 * 60 * 60_000 : -Infinity;
     const inWindow = measured.filter((s) => Date.parse(s.endedAt) >= since);
     const tokens = { ...EMPTY };
     let unattended = 0;
@@ -235,5 +263,32 @@ export function summarize(
     day.costUsd += s.usage.costUsd ?? 0;
     if (s.unattended) day.unattended += totalTokens(s.usage);
   }
-  return { windows, projects, days: [...byDay.values()], outcomes, plan };
+
+  // Every month from the first measured session to this one, all time.
+  const byMonth = new Map<string, UsageMonth>();
+  const firstEnd = measured.reduce(
+    (min, s) => Math.min(min, Date.parse(s.endedAt)),
+    Number.POSITIVE_INFINITY,
+  );
+  if (Number.isFinite(firstEnd)) {
+    for (const month of monthsBetween(monthOf(firstEnd), monthOf(now))) {
+      byMonth.set(month, { month, total: 0, unattended: 0, costUsd: 0 });
+    }
+    for (const s of measured) {
+      const row = byMonth.get(monthOf(Date.parse(s.endedAt)));
+      if (!row) continue;
+      row.total += totalTokens(s.usage);
+      row.costUsd += s.usage.costUsd ?? 0;
+      if (s.unattended) row.unattended += totalTokens(s.usage);
+    }
+  }
+
+  return {
+    windows,
+    projects,
+    days: [...byDay.values()],
+    months: [...byMonth.values()],
+    outcomes,
+    plan,
+  };
 }

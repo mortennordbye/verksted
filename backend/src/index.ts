@@ -11,6 +11,7 @@ import { startNotifier } from "./notifier.js";
 import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { seedCouncil } from "./council-store.js";
+import { startPlanHistory } from "./plan.js";
 import { reloadSchedules } from "./scheduler.js";
 import { restoreSessions } from "./sessions-store.js";
 
@@ -47,6 +48,8 @@ startNightlyBackup(app.log);
 // restoreSessions, and this is the schedules' equivalent.
 await sweepTempFiles(env.SCHEDULES_DIR);
 await reloadSchedules(app.log);
+// How full the plan is, once an hour, kept: the account keeps no history.
+startPlanHistory(app.log);
 
 // A rejection nobody handled would otherwise take the process down with Node's
 // default, killing every tmux attach and both websockets for something as small

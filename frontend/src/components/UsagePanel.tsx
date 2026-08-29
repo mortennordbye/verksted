@@ -1,4 +1,4 @@
-import type { SessionUsage, UsageSummary } from "../../../shared/api";
+import type { PlanSample, SessionUsage, UsageSummary } from "../../../shared/api";
 import { StatusChip } from "./StatusChip";
 
 /**
@@ -98,27 +98,35 @@ const DAY_SERIES = [
   { key: "unattended", label: "unattended", cls: "bg-chart-2" },
 ] as const;
 
+/** One bar of a row: a period, its tokens, and the unattended share. */
+interface Bar {
+  key: string;
+  total: number;
+  unattended: number;
+  costUsd: number;
+}
+
 /**
- * Thirty days as a row of stacked bars, scaled to the month's peak. Every
- * day is drawn, so a quiet one reads as quiet rather than missing; a native
- * tooltip carries the exact figures.
+ * A row of stacked bars, scaled to the row's peak. Every period is drawn, so
+ * a quiet one reads as quiet rather than missing; a native tooltip carries the
+ * exact figures. Days and months both come through here.
  */
-function DayBars({ days }: { days: UsageSummary["days"] }) {
-  const peak = Math.max(1, ...days.map((d) => d.total));
+function Bars({ items, unit }: { items: Bar[]; unit: string }) {
+  const peak = Math.max(1, ...items.map((d) => d.total));
   return (
     <div>
       <div
         className="flex h-12 items-end gap-[2px]"
         role="img"
-        aria-label={`tokens per day over ${days.length} days, peak ${tokens(peak)}`}
+        aria-label={`tokens per ${unit} over ${items.length} ${unit}s, peak ${tokens(peak)}`}
       >
-        {days.map((d) => {
+        {items.map((d) => {
           const interactive = d.total - d.unattended;
           const h = (n: number) => `${(n / peak) * 100}%`;
           return (
             <div
-              key={d.date}
-              title={`${d.date}: ${tokens(d.total)}${d.unattended ? ` (${tokens(d.unattended)} unattended)` : ""} · ${usd(d.costUsd)}`}
+              key={d.key}
+              title={`${d.key}: ${tokens(d.total)}${d.unattended ? ` (${tokens(d.unattended)} unattended)` : ""} · ${usd(d.costUsd)}`}
               className="flex h-full flex-1 flex-col justify-end gap-[1px]"
             >
               {d.unattended > 0 && (
@@ -133,7 +141,7 @@ function DayBars({ days }: { days: UsageSummary["days"] }) {
         })}
       </div>
       <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 text-[11px] text-faint tabular-nums">
-        <span>{days[0]?.date.slice(5)}</span>
+        <span>{items[0]?.key}</span>
         <span className="flex gap-3">
           {DAY_SERIES.map((s) => (
             <span key={s.key} className="flex items-center gap-1.5">
@@ -142,7 +150,97 @@ function DayBars({ days }: { days: UsageSummary["days"] }) {
             </span>
           ))}
         </span>
-        <span>{days.at(-1)?.date.slice(5)}</span>
+        <span>{items.at(-1)?.key}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Series order is fixed here too: the five-hour window, then the week. */
+const PLAN_SERIES = [
+  { key: "session", label: "5-hour window", stroke: "var(--color-chart-1)" },
+  { key: "week", label: "week", stroke: "var(--color-chart-2)" },
+] as const;
+
+/**
+ * How full the plan was, hour by hour over the last week: two lines on one
+ * axis, both in percent. A column per sample carries the hover figures.
+ */
+function PlanHistory({ history }: { history: PlanSample[] }) {
+  const W = 600;
+  const H = 60;
+  const first = Date.parse(history[0].at);
+  const span = Math.max(1, Date.parse(history[history.length - 1].at) - first);
+  const x = (s: PlanSample) => ((Date.parse(s.at) - first) / span) * W;
+  const y = (pct: number) => H - (Math.min(100, Math.max(0, pct)) / 100) * H;
+  const points = (key: "session" | "week") => history.map((s) => `${x(s)},${y(s[key])}`).join(" ");
+  const col = W / Math.max(1, history.length - 1);
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        preserveAspectRatio="none"
+        className="h-14 w-full"
+        role="img"
+        aria-label={`plan usage over ${history.length} hourly samples`}
+      >
+        {[25, 50, 75].map((g) => (
+          <line
+            key={g}
+            x1={0}
+            x2={W}
+            y1={y(g)}
+            y2={y(g)}
+            stroke="var(--color-line)"
+            strokeWidth={1}
+          />
+        ))}
+        <line
+          x1={0}
+          x2={W}
+          y1={y(100)}
+          y2={y(100)}
+          stroke="var(--color-fail)"
+          strokeWidth={1}
+          strokeDasharray="4 4"
+        />
+        {PLAN_SERIES.map((s) => (
+          <polyline
+            key={s.key}
+            points={points(s.key)}
+            fill="none"
+            stroke={s.stroke}
+            strokeWidth={2}
+            vectorEffect="non-scaling-stroke"
+            strokeLinejoin="round"
+          />
+        ))}
+        {history.map((s) => (
+          <rect key={s.at} x={x(s) - col / 2} y={0} width={col} height={H} fill="transparent">
+            <title>
+              {`${new Date(s.at).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}: 5-hour window ${s.session}%, week ${s.week}%`}
+            </title>
+          </rect>
+        ))}
+      </svg>
+      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 text-[11px] text-faint tabular-nums">
+        <span>{new Date(history[0].at).toLocaleDateString([], { weekday: "short" })}</span>
+        <span className="flex gap-3">
+          {PLAN_SERIES.map((s) => (
+            <span key={s.key} className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-2 w-2 rounded-[2px]"
+                style={{ background: s.stroke }}
+              />
+              {s.label}
+            </span>
+          ))}
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-[2px] w-3 bg-fail" />
+            full
+          </span>
+        </span>
+        <span>now</span>
       </div>
     </div>
   );
@@ -254,6 +352,12 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
               resetsAt={usage.plan.week.resetsAt}
             />
           </div>
+          {usage.plan.history.length >= 2 && (
+            <div className="mt-3">
+              <Label>How full the plan was · last 7 days</Label>
+              <PlanHistory history={usage.plan.history} />
+            </div>
+          )}
           {usage.plan.models.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
               {usage.plan.models.map((m) => (
@@ -268,7 +372,7 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
 
       {any && month && (
         <div className="mt-4 border-t border-line pt-4">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-[560px]:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-[560px]:grid-cols-3 min-[880px]:grid-cols-5">
             {usage.windows.map((w) => (
               <div key={w.days} className="min-w-0">
                 <Label>Tokens · {w.label}</Label>
@@ -276,6 +380,7 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
                   {tokens(total(w.tokens))}
                 </div>
                 <div className="mt-0.5 truncate text-[11px] text-faint tabular-nums">
+                  {w.days === 0 && usage.months[0] ? `since ${usage.months[0].month} · ` : ""}
                   {w.sessions} session{w.sessions === 1 ? "" : "s"}
                   {w.unattended > 0 && ` · ${tokens(w.unattended)} unattended`}
                   {` · ${usd(w.costUsd)}`}
@@ -295,9 +400,16 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
           </div>
 
           <div className="mt-4">
-            <Label>Tokens per day</Label>
-            <DayBars days={usage.days} />
+            <Label>Tokens per day · 30 days</Label>
+            <Bars items={usage.days.map((d) => ({ ...d, key: d.date }))} unit="day" />
           </div>
+
+          {usage.months.length > 1 && (
+            <div className="mt-4">
+              <Label>Tokens per month · all time</Label>
+              <Bars items={usage.months.map((m) => ({ ...m, key: m.month }))} unit="month" />
+            </div>
+          )}
 
           <div className="mt-4">
             <Label>What kind · 30 days</Label>
