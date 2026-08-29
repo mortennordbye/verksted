@@ -85,22 +85,64 @@ function reportPath(id: string): string {
   return path.join(env.SESSIONS_DIR, `${id}.report`);
 }
 
+// Written by the pane itself when an unattended agent exits (launchAgent puts
+// the redirect after the claude command): the one fact the watcher needs.
+function exitPath(id: string): string {
+  return path.join(env.SESSIONS_DIR, `${id}.exit`);
+}
+
 /**
  * Write a verdict on the run's behalf. For the two ends an unattended run can
  * reach without signing off — killed at the cap, or a pod restart out from
  * under it — where silence would otherwise read as a night that went well.
  */
-export async function writeReport(id: string, line: string): Promise<void> {
+export async function writeReport(id: string, line: string, detail = ""): Promise<void> {
   if (!SESSION_ID_RE.test(id)) return;
-  await fs.writeFile(reportPath(id), `${line}\n`);
+  // Only the first line is ever read back; what follows is kept for whoever
+  // opens the file on the volume to find out what happened.
+  await fs.writeFile(reportPath(id), detail ? `${line}\n\n${detail}\n` : `${line}\n`);
 }
 
 /**
- * Whether the session's agent has exited. Only meaningful for an unattended
- * run, whose headless agent ends on its own and leaves the pane at a shell.
+ * The last thing an agent printed, for a run that exited without a word.
+ *
+ * A headless claude that could not start says why on the pane and exits, and
+ * the pane is about to be ended — so this is the only moment that line can be
+ * read. The pane keeps its shell after the agent, so a final prompt line is
+ * dropped; what is left is usually the CLI's own error.
  */
-export async function agentExited(id: string): Promise<boolean> {
-  return tmux.paneIdle(id);
+export async function lastWords(id: string): Promise<{ line: string | null; tail: string }> {
+  let tail: string;
+  try {
+    tail = (await tmux.capturePane(id, 60)).trimEnd();
+  } catch {
+    return { line: null, tail: "" };
+  }
+  const lines = tail
+    .split("\n")
+    .map((l) => l.trimEnd())
+    .filter(Boolean);
+  if (lines.length && /[$#%>]\s*$/.test(lines[lines.length - 1])) lines.pop();
+  const line = lines.at(-1)?.trim().slice(0, 200) ?? null;
+  return { line, tail };
+}
+
+/**
+ * The exit code of the session's agent, or null while it still runs. Only
+ * an unattended run writes one: its headless agent ends on its own and leaves
+ * the pane at a shell, so tmux alone would say the session was still going.
+ * A file the pane writes rather than a guess from what tmux reports as the
+ * pane's current command, which names the wrapper shell as readily as the
+ * agent.
+ */
+export async function agentExited(id: string): Promise<number | null> {
+  if (!SESSION_ID_RE.test(id)) return null;
+  try {
+    const code = Number((await fs.readFile(exitPath(id), "utf8")).trim());
+    return Number.isFinite(code) ? code : 1;
+  } catch {
+    return null;
+  }
 }
 
 /** The run's own verdict, first line only; null when it wrote none. */
@@ -533,6 +575,7 @@ async function launchAgent(
       extraEnv.VK_STAGE = opts.unattended;
       extraEnv.VK_PROJECT = meta.project;
       extraEnv.VK_WORKTREE = projectDir;
+      extraEnv.VK_EXIT_FILE = exitPath(meta.id);
     } else if (opts.autoPermissions) {
       command += " --permission-mode auto";
     }
@@ -545,6 +588,9 @@ async function launchAgent(
     extraEnv.VK_PROMPT = context ? `${context}\n\n---\n\n${opts.prompt}` : opts.prompt;
     command += ' "$VK_PROMPT"';
   }
+  // The pane records that the agent is gone, and how it went, before it drops
+  // into the shell that keeps the session readable (see tmux.newSession).
+  if (opts.unattended) command += '; printf %s "$?" > "$VK_EXIT_FILE"';
 
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
 }
@@ -642,6 +688,7 @@ export function createSession(
     await fs.rm(statePath(meta.id), { force: true });
     await fs.rm(convPath(meta.id), { force: true });
     await fs.rm(reportPath(meta.id), { force: true });
+    await fs.rm(exitPath(meta.id), { force: true });
     // Metadata first: a tmux session the app has no record of is invisible in
     // the UI and never reaped, so it can only be found with kubectl exec.
     await writeMeta(meta);
@@ -674,6 +721,7 @@ export async function deleteProjectSessions(project: string): Promise<void> {
     await fs.rm(statePath(m.id), { force: true });
     await fs.rm(convPath(m.id), { force: true });
     await fs.rm(reportPath(m.id), { force: true });
+    await fs.rm(exitPath(m.id), { force: true });
   }
 }
 
@@ -708,5 +756,6 @@ export async function deleteSession(id: string): Promise<boolean> {
   await fs.rm(statePath(id), { force: true });
   await fs.rm(convPath(id), { force: true });
   await fs.rm(reportPath(id), { force: true });
+  await fs.rm(exitPath(id), { force: true });
   return true;
 }

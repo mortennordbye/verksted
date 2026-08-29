@@ -295,6 +295,8 @@ describe("a schedule that runs a maintainer stage", () => {
     // which is what lets the scheduler know the run is over.
     expect(command).toMatch(/--permission-mode dontAsk --max-turns \d+ --verbose -p "\$VK_PROMPT"/);
     expect(command).not.toContain("--permission-mode auto");
+    // And the pane says when the agent is gone, since tmux will not.
+    expect(command).toContain('"$VK_PROMPT"; printf %s "$?" > "$VK_EXIT_FILE"');
     const env = envOf(argv);
     expect(env.VK_UNATTENDED).toBe("1");
     expect(env.VK_STAGE).toBe("scout");
@@ -346,14 +348,38 @@ describe("a schedule that runs a maintainer stage", () => {
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
     // The pane is back at its shell: the headless agent is gone.
-    fake.reply("tmux", "display-message", { stdout: "bash\n" });
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
     await scheduler.watchUnattended(log);
 
     expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
       `=${session!.id}`,
     );
-    expect((await store.getSchedule(s.id))!.lastReport).toBe("failed: no sign-off");
+    expect((await store.getSchedule(s.id))!.lastReport).toBe("failed: no sign-off (exit 0)");
+  });
+
+  it("puts the agent's last line into the verdict when it left no report", async () => {
+    // A headless claude that cannot start says why on the pane and exits. The
+    // pane is about to be ended, so that line has to travel in the report or
+    // it is gone — and "no sign-off" alone would send someone to a pod that
+    // no longer has the session.
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "1");
+    fake.reply("tmux", "capture-pane", {
+      stdout:
+        "$ claude -p ...\nerror: unknown option '--permission-mode'\n\nroot@pod:/data/repos/demo# \n",
+    });
+
+    await scheduler.watchUnattended(log);
+
+    expect((await store.getSchedule(s.id))!.lastReport).toBe(
+      "failed: no sign-off (exit 1, last line: error: unknown option '--permission-mode')",
+    );
+    // The whole tail is kept behind the first line, for whoever opens the file.
+    const file = fs.readFileSync(path.join(sessionsDir, `${session!.id}.report`), "utf8");
+    expect(file).toContain("$ claude -p ...");
   });
 
   it("keeps a run's own report when it wrote one", async () => {
@@ -361,7 +387,7 @@ describe("a schedule that runs a maintainer stage", () => {
     const session = await sessionFrom(s.id);
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.report`), "ok: filed 2\n");
     fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
-    fake.reply("tmux", "display-message", { stdout: "sh\n" });
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
     await scheduler.watchUnattended(log);
 
@@ -373,7 +399,6 @@ describe("a schedule that runs a maintainer stage", () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
-    fake.reply("tmux", "display-message", { stdout: "node\n" });
 
     await scheduler.watchUnattended(log);
 
@@ -385,7 +410,6 @@ describe("a schedule that runs a maintainer stage", () => {
     const s = await stageSchedule();
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
-    fake.reply("tmux", "display-message", { stdout: "node\n" });
 
     await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
 
@@ -399,7 +423,7 @@ describe("a schedule that runs a maintainer stage", () => {
     const s = await schedule("check the open PRs");
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
-    fake.reply("tmux", "display-message", { stdout: "bash\n" });
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
     await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
 
