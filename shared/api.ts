@@ -122,10 +122,46 @@ export interface UsageWindow {
   unattended: number;
 }
 
+/** One day's tokens, for the bar row. */
+export interface UsageDay {
+  /** YYYY-MM-DD in the pod's timezone. */
+  date: string;
+  total: number;
+  unattended: number;
+}
+
+/** One of the plan's rate-limit windows, as the account reports it. */
+export interface PlanLimit {
+  /** Percent of the window already used. */
+  percent: number;
+  /** When the window rolls over; null when the account gave none. */
+  resetsAt: string | null;
+}
+
+/**
+ * How much of the subscription's allowance is left, read from the account
+ * rather than inferred from tokens — the same figures Claude Code's own
+ * `/usage` screen shows, and reading them costs no usage at all. Best effort:
+ * the endpoint is not a documented one, so this is null whenever it does not
+ * answer, and nothing else depends on it.
+ */
+export interface PlanUsage {
+  /** The rolling five-hour window. */
+  session: PlanLimit;
+  /** The rolling seven-day window, all models together. */
+  week: PlanLimit;
+  /** Per-model seven-day windows, when the plan has them. */
+  models: { model: string; percent: number }[];
+  fetchedAt: string;
+}
+
 export interface UsageSummary {
   windows: UsageWindow[];
   /** The last thirty days by project, largest first, the tail folded into one. */
   projects: { project: string; total: number; sessions: number }[];
+  /** The last thirty days, oldest first, every day present even when zero. */
+  days: UsageDay[];
+  plan: PlanUsage | null;
 }
 
 /** One commit made while a session held the repo. */

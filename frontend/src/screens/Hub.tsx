@@ -28,6 +28,44 @@ function total(t: UsageSummary["windows"][number]["tokens"]): number {
   return t.input + t.output + t.cacheRead + t.cacheWrite;
 }
 
+/** When a plan window rolls over, in this device's clock: "16:59" or "Wed 20:59". */
+function resetLabel(iso: string | null): string {
+  if (!iso) return "";
+  const at = new Date(iso);
+  const sameDay = at.toDateString() === new Date().toDateString();
+  return at.toLocaleString([], {
+    ...(sameDay ? {} : { weekday: "short" }),
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Thirty days of tokens as a row of thin bars, one series, the whole month's
+ * peak as the scale. A native tooltip carries the exact figure per bar; the
+ * bars are ink, not a data colour, since there is one series and nothing to
+ * tell apart.
+ */
+function DayBars({ days }: { days: UsageSummary["days"] }) {
+  const peak = Math.max(1, ...days.map((d) => d.total));
+  return (
+    <div
+      className="flex h-9 items-end gap-[2px]"
+      role="img"
+      aria-label={`tokens per day over ${days.length} days, peak ${tokens(peak)}`}
+    >
+      {days.map((d) => (
+        <div
+          key={d.date}
+          title={`${d.date}: ${tokens(d.total)}${d.unattended ? ` (${tokens(d.unattended)} unattended)` : ""}`}
+          className="flex-1 rounded-t-[2px] bg-muted"
+          style={{ height: `${Math.max(d.total > 0 ? 6 : 2, (d.total / peak) * 100)}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /** How a finished session's own verdict maps onto a chip. */
 const OUTCOME: Record<string, { kind: "run" | "wait" | "fail" | "idle"; label: string }> = {
   ok: { kind: "run", label: "ok" },
@@ -579,6 +617,32 @@ export default function Hub() {
               maintainer's share of that is the number that decides whether a
               third repo can join. Cached prompt tokens are counted: the plan
               meters them too, just cheaper. */}
+          {usage?.plan && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                <Stat
+                  label="Plan · 5-hour window"
+                  value={`${usage.plan.session.percent}% used${usage.plan.session.resetsAt ? ` · resets ${resetLabel(usage.plan.session.resetsAt)}` : ""}`}
+                  fraction={usage.plan.session.percent / 100}
+                />
+                <Stat
+                  label="Plan · this week"
+                  value={`${usage.plan.week.percent}% used${usage.plan.week.resetsAt ? ` · resets ${resetLabel(usage.plan.week.resetsAt)}` : ""}`}
+                  fraction={usage.plan.week.percent / 100}
+                />
+              </div>
+              {usage.plan.models.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
+                  {usage.plan.models.map((m) => (
+                    <span key={m.model}>
+                      {m.model} this week{" "}
+                      <span className="font-mono tabular-nums">{m.percent}%</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {usage && usage.windows.some((w) => w.sessions > 0) && (
             <div className="mt-4 border-t border-line pt-4">
               <div className="grid grid-cols-3 gap-x-6 gap-y-4">
@@ -596,6 +660,14 @@ export default function Hub() {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="mt-3">
+                <DayBars days={usage.days} />
+                <div className="mt-1 flex justify-between text-[11px] text-faint tabular-nums">
+                  <span>{usage.days[0]?.date.slice(5)}</span>
+                  <span>tokens per day</span>
+                  <span>{usage.days.at(-1)?.date.slice(5)}</span>
+                </div>
               </div>
               {usage.projects.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
