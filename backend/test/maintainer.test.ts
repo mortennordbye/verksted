@@ -60,6 +60,20 @@ describe("stagePrompt", () => {
     expect(prompt).toContain("deny rather than ask");
   });
 
+  it("hands the builder its issue, tier and branch", async () => {
+    const prompt = await maintainer.stagePrompt(
+      "build",
+      { project: "demo", dir: "/data/repos/demo--maint-42", contract: "Verify: `npm test`." },
+      "",
+      { number: 42, title: "add a test", body: "for the thin space", tier: null },
+    );
+    expect(prompt).toMatch(/^You are the maintainer's builder/);
+    expect(prompt).toContain("Branch: maint/42");
+    expect(prompt).toContain("## This issue\n\n#42: add a test");
+    expect(prompt).toContain("Tier: unlabelled — treat as tier:review");
+    expect(prompt).toContain("for the thin space");
+  });
+
   it("tells a run with no contract to fail rather than guess", async () => {
     const prompt = await maintainer.stagePrompt(
       "scout",

@@ -354,6 +354,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               >
                 <option value="">own prompt</option>
                 <option value="scout">maintainer: scout</option>
+                <option value="build">maintainer: build</option>
+                <option value="gate">maintainer: gate</option>
               </select>
             )}
             {assistantDraft && !draft.member && (

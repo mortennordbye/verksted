@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Memory, ScheduleRun, Session, SessionUsage, SessionWork } from "../../../shared/api";
+import type {
+  MaintainerIssue,
+  Memory,
+  ScheduleRun,
+  Session,
+  SessionUsage,
+  SessionWork,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { ReviewMark, StatusChip } from "../components/StatusChip";
@@ -58,6 +65,7 @@ function workLabel(w: SessionWork): string {
 export default function Inbox() {
   const { data: sessions } = usePoll<Session[]>("/api/sessions", 8_000);
   const { data: runs } = usePoll<ScheduleRun[]>("/api/runs", 15_000);
+  const { data: queue } = usePoll<MaintainerIssue[]>("/api/maintainer/queue", 60_000);
   const { data: proposed, refresh: refreshProposed } = usePoll<{ proposals: Memory[] }>(
     "/api/memory/proposed",
     30_000,
@@ -169,6 +177,41 @@ export default function Inbox() {
                     </span>
                   </div>
                 </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {queue && queue.length > 0 && (
+          <>
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Maintainer queue
+            </div>
+            {/* The queue is the repos' own issues, so a row opens on GitHub:
+                that is where an issue is written, relabelled or closed. */}
+            <div className="mb-8 flex flex-col gap-2">
+              {queue.map((i) => (
+                <a
+                  key={`${i.project}#${i.number}`}
+                  href={i.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5 hover:border-line-strong"
+                >
+                  <StatusChip
+                    kind={
+                      i.state === "in-progress" ? "run" : i.state === "blocked" ? "wait" : "idle"
+                    }
+                    label={i.state}
+                  />
+                  <span className="font-mono text-[11px] text-faint">{i.project}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                    <span className="font-mono text-faint">#{i.number}</span> {i.title}
+                  </span>
+                  {i.tier && (
+                    <span className="font-mono text-[11px] text-faint">tier:{i.tier}</span>
+                  )}
+                </a>
               ))}
             </div>
           </>

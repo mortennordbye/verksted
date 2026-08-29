@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, symlink } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -206,6 +206,106 @@ describe("vk-guard, in every stage", () => {
 
   it("passes tools it has no opinion on", async () => {
     expect((await guard("Read", { file_path: "/etc/hostname" }, build)).allowed).toBe(true);
+  });
+});
+
+describe("vk-guard, for the builder", () => {
+  const build = { VK_STAGE: "build", VK_PROJECT: "demo" };
+
+  it("lets it commit, push its branch and open the pull request", async () => {
+    for (const cmd of [
+      "git add -A && git commit -m 'fix: the thing'",
+      "git push -u origin maint/42",
+      'gh pr create --title "fix: the thing" --label tier:auto --body "Closes #42"',
+      "gh issue edit 42 --remove-label in-progress --add-label done",
+      "gh issue comment 42 --body 'which of the two?'",
+    ]) {
+      expect(await bash(cmd, build), cmd).toEqual({ allowed: true, reason: "" });
+    }
+  });
+
+  it("keeps it off the gate's job and off rewriting history", async () => {
+    for (const cmd of [
+      "gh pr merge 9 --squash --auto",
+      "gh pr review 9 --approve",
+      "gh pr close 9",
+      "gh issue create --title x --body y",
+      "git rebase main",
+      "git commit --amend --no-edit",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+});
+
+describe("vk-guard, for the gate", () => {
+  const gate = { VK_STAGE: "gate", VK_PROJECT: "demo" };
+  let bin: string;
+
+  /** A fake gh on PATH that answers `pr view` with the branch and labels given. */
+  function ghSaying(headRefName: string, labels: string[]): Record<string, string> {
+    const view = [headRefName, ...labels].join(" ");
+    return { ...gate, PATH: `${bin}:${process.env.PATH}`, FAKE_GH_VIEW: view };
+  }
+
+  beforeAll(async () => {
+    bin = await mkdtemp(join(tmpdir(), "vk-gh-"));
+    await writeFile(join(bin, "gh"), '#!/bin/sh\nprintf "%s" "$FAKE_GH_VIEW"\n');
+    await chmod(join(bin, "gh"), 0o755);
+  });
+
+  it("checks out and removes only its own checkouts beside the repo", async () => {
+    expect(
+      (await bash("git worktree add /data/repos/demo--gate-9 origin/maint/9", gate)).allowed,
+    ).toBe(true);
+    expect((await bash("git worktree remove --force /data/repos/demo--gate-9", gate)).allowed).toBe(
+      true,
+    );
+    expect((await bash("git worktree add /data/repos/other--gate-9 origin/x", gate)).allowed).toBe(
+      false,
+    );
+    expect((await bash("git worktree add /data/repos/demo-copy origin/x", gate)).allowed).toBe(
+      false,
+    );
+    // The builder's worktrees are the scheduler's to make, but a gate cleaning
+    // one up is still inside the fence.
+    expect((await bash("rm -rf /data/repos/demo--gate-9/node_modules", gate)).allowed).toBe(true);
+    expect(
+      (await guard("Write", { file_path: "/data/repos/demo--gate-9/tmp.txt" }, gate)).allowed,
+    ).toBe(true);
+    expect((await guard("Write", { file_path: join(worktree, "a.ts") }, gate)).allowed).toBe(false);
+  });
+
+  it("pushes nothing and opens nothing", async () => {
+    for (const cmd of ["git push origin maint/9", "gh pr create --title x", "git commit -am x"]) {
+      expect((await bash(cmd, gate)).allowed, cmd).toBe(false);
+    }
+    for (const cmd of [
+      "gh pr list --state open --json number",
+      "gh pr diff 9",
+      "gh pr review 9 --approve --body 'does what #42 asked'",
+      "gh pr edit 9 --remove-label tier:auto --add-label tier:review",
+      "gh issue edit 42 --remove-label done --add-label blocked",
+    ]) {
+      expect((await bash(cmd, gate)).allowed, cmd).toBe(true);
+    }
+  });
+
+  it("merges only a tier:auto pull request on a maint/ branch, and only with --squash --auto", async () => {
+    const auto = ghSaying("maint/42", ["tier:auto"]);
+    expect((await bash("gh pr merge 9 --squash --auto", auto)).allowed).toBe(true);
+    expect((await bash("gh pr merge 9 --auto --squash --delete-branch", auto)).allowed).toBe(true);
+    expect((await bash("gh pr merge 9 --squash", auto)).allowed).toBe(false);
+    expect((await bash("gh pr merge 9 --merge --auto", auto)).allowed).toBe(false);
+    expect((await bash("gh pr merge --squash --auto", auto)).allowed).toBe(false);
+
+    const review = ghSaying("maint/42", ["tier:review"]);
+    const verdict = await bash("gh pr merge 9 --squash --auto", review);
+    expect(verdict.allowed).toBe(false);
+    expect(verdict.reason).toMatch(/owner's to merge/);
+
+    const foreign = ghSaying("dependabot/npm_and_yarn/x", ["tier:auto"]);
+    expect((await bash("gh pr merge 9 --squash --auto", foreign)).allowed).toBe(false);
   });
 });
 

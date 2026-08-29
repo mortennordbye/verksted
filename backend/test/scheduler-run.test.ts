@@ -37,13 +37,33 @@ async function schedule(prompt: string, project = "demo") {
 }
 
 /** A maintainer stage: the shipped prompt, run in a session that cannot ask. */
-async function stageSchedule(notes = "", project = "demo") {
+async function stageSchedule(
+  notes = "",
+  project = "demo",
+  stage: "scout" | "build" | "gate" = "scout",
+) {
   return store.createSchedule({
-    name: "scout",
+    name: stage,
     project,
     cron: CRON,
     prompt: notes,
-    stage: "scout",
+    stage,
+  });
+}
+
+/** What gh answers when asked for the queue: one issue, or none. */
+function queued(issues: { number: number; title: string; tier?: string; body?: string }[]) {
+  fake.reply("gh", "issue list", {
+    stdout: JSON.stringify(
+      issues.map((i) => ({
+        number: i.number,
+        title: i.title,
+        body: i.body ?? "",
+        url: `https://github.com/o/demo/issues/${i.number}`,
+        updatedAt: "2026-08-29T00:00:00Z",
+        labels: [{ name: "queued" }, ...(i.tier ? [{ name: `tier:${i.tier}` }] : [])],
+      })),
+    ),
   });
 }
 
@@ -77,7 +97,7 @@ function envOf(argv: string[]): Record<string, string> {
 }
 
 beforeAll(async () => {
-  fake = FakeBin.install(["tmux", "claude"]);
+  fake = FakeBin.install(["tmux", "claude", "gh"]);
 
   reposDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
   const dir = path.join(reposDir, "demo");
@@ -428,6 +448,101 @@ describe("a schedule that runs a maintainer stage", () => {
     await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
 
     expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+  });
+});
+
+describe("a schedule that runs the build stage", () => {
+  it("starts nothing when the queue is empty, and says so", async () => {
+    queued([]);
+    const s = await stageSchedule("", "demo", "build");
+
+    expect(await scheduler.runSchedule(s.id, log)).toBeNull();
+
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+    expect((await store.getSchedule(s.id))!.lastError).toBe("queue empty");
+  });
+
+  it("takes the oldest queued issue into a worktree of its own", async () => {
+    queued([
+      { number: 43, title: "later", tier: "review" },
+      { number: 42, title: "add a test for parseLocaleNumber", tier: "auto", body: "thin space" },
+    ]);
+    const s = await stageSchedule("", "demo", "build");
+
+    const session = await sessionFrom(s.id);
+
+    // A sibling project, on a branch named for the issue; the repo stays put.
+    const dir = fs.realpathSync(path.join(reposDir, "demo--maint-42"));
+    expect(fs.existsSync(path.join(dir, "a.txt"))).toBe(true);
+    expect(execFileSync("git", ["-C", dir, "branch", "--show-current"]).toString().trim()).toBe(
+      "maint/42",
+    );
+    expect(
+      execFileSync("git", ["-C", path.join(reposDir, "demo"), "branch", "--show-current"])
+        .toString()
+        .trim(),
+    ).toBe("main");
+    expect(session!.project).toBe("demo--maint-42");
+    expect(session!.title).toBe("build · #42");
+    const [argv] = fake.subcommand("tmux", "new-session");
+    expect(argv[argv.indexOf("-c") + 1]).toBe(dir);
+    const env = envOf(argv);
+    expect(env.VK_STAGE).toBe("build");
+    expect(env.VK_ISSUE).toBe("42");
+    expect(env.VK_WORKTREE).toBe(dir);
+    expect(env.VK_PROMPT).toMatch(/^You are the maintainer's builder/);
+    expect(env.VK_PROMPT).toContain("#42: add a test for parseLocaleNumber");
+    expect(env.VK_PROMPT).toContain("Tier: auto");
+    expect(env.VK_PROMPT).toContain("Branch: maint/42");
+    expect(env.VK_PROMPT).toContain("thin space");
+    // And the issue is claimed, so the next tick does not take it again.
+    expect(fake.subcommand("gh", "issue")).toContainEqual([
+      "issue",
+      "edit",
+      "42",
+      "--remove-label",
+      "queued",
+      "--add-label",
+      "in-progress",
+    ]);
+  });
+
+  it("removes the worktree once the build is over and everything reached the remote", async () => {
+    queued([{ number: 44, title: "x", tier: "auto" }]);
+    const s = await stageSchedule("", "demo", "build");
+    const session = await sessionFrom(s.id);
+    const dir = path.join(reposDir, "demo--maint-44");
+    expect(fs.existsSync(dir)).toBe(true);
+    // The agent has exited and tmux no longer lists the session.
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.report`), "ok: PR #9 opened\n");
+    fake.reply("tmux", "ls", { stdout: "" });
+
+    await scheduler.watchUnattended(log);
+
+    expect(fs.existsSync(dir)).toBe(false);
+    // The repo forgot the worktree too; the branch is still there.
+    const list = execFileSync("git", [
+      "-C",
+      path.join(reposDir, "demo"),
+      "worktree",
+      "list",
+    ]).toString();
+    expect(list).not.toContain("demo--maint-44");
+    const branches = execFileSync("git", ["-C", path.join(reposDir, "demo"), "branch"]).toString();
+    expect(branches).toContain("maint/44");
+  });
+
+  it("runs the gate in the repo itself, with its own prompt", async () => {
+    const s = await stageSchedule("", "demo", "gate");
+
+    const session = await sessionFrom(s.id);
+
+    expect(session!.project).toBe("demo");
+    const env = envOf(fake.subcommand("tmux", "new-session")[0]);
+    expect(env.VK_STAGE).toBe("gate");
+    expect(env.VK_PROMPT).toMatch(/^You are the maintainer's gate/);
+    expect(env.VK_PROMPT).toContain("--squash --auto");
   });
 });
 

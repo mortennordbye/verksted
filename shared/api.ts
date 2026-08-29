@@ -745,10 +745,23 @@ export type ScheduleKind = "session" | "assistant";
 
 /**
  * A shipped maintainer stage a schedule can run instead of a prompt of its own.
- * "scout" reads a repo and files the work it finds as issues; the stages that
- * build and gate that work follow as they are built.
+ * "scout" reads a repo and files the work it finds as issues; "build" takes the
+ * oldest queued issue into a worktree and opens a pull request for it; "gate"
+ * checks the open pull requests out fresh, reviews them, and merges the ones
+ * the repo's contract lets merge on their own.
  */
-export type MaintainerStage = "scout";
+export type MaintainerStage = "scout" | "build" | "gate";
+
+/** An issue on the maintainer's queue, as the inbox lists it. */
+export interface MaintainerIssue {
+  project: string;
+  number: number;
+  title: string;
+  state: "queued" | "in-progress" | "blocked";
+  tier: "auto" | "review" | null;
+  url: string;
+  updatedAt: string;
+}
 
 /**
  * A recurring prompt: on its cron the pod starts a claude session in the
