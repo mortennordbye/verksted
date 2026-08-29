@@ -200,6 +200,49 @@ RUN echo '{"text":"build check","voice":"af_heart","out":"/tmp/build-check.wav"}
       | /opt/kokoro/venv/bin/python /etc/verksted/vk-say.py \
     && test -s /tmp/build-check.wav && rm -f /tmp/build-check.wav
 
+# What a laptop's shell has and a slim image does not. Everyday tools for the
+# terminal panes and the agents in them: fd/bat/fzf/tree for finding and
+# reading, htop for "what is eating the pod", shellcheck for the scripts they
+# write, sqlite3 and psql for the databases the projects here use, dig/nc/ping
+# for "is it the network", rsync/zip/xz for moving things, and bash-completion
+# so kubectl and gh can be driven with a thumb on a phone keyboard. Late in the
+# stage, after the heavy layers, so adding a tool here never rebuilds chromium
+# or the voice models.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      fd-find bat fzf tree htop shellcheck sqlite3 postgresql-client \
+      bind9-dnsutils netcat-openbsd iputils-ping rsync zip xz-utils file \
+      bash-completion \
+    && rm -rf /var/lib/apt/lists/* \
+    # Debian namespaces these two; nobody types "fdfind".
+    && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+    && ln -s /usr/bin/batcat /usr/local/bin/bat
+# yq for the manifests every session here ends up editing, and helm for the
+# charts ArgoCD renders — "helm template" is how a change is checked before the
+# cluster sees it. Both are single static binaries pinned by version; bump by
+# hand with a look at the changelog, like kubectl above.
+ARG YQ_VERSION=v4.53.6
+ARG HELM_VERSION=v4.2.4
+RUN arch="$(dpkg --print-architecture)" \
+    && curl -fsSL -o /usr/local/bin/yq \
+       "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${arch}" \
+    && chmod 0755 /usr/local/bin/yq \
+    && curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${arch}.tar.gz" \
+       | tar -xz -C /usr/local/bin --strip-components=1 "linux-${arch}/helm" \
+    && yq --version && helm version --short
+# pnpm and yarn through corepack, so a project's packageManager field is
+# honoured instead of failing on the first install. Shims only: the versions
+# themselves download on first use into $HOME, which is the volume.
+RUN corepack enable
+# Completions generated once here, into the directory bash-completion loads
+# from lazily on the first Tab after each command — not /etc/bash_completion.d,
+# which is sourced whole on every shell start. kubectl's alone is 15k lines of
+# bash, and a tmux pane opening on a phone should not pay for that each time.
+RUN d=/usr/share/bash-completion/completions && mkdir -p "$d" \
+    && kubectl completion bash > "$d/kubectl" \
+    && helm completion bash > "$d/helm" \
+    && gh completion -s bash > "$d/gh" \
+    && docker completion bash > "$d/docker"
+
 # tmux draws no status bar; the web UI has its own. Its scrollback is also the
 # only one the browser terminal has (see tmux.ts scrollHistory), and 2000 lines
 # — the default — is a short afternoon of agent output.
@@ -210,11 +253,32 @@ RUN printf 'set -g status off\nset -g history-limit 20000\n' > /etc/tmux.conf
 RUN cat >> /etc/bash.bashrc <<'EOF'
 
 # verksted shell profile
+export EDITOR=vim
 if [ -n "$PS1" ]; then
   . /usr/lib/git-core/git-sh-prompt 2>/dev/null || true
   PS1='\[\e[38;5;179m\]\u\[\e[0m\] \[\e[38;5;110m\]\w\[\e[38;5;245m\]$(__git_ps1 " ⎇ %s" 2>/dev/null)\[\e[0m\]\n\[\e[38;5;114m\]❯\[\e[0m\] '
   alias ls='ls --color=auto'
+  alias ll='ls -lah --color=auto'
   alias grep='grep --color=auto'
+  alias k=kubectl
+  # Tab completion for git, gh, kubectl, helm, docker and the rest. The k alias
+  # gets kubectl's on its first Tab: the lazy loader only knows command names.
+  . /usr/share/bash-completion/bash_completion 2>/dev/null || true
+  _k() {
+    _comp_load kubectl 2>/dev/null || __load_completion kubectl 2>/dev/null
+    complete -o default -F __start_kubectl k && __start_kubectl "$@"
+  }
+  complete -o default -F _k k
+  # Ctrl-R history search and Ctrl-T file pick through fzf.
+  eval "$(fzf --bash 2>/dev/null)" || true
+  # One history for every pane, written as it happens: HOME is the volume, so
+  # what was typed in a session last week is still there, and a pane that
+  # dies with the pod does not take its commands with it.
+  HISTSIZE=100000
+  HISTFILESIZE=200000
+  HISTCONTROL=ignoreboth
+  shopt -s histappend
+  PROMPT_COMMAND="history -a${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
 fi
 EOF
 

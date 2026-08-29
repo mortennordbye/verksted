@@ -62,6 +62,20 @@ belongs in a manifest and a pull request. And the credential is the pod's, not
 yours — every session shares it, so treat what you read as you would anything
 else on a shared machine.
 
+## What is installed
+
+Beyond the agent CLIs, git and gh: `rg`, `fd`, `bat`, `fzf`, `tree`, `jq`,
+`yq`, `htop`, `vim`, `shellcheck`, `sqlite3`, `psql`, `dig`, `nc`, `ping`,
+`rsync`, `zip`, `xz`, `ffmpeg`, `docker` (client, see above), `kubectl`, `helm`,
+`node` with `npm`, `pnpm` and `yarn` through corepack, `python3` with `uv` for
+any other Python version, `make` and `g++`. Tab completion works for kubectl
+(`k` is an alias), helm, gh, docker and git; Ctrl-R searches history through
+fzf, and that history is shared between panes and kept on the volume.
+
+Reach for these before installing something: what is here is the same on every
+restart, and what `apt-get install` adds is gone with the container. Tools
+under `$HOME` — `npm i -g`, `uv tool install`, `cargo install` — do persist.
+
 ## Other things worth knowing
 
 - **File watching.** Repos live on a network volume in the pod. Bind-mounted hot
