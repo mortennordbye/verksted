@@ -109,6 +109,12 @@ export interface SessionUsage {
   cacheWrite: number;
   /** API messages, which is what the model was called. */
   turns: number;
+  /**
+   * What the same tokens would have cost at API list prices, per model. A
+   * notional figure: every session runs on the subscription and none of this
+   * is billed. Absent on a session measured before prices were kept.
+   */
+  costUsd?: number;
 }
 
 /** Tokens over a trailing window, as the hub shows them. */
@@ -120,6 +126,8 @@ export interface UsageWindow {
   sessions: number;
   /** Of the window's total, what the maintainer's stage runs spent. */
   unattended: number;
+  /** The window's notional API cost, see SessionUsage.costUsd. */
+  costUsd: number;
 }
 
 /** One day's tokens, for the bar row. */
@@ -128,6 +136,7 @@ export interface UsageDay {
   date: string;
   total: number;
   unattended: number;
+  costUsd: number;
 }
 
 /** One of the plan's rate-limit windows, as the account reports it. */
@@ -158,9 +167,11 @@ export interface PlanUsage {
 export interface UsageSummary {
   windows: UsageWindow[];
   /** The last thirty days by project, largest first, the tail folded into one. */
-  projects: { project: string; total: number; sessions: number }[];
+  projects: { project: string; total: number; sessions: number; costUsd: number }[];
   /** The last thirty days, oldest first, every day present even when zero. */
   days: UsageDay[];
+  /** How the last thirty days' finished sessions signed off, or ended. */
+  outcomes: { ok: number; attention: number; failed: number; done: number };
   plan: PlanUsage | null;
 }
 

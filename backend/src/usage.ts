@@ -18,7 +18,45 @@ import { env } from "./env.js";
  * usage on each — so they are summed once per message, not once per line.
  */
 
-const EMPTY: SessionUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, turns: 0 };
+const EMPTY: SessionUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  turns: 0,
+  costUsd: 0,
+};
+
+/**
+ * API list prices, dollars per million tokens, input and output. Cache writes
+ * are 1.25× input and cache reads 0.1× input, as on every current model. Kept
+ * here rather than fetched: the figure is for fun — nothing is billed — and a
+ * stale price is a stale joke, not a wrong bill. Matched by family when a
+ * model id is not listed, so a new release counts as its siblings until this
+ * table catches up. Prices as of 2026-06.
+ */
+const PRICES: { match: RegExp; input: number; output: number }[] = [
+  { match: /fable|mythos/, input: 10, output: 50 },
+  { match: /opus/, input: 5, output: 25 },
+  { match: /sonnet-5/, input: 2, output: 10 },
+  { match: /sonnet/, input: 3, output: 15 },
+  { match: /haiku/, input: 1, output: 5 },
+];
+
+/** Notional dollars for one message's usage on one model. */
+export function priceOf(
+  model: string | undefined,
+  u: { input: number; output: number; cacheRead: number; cacheWrite: number },
+): number {
+  const price = PRICES.find((p) => p.match.test(model ?? "")) ?? PRICES[1];
+  return (
+    (u.input * price.input +
+      u.cacheWrite * price.input * 1.25 +
+      u.cacheRead * price.input * 0.1 +
+      u.output * price.output) /
+    1e6
+  );
+}
 
 interface Entry {
   type?: string;
@@ -26,6 +64,7 @@ interface Entry {
   requestId?: string;
   message?: {
     id?: string;
+    model?: string;
     usage?: {
       input_tokens?: number;
       output_tokens?: number;
@@ -56,11 +95,18 @@ async function addFile(file: string, into: SessionUsage, seen: Set<string>): Pro
     const key = entry.message?.id ?? entry.requestId ?? entry.uuid ?? line;
     if (seen.has(key)) continue;
     seen.add(key);
-    into.input += usage.input_tokens ?? 0;
-    into.output += usage.output_tokens ?? 0;
-    into.cacheRead += usage.cache_read_input_tokens ?? 0;
-    into.cacheWrite += usage.cache_creation_input_tokens ?? 0;
+    const one = {
+      input: usage.input_tokens ?? 0,
+      output: usage.output_tokens ?? 0,
+      cacheRead: usage.cache_read_input_tokens ?? 0,
+      cacheWrite: usage.cache_creation_input_tokens ?? 0,
+    };
+    into.input += one.input;
+    into.output += one.output;
+    into.cacheRead += one.cacheRead;
+    into.cacheWrite += one.cacheWrite;
     into.turns += 1;
+    into.costUsd = (into.costUsd ?? 0) + priceOf(entry.message?.model, one);
   }
   return true;
 }
@@ -129,24 +175,28 @@ export function summarize(
     const inWindow = measured.filter((s) => Date.parse(s.endedAt) >= since);
     const tokens = { ...EMPTY };
     let unattended = 0;
+    let costUsd = 0;
     for (const s of inWindow) {
       tokens.input += s.usage.input;
       tokens.output += s.usage.output;
       tokens.cacheRead += s.usage.cacheRead;
       tokens.cacheWrite += s.usage.cacheWrite;
       tokens.turns += s.usage.turns;
+      costUsd += s.usage.costUsd ?? 0;
       if (s.unattended) unattended += totalTokens(s.usage);
     }
-    return { label, days, tokens, sessions: inWindow.length, unattended };
+    delete tokens.costUsd;
+    return { label, days, tokens, sessions: inWindow.length, unattended, costUsd };
   });
 
   const since = now - 30 * 24 * 60 * 60_000;
-  const byProject = new Map<string, { total: number; sessions: number }>();
-  for (const s of measured) {
-    if (Date.parse(s.endedAt) < since) continue;
-    const row = byProject.get(s.project) ?? { total: 0, sessions: 0 };
+  const month = measured.filter((s) => Date.parse(s.endedAt) >= since);
+  const byProject = new Map<string, { total: number; sessions: number; costUsd: number }>();
+  for (const s of month) {
+    const row = byProject.get(s.project) ?? { total: 0, sessions: 0, costUsd: 0 };
     row.total += totalTokens(s.usage);
     row.sessions += 1;
+    row.costUsd += s.usage.costUsd ?? 0;
     byProject.set(s.project, row);
   }
   const ranked = [...byProject]
@@ -159,7 +209,16 @@ export function summarize(
       project: `${rest.length} other`,
       total: rest.reduce((n, r) => n + r.total, 0),
       sessions: rest.reduce((n, r) => n + r.sessions, 0),
+      costUsd: rest.reduce((n, r) => n + r.costUsd, 0),
     });
+  }
+
+  // How the month's sessions went, from their own sign-offs. A session that
+  // wrote none is "done", which is where an interactive one usually lands.
+  const outcomes = { ok: 0, attention: 0, failed: 0, done: 0 };
+  for (const s of sessions) {
+    if (!s.endedAt || Date.parse(s.endedAt) < since) continue;
+    if (s.outcome in outcomes) outcomes[s.outcome as keyof typeof outcomes] += 1;
   }
 
   // Every day present, zero or not: a gap in a bar row reads as missing data,
@@ -167,13 +226,14 @@ export function summarize(
   const byDay = new Map<string, UsageDay>();
   for (let i = DAYS - 1; i >= 0; i--) {
     const date = dayOf(now - i * 24 * 60 * 60_000);
-    byDay.set(date, { date, total: 0, unattended: 0 });
+    byDay.set(date, { date, total: 0, unattended: 0, costUsd: 0 });
   }
   for (const s of measured) {
     const day = byDay.get(dayOf(Date.parse(s.endedAt)));
     if (!day) continue;
     day.total += totalTokens(s.usage);
+    day.costUsd += s.usage.costUsd ?? 0;
     if (s.unattended) day.unattended += totalTokens(s.usage);
   }
-  return { windows, projects, days: [...byDay.values()], plan };
+  return { windows, projects, days: [...byDay.values()], outcomes, plan };
 }

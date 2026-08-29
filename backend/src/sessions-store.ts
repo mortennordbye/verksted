@@ -314,7 +314,9 @@ async function captureUsage(meta: Meta): Promise<SessionUsage | null> {
 export async function backfillUsage(limit = 25): Promise<number> {
   let n = 0;
   for (const meta of await readAll()) {
-    if (!meta.endedAt || meta.usage !== undefined) continue;
+    if (!meta.endedAt) continue;
+    // Measured already, unless before prices were kept: then once more.
+    if (meta.usage === null || meta.usage?.costUsd !== undefined) continue;
     meta.usage = await captureUsage(meta);
     await writeMeta(meta);
     if (++n >= limit) break;
