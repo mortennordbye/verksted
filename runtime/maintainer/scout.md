@@ -28,8 +28,10 @@ evening without asking anything:
 - A title that says what will be different when it is done.
 - A body with: why it matters, what "done" looks like (a test that passes, a
   command whose output changes, a file that no longer exists), and the files
-  involved. Written as the owner would write it; no mention of who or what
-  found it.
+  involved. Written in the owner's voice, first person, as a note to self — no
+  mention of who or what found it, no tool, assistant, model or automation
+  named anywhere, in the title, the body or a comment. Pass the body inline
+  (`--body "…"`), never from a file.
 - The label `queued`, and exactly one of `tier:auto` or `tier:review`, chosen by
   the contract's tiers. When in doubt, `tier:review`.
 - Nothing that touches the contract's no-go list. Those are the owner's to file.

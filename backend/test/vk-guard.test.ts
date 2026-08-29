@@ -163,6 +163,35 @@ describe("vk-guard, in every stage", () => {
     }
   });
 
+  it("refuses to write anything that says what wrote it", async () => {
+    // The house rule made mechanical for everything the commit-msg hook does
+    // not see: issue and PR bodies, comments, reviews.
+    for (const cmd of [
+      'git commit -m "fix: x" -m "Co-authored-by: Claude <noreply@anthropic.com>"',
+      'git commit -m "fix: x" --trailer "Claude-Session: https://claude.ai/code/s"',
+      'gh issue create --title "x" --body "Generated with Claude Code"',
+      'gh pr create --title "x" --body "🤖 opened by an assistant"',
+      'gh pr comment 3 --body "As an AI, I noticed"',
+      'gh pr review 3 --approve --body "AI-assisted review"',
+      'gh pr edit 3 --body "Anthropic"',
+      "gh api repos/o/r/issues -f title=x -f body='written by Copilot'",
+    ]) {
+      const verdict = await bash(cmd, build);
+      expect(verdict.allowed, cmd).toBe(false);
+      expect(verdict.reason, cmd).toMatch(/sign of who wrote it/);
+    }
+  });
+
+  it("wants bodies inline, so it can read them", async () => {
+    expect((await bash("gh issue create --title x --body-file /tmp/b.md")).allowed).toBe(false);
+    expect((await bash("gh pr create --title x -F body.md", build)).allowed).toBe(false);
+    expect((await bash('gh issue create --title x --body "plain words"')).allowed).toBe(true);
+    // The word claude on its own is not attribution: this app drives claude.
+    expect(
+      (await bash('git commit -m "fix: resume the right claude conversation"', build)).allowed,
+    ).toBe(true);
+  });
+
   it("checks edits against the worktree the same way", async () => {
     expect((await guard("Edit", { file_path: join(worktree, "src/a.ts") }, build)).allowed).toBe(
       true,

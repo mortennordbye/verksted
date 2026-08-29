@@ -82,6 +82,16 @@ has '(^|[;&|(] *)vk (restore|backup)' && deny "backups are not the run's to touc
 has '(npm|cargo|uv|pnpm|yarn) publish' && deny "no publishing"
 has '(^|[;&|(] *)claude( |$)' && deny "no nested agents"
 
+# Nothing the run writes to the repo or to GitHub may say what wrote it. The
+# commit-msg hook strips the trailers from commits; this stops the rest —
+# issue and PR bodies, comments, reviews — at the only point they can be read,
+# which is why a body has to be inline rather than read from a file.
+if has '(^|[;&|(] *)(git commit|gh (issue|pr) (create|comment|review|edit)|gh api )'; then
+  has '(^|[;&|(] *)gh (issue|pr) [a-z]+ [^;&|]*(--body-file|-F |--title-file)' && deny "write the body inline, so it can be read here"
+  printf '%s' "$flat" | grep -Eiq 'co-authored-by|generated (with|by)|anthropic|claude[ -]?(code|session|\.ai)|noreply@anthropic|🤖|\bai[ -]?(generated|assisted|written)|as an ai\b|chatgpt|copilot|openai' \
+    && deny "no sign of who wrote it: the text names a tool or an assistant"
+fi
+
 # Writes outside the worktree, checked one command at a time (the line is
 # split on ; | &). Every path an rm is given is resolved, relative ones
 # included, since a symlink makes a relative path reach anywhere; other
