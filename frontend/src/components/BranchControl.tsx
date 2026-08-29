@@ -5,9 +5,9 @@ import { useConfirm } from "../useConfirm";
 import Sheet from "./Sheet";
 
 /**
- * The "⎇ branch" label, clickable: switch branch, pull, or reset the branch to
- * its upstream. Pull is always fast-forward — reset is the only destructive way
- * out of a diverged branch, and it asks first.
+ * The "⎇ branch" label, clickable: switch branch, pull, push, or reset the
+ * branch to its upstream. Pull is always fast-forward and push never forces —
+ * reset is the only destructive way out of a diverged branch, and it asks first.
  */
 export default function BranchControl({
   project,
@@ -72,6 +72,15 @@ export default function BranchControl({
   }
 
   const local = data?.local ?? [];
+  const drift =
+    data && (data.ahead || data.behind)
+      ? ` · ${[data.ahead && `${data.ahead} ahead`, data.behind && `${data.behind} behind`]
+          .filter(Boolean)
+          .join(", ")}`
+      : "";
+  // Publishing a branch nobody tracks yet is the one push that is always worth
+  // offering; after that the button waits for something to send.
+  const canPush = !!data && (!data.upstream || data.ahead > 0);
   // Remote-only branches switch by their short name: git makes the local
   // tracking branch on the way.
   const remoteOnly = (data?.remote ?? [])
@@ -81,7 +90,7 @@ export default function BranchControl({
 
   return (
     <>
-      <button onClick={() => setOpen(true)} title="switch branch, pull" className={className}>
+      <button onClick={() => setOpen(true)} title="switch branch, pull, push" className={className}>
         ⎇ {branch}
       </button>
       {open && (
@@ -89,19 +98,27 @@ export default function BranchControl({
           title={`Branch in ~/${project}`}
           sub={
             data
-              ? `on ${data.current}${data.upstream ? ` · tracking ${data.upstream}` : " · no upstream"}`
+              ? `on ${data.current}${data.upstream ? ` · tracking ${data.upstream}` : " · no upstream"}${drift}`
               : "…"
           }
           onClose={() => !busy && setOpen(false)}
         >
           {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
-          <div className="mb-3 flex gap-2">
+          <div className="mb-3 flex flex-wrap gap-2">
             <button
               onClick={() => run(() => post("pull"))}
               disabled={busy || !data?.upstream}
               className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               {busy ? "working…" : "↓ pull"}
+            </button>
+            <button
+              onClick={() => run(() => post("push"))}
+              disabled={busy || !canPush}
+              title={data?.upstream ? "push to the upstream" : "publish the branch on origin"}
+              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            >
+              {busy ? "working…" : data?.upstream ? "↑ push" : "↑ publish"}
             </button>
             <button
               onClick={reset}
