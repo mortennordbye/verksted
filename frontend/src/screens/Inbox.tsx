@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import type { Memory, ScheduleRun, Session, SessionWork } from "../../../shared/api";
+import type { Memory, ScheduleRun, Session, SessionUsage, SessionWork } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { ReviewMark, StatusChip } from "../components/StatusChip";
@@ -23,6 +23,14 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * that said "ok: tidied the PRs" and left nothing behind is the case worth
  * seeing, so "no changes" is stated rather than left blank.
  */
+/** Tokens as a short figure: 41k, 1.2M. */
+function tokensLabel(u: SessionUsage): string {
+  const n = u.input + u.output + u.cacheRead + u.cacheWrite;
+  const short =
+    n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+  return `${short} tokens`;
+}
+
 function workLabel(w: SessionWork): string {
   const parts: string[] = [];
   if (w.commits) parts.push(plural(w.commits, "commit"));
@@ -199,7 +207,10 @@ export default function Inbox() {
               </div>
               {r.work && (
                 <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
-                  <span className="font-mono text-[11px] text-faint">{workLabel(r.work)}</span>
+                  <span className="font-mono text-[11px] text-faint">
+                    {workLabel(r.work)}
+                    {r.usage && ` · ${tokensLabel(r.usage)}`}
+                  </span>
                   {/* A night that has already been read says so here, so the
                       inbox is a list of what is still outstanding. */}
                   {reviewOf(r.sessionId) && (

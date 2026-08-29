@@ -7,6 +7,7 @@ import type {
   ReviewVerdict,
   Session,
   SessionReview,
+  SessionUsage,
   SessionWork,
 } from "../../shared/api.js";
 import { sweepTempFiles, writeJsonAtomic } from "./atomic-json.js";
@@ -17,6 +18,7 @@ import { headCommit, syncDefaultBranch, workSince } from "./git.js";
 import { resolveInsideRepos } from "./paths.js";
 import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
+import { usageOf } from "./usage.js";
 
 export const AGENT_COMMANDS: Record<AgentName, string> = {
   claude: "claude",
@@ -54,6 +56,9 @@ interface Meta {
   endCommit?: string | null;
   /** Measured once, when the session is first seen finished. */
   work?: SessionWork | null;
+  /** Measured with `work`. Absent on a session finished before it was measured
+   *  at all; null on one measured and found to have no transcript. */
+  usage?: SessionUsage | null;
   /** Files of the range marked read, and where the reader landed on the run as
    *  a whole. Absent until somebody reviews it. */
   reviewed?: string[];
@@ -251,6 +256,7 @@ async function toSession(meta: Meta, live: boolean, state: string | null): Promi
   return {
     ...wire,
     work: meta.work ?? null,
+    usage: meta.usage ?? null,
     status,
     report,
     outcome: reportOutcome(report, live),
@@ -283,6 +289,37 @@ async function captureWork(
     // The project has been deleted out from under it; there is nothing to read.
     return { work: null, endCommit: null };
   }
+}
+
+/**
+ * What the session cost, from the transcript its conversation id names. Null
+ * when there is nothing to read: no conversation was ever recorded, the
+ * project is gone, or the file is not there.
+ */
+async function captureUsage(meta: Meta): Promise<SessionUsage | null> {
+  const conv = await readConv(meta.id);
+  if (!conv) return null;
+  try {
+    return await usageOf(resolveInsideRepos(meta.project), conv);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Measure the sessions that finished before usage was measured at all, a few
+ * at a time. Called from the usage route, so the dashboard fills in on its
+ * own; once every old session carries a measurement this finds nothing.
+ */
+export async function backfillUsage(limit = 25): Promise<number> {
+  let n = 0;
+  for (const meta of await readAll()) {
+    if (!meta.endedAt || meta.usage !== undefined) continue;
+    meta.usage = await captureUsage(meta);
+    await writeMeta(meta);
+    if (++n >= limit) break;
+  }
+  return n;
 }
 
 /**
@@ -403,6 +440,7 @@ export async function listSessions(project?: string): Promise<Session[]> {
       const done = await captureWork(m);
       m.work = done.work;
       m.endCommit = done.endCommit;
+      m.usage = await captureUsage(m);
       await writeMeta(m);
       await closeBrowser(m.id);
     }
@@ -741,8 +779,10 @@ export async function endSession(id: string): Promise<Session | null> {
   let work = stored?.work ?? null;
   let endCommit = stored?.endCommit ?? null;
   if (stored && !stored.work) ({ work, endCommit } = await captureWork(stored));
-  if (stored) await writeMeta({ ...stored, endedAt, work, endCommit });
-  return { ...session, endedAt, work, status: "done" };
+  let usage = stored?.usage ?? null;
+  if (stored && stored.usage === undefined) usage = await captureUsage(stored);
+  if (stored) await writeMeta({ ...stored, endedAt, work, endCommit, usage });
+  return { ...session, endedAt, work, usage, status: "done" };
 }
 
 /** End the session (tmux + shell companion) and remove it from history. */

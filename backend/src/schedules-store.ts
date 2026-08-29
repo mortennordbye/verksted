@@ -289,6 +289,7 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
       report,
       outcome: outcome(run, report, session),
       work: session?.work ?? null,
+      usage: session?.usage ?? null,
     });
   }
   return out;
