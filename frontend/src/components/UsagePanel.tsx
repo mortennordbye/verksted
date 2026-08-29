@@ -379,7 +379,7 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
                 <div className="truncate text-[15px] font-semibold tabular-nums">
                   {tokens(total(w.tokens))}
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-faint tabular-nums">
+                <div className="mt-0.5 text-[11px] leading-snug text-faint tabular-nums">
                   {w.days === 0 && usage.months[0] ? `since ${usage.months[0].month} · ` : ""}
                   {w.sessions} session{w.sessions === 1 ? "" : "s"}
                   {w.unattended > 0 && ` · ${tokens(w.unattended)} unattended`}
@@ -392,7 +392,7 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
               <div className="truncate text-[15px] font-semibold tabular-nums">
                 {cacheRate == null ? "–" : `${cacheRate.toFixed(0)}%`}
               </div>
-              <div className="mt-0.5 truncate text-[11px] text-faint tabular-nums">
+              <div className="mt-0.5 text-[11px] leading-snug text-faint tabular-nums">
                 {month.tokens.turns.toLocaleString()} API calls
                 {month.sessions > 0 && ` · ${tokens(monthTotal / month.sessions)} per session`}
               </div>
