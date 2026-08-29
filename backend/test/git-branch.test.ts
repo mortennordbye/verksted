@@ -19,13 +19,13 @@ function run(cwd: string, ...args: string[]) {
 const repo = () => path.join(reposDir, "demo");
 
 /** Commit a file straight into the bare remote, via a throwaway clone. */
-function commitOnRemote(name: string) {
+function commitOnRemote(name: string, branch = "main") {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vk-push-"));
-  execFileSync("git", ["clone", remoteDir, tmp], { stdio: "pipe" });
+  execFileSync("git", ["clone", "-b", branch, remoteDir, tmp], { stdio: "pipe" });
   fs.writeFileSync(path.join(tmp, name), name);
   run(tmp, "add", "-A");
   run(tmp, "commit", "-m", name);
-  run(tmp, "push", "origin", "main");
+  run(tmp, "push", "origin", branch);
   fs.rmSync(tmp, { recursive: true, force: true });
 }
 
@@ -67,6 +67,8 @@ describe("GET /api/projects/:name/git/branches", () => {
     expect(body.local).toEqual(["main"]);
     expect(body.remote).toEqual(["origin/feature", "origin/main"]);
     expect(body.upstream).toBe("origin/main");
+    expect(body.ahead).toBe(0);
+    expect(body.behind).toBe(0);
   });
 
   it("404s an unknown project", async () => {
@@ -137,6 +139,53 @@ describe("POST /api/projects/:name/git/reset", () => {
     expect(res.statusCode).toBe(200);
     expect(fs.existsSync(path.join(repo(), "remote2.txt"))).toBe(true);
     expect(fs.existsSync(path.join(repo(), "local.txt"))).toBe(false);
+  });
+});
+
+describe("POST /api/projects/:name/git/push", () => {
+  const branches = async () =>
+    (await app.inject({ url: "/api/projects/demo/git/branches" })).json<GitBranches>();
+  const remoteHead = (branch: string) =>
+    execFileSync("git", ["-C", remoteDir, "rev-parse", branch], { encoding: "utf8" }).trim();
+  const localHead = () =>
+    execFileSync("git", ["-C", repo(), "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+  it("publishes a branch that tracks nothing, and sets its upstream", async () => {
+    run(repo(), "switch", "-c", "topic");
+    fs.writeFileSync(path.join(repo(), "topic.txt"), "topic");
+    run(repo(), "add", "-A");
+    run(repo(), "commit", "-m", "topic");
+    expect((await branches()).upstream).toBeNull();
+    const res = await app.inject({ method: "POST", url: "/api/projects/demo/git/push" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ branch: "topic", upstream: "origin/topic" });
+    expect(remoteHead("topic")).toBe(localHead());
+  });
+
+  it("counts what is ahead, and pushes it", async () => {
+    fs.writeFileSync(path.join(repo(), "topic2.txt"), "more");
+    run(repo(), "add", "-A");
+    run(repo(), "commit", "-m", "more");
+    expect(await branches()).toMatchObject({ upstream: "origin/topic", ahead: 1, behind: 0 });
+    const res = await app.inject({ method: "POST", url: "/api/projects/demo/git/push" });
+    expect(res.statusCode).toBe(200);
+    expect(remoteHead("topic")).toBe(localHead());
+    expect((await branches()).ahead).toBe(0);
+  });
+
+  it("409s a push the remote rejects rather than forcing it", async () => {
+    commitOnRemote("elsewhere.txt", "topic");
+    fs.writeFileSync(path.join(repo(), "topic3.txt"), "local");
+    run(repo(), "add", "-A");
+    run(repo(), "commit", "-m", "local");
+    const before = remoteHead("topic");
+    const res = await app.inject({ method: "POST", url: "/api/projects/demo/git/push" });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: "rejected by the remote — pull first" });
+    expect(remoteHead("topic")).toBe(before);
+    // Nothing fetched, so the tracking ref has not moved: still 1 ahead, 0 behind.
+    expect(await branches()).toMatchObject({ ahead: 1, behind: 0 });
+    run(repo(), "switch", "main");
   });
 });
 

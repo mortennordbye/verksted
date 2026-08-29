@@ -616,6 +616,10 @@ export interface GitBranches {
   remote: string[];
   /** Upstream of the current branch ("origin/main"), null when it has none. */
   upstream: string | null;
+  /** Commits on the branch its upstream lacks; 0 without an upstream. */
+  ahead: number;
+  /** Commits on the upstream the branch lacks; 0 without an upstream. */
+  behind: number;
 }
 
 /** Outcome of putting a repo on an up-to-date default branch for a new session. */

@@ -115,6 +115,17 @@ async function upstreamOf(repoDir: string): Promise<string | null> {
   }
 }
 
+/** How far the branch and its upstream have drifted apart, as commit counts. */
+async function aheadBehind(repoDir: string): Promise<{ ahead: number; behind: number }> {
+  try {
+    const out = await git(repoDir, ["rev-list", "--left-right", "--count", "HEAD...@{u}"]);
+    const [ahead, behind] = out.split(/\s+/).map(Number);
+    return { ahead: ahead || 0, behind: behind || 0 };
+  } catch {
+    return { ahead: 0, behind: 0 };
+  }
+}
+
 // Phone uploads land here: hidden, and kept out of git so screenshots never
 // show up as untracked noise (or get committed by an agent).
 const UPLOAD_DIR = ".verksted/uploads";
@@ -570,6 +581,7 @@ export default async function fileRoutes(app: FastifyInstance) {
         local: await refNames(repoDir, "refs/heads"),
         remote: await refNames(repoDir, "refs/remotes"),
         upstream: await upstreamOf(repoDir),
+        ...(await aheadBehind(repoDir)),
       };
     },
   );
@@ -625,6 +637,30 @@ export default async function fileRoutes(app: FastifyInstance) {
       return reply.code(409).send({ error: gitError(err) });
     }
     return { branch: await branchOf(repoDir) };
+  });
+
+  // Never a force push: a rejected push is the user's to sort out, by pulling
+  // or by resetting, and the error says which. A branch that tracks nothing is
+  // published to origin under its own name, the way opening a PR does it.
+  app.post<{ Params: { name: string } }>("/api/projects/:name/git/push", async (req, reply) => {
+    const repoDir = repoDirOr404(reply, req.params.name);
+    if (!repoDir) return;
+    const upstream = await upstreamOf(repoDir);
+    try {
+      await git(repoDir, upstream ? ["push"] : ["push", "-u", "origin", "HEAD"], {
+        env: { ...process.env, ...(await execEnv()) },
+        timeout: 120_000,
+      });
+    } catch (err) {
+      req.log.error(err, "git push failed");
+      // git's first line on a reject is "To <url>", which says nothing.
+      const stderr = String((err as { stderr?: string }).stderr ?? "");
+      const error = /\[rejected\]/.test(stderr)
+        ? "rejected by the remote — pull first"
+        : gitError(err);
+      return reply.code(409).send({ error });
+    }
+    return { branch: await branchOf(repoDir), upstream: await upstreamOf(repoDir) };
   });
 
   // Destructive: drops local commits and tracked-file changes on the current
