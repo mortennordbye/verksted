@@ -10,6 +10,7 @@ beforeAll(async () => {
   usageDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-usage-"));
   process.env.USAGE_DIR = usageDir;
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
+  process.env.SETTINGS_FILE = path.join(usageDir, "settings.json");
   process.env.STATIC_DIR = "";
   plan = await import("../src/plan.js");
 });
@@ -98,5 +99,24 @@ describe("plan history", () => {
     // env is read at import, so this exercises the missing-file path via a
     // directory the module has never written to.
     expect(await plan.planHistory(0)).not.toBeNull();
+  });
+});
+
+describe("the token the plan is read with", () => {
+  it("comes from the settings page, else from the process environment", async () => {
+    const store = await import("../src/settings-store.js");
+    const before = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    try {
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      expect(await store.credential("CLAUDE_CODE_OAUTH_TOKEN")).toBeUndefined();
+      // The cluster's secret: in the pod's environment, never on the settings page.
+      process.env.CLAUDE_CODE_OAUTH_TOKEN = "sk-ant-oat01-from-the-secret";
+      expect(await store.credential("CLAUDE_CODE_OAUTH_TOKEN")).toBe(
+        "sk-ant-oat01-from-the-secret",
+      );
+    } finally {
+      if (before === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+      else process.env.CLAUDE_CODE_OAUTH_TOKEN = before;
+    }
   });
 });

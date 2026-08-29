@@ -68,6 +68,19 @@ export async function readVars(): Promise<Record<string, string>> {
   return (await read()).vars ?? {};
 }
 
+/**
+ * One agent credential as a session would see it: the settings page's value,
+ * else the process environment's (the cluster's secret reaches the pod that
+ * way, and sessions inherit it from the backend through tmux). For the few
+ * things the backend itself does with a credential — reading the plan's
+ * windows — rather than the sessions, which get all of it through agentEnv.
+ */
+export async function credential(
+  key: (typeof KNOWN_AGENT_KEYS)[number],
+): Promise<string | undefined> {
+  return (await readVars())[key] || process.env[key] || undefined;
+}
+
 export async function writeVars(vars: Record<string, string>): Promise<void> {
   await write({ vars });
 }

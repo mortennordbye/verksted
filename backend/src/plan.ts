@@ -3,7 +3,7 @@ import path from "node:path";
 import type { PlanSample, PlanUsage } from "../../shared/api.js";
 import { ttlCache } from "./cache.js";
 import { env } from "./env.js";
-import { agentEnv } from "./settings-store.js";
+import { credential } from "./settings-store.js";
 
 /**
  * What is left of the subscription, from the account itself.
@@ -65,7 +65,7 @@ export function parsePlan(body: unknown, fetchedAt = new Date().toISOString()): 
 }
 
 async function fetchPlan(): Promise<PlanUsage | null> {
-  const token = (await agentEnv()).CLAUDE_CODE_OAUTH_TOKEN;
+  const token = await credential("CLAUDE_CODE_OAUTH_TOKEN");
   if (!token) return null;
   try {
     const res = await fetch(USAGE_URL, {
