@@ -1022,6 +1022,22 @@ export interface AssistantThread {
 }
 
 /**
+ * One past conversation in a room, as the thread list shows it.
+ *
+ * Enough to pick it out and nothing more: the entries come over the socket once
+ * it is opened, the way the current thread's always have.
+ */
+export interface AssistantThreadSummary {
+  conversationId: string;
+  /** The first thing typed into it, cut to a line. */
+  title: string;
+  /** When the last entry landed. */
+  at: string;
+  /** How many things were typed into it. */
+  turns: number;
+}
+
+/**
  * One member of the council.
  *
  * Data rather than code: a member is a JSON file on the volume, so adding one

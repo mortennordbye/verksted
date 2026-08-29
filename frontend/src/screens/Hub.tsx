@@ -9,7 +9,7 @@ import type {
   UsageSummary,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
+import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
@@ -236,6 +236,25 @@ export default function Hub() {
   // The chair is on the roster and is not somebody you convene, so a council
   // worth its own door is one with anybody else on it.
   const advisors = (council ?? []).filter((m) => !m.chair && m.enabled);
+  const chair = (council ?? []).find((m) => m.chair);
+
+  /**
+   * One live fact per door, instead of a paragraph explaining what is behind
+   * it. The last thing asked and when it was answered is what tells you
+   * whether to go back in; the explanation is on the empty screen inside.
+   */
+  function lastWord(t: AssistantThread | null | undefined): string | null {
+    if (!t?.entries.length) return null;
+    const asked = t.entries.find((e) => e.role === "user" && e.text.trim())?.text ?? "";
+    const line = asked.split("\n")[0];
+    const title = line.length > 60 ? `${line.slice(0, 59)}…` : line;
+    const replies = t.entries.filter((e) => e.role === "assistant" && e.text.trim()).length;
+    return `${agoLabel(t.entries[t.entries.length - 1].at)} · ${title || "(image)"}${
+      replies > 1 ? ` · ${replies} replies` : ""
+    }`;
+  }
+  const assistantLast = lastWord(assistant);
+  const councilLast = lastWord(councilThread);
 
   async function addProject() {
     const value = input.trim();
@@ -278,21 +297,15 @@ export default function Hub() {
             // gets, which is what this strip is.
             className="flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
           >
-            <span className="flex h-9 w-9 flex-none items-center justify-center rounded-lg bg-accent/15 text-accent">
-              <svg
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 9.9 9.9 0 0 1-4.2-.9L3 20.5l1.6-4.4A8.4 8.4 0 0 1 12 3.1a8.4 8.4 0 0 1 9 8.4z" />
-              </svg>
-            </span>
+            {/* The chair's own face, so the two doors read as the same
+                family: this is who answers here, and who sits at the head of
+                the table next door. */}
+            <Portrait
+              face={chair?.face ?? "raccoon"}
+              colour={chair?.colour ?? "amber"}
+              mood={assistant?.status === "thinking" ? "speaking" : "idle"}
+              size={36}
+            />
             <span className="min-w-0 flex-1">
               <span className="mb-0.5 flex items-center gap-2">
                 <span className="text-[14.5px] font-semibold tracking-[-.02em]">Assistant</span>
@@ -308,12 +321,8 @@ export default function Hub() {
                   </span>
                 )}
               </span>
-              {/* Says what the thing is, rather than the last line it happened to
-                say. A truncated half-sentence out of an old thread told you
-                nothing about why you would open it. */}
-              <span className="block text-[12.5px] text-faint">
-                Ask what needs you, or tell it something to remember. It reads your projects,
-                sessions and runs, and answers on its own.
+              <span className="block truncate text-[12.5px] text-faint">
+                {assistantLast ?? "Ask what needs you, or tell it something to remember."}
               </span>
             </span>
             <span className="flex-none pt-1 text-[13px] text-faint">→</span>
@@ -326,10 +335,10 @@ export default function Hub() {
               to="/council"
               className="flex items-start gap-3 rounded-xl border border-line bg-surface px-[15px] py-3.5 hover:border-line-strong"
             >
-              {/* Who is in there, rather than an icon standing for them. Three at
-                most: it is a door, not a roster. */}
+              {/* Who is in there, rather than an icon standing for them. Four
+                at most, and a count for the rest: it is a door, not a roster. */}
               <span className="flex h-9 flex-none -space-x-2">
-                {advisors.slice(0, 3).map((m) => (
+                {advisors.slice(0, 4).map((m) => (
                   <span
                     key={m.id}
                     className={`flex h-9 w-9 items-center justify-center rounded-full border bg-surface-2 ${MEMBER_TEXT[m.colour]} ${MEMBER_RULE[m.colour]}`}
@@ -341,6 +350,11 @@ export default function Hub() {
                     />
                   </span>
                 ))}
+                {advisors.length > 4 && (
+                  <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-2 font-mono text-[11px] text-muted">
+                    +{advisors.length - 4}
+                  </span>
+                )}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="mb-0.5 flex items-center gap-2">
@@ -354,9 +368,9 @@ export default function Hub() {
                     </span>
                   )}
                 </span>
-                <span className="block text-[12.5px] text-faint">
-                  {advisors.length} in the room. Put a question to them when it wants more than one
-                  head, or address one directly with their @id.
+                <span className="block truncate text-[12.5px] text-faint">
+                  {councilLast ??
+                    `${advisors.length} in the room. Put a question to them, or to one by @id.`}
                 </span>
               </span>
               <span className="flex-none pt-1 text-[13px] text-faint">→</span>
