@@ -103,13 +103,10 @@ describe("usageOf", () => {
       "not json at all",
     ]);
 
-    expect(await usage.usageOf(path.join(reposDir, "demo"), CONV)).toEqual({
-      input: 15,
-      output: 150,
-      cacheRead: 2500,
-      cacheWrite: 200,
-      turns: 2,
-    });
+    const u = await usage.usageOf(path.join(reposDir, "demo"), CONV);
+    expect(u).toMatchObject({ input: 15, output: 150, cacheRead: 2500, cacheWrite: 200, turns: 2 });
+    // At Fable's list price: 15 in, 200 written at 1.25×, 2500 read at 0.1×, 150 out.
+    expect(u!.costUsd).toBeCloseTo((15 * 10 + 200 * 12.5 + 2500 * 1 + 150 * 50) / 1e6, 8);
   });
 
   it("counts a subagent's conversation with its parent's", async () => {
@@ -176,8 +173,8 @@ describe("summarize", () => {
       ["30 days", 11_100, 3, 10_000],
     ]);
     expect(out.projects).toEqual([
-      { project: "b", total: 10_000, sessions: 1 },
-      { project: "a", total: 1100, sessions: 2 },
+      { project: "b", total: 10_000, sessions: 1, costUsd: 0 },
+      { project: "a", total: 1100, sessions: 2, costUsd: 0 },
     ]);
   });
 
@@ -202,8 +199,60 @@ describe("summarize", () => {
     );
     expect(days).toHaveLength(30);
     expect(days.at(-1)!.date).toBe("2026-08-29");
-    expect(days.at(-2)).toEqual({ date: "2026-08-28", total: 700, unattended: 200 });
-    expect(days[0]).toEqual({ date: "2026-07-31", total: 0, unattended: 0 });
+    expect(days.at(-2)).toEqual({ date: "2026-08-28", total: 700, unattended: 200, costUsd: 0 });
+    expect(days[0]).toEqual({ date: "2026-07-31", total: 0, unattended: 0, costUsd: 0 });
+  });
+
+  it("prices each model at its own list price, and a stranger by its family", () => {
+    const one = { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 };
+    expect(usage.priceOf("claude-fable-5", one)).toBe(10);
+    expect(usage.priceOf("claude-opus-4-8", one)).toBe(5);
+    expect(usage.priceOf("claude-sonnet-5", one)).toBe(2);
+    expect(usage.priceOf("claude-sonnet-4-6", one)).toBe(3);
+    expect(usage.priceOf("claude-haiku-4-5-20251001", one)).toBe(1);
+    expect(usage.priceOf("claude-opus-9", one)).toBe(5);
+    expect(usage.priceOf(undefined, one)).toBe(5);
+    expect(usage.priceOf("claude-sonnet-5", { ...one, input: 0, output: 1_000_000 })).toBe(10);
+  });
+
+  it("adds up the month's costs and counts how the sessions went", () => {
+    const out = usage.summarize(
+      [
+        session({
+          id: "vk-a-1",
+          project: "a",
+          endedAt: new Date(now - day).toISOString(),
+          usage: { ...u(100), costUsd: 1.5 },
+          outcome: "ok",
+        }),
+        session({
+          id: "vk-a-2",
+          project: "a",
+          endedAt: new Date(now - 2 * day).toISOString(),
+          usage: { ...u(100), costUsd: 0.25 },
+          outcome: "failed",
+        }),
+        // Ended but never measured: still counted as a session that went somewhere.
+        session({
+          id: "vk-a-3",
+          project: "a",
+          endedAt: new Date(now - day).toISOString(),
+          usage: null,
+        }),
+        session({
+          id: "vk-a-4",
+          project: "a",
+          endedAt: new Date(now - 40 * day).toISOString(),
+          usage: u(1),
+          outcome: "ok",
+        }),
+      ],
+      now,
+    );
+    expect(out.windows.map((w) => w.costUsd)).toEqual([1.5, 1.75, 1.75]);
+    expect(out.projects[0]).toMatchObject({ project: "a", costUsd: 1.75 });
+    expect(out.days.at(-2)!.costUsd).toBe(1.5);
+    expect(out.outcomes).toEqual({ ok: 1, attention: 0, failed: 1, done: 1 });
   });
 
   it("carries the plan through untouched, null included", () => {
@@ -228,7 +277,12 @@ describe("summarize", () => {
     );
     const { projects } = usage.summarize(sessions, now);
     expect(projects).toHaveLength(7);
-    expect(projects.at(-1)).toEqual({ project: "2 other", total: 994 + 993, sessions: 2 });
+    expect(projects.at(-1)).toEqual({
+      project: "2 other",
+      total: 994 + 993,
+      sessions: 2,
+      costUsd: 0,
+    });
   });
 });
 

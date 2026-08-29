@@ -120,6 +120,16 @@
   /* Was a fourth near-black. Matching --color-bg stops the terminal reading as
      a panel sitting on a different theme. */
   --color-term: #0a0a0a;
+  /* Data ink for the hub's charts, assigned by role in a fixed order (1 = the
+     first series, never cycled). None of the badge colours above pass a
+     colour-vision check as bars on --color-surface: they are all too light for
+     a mark, which is what makes them right for an 11px chip. These four do
+     (validated: lightness band, chroma, CVD and normal-vision separation,
+     3:1 against the surface). */
+  --color-chart-1: #3987e5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
   --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --font-sans: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 

@@ -4,6 +4,7 @@ import type { Memory, ScheduleRun, Session, SessionUsage, SessionWork } from "..
 import { agoLabel, api, usePoll } from "../api";
 import TopBar from "../components/TopBar";
 import { ReviewMark, StatusChip } from "../components/StatusChip";
+import { tokens, usd } from "../components/UsagePanel";
 import WaitingSession from "../components/WaitingSession";
 
 /** The badge for a run's outcome. Only "attention" and "failed" want the eye. */
@@ -23,12 +24,10 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
  * that said "ok: tidied the PRs" and left nothing behind is the case worth
  * seeing, so "no changes" is stated rather than left blank.
  */
-/** Tokens as a short figure: 41k, 1.2M. */
+/** "41k tokens · $0.90": what a run took, and what that would have cost. */
 function tokensLabel(u: SessionUsage): string {
-  const n = u.input + u.output + u.cacheRead + u.cacheWrite;
-  const short =
-    n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
-  return `${short} tokens`;
+  const label = `${tokens(u.input + u.output + u.cacheRead + u.cacheWrite)} tokens`;
+  return u.costUsd == null ? label : `${label} · ${usd(u.costUsd)}`;
 }
 
 function workLabel(w: SessionWork): string {
