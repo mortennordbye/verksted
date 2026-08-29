@@ -11,6 +11,7 @@ import {
   createSession,
   endSession,
   getSession,
+  lastWords,
   listSessions,
   writeReport,
 } from "./sessions-store.js";
@@ -317,8 +318,15 @@ let watcher: NodeJS.Timeout | undefined;
 export async function watchUnattended(log: Logger, now = Date.now()): Promise<void> {
   for (const s of await listSessions()) {
     if (!s.unattended || s.status === "done") continue;
-    if (await agentExited(s.id)) {
-      if (!s.report) await writeReport(s.id, "failed: no sign-off");
+    const code = await agentExited(s.id);
+    if (code !== null) {
+      if (!s.report) {
+        // The Stop hook should have written this; that it did not usually
+        // means claude never started, and the pane has the reason.
+        const { line, tail } = await lastWords(s.id);
+        const why = [`exit ${code}`, line ? `last line: ${line}` : ""].filter(Boolean).join(", ");
+        await writeReport(s.id, `failed: no sign-off (${why})`, tail);
+      }
       await endSession(s.id);
       log.info(`unattended session ${s.id} ended: ${s.report ?? "no sign-off"}`);
     } else if (now - Date.parse(s.createdAt) > UNATTENDED_CAP_MS) {
