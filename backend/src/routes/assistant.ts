@@ -295,6 +295,35 @@ export default async function assistantRoutes(app: FastifyInstance) {
   );
 
   app.get<{ Querystring: { room?: string } }>(
+    "/api/assistant/threads",
+    { schema: { querystring: ROOM } },
+    (req) => assistant.listThreads(roomOf(req.query)),
+  );
+
+  app.post<{ Params: { id: string }; Querystring: { room?: string } }>(
+    "/api/assistant/threads/:id/open",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", pattern: "^[0-9a-f-]{36}$" } },
+        },
+        querystring: ROOM,
+      },
+    },
+    async (req, reply) => {
+      try {
+        await assistant.openConversation(roomOf(req.query), req.params.id);
+        return assistant.readThread(roomOf(req.query));
+      } catch (err) {
+        const message = (err as Error).message;
+        return reply.code(message === "no such thread" ? 404 : 409).send({ error: message });
+      }
+    },
+  );
+
+  app.get<{ Querystring: { room?: string } }>(
     "/api/assistant/stream",
     { websocket: true, schema: { querystring: ROOM } },
     (socket, req) => {

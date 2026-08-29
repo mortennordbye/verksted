@@ -648,21 +648,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts` (`briefing`, the cron callback),
   `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`)
 
-## Old assistant threads can only be searched, never browsed
-
-- **What:** `recall` gives the agent its way back into an old conversation, and
-  there is no way for a person to have the same. Every thread is kept as JSONL
-  under `ASSISTANT_DIR` and the chat screen shows only the current one, so a
-  thread you abandoned is reachable by asking the assistant about it or by
-  `claude --resume <id>` in a terminal, and no other way.
-- **Why deferred:** The ask was recall for the agent, and that is what shipped.
-  A thread list is a screen, and screens are worth building once the store is
-  big enough that one is missed.
-- **Unblocked by:** Wanting to reread a thread yourself. The endpoint is nearly
-  there: `GET /api/assistant/search` already enumerates the files.
-- **Where:** `backend/src/assistant.ts` (`search`, `readEntries`),
-  `frontend/src/screens/Assistant.tsx`
-
 ## The session chat view drops images and pasted attachments
 
 - **What:** The chat view renders a session's typed turns, its replies, and its
@@ -813,7 +798,15 @@ what unblocks it / where the code lives.
 - **Unblocked by:** A week of real use. Watch for two shapes: convening on
   questions the chair could have answered from `status` (expensive, and the
   persona line about it is the weakest kind of mitigation), and prose before the
-  convene line, which makes it not the first line and so convenes nobody.
+  convene line, which makes it not the first line and so convenes nobody. If
+  the second shape shows up, the fix is to make `convene`/`discuss` a tool on
+  the verksted MCP server rather than a line grammar: a tool call is what a
+  model reliably does, the stream parser already lands tool calls on the entry
+  (`assistant-stream.ts`, `toolDetail`), and `speak()` would hold the entry on
+  the tool rather than on `isConveneLine`. Not done ahead of the evidence: it
+  changes every meeting test and the unattended chair too, and trades one
+  unwatched behaviour for another (whether the model writes prose after the
+  tool result).
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
 

@@ -235,6 +235,77 @@ describe("the thread", () => {
     expect((await app.inject({ url: "/api/assistant" })).json().entries).toEqual([]);
     expect(fs.existsSync(path.join(assistantDir, `${before}.jsonl`))).toBe(true);
   });
+
+  it("lists the room's threads, newest first, and opens an old one again", async () => {
+    await say("first thread");
+    const first = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+    await say("second thread\nwith a second line");
+    // A thread nobody typed into is not worth going back to.
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+
+    const listed = (await app.inject({ url: "/api/assistant/threads" })).json();
+    expect(listed.map((t: { title: string; turns: number }) => [t.title, t.turns])).toEqual([
+      ["second thread", 1],
+      ["first thread", 1],
+    ]);
+
+    const opened = await app.inject({
+      method: "POST",
+      url: `/api/assistant/threads/${first}/open`,
+    });
+    expect(opened.statusCode).toBe(200);
+    expect(opened.json().conversationId).toBe(first);
+    expect(opened.json().entries[0].text).toBe("first thread");
+    expect((await app.inject({ url: "/api/assistant" })).json().conversationId).toBe(first);
+  });
+
+  it("keeps each room's threads out of the other's list", async () => {
+    await say("mine");
+    await app.inject({
+      method: "POST",
+      url: "/api/assistant/messages?room=council",
+      payload: { text: "theirs" },
+    });
+
+    const titles = (room: string) =>
+      app
+        .inject({ url: `/api/assistant/threads?room=${room}` })
+        .then((r) => r.json().map((t: { title: string }) => t.title));
+    expect(await titles("assistant")).toEqual(["mine"]);
+    expect(await titles("council")).toEqual(["theirs"]);
+  });
+
+  it("places a thread written before the rooms kept lists by what is in it", async () => {
+    const chatted = "11111111-1111-4111-8111-111111111111";
+    const met = "22222222-2222-4222-8222-222222222222";
+    const line = (e: object) =>
+      `${JSON.stringify({ id: "x", at: "2026-01-01T00:00:00Z", ...e })}\n`;
+    fs.writeFileSync(
+      path.join(assistantDir, `${chatted}.jsonl`),
+      line({ role: "user", text: "old chat", tools: [] }),
+    );
+    fs.writeFileSync(
+      path.join(assistantDir, `${met}.jsonl`),
+      line({ role: "user", text: "old meeting", tools: [] }) +
+        line({ role: "assistant", text: "yes", tools: [], member: "michael" }),
+    );
+
+    const ids = async (room: string) =>
+      (await app.inject({ url: `/api/assistant/threads?room=${room}` }))
+        .json()
+        .map((t: { conversationId: string }) => t.conversationId);
+    expect(await ids("assistant")).toEqual([chatted]);
+    expect(await ids("council")).toEqual([met]);
+  });
+
+  it("refuses to open a thread that is not there", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/assistant/threads/33333333-3333-4333-8333-333333333333/open",
+    });
+    expect(res.statusCode).toBe(404);
+  });
 });
 
 describe("recall", () => {

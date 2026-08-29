@@ -6,6 +6,7 @@ import type {
   AssistantEntry,
   AssistantSearchHit,
   AssistantThread,
+  AssistantThreadSummary,
   ChatRoom,
   CouncilMember,
 } from "../../shared/api.js";
@@ -526,6 +527,7 @@ async function mintConversation(room: ChatRoom): Promise<string> {
   // Atomic, because a reader landing mid-write sees an empty file, decides
   // there is no conversation, and mints one of its own.
   await writeTextAtomic(currentPath(room), id);
+  await fs.appendFile(indexPath(room), `${id}\n`);
   return id;
 }
 
@@ -535,8 +537,101 @@ export async function newConversation(room: ChatRoom): Promise<string> {
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   const id = randomUUID();
   await writeTextAtomic(currentPath(room), id);
+  await fs.appendFile(indexPath(room), `${id}\n`);
   announce(room);
   return id;
+}
+
+/**
+ * Which threads were started in which room.
+ *
+ * A thread file does not say: the two rooms write the same shape, and a
+ * council thread the chair answered alone is indistinguishable from the
+ * assistant's. So each room keeps a list of the ids it minted, appended to the
+ * way the threads themselves are. Threads written before the list existed are
+ * in neither, and are placed by what is in them.
+ */
+function indexPath(room: ChatRoom): string {
+  return path.join(env.ASSISTANT_DIR, `threads-${room}`);
+}
+
+async function readIndex(room: ChatRoom): Promise<Set<string>> {
+  try {
+    const raw = await fs.readFile(indexPath(room), "utf8");
+    return new Set(raw.split("\n").filter((id) => CONV_RE.test(id)));
+  } catch {
+    return new Set();
+  }
+}
+
+/** A thread with an advisor in it, or a meeting called, was the council's. */
+function looksLikeCouncil(entries: AssistantEntry[]): boolean {
+  return entries.some(
+    (e) =>
+      e.member ||
+      e.tools.some((t) => t.name === "convene" || t.name === "discuss" || t.name === "everyone"),
+  );
+}
+
+/** A line of the first thing typed, which is what a thread is remembered by. */
+function titleOf(entries: AssistantEntry[]): string {
+  const first = entries.find((e) => e.role === "user" && e.text.trim());
+  const line = (first?.text ?? "(image)").trim().split("\n")[0];
+  return line.length > 90 ? `${line.slice(0, 89)}…` : line;
+}
+
+/**
+ * Every conversation this room has had, newest first, the current one included.
+ *
+ * Reads every thread file, as `search` does: the store is small, and a thread
+ * list that had to be kept up to date on every append would be a second copy
+ * of the truth to get wrong. Empty threads are left out — there is nothing in
+ * one to go back to.
+ */
+export async function listThreads(room: ChatRoom): Promise<AssistantThreadSummary[]> {
+  const mine = await readIndex(room);
+  const theirs = await readIndex(room === "council" ? "assistant" : "council");
+  let names: string[];
+  try {
+    names = await fs.readdir(env.ASSISTANT_DIR);
+  } catch {
+    return [];
+  }
+  const out: AssistantThreadSummary[] = [];
+  for (const name of names) {
+    const id = name.replace(/\.jsonl$/, "");
+    if (id === name || !CONV_RE.test(id) || theirs.has(id)) continue;
+    const entries = await readEntries(id);
+    if (!entries.length) continue;
+    if (!mine.has(id) && looksLikeCouncil(entries) !== (room === "council")) continue;
+    out.push({
+      conversationId: id,
+      title: titleOf(entries),
+      at: entries[entries.length - 1].at,
+      turns: entries.filter((e) => e.role === "user").length,
+    });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+/**
+ * Make an old thread this room's current one again.
+ *
+ * The same file switch `newConversation` does, pointed at a thread that exists.
+ * The chair's claude conversation is the thread id, so its next turn resumes
+ * exactly where that thread left off; an advisor's is looked up per thread the
+ * same way it always was.
+ */
+export async function openConversation(room: ChatRoom, id: string): Promise<void> {
+  if (!CONV_RE.test(id)) throw new Error("not a thread id");
+  if (busy(room, await currentConversation(room))) throw new Error("a turn is still running");
+  try {
+    await fs.access(threadPath(id));
+  } catch {
+    throw new Error("no such thread");
+  }
+  await writeTextAtomic(currentPath(room), id);
+  announce(room);
 }
 
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
