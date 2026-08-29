@@ -120,6 +120,7 @@ export interface SessionUsage {
 /** Tokens over a trailing window, as the hub shows them. */
 export interface UsageWindow {
   label: string;
+  /** Trailing days; 0 is all time. */
   days: number;
   tokens: SessionUsage;
   /** Finished sessions the window covers. */
@@ -137,6 +138,24 @@ export interface UsageDay {
   total: number;
   unattended: number;
   costUsd: number;
+}
+
+/** One month's tokens, for the all-time bar row. */
+export interface UsageMonth {
+  /** YYYY-MM in the pod's timezone. */
+  month: string;
+  total: number;
+  unattended: number;
+  costUsd: number;
+}
+
+/** How full the plan's windows were at one moment; the pod samples hourly. */
+export interface PlanSample {
+  at: string;
+  /** Percent of the five-hour window used. */
+  session: number;
+  /** Percent of the week used. */
+  week: number;
 }
 
 /** One of the plan's rate-limit windows, as the account reports it. */
@@ -162,6 +181,12 @@ export interface PlanUsage {
   /** Per-model seven-day windows, when the plan has them. */
   models: { model: string; percent: number }[];
   fetchedAt: string;
+  /**
+   * The last week of hourly samples, oldest first. The account keeps no
+   * history of its own, so this starts the day the pod started sampling —
+   * and it covers everything on the account, not only what ran here.
+   */
+  history: PlanSample[];
 }
 
 export interface UsageSummary {
@@ -170,6 +195,8 @@ export interface UsageSummary {
   projects: { project: string; total: number; sessions: number; costUsd: number }[];
   /** The last thirty days, oldest first, every day present even when zero. */
   days: UsageDay[];
+  /** Every month since the first measured session, oldest first. */
+  months: UsageMonth[];
   /** How the last thirty days' finished sessions signed off, or ended. */
   outcomes: { ok: number; attention: number; failed: number; done: number };
   plan: PlanUsage | null;

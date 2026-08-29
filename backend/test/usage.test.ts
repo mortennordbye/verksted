@@ -171,6 +171,12 @@ describe("summarize", () => {
       ["24 hours", 100, 1, 0],
       ["7 days", 1100, 2, 0],
       ["30 days", 11_100, 3, 10_000],
+      ["all time", 111_100, 4, 10_000],
+    ]);
+    // Every month from the first session's to this one, the empty one included.
+    expect(out.months.map((m) => [m.month, m.total])).toEqual([
+      ["2026-07", 100_000],
+      ["2026-08", 11_100],
     ]);
     expect(out.projects).toEqual([
       { project: "b", total: 10_000, sessions: 1, costUsd: 0 },
@@ -249,10 +255,14 @@ describe("summarize", () => {
       ],
       now,
     );
-    expect(out.windows.map((w) => w.costUsd)).toEqual([1.5, 1.75, 1.75]);
+    expect(out.windows.map((w) => w.costUsd)).toEqual([1.5, 1.75, 1.75, 1.75]);
     expect(out.projects[0]).toMatchObject({ project: "a", costUsd: 1.75 });
     expect(out.days.at(-2)!.costUsd).toBe(1.5);
     expect(out.outcomes).toEqual({ ok: 1, attention: 0, failed: 1, done: 1 });
+  });
+
+  it("has no months when nothing was ever measured", () => {
+    expect(usage.summarize([], now).months).toEqual([]);
   });
 
   it("carries the plan through untouched, null included", () => {
@@ -262,6 +272,7 @@ describe("summarize", () => {
       week: { percent: 24, resetsAt: null },
       models: [],
       fetchedAt: "x",
+      history: [],
     };
     expect(usage.summarize([], now, plan).plan).toBe(plan);
   });

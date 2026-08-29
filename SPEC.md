@@ -96,7 +96,10 @@ server count) and what the bench costs: tokens over the last day, week and
 month with the maintainer's share of each, a bar per day for the month, the
 month by project, and — read from the account rather than inferred, since the
 plan's windows are the account's to keep — how much of the subscription's
-five-hour and weekly allowance is already used. The top bar deliberately shows no WireGuard state: the app is
+five-hour and weekly allowance is already used. The pod samples those two
+windows every hour and keeps the samples on the volume, which is the only
+history of them there is: the account keeps none, and this one covers
+everything on the account, not only what ran here. The top bar deliberately shows no WireGuard state: the app is
 only reachable through the tunnel, so a chip there can never say anything but
 "connected" to anyone able to read it. A tunnel that drops mid-session shows up
 as the connection banner instead.

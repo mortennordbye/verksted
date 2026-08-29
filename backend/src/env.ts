@@ -86,6 +86,8 @@ export const env = {
   COUNCIL_DIR: process.env.COUNCIL_DIR ?? "/data/council",
   // The maintainer's stage prompts, shipped in the image (see maintainer.ts).
   MAINTAINER_DIR: process.env.MAINTAINER_DIR ?? "/etc/verksted/maintainer",
+  // The plan's windows, sampled hourly (see plan.ts): one JSONL, on the PVC.
+  USAGE_DIR: process.env.USAGE_DIR ?? "/data/usage",
   // Model and reasoning effort for the assistant only; sessions are unaffected.
   ASSISTANT_MODEL: assistantModel,
   ASSISTANT_EFFORT: assistantEffort,
