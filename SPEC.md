@@ -181,6 +181,23 @@ The contract now says outright that having something to read is not the same as
 being stuck, and that a tie goes to "ok": the work is on the hub either way,
 and an inbox of false alarms is one nobody reads.
 
+A schedule can run a maintainer stage instead of a prompt of its own. That is
+the other kind of unattended: a run nobody will pick up if it stops, so it must
+not stop. Claude runs headless (`-p`) in dontAsk mode with a PreToolUse guard
+(`runtime/vk-guard`) and a deny list under it — a force push, a push to main,
+an `rm` or an edit that resolves outside the working tree, anything the cluster
+or a backup could not undo — and a denied call fails in front of the model
+rather than waiting for a person. The Stop hook writes `failed: no sign-off`
+when the run left no report, the scheduler ends the session when the agent has
+exited (the pane keeps its shell, so tmux alone would say it was still going)
+or after ninety minutes, and a pod restart fails it in its own words rather than
+resuming it. What a stage knows about the repo comes from the repo: the
+`## Maintainer` section of its CLAUDE.md, with the command that verifies it, what
+may merge on its own and what is never to be touched unasked, read at launch.
+The first stage is the scout, which reads a repo and files the work it finds as
+labelled issues and changes nothing else; the stages that build and gate that
+work follow it.
+
 One such schedule is how the workbench learns: nightly it reads back what you
 typed into the sessions that ended that day — only your own words, never model
 output or tool results — and proposes facts worth keeping. They wait in the

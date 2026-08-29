@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Cron } from "croner";
-import type { Schedule, ScheduleRun, Session } from "../../shared/api.js";
+import type { MaintainerStage, Schedule, ScheduleRun, Session } from "../../shared/api.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { listSessions, readReport } from "./sessions-store.js";
@@ -35,10 +35,13 @@ type Stored = Omit<
   | "lastFiredAt"
   | "member"
   | "convenes"
+  | "stage"
 > & {
   /** Absent on every record written before the council existed. */
   member?: string;
   convenes?: boolean;
+  /** Absent on every schedule that runs a prompt of its own. */
+  stage?: MaintainerStage;
   /** Newest first, capped at MAX_RUNS. */
   runs: StoredRun[];
   /** Absent on every record written before catch-up existed. */
@@ -83,6 +86,7 @@ async function toWire(s: Stored): Promise<Schedule> {
     skipWhenIdle: s.skipWhenIdle ?? false,
     member: s.member ?? "",
     convenes: s.convenes === true,
+    stage: s.stage ?? null,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
     lastFiredAt: s.lastFiredAt ?? null,
@@ -150,6 +154,7 @@ export async function createSchedule(
     skipWhenIdle?: boolean;
     member?: string;
     convenes?: boolean;
+    stage?: MaintainerStage | null;
   },
 ): Promise<Schedule> {
   const kind = input.kind ?? "session";
@@ -168,6 +173,8 @@ export async function createSchedule(
     member: kind === "assistant" ? (input.member ?? "") : "",
     // A named advisor answers alone; convening is the chair's to do.
     convenes: kind === "assistant" && !input.member && input.convenes === true,
+    // A stage needs a repo to run in, which an assistant schedule has none of.
+    ...(kind === "session" && input.stage ? { stage: input.stage } : {}),
     prompt: input.prompt,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
@@ -274,6 +281,7 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
       scheduleId: s.id,
       schedule: s.name,
       kind: kindOf(s),
+      stage: s.stage ?? null,
       project: s.project,
       at: run.at,
       sessionId: run.sessionId,

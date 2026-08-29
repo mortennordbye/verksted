@@ -179,6 +179,7 @@ export default function Inbox() {
               <div className="flex flex-wrap items-center gap-2.5">
                 <StatusChip kind={OUTCOME[r.outcome].kind} label={r.outcome} />
                 <span className="font-mono text-[12.5px]">{r.schedule}</span>
+                {r.stage && <span className="font-mono text-[11px] text-faint">{r.stage}</span>}
                 {/* An assistant run belongs to no repo, so there is nowhere to
                     link: what it is gets said instead. */}
                 {r.kind === "assistant" ? (

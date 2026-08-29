@@ -144,7 +144,12 @@ COPY runtime/verksted-mcp.mjs /etc/verksted/verksted-mcp.mjs
 # GitHub contributors, which cost a 47-commit rewrite to undo. System-wide
 # because the commits come from agents in REPOS_DIR, not from this repo alone.
 COPY runtime/git-hooks/ /etc/verksted/git-hooks/
-RUN chmod 0755 /usr/local/bin/vk /etc/verksted/git-hooks/* \
+# The maintainer: the prompts its scheduled stages run (maintainer.ts reads
+# them from MAINTAINER_DIR) and the PreToolUse hook that stands in for the
+# permission prompts an unattended run has nobody to answer (claude-hooks.ts).
+COPY runtime/maintainer/ /etc/verksted/maintainer/
+COPY runtime/vk-guard /usr/local/bin/vk-guard
+RUN chmod 0755 /usr/local/bin/vk /usr/local/bin/vk-guard /etc/verksted/git-hooks/* \
     && git config --system core.hooksPath /etc/verksted/git-hooks
 
 # Speech to text for the assistant's voice mode. ffmpeg is what turns whatever

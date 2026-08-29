@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { MaintainerStage } from "../../../shared/api.js";
 import { getMember } from "../council-store.js";
 import { repoDirOr404, resolveInsideRepos } from "../paths.js";
 import { reloadSchedules, runSchedule } from "../scheduler.js";
@@ -6,7 +7,10 @@ import * as store from "../schedules-store.js";
 
 const NAME = { type: "string", minLength: 1, maxLength: 120 };
 const CRON = { type: "string", minLength: 1, maxLength: 120 };
-const PROMPT = { type: "string", minLength: 1, maxLength: 4000 };
+// Empty is allowed by the schema and refused by the handler, since a stage
+// schedule has a prompt of its own and this is then only notes.
+const PROMPT = { type: "string", maxLength: 4000 };
+const STAGE = { enum: ["scout"] };
 // Up to 12h of spread; beyond that the schedule no longer means what it says.
 const JITTER = { type: "integer", minimum: 0, maximum: 720 };
 
@@ -28,12 +32,13 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       kind?: "session" | "assistant";
       project?: string;
       cron: string;
-      prompt: string;
+      prompt?: string;
       enabled?: boolean;
       jitterMinutes?: number;
       skipWhenIdle?: boolean;
       member?: string;
       convenes?: boolean;
+      stage?: MaintainerStage;
     };
   }>(
     "/api/schedules",
@@ -43,7 +48,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
           type: "object",
           // project is required for a session schedule only, which the handler
           // enforces: an assistant schedule runs in no repo.
-          required: ["name", "cron", "prompt"],
+          required: ["name", "cron"],
           additionalProperties: false,
           properties: {
             name: NAME,
@@ -56,12 +61,17 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             skipWhenIdle: { type: "boolean" },
             member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
             convenes: { type: "boolean" },
+            stage: STAGE,
           },
         },
       },
     },
     async (req, reply) => {
       const kind = req.body.kind ?? "session";
+      const prompt = req.body.prompt?.trim() ?? "";
+      if (!prompt && !(kind === "session" && req.body.stage)) {
+        return reply.code(400).send({ error: "a schedule needs a prompt" });
+      }
       if (kind === "session") {
         if (!req.body.project) {
           return reply.code(400).send({ error: "a session schedule needs a project" });
@@ -84,6 +94,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       const schedule = await store.createSchedule({
         ...req.body,
         kind,
+        prompt,
         project: req.body.project ?? "",
       });
       await reloadSchedules(app.log);
@@ -131,6 +142,13 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       }
       if (req.body.member && !(await getMember(req.body.member))) {
         return reply.code(400).send({ error: `no such council member: ${req.body.member}` });
+      }
+      // Whether a schedule runs a stage is fixed at creation, like its project,
+      // so an emptied prompt is fine exactly when a stage's own prompt remains.
+      if (req.body.prompt !== undefined && !req.body.prompt.trim()) {
+        const existing = await store.getSchedule(req.params.id);
+        if (!existing) return reply.code(404).send({ error: "not found" });
+        if (!existing.stage) return reply.code(400).send({ error: "a schedule needs a prompt" });
       }
       const schedule = await store.updateSchedule(req.params.id, req.body);
       if (!schedule) return reply.code(404).send({ error: "not found" });

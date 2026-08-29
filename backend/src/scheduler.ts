@@ -2,9 +2,18 @@ import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
 import { MAX_CONVENED, runUnattended } from "./assistant.js";
 import { env } from "./env.js";
+import { readContract, stagePrompt } from "./maintainer.js";
 import { resolveInsideRepos } from "./paths.js";
 import * as schedules from "./schedules-store.js";
-import { REPORT_CONTRACT, createSession, getSession, listSessions } from "./sessions-store.js";
+import {
+  REPORT_CONTRACT,
+  agentExited,
+  createSession,
+  endSession,
+  getSession,
+  listSessions,
+  writeReport,
+} from "./sessions-store.js";
 import { schedulesPaused } from "./settings-store.js";
 
 /**
@@ -197,23 +206,58 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
   return { reply: text };
 }
 
+/**
+ * Whether a session schedule may start one now: not while its previous run is
+ * still open, and not on a pod that is already full. Records the refusal.
+ */
+async function roomForSession(id: string, schedule: Schedule, log: Logger): Promise<boolean> {
+  const last = schedule.lastSessionId ? await getSession(schedule.lastSessionId) : null;
+  if (last && last.status !== "done") {
+    await schedules.recordRun(id, { error: `previous run ${last.id} is still open` });
+    log.info(`schedule ${id} skipped: ${last.id} still open`);
+    return false;
+  }
+  const live = (await listSessions()).filter((s) => s.status !== "done").length;
+  if (live >= MAX_LIVE_SESSIONS) {
+    await schedules.recordRun(id, { error: `${live} sessions already open` });
+    log.info(`schedule ${id} skipped: ${live} sessions already open`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * A maintainer stage: the shipped prompt for it, the repo's own contract, and
+ * a session that cannot ask. Bounded by the session ceilings like any other
+ * session schedule, and deliberately not by the daily turn ceiling: that one
+ * exists for runs that hold no session, and three repos running three stages
+ * a night would otherwise use it up and start dropping the morning briefing.
+ */
+async function stageRun(id: string, schedule: Schedule, log: Logger): Promise<RunOutcome | null> {
+  const stage = schedule.stage!;
+  const dir = resolveInsideRepos(schedule.project);
+  const prompt = await stagePrompt(
+    stage,
+    { project: schedule.project, dir, contract: await readContract(dir) },
+    schedule.prompt,
+  );
+  const session = await createSession(schedule.project, dir, "claude", {
+    title: schedule.name,
+    prompt: prompt + REPORT_CONTRACT,
+    unattended: stage,
+  });
+  await schedules.recordRun(id, { sessionId: session.id });
+  log.info(`schedule ${id} started ${stage} session ${session.id}`);
+  return { session };
+}
+
 async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
   const schedule = await schedules.getSchedule(id);
   if (!schedule) return null;
   try {
     if (schedule.kind === "assistant") return await briefing(id, schedule, log);
-    const last = schedule.lastSessionId ? await getSession(schedule.lastSessionId) : null;
-    if (last && last.status !== "done") {
-      await schedules.recordRun(id, { error: `previous run ${last.id} is still open` });
-      log.info(`schedule ${id} skipped: ${last.id} still open`);
-      return null;
-    }
-    const live = (await listSessions()).filter((s) => s.status !== "done").length;
-    if (live >= MAX_LIVE_SESSIONS) {
-      await schedules.recordRun(id, { error: `${live} sessions already open` });
-      log.info(`schedule ${id} skipped: ${live} sessions already open`);
-      return null;
-    }
+    if (!(await roomForSession(id, schedule, log))) return null;
+    if (schedule.stage) return await stageRun(id, schedule, log);
     const session = await createSession(
       schedule.project,
       resolveInsideRepos(schedule.project),
@@ -251,7 +295,48 @@ async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
  */
 let reloading: Promise<void> = Promise.resolve();
 
+/**
+ * How long an unattended run may hold a session before it is ended for it.
+ * A scout is minutes; this is for the one that never finishes, at an hour
+ * that nobody is going to notice it not finishing.
+ */
+export const UNATTENDED_CAP_MS = 90 * 60_000;
+const WATCH_EVERY_MS = 30_000;
+let watcher: NodeJS.Timeout | undefined;
+
+/**
+ * End the unattended sessions that are over, and the ones that should be.
+ *
+ * A headless agent exits on its own, but its pane keeps a shell after it, so
+ * tmux still lists the session and — as every schedule refuses to overlap
+ * itself — the next tick would be skipped for a run that finished hours ago.
+ * The Stop hook writes a report when the agent left none; this is the backstop
+ * for that too, so silence never masquerades as a night that went well. Kept
+ * free of per-run state so a restart changes nothing about it.
+ */
+export async function watchUnattended(log: Logger, now = Date.now()): Promise<void> {
+  for (const s of await listSessions()) {
+    if (!s.unattended || s.status === "done") continue;
+    if (await agentExited(s.id)) {
+      if (!s.report) await writeReport(s.id, "failed: no sign-off");
+      await endSession(s.id);
+      log.info(`unattended session ${s.id} ended: ${s.report ?? "no sign-off"}`);
+    } else if (now - Date.parse(s.createdAt) > UNATTENDED_CAP_MS) {
+      await writeReport(s.id, `failed: killed after ${UNATTENDED_CAP_MS / 60_000} minutes`);
+      await endSession(s.id);
+      log.warn({ session: s.id }, `unattended session ${s.id} killed at the cap`);
+    }
+  }
+}
+
 export function reloadSchedules(log: Logger): Promise<void> {
+  if (!watcher) {
+    watcher = setInterval(() => {
+      void watchUnattended(log).catch((err) => log.warn(err, "unattended watch failed"));
+    }, WATCH_EVERY_MS);
+    // A timer must not be what keeps the process alive.
+    watcher.unref();
+  }
   const run = reloading.then(
     () => rebuild(log),
     () => rebuild(log),

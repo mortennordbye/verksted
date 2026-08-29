@@ -82,6 +82,25 @@ export async function newSession(
   await exec("tmux", ["set-option", "-g", "status", "off"]);
 }
 
+/** What a pane runs once the command it was started with has exited. */
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ash", "fish"]);
+
+/**
+ * Whether the session's agent has exited and left the pane at its shell.
+ *
+ * The one question an unattended run's watcher has: the agent runs headless
+ * and exits on its own, but the pane keeps a shell after it (see newSession),
+ * so tmux still lists the session and nothing else says the run is over.
+ */
+export async function paneIdle(name: string): Promise<boolean> {
+  const { stdout } = await exec(
+    "tmux",
+    ["display-message", "-p", "-t", `=${name}:`, "#{pane_current_command}"],
+    { env: UTF8_ENV, timeout: 5_000 },
+  );
+  return SHELLS.has(stdout.trim());
+}
+
 /**
  * Scroll a pane's scrollback. tmux's history is the only scrollback there is:
  * `tmux attach` runs in the alternate screen, so the browser terminal keeps

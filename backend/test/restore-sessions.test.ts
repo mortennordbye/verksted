@@ -23,7 +23,13 @@ const log = {
 /** Write the metadata (and optionally the conversation id) for one session. */
 function seed(
   id: string,
-  opts: { project?: string; agent?: string; endedAt?: string | null; conv?: string } = {},
+  opts: {
+    project?: string;
+    agent?: string;
+    endedAt?: string | null;
+    conv?: string;
+    unattended?: string;
+  } = {},
 ) {
   const project = opts.project ?? "demo";
   fs.writeFileSync(
@@ -36,6 +42,7 @@ function seed(
       createdAt: "2026-01-01T00:00:00.000Z",
       endedAt: opts.endedAt ?? null,
       cdpPort: 9300,
+      ...(opts.unattended ? { unattended: opts.unattended } : {}),
     }),
   );
   if (opts.conv) fs.writeFileSync(path.join(sessionsDir, `${id}.conv`), opts.conv);
@@ -81,6 +88,20 @@ beforeEach(() => {
 });
 
 describe("restoreSessions", () => {
+  it("fails an unattended run rather than resuming it", async () => {
+    // A resumed conversation would come back without the flags that made it
+    // unattended, and nobody is there to pick it up anyway. What must not
+    // happen is silence: the inbox has to say the pod went down.
+    seed("vk-demo-1", { conv: "11111111-2222-3333-4444-555555555555", unattended: "scout" });
+
+    await store.restoreSessions(log);
+
+    expect(created()).toEqual([]);
+    expect(fs.readFileSync(path.join(sessionsDir, "vk-demo-1.report"), "utf8")).toMatch(
+      /^failed: the pod restarted/,
+    );
+  });
+
   it("restarts a live-but-orphaned claude session on its recorded conversation", async () => {
     seed("vk-demo-1", { conv: "11111111-2222-3333-4444-555555555555" });
 

@@ -120,6 +120,38 @@ describe("POST /api/schedules", () => {
     expect(res.json()).not.toHaveProperty("autoPermissions");
     expect(res.json().id).not.toBe("sch-00000000");
   });
+
+  it("needs no prompt for a maintainer stage, which has its own", async () => {
+    const res = await create({ name: "scout", project: "demo", cron: CRON, stage: "scout" });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().stage).toBe("scout");
+    expect(res.json().prompt).toBe("");
+    // And an ordinary schedule reads back as having none.
+    const plain = await create({ name: "x", project: "demo", cron: CRON, prompt: "x" });
+    expect(plain.json().stage).toBeNull();
+  });
+
+  it("drops a stage from an assistant schedule, which has no repo to run it in", async () => {
+    const res = await create({
+      name: "x",
+      kind: "assistant",
+      cron: CRON,
+      prompt: "x",
+      stage: "scout",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().stage).toBeNull();
+    // And an assistant schedule still needs its prompt.
+    expect(
+      (await create({ name: "x", kind: "assistant", cron: CRON, stage: "scout" })).statusCode,
+    ).toBe(400);
+  });
+
+  it("rejects a stage it does not ship", async () => {
+    expect(
+      (await create({ name: "x", project: "demo", cron: CRON, stage: "deploy" })).statusCode,
+    ).toBe(400);
+  });
 });
 
 describe("PATCH /api/schedules/:id", () => {
@@ -143,6 +175,17 @@ describe("PATCH /api/schedules/:id", () => {
       payload: { cron: "not a cron" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("lets a stage schedule's notes be emptied, but not a prompt", async () => {
+    const patch = (id: string) =>
+      app.inject({ method: "PATCH", url: `/api/schedules/${id}`, payload: { prompt: " " } });
+    const staged = (
+      await create({ name: "s", project: "demo", cron: CRON, stage: "scout" })
+    ).json();
+    const plain = (await create({ name: "p", project: "demo", cron: CRON, prompt: "x" })).json();
+    expect((await patch(staged.id)).statusCode).toBe(200);
+    expect((await patch(plain.id)).statusCode).toBe(400);
   });
 
   it("404s on an unknown id and never leaves the schedules dir", async () => {
