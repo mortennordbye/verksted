@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import path from "node:path";
 import { resolveInsideRepos } from "./paths.js";
 import { listSessions, readConv } from "./sessions-store.js";
 
@@ -46,34 +45,16 @@ export interface SessionPrompts {
   prompts: string[];
 }
 
-/**
- * Where claude keeps a conversation: $HOME/.claude/projects/<cwd with the
- * slashes turned into dashes>/<conversation id>.jsonl. Verified against the
- * real thing rather than derived from documentation.
- */
-export function transcriptPath(repoDir: string, conversationId: string): string {
-  return path.join(claudeProjectDir(repoDir), `${conversationId}.jsonl`);
-}
+// Where claude keeps a conversation, and its subagents' conversations beside
+// it (once interleaved into the parent's file, tagged `isSidechain`; the
+// current CLI gives each its own file, named for the agent id the spawning
+// call reports back — both shapes are still out there, which is why the
+// parser keeps skipping the tagged ones). In claude-home.ts because the
+// session store measures a finished session's transcript too, and it cannot
+// import this file, which imports it.
+import { subagentDir, transcriptPath } from "./claude-home.js";
 
-/** The directory claude keeps one repo's conversations in. */
-function claudeProjectDir(repoDir: string): string {
-  const home = process.env.HOME ?? "/data/home";
-  return path.join(home, ".claude", "projects", repoDir.replace(/\//g, "-"));
-}
-
-/**
- * Where a conversation's subagents keep their own transcripts.
- *
- * They used to be interleaved into the parent's file, tagged `isSidechain`;
- * the current CLI gives each one a file of its own beside the conversation,
- * named for the agent id the spawning call reports back. Both shapes are still
- * out there, which is why the parser keeps skipping the tagged ones.
- *
- * Verified against the real thing rather than derived from documentation.
- */
-export function subagentDir(repoDir: string, conversationId: string): string {
-  return path.join(claudeProjectDir(repoDir), conversationId, "subagents");
-}
+export { subagentDir, transcriptPath };
 
 /** The human-typed turns of one transcript, oldest first. */
 async function promptsIn(file: string): Promise<string[]> {

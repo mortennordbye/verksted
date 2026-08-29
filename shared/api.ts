@@ -38,6 +38,11 @@ export interface Session {
    * somewhere that is not a git repo.
    */
   work: SessionWork | null;
+  /**
+   * What it cost in tokens, measured with `work`. Null while it runs, and for
+   * a session that left no transcript.
+   */
+  usage: SessionUsage | null;
   /** How far a person has got reading what it did. */
   review: ReviewSummary;
   /**
@@ -87,6 +92,40 @@ export interface SessionWork {
   unpushed: number | null;
   /** The branch it ended on. */
   branch: string;
+}
+
+/**
+ * What a session cost in tokens, read from its transcript when it is first
+ * seen finished. Not a bill — every session runs on the subscription — but
+ * the share of that subscription's allowance the session took.
+ */
+export interface SessionUsage {
+  /** Uncached prompt tokens. */
+  input: number;
+  output: number;
+  /** Prompt tokens served from the cache; most of a long session. */
+  cacheRead: number;
+  /** Prompt tokens written to the cache. */
+  cacheWrite: number;
+  /** API messages, which is what the model was called. */
+  turns: number;
+}
+
+/** Tokens over a trailing window, as the hub shows them. */
+export interface UsageWindow {
+  label: string;
+  days: number;
+  tokens: SessionUsage;
+  /** Finished sessions the window covers. */
+  sessions: number;
+  /** Of the window's total, what the maintainer's stage runs spent. */
+  unattended: number;
+}
+
+export interface UsageSummary {
+  windows: UsageWindow[];
+  /** The last thirty days by project, largest first, the tail folded into one. */
+  projects: { project: string; total: number; sessions: number }[];
 }
 
 /** One commit made while a session held the repo. */
@@ -738,6 +777,8 @@ export interface ScheduleRun {
    * for a run still going.
    */
   work: SessionWork | null;
+  /** What the run's session cost in tokens; null as for `work`. */
+  usage: SessionUsage | null;
 }
 
 export interface SettingVar {

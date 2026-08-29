@@ -6,6 +6,7 @@ import type {
   PodFacts,
   Project,
   Session,
+  UsageSummary,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
@@ -15,6 +16,16 @@ import Sheet, { focusIfPointerFine } from "../components/Sheet";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
+}
+
+/** Tokens as a short figure: 41k, 1.2M. */
+function tokens(n: number): string {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+}
+
+/** Every bucket a session was charged for, added up. */
+function total(t: UsageSummary["windows"][number]["tokens"]): number {
+  return t.input + t.output + t.cacheRead + t.cacheWrite;
 }
 
 /** How a finished session's own verdict maps onto a chip. */
@@ -198,6 +209,7 @@ export default function Hub() {
   const navigate = useNavigate();
   const { data: projects, loading, refresh } = usePoll<Project[]>("/api/projects");
   const { data: facts } = usePoll<PodFacts>("/api/facts", 30_000);
+  const { data: usage } = usePoll<UsageSummary>("/api/usage", 60_000);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -562,6 +574,40 @@ export default function Hub() {
               />
             )}
           </div>
+          {/* Tokens are not a bill — every session runs on the subscription —
+              but they are the share of its allowance the bench took, and the
+              maintainer's share of that is the number that decides whether a
+              third repo can join. Cached prompt tokens are counted: the plan
+              meters them too, just cheaper. */}
+          {usage && usage.windows.some((w) => w.sessions > 0) && (
+            <div className="mt-4 border-t border-line pt-4">
+              <div className="grid grid-cols-3 gap-x-6 gap-y-4">
+                {usage.windows.map((w) => (
+                  <div key={w.days} className="min-w-0">
+                    <div className="mb-1 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
+                      Tokens · {w.label}
+                    </div>
+                    <div className="truncate text-[15px] font-semibold tabular-nums">
+                      {tokens(total(w.tokens))}
+                    </div>
+                    <div className="mt-0.5 truncate text-[11px] text-faint tabular-nums">
+                      {w.sessions} session{w.sessions === 1 ? "" : "s"}
+                      {w.unattended > 0 && ` · ${tokens(w.unattended)} unattended`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {usage.projects.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-faint">
+                  {usage.projects.map((p) => (
+                    <span key={p.project}>
+                      {p.project} <span className="font-mono tabular-nums">{tokens(p.total)}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {facts && (facts.browsers > 0 || facts.docker) && (
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px] text-faint">
               {facts.browsers > 0 && (

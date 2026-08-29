@@ -13,6 +13,7 @@ function s(id: string, status: Session["status"]): Session {
     report: null,
     outcome: "running" as const,
     work: null,
+    usage: null,
     review: { reviewed: 0, verdict: null },
     unattended: null,
     status,
