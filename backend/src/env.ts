@@ -84,6 +84,8 @@ export const env = {
   MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
   // The council: one JSON file per member (see council-store.ts).
   COUNCIL_DIR: process.env.COUNCIL_DIR ?? "/data/council",
+  // The maintainer's stage prompts, shipped in the image (see maintainer.ts).
+  MAINTAINER_DIR: process.env.MAINTAINER_DIR ?? "/etc/verksted/maintainer",
   // Model and reasoning effort for the assistant only; sessions are unaffected.
   ASSISTANT_MODEL: assistantModel,
   ASSISTANT_EFFORT: assistantEffort,

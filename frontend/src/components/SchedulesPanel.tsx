@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import type {
   CouncilMember,
+  MaintainerStage,
   Project,
   Schedule,
   Settings as SettingsInfo,
@@ -69,6 +70,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     member: "",
     // Off by default: turning it on turns one model call into as many as five.
     convenes: false,
+    // A shipped maintainer stage instead of a prompt of its own; empty is a
+    // prompt. Session schedules only.
+    stage: "" as "" | MaintainerStage,
   });
   const [open, setOpen] = useState<string | null>(null);
   const [edit, setEdit] = useState({ cron: "", jitterMinutes: 0, prompt: "" });
@@ -95,13 +99,18 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   const add = () =>
     run(async () => {
-      const { project: drafted, ...rest } = draft;
+      const { project: drafted, stage, ...rest } = draft;
       await api("/api/schedules", {
         method: "POST",
         body: JSON.stringify(
           assistantDraft
             ? { ...rest, kind: "assistant" }
-            : { ...rest, kind: "session", project: project ?? drafted ?? projects?.[0]?.name },
+            : {
+                ...rest,
+                kind: "session",
+                project: project ?? drafted ?? projects?.[0]?.name,
+                ...(stage ? { stage } : {}),
+              },
         ),
       });
       setDraft({ ...draft, name: "", prompt: "" });
@@ -219,6 +228,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
               <span>{s.cron}</span>
+              {s.stage && <span>stage: {s.stage}</span>}
               {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
               {s.skipWhenIdle && <span>skips a day when nothing ended</span>}
               {s.convenes && <span>may ask the council</span>}
@@ -265,7 +275,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 />
                 <button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
-                  disabled={busy || !edit.cron.trim() || !edit.prompt.trim()}
+                  disabled={busy || !edit.cron.trim() || (!edit.prompt.trim() && !s.stage)}
                   className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   save
@@ -333,6 +343,19 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               aria-label="cron pattern"
               className={`w-[130px] ${field}`}
             />
+            {!assistantDraft && (
+              <select
+                value={draft.stage}
+                onChange={(e) =>
+                  setDraft((d) => ({ ...d, stage: e.target.value as "" | MaintainerStage }))
+                }
+                aria-label="stage"
+                className={field}
+              >
+                <option value="">own prompt</option>
+                <option value="scout">maintainer: scout</option>
+              </select>
+            )}
             {assistantDraft && !draft.member && (
               <label className="flex items-center gap-1.5 font-mono text-[11px] text-faint">
                 <input
@@ -371,7 +394,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             placeholder={
               assistantDraft
                 ? "What needs me today? Anything red, stuck, or waiting on me."
-                : "Check the open pull requests and merge any that are approved and green."
+                : draft.stage
+                  ? "notes for the maintainer (optional)"
+                  : "Check the open pull requests and merge any that are approved and green."
             }
             rows={3}
             aria-label="prompt"
@@ -382,7 +407,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             disabled={
               busy ||
               !draft.name.trim() ||
-              !draft.prompt.trim() ||
+              (!draft.prompt.trim() && !(draft.stage && !assistantDraft)) ||
               (!project && !assistantDraft && !projects?.length)
             }
             className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
@@ -398,7 +423,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         calls go through unattended, and anything the agent still has to ask about turns the session
         amber and pushes you. Every run is asked to sign off with one line — "ok: …", "attention: …"
         or "failed: …" — which shows up here and is what the phone gets. A run that reports itself
-        ok stays silent.
+        ok stays silent. A maintainer stage runs the other way round: its permissions deny rather
+        than ask, so it never turns amber — it finishes with a report, or is ended for it after
+        ninety minutes and recorded as failed.
       </div>
       {!project && (
         <div className="mt-2.5 text-[13px] text-muted">

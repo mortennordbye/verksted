@@ -1,0 +1,145 @@
+#!/bin/sh
+# vk-guard: the PreToolUse hook of an unattended maintainer run.
+#
+# The run is claude in dontAsk mode, which executes what a hook or an allow
+# rule approves and denies the rest without asking anyone. This is the hook.
+# It reads the tool call from stdin, denies the calls a permission pattern
+# cannot express — a push that reaches main under another spelling, an rm
+# whose path resolves outside the worktree — with exit 2 and a reason on
+# stderr (which claude shows the model), and otherwise answers "allow", which
+# is what lets ordinary shell commands run at all.
+#
+# Set per session by verksted (sessions-store launchAgent):
+#   VK_STAGE     which stage's rules apply (scout)
+#   VK_WORKTREE  the one directory the run may change
+#   VK_REPORT_FILE  the one file outside it the run must write
+#
+# Tested by backend/test/vk-guard.test.ts. POSIX sh; jq is in the image.
+set -u
+
+payload=$(cat)
+tool=$(printf '%s' "$payload" | jq -r '.tool_name // empty')
+stage=${VK_STAGE:-}
+worktree=$(readlink -f -- "${VK_WORKTREE:-/nonexistent}" 2>/dev/null || printf '%s' "${VK_WORKTREE:-/nonexistent}")
+report=${VK_REPORT_FILE:-}
+
+deny() {
+  printf 'vk-guard: %s\n' "$1" >&2
+  exit 2
+}
+
+allow() {
+  printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"vk-guard"}}'
+  exit 0
+}
+
+# Whether a path — absolute, ~-relative or relative to the worktree — resolves
+# inside the worktree (or is the report file). Resolved through the filesystem
+# where it exists, so a symlink out of the tree is caught; lexically otherwise.
+inside() {
+  case "$1" in
+    /*) p=$1 ;;
+    "~"*) p=${HOME:-/nonexistent}${1#"~"} ;;
+    *) p=$worktree/$1 ;;
+  esac
+  r=$(readlink -f -- "$p" 2>/dev/null) || r=$(printf '%s' "$p" | sed -e 's#/\./#/#g' -e ':a' -e 's#/[^/]*/\.\./#/#' -e 'ta')
+  [ -n "$report" ] && [ "$r" = "$report" ] && return 0
+  case "$r" in
+    "$worktree" | "$worktree"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+case "$tool" in
+  Bash) ;;
+  Edit | Write | MultiEdit | NotebookEdit)
+    [ "$stage" = scout ] && deny "the scout reads; it does not edit"
+    file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
+    if [ -n "$file" ] && ! inside "$file"; then deny "edit outside the worktree: $file"; fi
+    allow
+    ;;
+  *) allow ;;
+esac
+
+cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')
+# One line, single spaces, so the patterns need not care about newlines or tabs.
+flat=$(printf '%s' "$cmd" | tr -s '[:space:]' ' ')
+
+has() {
+  printf '%s' "$flat" | grep -Eq -- "$1"
+}
+
+# --- in every stage: what git cannot undo, and what is not the run's to do ---
+has 'git push( [^;&|]*)? (--force|-f|--force-with-lease)' && deny "no force pushes"
+has 'git push [^;&|]*\+[^ ]*:' && deny "no force pushes"
+has 'git push( [^;&|]*)? (HEAD:|[^ :]*:)?(refs/heads/)?(main|master)( |$|[;&|)])' && deny "no pushes to the default branch"
+has '(^|[;&|(] *)git (reset --hard|clean -[a-zA-Z]*f|checkout -- |restore |stash drop|branch -D|filter-branch|update-ref -d)' && deny "no discarding work: $flat"
+has 'git config (--global|--system)' && deny "no changing git's own configuration"
+has '(^|[;&|(] *)gh (repo delete|release delete|secret |auth |api [^;&|]*(-X|--method) *(DELETE|PUT|PATCH))' && deny "not through gh: $flat"
+has '(^|[;&|(] *)kubectl [^;&|]*(delete|apply|edit|scale|patch|drain|cordon|exec)( |$)' && deny "the cluster is read-only from here"
+has '(^|[;&|(] *)docker (system prune|volume rm|rm -f|rmi)' && deny "no removing docker state"
+has '(^|[;&|(] *)vk (restore|backup)' && deny "backups are not the run's to touch"
+has '(npm|cargo|uv|pnpm|yarn) publish' && deny "no publishing"
+has '(^|[;&|(] *)claude( |$)' && deny "no nested agents"
+
+# Nothing the run writes to the repo or to GitHub may say what wrote it. The
+# commit-msg hook strips the trailers from commits; this stops the rest —
+# issue and PR bodies, comments, reviews — at the only point they can be read,
+# which is why a body has to be inline rather than read from a file.
+if has '(^|[;&|(] *)(git commit|gh (issue|pr) (create|comment|review|edit)|gh api )'; then
+  has '(^|[;&|(] *)gh (issue|pr) [a-z]+ [^;&|]*(--body-file|-F |--title-file)' && deny "write the body inline, so it can be read here"
+  printf '%s' "$flat" | grep -Eiq 'co-authored-by|generated (with|by)|anthropic|claude[ -]?(code|session|\.ai)|noreply@anthropic|🤖|\bai[ -]?(generated|assisted|written)|as an ai\b|chatgpt|copilot|openai' \
+    && deny "no sign of who wrote it: the text names a tool or an assistant"
+fi
+
+# Writes outside the worktree, checked one command at a time (the line is
+# split on ; | &). Every path an rm is given is resolved, relative ones
+# included, since a symlink makes a relative path reach anywhere; other
+# writing commands and redirections are checked for paths that look like they
+# leave — on the volume, under ~, or through "..". Reads are not checked: the
+# run is expected to read the rest of the volume. A cd is held to the tree
+# too, or the relative paths after it would mean something else.
+nl='
+'
+old_ifs=$IFS
+IFS=$nl
+for seg in $(printf '%s' "$flat" | tr ';|&' "$nl"); do
+  IFS=$old_ifs
+  set -- $seg
+  [ $# -eq 0 ] && continue
+  case "$1" in
+    cd)
+      [ $# -ge 2 ] && [ "$2" != "-" ] && inside "$2" || deny "stay in the worktree; do not cd out of it"
+      ;;
+    rm)
+      shift
+      for tok in "$@"; do
+        case "$tok" in
+          -*) ;;
+          *) inside "$tok" || deny "rm outside the worktree: $tok" ;;
+        esac
+      done
+      ;;
+  esac
+  if printf '%s' "$seg" | grep -Eq '(^| )(mv|cp|tee|truncate|ln|chmod|chown|rsync|dd|install|touch|mkdir|sed -i)( |$)|>'; then
+    for tok in "$@"; do
+      case "$tok" in
+        -* | *=*) ;;
+        /data/* | "~"* | ../* | */../*)
+          inside "$tok" || deny "write outside the worktree: $tok"
+          ;;
+      esac
+    done
+  fi
+  IFS=$nl
+done
+IFS=$old_ifs
+
+# --- the scout reads and files issues, and that is all ---
+if [ "$stage" = scout ]; then
+  has '(^|[;&|(] *)git (commit|push|checkout -b|switch -c|merge|rebase|cherry-pick|tag|am|apply|worktree|add|rm|mv|stash)' && deny "the scout changes nothing: $flat"
+  has '(^|[;&|(] *)gh pr (create|merge|close|reopen|review|edit|comment|ready|checkout)' && deny "the scout opens no pull requests"
+  has '(^|[;&|(] *)gh issue (close|delete|reopen|transfer|pin|lock|edit)' && deny "the scout files issues; it does not change them"
+fi
+
+allow

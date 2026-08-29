@@ -36,6 +36,17 @@ async function schedule(prompt: string, project = "demo") {
   return store.createSchedule({ name: "nightly", project, cron: CRON, prompt });
 }
 
+/** A maintainer stage: the shipped prompt, run in a session that cannot ask. */
+async function stageSchedule(notes = "", project = "demo") {
+  return store.createSchedule({
+    name: "scout",
+    project,
+    cron: CRON,
+    prompt: notes,
+    stage: "scout",
+  });
+}
+
 /** The other kind: it runs the assistant instead of starting a session. */
 async function assistantSchedule(prompt: string) {
   return store.createSchedule({
@@ -72,6 +83,11 @@ beforeAll(async () => {
   const dir = path.join(reposDir, "demo");
   execFileSync("git", ["init", "-b", "main", dir], { stdio: "pipe" });
   fs.writeFileSync(path.join(dir, "a.txt"), "hello");
+  // The repo's side of the maintainer: what a stage run is told about it.
+  fs.writeFileSync(
+    path.join(dir, "CLAUDE.md"),
+    "# demo\n\n## Maintainer\n\nVerify: `npm test`.\n\n## Other\n\nnot for the maintainer\n",
+  );
   execFileSync("git", ["-C", dir, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], {
     stdio: "pipe",
   });
@@ -89,6 +105,7 @@ beforeAll(async () => {
   process.env.SCHEDULES_DIR = schedulesDir;
   process.env.COUNCIL_DIR = councilDir;
   process.env.MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-mem-"));
+  process.env.MAINTAINER_DIR = path.resolve(import.meta.dirname, "../../runtime/maintainer");
   process.env.STATIC_DIR = "";
   scheduler = await import("../src/scheduler.js");
   store = await import("../src/schedules-store.js");
@@ -253,6 +270,140 @@ describe("runSchedule", () => {
 
   it("returns null for an id that no longer exists", async () => {
     expect(await scheduler.runSchedule("sch-deadbeef", log)).toBeNull();
+  });
+});
+
+describe("a schedule that runs a maintainer stage", () => {
+  /** The settings file the run was started with. */
+  function settingsOf(argv: string[]): {
+    hooks: Record<string, { matcher?: string; hooks: { command: string }[] }[]>;
+    permissions: { allow: string[]; deny: string[] };
+  } {
+    const file = /--settings "([^"]+)"/.exec(argv.at(-1)!)![1];
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  }
+
+  it("runs headless, in a mode that denies rather than asks", async () => {
+    const s = await stageSchedule();
+
+    const session = await sessionFrom(s.id);
+
+    expect(session!.unattended).toBe("scout");
+    const [argv] = fake.subcommand("tmux", "new-session");
+    const command = argv.at(-1)!;
+    // -p: the prompt is an argument and the process exits when the turn ends,
+    // which is what lets the scheduler know the run is over.
+    expect(command).toMatch(/--permission-mode dontAsk --max-turns \d+ --verbose -p "\$VK_PROMPT"/);
+    expect(command).not.toContain("--permission-mode auto");
+    const env = envOf(argv);
+    expect(env.VK_UNATTENDED).toBe("1");
+    expect(env.VK_STAGE).toBe("scout");
+    expect(env.VK_PROJECT).toBe("demo");
+    expect(env.VK_WORKTREE).toBe(fs.realpathSync(path.join(reposDir, "demo")));
+  });
+
+  it("gets hooks that guard rather than wait, and a deny list under them", async () => {
+    const s = await stageSchedule();
+
+    await scheduler.runSchedule(s.id, log);
+
+    const settings = settingsOf(fake.subcommand("tmux", "new-session")[0]);
+    const guard = settings.hooks.PreToolUse.find((h) => h.matcher);
+    expect(guard!.matcher).toBe("Bash|Edit|Write|MultiEdit|NotebookEdit");
+    expect(guard!.hooks[0].command).toBe("vk-guard");
+    // Stop never writes "waiting": nobody is being waited for. It writes the
+    // report the run forgot instead, so silence is recorded as a failure.
+    const stop = settings.hooks.Stop.flatMap((h) => h.hooks.map((x) => x.command)).join(" ");
+    expect(stop).not.toContain("waiting");
+    expect(stop).toContain("failed: no sign-off");
+    expect(settings.hooks.Notification).toBeUndefined();
+    expect(settings.permissions.allow).toContain("Bash");
+    expect(settings.permissions.deny).toContain("Bash(git push --force*)");
+    // And an ordinary schedule is untouched by any of it.
+    fake.reset();
+    await scheduler.runSchedule((await schedule("check the open PRs")).id, log);
+    const plain = settingsOf(fake.subcommand("tmux", "new-session")[0]);
+    expect(plain.hooks.Stop[0].hooks[0].command).toContain("waiting");
+    expect(plain.permissions.deny).toBeUndefined();
+  });
+
+  it("hands the run the shipped prompt, the repo's contract and the owner's notes", async () => {
+    const s = await stageSchedule("skip the desktop app tonight");
+
+    await scheduler.runSchedule(s.id, log);
+
+    const prompt = envOf(fake.subcommand("tmux", "new-session")[0]).VK_PROMPT;
+    expect(prompt).toMatch(/^You are the maintainer's scout/);
+    expect(prompt).toContain("Verify: `npm test`.");
+    expect(prompt).not.toContain("not for the maintainer");
+    expect(prompt).toContain("skip the desktop app tonight");
+    // The same sign-off as every other scheduled run.
+    expect(prompt).toContain("$VK_REPORT_FILE");
+  });
+
+  it("ends the session once the agent has exited, failing one that left no report", async () => {
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    // The pane is back at its shell: the headless agent is gone.
+    fake.reply("tmux", "display-message", { stdout: "bash\n" });
+
+    await scheduler.watchUnattended(log);
+
+    expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
+      `=${session!.id}`,
+    );
+    expect((await store.getSchedule(s.id))!.lastReport).toBe("failed: no sign-off");
+  });
+
+  it("keeps a run's own report when it wrote one", async () => {
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fs.writeFileSync(path.join(sessionsDir, `${session!.id}.report`), "ok: filed 2\n");
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "display-message", { stdout: "sh\n" });
+
+    await scheduler.watchUnattended(log);
+
+    expect((await store.getSchedule(s.id))!.lastReport).toBe("ok: filed 2");
+    expect((await store.listRuns())[0].outcome).toBe("ok");
+  });
+
+  it("leaves a run alone while its agent is still going", async () => {
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "display-message", { stdout: "node\n" });
+
+    await scheduler.watchUnattended(log);
+
+    expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+    expect((await store.getSchedule(s.id))!.lastReport).toBeNull();
+  });
+
+  it("kills a run at the cap and says so", async () => {
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "display-message", { stdout: "node\n" });
+
+    await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
+
+    expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
+      `=${session!.id}`,
+    );
+    expect((await store.getSchedule(s.id))!.lastReport).toMatch(/^failed: killed after 90 minutes/);
+  });
+
+  it("does not touch a session a person started", async () => {
+    const s = await schedule("check the open PRs");
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    fake.reply("tmux", "display-message", { stdout: "bash\n" });
+
+    await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
+
+    expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
   });
 });
 

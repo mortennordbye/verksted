@@ -40,6 +40,13 @@ export interface Session {
   work: SessionWork | null;
   /** How far a person has got reading what it did. */
   review: ReviewSummary;
+  /**
+   * The maintainer stage this session is running, when a schedule started it
+   * that way: permissions that deny rather than ask, and a scheduler that ends
+   * it when its agent exits or after a wall-clock cap. Null for every session
+   * a person started or an ordinary schedule did.
+   */
+  unattended: MaintainerStage | null;
 }
 
 /** Where the reader landed on a run, once they have read it. */
@@ -624,6 +631,13 @@ export interface ReplaceResult {
 export type ScheduleKind = "session" | "assistant";
 
 /**
+ * A shipped maintainer stage a schedule can run instead of a prompt of its own.
+ * "scout" reads a repo and files the work it finds as issues; the stages that
+ * build and gate that work follow as they are built.
+ */
+export type MaintainerStage = "scout";
+
+/**
  * A recurring prompt: on its cron the pod starts a claude session in the
  * project and submits the prompt, unattended (auto permission mode).
  */
@@ -642,6 +656,14 @@ export interface Schedule {
    */
   jitterMinutes: number;
   prompt: string;
+  /**
+   * Session schedules only: run one of the shipped maintainer stages, in the
+   * strict sense of unattended — permissions that deny rather than ask, a
+   * report or a kill, never a session left waiting for someone. `prompt` is
+   * then optional notes appended to the stage's own prompt. Null is an
+   * ordinary schedule in auto mode.
+   */
+  stage: MaintainerStage | null;
   /**
    * Assistant schedules only: don't run at all on a day when no session ended.
    * A pass over what happened has nothing to read when nothing happened, and a
@@ -695,6 +717,8 @@ export interface ScheduleRun {
   /** The schedule's name at the time of reading. */
   schedule: string;
   kind: ScheduleKind;
+  /** The maintainer stage the schedule runs; null for a prompt of its own. */
+  stage: MaintainerStage | null;
   /** Empty for an assistant run, which belongs to no repo. */
   project: string;
   at: string;

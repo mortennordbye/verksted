@@ -225,9 +225,12 @@ shared/api.ts         # wire types shared by backend and frontend (types only)
 runtime/              # shipped into the image, not part of the build
 ├── SANDBOX.md        # what a session must know about its own environment
 ├── vk-say.py         # text -> speech worker the backend talks to (tts.ts)
-└── vk                # `vk doctor` — the live version of the same thing
+├── vk                # `vk doctor` — the live version of the same thing
+├── vk-guard          # PreToolUse hook of an unattended run: deny, never ask
+└── maintainer/       # the maintainer's stage prompts (scout.md, …)
 backend/src/
 ├── index.ts          # bootstrap: env, fastify, routes, static serving
+├── maintainer.ts     # a stage's prompt: shipped text + the repo's own contract
 ├── sandbox-doc.ts    # points each agent's global memory file at SANDBOX.md
 ├── tts.ts            # the assistant's voice: one warm Kokoro worker on the pod
 ├── env.ts            # validated env, fail fast

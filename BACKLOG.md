@@ -361,10 +361,13 @@ what unblocks it / where the code lives.
   only be answered by watching real runs.
 - **Unblocked by:** A week of real scheduled runs in the pod. If adherence is
   poor, the fallback is a `Stop` hook that writes a default report when the
-  agent left none, so silence never masquerades as "ok".
+  agent left none, so silence never masquerades as "ok". Maintainer stage runs
+  already have exactly that (`DEFAULT_REPORT` in `claude-hooks.ts`, plus the
+  watcher's backstop); moving it onto ordinary schedules is a one-line change
+  once a real run shows it is wanted there too.
 - **Where:** `backend/src/scheduler.ts` (`REPORT_CONTRACT`),
   `backend/src/sessions-store.ts` (`readReport`), `backend/src/notifier.ts`
-  (`shouldNotify`)
+  (`shouldNotify`), `backend/src/claude-hooks.ts` (`DEFAULT_REPORT`)
 
 ## Terminal dictation is unverified on a real iPhone
 
@@ -867,3 +870,61 @@ what unblocks it / where the code lives.
   parameter threaded one level down.
 - **Where:** `backend/src/chat.ts` (`SUBAGENT_WINDOW`, `readSubagent`),
   `frontend/src/components/chat/ToolChip.tsx`
+
+## The maintainer's scout has never run in the pod
+
+- **What:** A schedule can run the `scout` stage: headless claude in dontAsk
+  mode, the `vk-guard` hook, the unattended settings file, the watcher that
+  ends the session when the agent exits or at the ninety-minute cap, and the
+  restart path that fails a run rather than resuming it. All of it is covered
+  against a fake tmux (`scheduler-run.test.ts`, `restore-sessions.test.ts`,
+  `vk-guard.test.ts`). What a fake cannot answer: whether dontAsk really runs
+  Bash on the strength of the `Bash` allow rule or only on the guard's explicit
+  allow (the guard emits one either way, so the run should work regardless, but
+  which one carried it is worth writing down), whether `-p` with `--settings`
+  hooks fires `Stop` before exiting, and whether the scout's prompt produces
+  issues worth reading.
+- **Why deferred:** Needs a real authenticated claude in the pod, and a repo
+  with a `## Maintainer` section (headroom is first).
+- **Unblocked by:** Add a scout schedule on headroom, press "run now", and
+  watch three things: the session appears already working, ends by itself
+  within a minute of the agent finishing, and the inbox row carries its own
+  `ok:`. Then once with the notes "write no report" — the row must read
+  `failed: no sign-off`. Then once with `UNATTENDED_CAP_MS` set to two minutes
+  — the row must read `failed: killed after`.
+- **Where:** `backend/src/scheduler.ts` (`stageRun`, `watchUnattended`,
+  `UNATTENDED_CAP_MS`), `backend/src/sessions-store.ts` (`launchAgent`,
+  `UNATTENDED_MAX_TURNS`), `backend/src/claude-hooks.ts` (`UNATTENDED`),
+  `runtime/vk-guard`, `runtime/maintainer/scout.md`
+
+## The maintainer has a scout and nothing after it
+
+- **What:** The pipeline the scout feeds — a `build` stage that takes the oldest
+  `queued` issue, works in a worktree `<repo>--maint-<n>` on branch `maint/<n>`,
+  runs the contract's verify command and opens a PR; a `gate` stage that checks
+  the PR out fresh, verifies it again, reviews the diff against the issue and
+  the no-go list, and arms `gh pr merge --squash --auto` for `tier:auto` or
+  reports `attention:` for `tier:review`; and an inbox section listing the
+  queue (`GET /api/maintainer/queue`) — is designed and not built. The guard
+  already has the per-stage hooks for it (`VK_STAGE`), and `MaintainerStage` is
+  the one place the list of stages lives.
+- **Why deferred:** The scout is the stage that proves the unattended path
+  (above), and the build stage is the first one that pushes; stacking it on a
+  path that has not yet run once in the pod would mean debugging two unproven
+  things at once.
+- **Unblocked by:** A week of scout runs on headroom, and the repo's side in
+  place: the labels `queued`, `in-progress`, `blocked`, `done`, `tier:auto`,
+  `tier:review`, and a ruleset that requires a PR. Then, in order: extract the
+  worktree route's logic into `projects-store.ts` (`addWorktree`,
+  `removeWorktree`) for the scheduler to reuse; `build.md` and the build branch
+  of `stageRun`; `gate.md` and the guard's merge rule (`gh pr merge` only with
+  `tier:auto`, a `maint/*` head and `--squash --auto`); the queue route and the
+  inbox section. Also still out: cargo/go in the image (ruter-cli's tests
+  cannot run on the pod), a GitHub identity of the maintainer's own (so a gate
+  approval counts and the ruleset can require one review), and denying edits
+  to the contract's no-go paths mechanically in `vk-guard` rather than trusting
+  the prompt.
+- **Where:** `backend/src/scheduler.ts` (`stageRun`), `backend/src/maintainer.ts`,
+  `backend/src/routes/projects.ts` (the worktree route, lines 122-182),
+  `runtime/vk-guard` (the `scout` block is the shape of a stage's rules),
+  `runtime/maintainer/`, `shared/api.ts` (`MaintainerStage`)

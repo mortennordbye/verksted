@@ -3,6 +3,7 @@ import path from "node:path";
 import type {
   AgentName,
   CreatedSession,
+  MaintainerStage,
   ReviewVerdict,
   Session,
   SessionReview,
@@ -57,6 +58,8 @@ interface Meta {
    *  a whole. Absent until somebody reviews it. */
   reviewed?: string[];
   verdict?: ReviewVerdict | null;
+  /** The maintainer stage a schedule started this as; absent otherwise. */
+  unattended?: MaintainerStage;
 }
 
 function metaPath(id: string): string {
@@ -80,6 +83,24 @@ function convPath(id: string): string {
 // what lets a night of unattended runs stay silent unless one needs a person.
 function reportPath(id: string): string {
   return path.join(env.SESSIONS_DIR, `${id}.report`);
+}
+
+/**
+ * Write a verdict on the run's behalf. For the two ends an unattended run can
+ * reach without signing off — killed at the cap, or a pod restart out from
+ * under it — where silence would otherwise read as a night that went well.
+ */
+export async function writeReport(id: string, line: string): Promise<void> {
+  if (!SESSION_ID_RE.test(id)) return;
+  await fs.writeFile(reportPath(id), `${line}\n`);
+}
+
+/**
+ * Whether the session's agent has exited. Only meaningful for an unattended
+ * run, whose headless agent ends on its own and leaves the pane at a shell.
+ */
+export async function agentExited(id: string): Promise<boolean> {
+  return tmux.paneIdle(id);
 }
 
 /** The run's own verdict, first line only; null when it wrote none. */
@@ -194,6 +215,7 @@ async function toSession(meta: Meta, live: boolean, state: string | null): Promi
     // A count, not the paths: this rides on every row of every list, and the
     // screen that needs the paths asks for the range anyway.
     review: { reviewed: meta.reviewed?.length ?? 0, verdict: meta.verdict ?? null },
+    unattended: meta.unattended ?? null,
   };
 }
 
@@ -427,7 +449,22 @@ export interface LaunchOptions {
    * a waiting session, which is exactly what the notifier pushes.
    */
   autoPermissions?: boolean;
+  /**
+   * The other kind of unattended: a maintainer stage that nobody will pick up
+   * if it stops. Claude runs headless in dontAsk mode — what the allow rules
+   * and the guard hook approve goes through, the rest is denied outright, and
+   * the run ends when the agent exits or the scheduler's cap ends it. Never
+   * combined with autoPermissions; one says "ask me", the other "you cannot".
+   */
+  unattended?: MaintainerStage;
 }
+
+/**
+ * Turns a headless run may take before claude stops it. A scout that reads a
+ * repo and files a few issues is well under a hundred; this is the backstop
+ * for one that has lost the thread, in front of the scheduler's wall clock.
+ */
+const UNATTENDED_MAX_TURNS = 200;
 
 /**
  * Standing context for a project, prepended to whatever a session is asked to
@@ -479,11 +516,26 @@ async function launchAgent(
     // Status hooks: claude writes waiting/running into the session state file
     // and its conversation id into the conv file. MCP config: the playwright
     // MCP drives the session browser.
-    command += ` --settings "${await ensureHooksSettings()}" --mcp-config "${await ensureMcpConfig()}"`;
+    command += ` --settings "${await ensureHooksSettings(!!opts.unattended)}" --mcp-config "${await ensureMcpConfig()}"`;
     extraEnv.VK_STATE_FILE = statePath(meta.id);
     extraEnv.VK_CONV_FILE = convPath(meta.id);
     extraEnv.VK_REPORT_FILE = reportPath(meta.id);
-    if (opts.autoPermissions) command += " --permission-mode auto";
+    if (opts.unattended) {
+      // Headless rather than the TUI: the prompt is an argument rather than
+      // keystrokes into an input box, the process exits when the turn is done,
+      // and --max-turns is a cap the TUI has no equivalent of. The pane keeps
+      // its shell afterwards (tmux.newSession), so what claude printed can
+      // still be read, and the transcript lands under $HOME like any other.
+      command += ` --permission-mode dontAsk --max-turns ${UNATTENDED_MAX_TURNS} --verbose -p`;
+      // What the guard hook reads (runtime/vk-guard): which stage's rules
+      // apply, and the one directory the run may change.
+      extraEnv.VK_UNATTENDED = "1";
+      extraEnv.VK_STAGE = opts.unattended;
+      extraEnv.VK_PROJECT = meta.project;
+      extraEnv.VK_WORKTREE = projectDir;
+    } else if (opts.autoPermissions) {
+      command += " --permission-mode auto";
+    }
   }
   // The prompt travels in the session environment, never in the command: tmux
   // gets it as an execFile argument, and the pane's shell only ever sees the
@@ -518,6 +570,15 @@ export async function restoreSessions(log: Logger): Promise<void> {
   }
   for (const meta of await readAll()) {
     if (meta.endedAt || live.has(meta.id) || meta.agent !== "claude") continue;
+    if (meta.unattended) {
+      // Not resumed: nobody is there to pick it up, and a resumed conversation
+      // would come back without the flags that made it unattended. Failed
+      // instead, in its own words, so the inbox says the pod went down rather
+      // than nothing — the sweep ends it like any other session tmux lost.
+      await writeReport(meta.id, "failed: the pod restarted mid-run");
+      log.info(`unattended session ${meta.id} failed: the pod restarted mid-run`);
+      continue;
+    }
     const conv = await readConv(meta.id);
     if (!conv) continue;
     try {
@@ -575,6 +636,7 @@ export function createSession(
       // Read after the sync above, so the branch the app just fast-forwarded is
       // the baseline and only what the session does counts against it.
       startCommit: await headCommit(projectDir),
+      ...(opts.unattended ? { unattended: opts.unattended } : {}),
     };
     // A purged session's id can be reused; drop any stale state from it.
     await fs.rm(statePath(meta.id), { force: true });
