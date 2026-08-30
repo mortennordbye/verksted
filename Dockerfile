@@ -39,6 +39,9 @@ ENV LANG=C.UTF-8 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       tmux git curl wget ca-certificates openssh-client procps ripgrep less jq vim \
       python3 python3-pip python3-venv make g++ unzip \
+      # pdftotext and pandoc: how the documents on the share become text the
+      # assistant can search (backend/src/docs.ts). Both read; neither writes.
+      poppler-utils pandoc \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
        -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \

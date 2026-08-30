@@ -1,7 +1,8 @@
 import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
 import { MAX_CONVENED, runUnattended, saidOn } from "./assistant.js";
-import { journalPrompt, triagePrompt } from "./assistant-persona.js";
+import { cataloguePrompt, journalPrompt, triagePrompt } from "./assistant-persona.js";
+import * as docs from "./docs.js";
 import * as feed from "./feed-store.js";
 import * as journal from "./journal-store.js";
 import * as loops from "./loops-store.js";
@@ -103,6 +104,13 @@ const jobs = new Map<string, Cron>();
 let journalJob: Cron | null = null;
 /** Late enough that the day is over, early enough that it is still today. */
 const JOURNAL_CRON = "55 23 * * *";
+/** The share, read at night: extract what changed, then catalogue a few. */
+let catalogueJob: Cron | null = null;
+const CATALOGUE_CRON = "30 2 * * *";
+/** Documents catalogued per night: a bounded cost, and a share is read over weeks. */
+export const CATALOGUE_PER_NIGHT = 8;
+/** How far ahead a date in a document is worth a loop. */
+const LOOP_HORIZON_DAYS = 180;
 /** Cancels for jitter waits in flight, so a reload doesn't leave one hanging. */
 const waits = new Set<() => void>();
 
@@ -597,6 +605,77 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   return items.length;
 }
 
+/** One catalogue verdict: what a document is, and the dates it names. */
+export function parseCatalogue(
+  text: string,
+): { rel: string; line: string; dates: { on: string; what: string }[] }[] {
+  const out: { rel: string; line: string; dates: { on: string; what: string }[] }[] = [];
+  for (const raw of text.split("\n")) {
+    const [rel, line, dates = "-"] = raw.split("\t").map((p) => p.trim());
+    if (!rel || !line) continue;
+    const parsed: { on: string; what: string }[] = [];
+    for (const part of dates.split(";")) {
+      const m = /^(\d{4}-\d{2}-\d{2})\s*(.*)$/.exec(part.trim());
+      if (m) parsed.push({ on: m[1], what: m[2].trim() || "date" });
+    }
+    out.push({ rel, line, dates: parsed });
+  }
+  return out;
+}
+
+/**
+ * Extract what changed on the share, then catalogue a few documents: one
+ * cheap turn over their openings, filed as a line each, with the dates that
+ * fall within the horizon opened as loops. A share is read over weeks, a few
+ * a night, so the first brief that mentions a renewal from a PDF nobody
+ * opened since last year arrives without anyone having paid for the whole
+ * share in one go.
+ */
+export async function runCatalogue(log: Logger, now = Date.now()): Promise<number> {
+  if (!(await docs.configured())) return 0;
+  const { extracted, skipped } = await docs.sweep();
+  if (extracted || skipped) log.info(`docs: ${extracted} extracted, ${skipped} skipped`);
+  const batch = await docs.uncatalogued(CATALOGUE_PER_NIGHT);
+  if (!batch.length) return 0;
+  if (overDailyCeiling(1)) {
+    log.warn({}, "catalogue skipped: daily unattended ceiling reached");
+    return 0;
+  }
+  const { name } = await readAssistantConfig();
+  const material = batch.map((d) => `${d.rel}\n${d.head}\n`).join("\n");
+  const { text, failed } = await runUnattended(material, "", false, {
+    model: env.ASSISTANT_MODEL,
+    effort: env.ASSISTANT_EFFORT,
+    systemPrompt: cataloguePrompt(name),
+  });
+  if (failed) {
+    log.warn({}, `catalogue failed: ${text || "the turn produced nothing"}`);
+    return 0;
+  }
+  const known = new Set(batch.map((d) => d.rel));
+  const catalogue = await docs.readCatalogue();
+  const at = new Date(now).toISOString();
+  let filed = 0;
+  for (const v of parseCatalogue(text)) {
+    if (!known.has(v.rel)) continue;
+    catalogue[v.rel] = { line: v.line, dates: v.dates, at };
+    filed++;
+    for (const d of v.dates) {
+      const when = Date.parse(d.on);
+      if (Number.isNaN(when) || when < now || when - now > LOOP_HORIZON_DAYS * 86_400_000) continue;
+      await loops.open({ what: `${d.what}: ${v.rel}`, due: d.on, from: `doc:${v.rel}` });
+    }
+  }
+  // A document the model said nothing about is filed as unread, so it is not
+  // carried into every night's batch; a person can still search its text.
+  for (const d of batch) {
+    if (!catalogue[d.rel]) catalogue[d.rel] = { line: "(not described)", dates: [], at };
+  }
+  await docs.writeCatalogue(catalogue);
+  log.info(`catalogue: ${filed} of ${batch.length} document(s) described`);
+  return filed;
+}
+
 async function rebuild(log: Logger): Promise<void> {
   for (const job of jobs.values()) job.stop();
   jobs.clear();
@@ -605,6 +684,10 @@ async function rebuild(log: Logger): Promise<void> {
   // schedule timer is found, and this one is held right here.
   journalJob = new Cron(JOURNAL_CRON, { protect: true, timezone: env.TZ }, () => {
     void runJournal(log).catch((err) => log.warn(err, "journal failed"));
+  });
+  catalogueJob?.stop();
+  catalogueJob = new Cron(CATALOGUE_CRON, { protect: true, timezone: env.TZ }, () => {
+    void runCatalogue(log).catch((err) => log.warn(err, "catalogue failed"));
   });
   for (const cancel of [...waits]) cancel();
   for (const schedule of await schedules.listSchedules()) {

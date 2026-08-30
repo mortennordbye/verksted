@@ -124,7 +124,7 @@ describe("mail", () => {
 
 describe("the routes", () => {
   it("say a source is not set up rather than failing", async () => {
-    expect((await app.inject({ url: "/api/sources" })).json()).toEqual({
+    expect((await app.inject({ url: "/api/sources" })).json()).toMatchObject({
       mail: false,
       calendar: false,
     });

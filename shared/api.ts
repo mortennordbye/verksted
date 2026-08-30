@@ -1255,6 +1255,23 @@ export interface CalendarEvent {
 export interface SourceStatus {
   mail: boolean;
   calendar: boolean;
+  docs: boolean;
+}
+
+/** One entry in a directory of the share. */
+export interface DocEntry {
+  path: string;
+  name: string;
+  dir: boolean;
+  size: number;
+  modified: string;
+  kind: "dir" | "plain" | "pdf" | "pandoc" | "image" | "other";
+}
+
+/** One document that matched a search, with the line that did. */
+export interface DocHit {
+  path: string;
+  excerpt: string;
 }
 
 /** The profile page: one markdown file, and how much of its budget it uses. */

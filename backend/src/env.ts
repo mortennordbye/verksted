@@ -88,6 +88,10 @@ export const env = {
   FEED_DIR: process.env.FEED_DIR ?? "/data/feed",
   // Open loops: what you owe or are owed, one JSON file each (see loops-store.ts).
   LOOPS_DIR: process.env.LOOPS_DIR ?? "/data/loops",
+  // The documents: a share mounted read-only, and the text extracted from it
+  // beside the catalogue (see docs.ts). A missing share is a bench without one.
+  DOCS_DIR: process.env.DOCS_DIR ?? "/data/docs",
+  DOCS_INDEX_DIR: process.env.DOCS_INDEX_DIR ?? "/data/docs-index",
   // The maintainer's stage prompts, shipped in the image (see maintainer.ts).
   MAINTAINER_DIR: process.env.MAINTAINER_DIR ?? "/etc/verksted/maintainer",
   // The plan's windows, sampled hourly (see plan.ts): one JSONL, on the PVC.
