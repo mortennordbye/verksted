@@ -41,6 +41,14 @@ export default defineConfig({
           { name: "Inbox", short_name: "Inbox", url: "/runs" },
           { name: "Settings", short_name: "Settings", url: "/settings" },
         ],
+        // The share sheet, on the platforms that let a web app in it: a link
+        // or a paragraph lands on the inbox for the next triage turn. GET,
+        // so the service worker has nothing to intercept.
+        share_target: {
+          action: "/share",
+          method: "GET",
+          params: { title: "title", text: "text", url: "url" },
+        },
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },

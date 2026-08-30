@@ -30,6 +30,7 @@ const REPLIES: Record<string, unknown> = {
   "DELETE /api/sessions/vk-demo-1": { id: "vk-demo-1", report: "ok: done" },
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
+  "POST /api/proposals": { id: "proposal:1", title: "a card" },
   "POST /api/council": {
     id: "ledger",
     name: "Ledger",
@@ -122,6 +123,7 @@ describe("the tool set", () => {
         "pause_schedules",
         "person_note",
         "pr_detail",
+        "propose",
         "propose_memory",
         "read_session_output",
         "recall",
@@ -374,15 +376,38 @@ describe("requests that carry a safety decision", () => {
     expect(seen.map((r) => r.method)).toEqual(["GET"]);
   });
 
-  it("ends a session without purging it from history", async () => {
-    // purge=1 would delete the metadata file the inbox and run history read.
+  it("proposes ending a session rather than ending it", async () => {
+    // Nothing with no undo happens on a model's say-so: the tool files a card
+    // and the person's tap is what reaches DELETE /api/sessions.
     seen = [];
 
-    await callTool("end_session", { id: "vk-demo-1" });
+    await callTool("end_session", { id: "vk-demo-1", why: "it finished an hour ago" });
 
-    expect(seen[0].method).toBe("DELETE");
-    expect(seen[0].url).toBe("/api/sessions/vk-demo-1");
-    expect(seen[0].url).not.toContain("purge");
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe("/api/proposals");
+    expect(JSON.parse(seen[0].body)).toEqual({
+      action: { kind: "end_session", id: "vk-demo-1" },
+      why: "it finished an hour ago",
+    });
+  });
+
+  it("proposes a merge, and a mail, the same way", async () => {
+    seen = [];
+    await callTool("merge_pr", { project: "demo", number: 7 });
+    await callTool("propose", { kind: "send", to: "kari@example.no", subject: "Hei", body: "Ja." });
+
+    expect(seen.map((r) => r.url)).toEqual(["/api/proposals", "/api/proposals"]);
+    expect(JSON.parse(seen[0].body).action).toEqual({
+      kind: "merge_pr",
+      project: "demo",
+      number: 7,
+    });
+    expect(JSON.parse(seen[1].body).action).toEqual({
+      kind: "send",
+      to: "kari@example.no",
+      subject: "Hei",
+      body: "Ja.",
+    });
   });
 
   it("starts delegated sessions in auto permission mode", async () => {

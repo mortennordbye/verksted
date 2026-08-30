@@ -90,6 +90,13 @@ const ALLOW = process.env.VK_TOOLS
 const MEMBER = process.env.VK_MEMBER || null;
 const mine = (path) => `/api/council/${encodeURIComponent(MEMBER)}${path}`;
 
+/** File a card for the person to tap; the reply says so and no more. */
+const propose = (action, why) =>
+  call("POST", "/api/proposals", { action, ...(why ? { why } : {}) }).then(
+    (item) =>
+      `proposed: ${item.title}. It is on their inbox and phone; nothing happens until they tap it.`,
+  );
+
 /** One event, on one line: when, what, where. */
 const eventLine = (e) =>
   `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""}`;
@@ -224,17 +231,13 @@ const TOOLS = [
   {
     name: "end_session",
     description:
-      "End a session and leave it in history. Use it to tidy up after work you delegated, once you have checked it finished. Ask first if the session is still running: ending one kills the agent mid-task and whatever it had not written down is gone.",
+      "Propose ending a session. Nothing ends until the person taps the card: ending one kills the agent mid-task and whatever it had not written down is gone, which is why the tap is theirs. Say why in one line.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string" } },
+      properties: { id: { type: "string" }, why: { type: "string" } },
       required: ["id"],
     },
-    // No purge: the metadata file is what the inbox and the run history read.
-    run: (a) =>
-      call("DELETE", `/api/sessions/${encodeURIComponent(a.id)}`).then(
-        (s) => `ended ${s.id}${s.report ? ` — it reported "${s.report}"` : ""}`,
-      ),
+    run: (a) => propose({ kind: "end_session", id: a.id }, a.why),
   },
   {
     name: "list_prs",
@@ -308,16 +311,17 @@ const TOOLS = [
   {
     name: "merge_pr",
     description:
-      "Squash-merge a pull request and delete its branch. This one is public and hard to undo, and it starts a deploy. Never call it without saying first which PR, what its checks say and that you are about to merge it, and getting an answer. Refuses a PR that is not open or not mergeable.",
+      "Propose squash-merging a pull request. Nothing merges until the person taps the card this puts on their inbox and phone, so call it as soon as you would recommend the merge, with why in one line: which PR, what its checks say. Refuses a PR that is not open or not mergeable when tapped.",
     inputSchema: {
       type: "object",
-      properties: { project: { type: "string" }, number: { type: "integer" } },
+      properties: {
+        project: { type: "string" },
+        number: { type: "integer" },
+        why: { type: "string" },
+      },
       required: ["project", "number"],
     },
-    run: (a) =>
-      call("POST", `/api/projects/${encodeURIComponent(a.project)}/prs/${a.number}/merge`).then(
-        (r) => `merged #${a.number}, now on ${r.branch}${r.detail ? ` (${r.detail})` : ""}`,
-      ),
+    run: (a) => propose({ kind: "merge_pr", project: a.project, number: a.number }, a.why),
   },
   {
     name: "ci_runs",
@@ -501,16 +505,13 @@ const TOOLS = [
   {
     name: "delete_schedule",
     description:
-      "Remove a schedule for good. Its run history goes with it. Ask before using this — disabling with update_schedule is the reversible version.",
+      "Propose removing a schedule for good. Its run history goes with it, so nothing is deleted until the person taps the card; disabling with update_schedule is the reversible version and needs no card.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string" } },
+      properties: { id: { type: "string" }, why: { type: "string" } },
       required: ["id"],
     },
-    run: (a) =>
-      call("DELETE", `/api/schedules/${encodeURIComponent(a.id)}`).then(
-        () => `deleted schedule ${a.id}`,
-      ),
+    run: (a) => propose({ kind: "delete_schedule", id: a.id }, a.why),
   },
   {
     name: "pause_schedules",
@@ -700,6 +701,29 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
     run: async (a) =>
       rows(await call("GET", `/api/calendar/search?q=${encodeURIComponent(a.query)}`), eventLine),
+  },
+  {
+    name: "propose",
+    description:
+      "Prepare something that cannot be undone and hand it to the person as a card to tap: a mail to send (kind send: to, subject, body, inReplyTo if a reply), or an event to put on the calendar (kind calendar_put: summary, start, end as ISO, location, description). Write the whole thing exactly as it will go; the card shows it verbatim and nothing happens until they tap. Use it to finish, not to ask: 'here is the reply, tap to send' beats 'shall I reply'.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: ["send", "calendar_put"] },
+        to: { type: "string" },
+        subject: { type: "string" },
+        body: { type: "string" },
+        inReplyTo: { type: "string" },
+        summary: { type: "string" },
+        start: { type: "string" },
+        end: { type: "string" },
+        location: { type: "string" },
+        description: { type: "string" },
+        why: { type: "string", description: "one line on why, shown above the card" },
+      },
+      required: ["kind"],
+    },
+    run: ({ why, ...action }) => propose(action, why),
   },
   {
     name: "person_note",

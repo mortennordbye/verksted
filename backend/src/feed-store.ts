@@ -1,6 +1,12 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { FeedItem, FeedSource, FeedState, FeedUrgency } from "../../shared/api.js";
+import type {
+  FeedItem,
+  FeedSource,
+  FeedState,
+  FeedUrgency,
+  ProposalAction,
+} from "../../shared/api.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 
@@ -70,7 +76,12 @@ export interface Seen {
   version: string;
   /** Rare: a rule that must not wait for triage (a red build on main). */
   urgency?: FeedUrgency;
+  /** A proposal's action. Judged already: the assistant wrote it. */
+  action?: ProposalAction;
 }
+
+/** A proposal nobody tapped is dropped after this long, and says so. */
+export const PROPOSAL_DAYS = 3;
 
 /**
  * File an event, or update the item it already is.
@@ -96,9 +107,10 @@ export async function upsert(seen: Seen): Promise<{ item: FeedItem; changed: boo
     link: seen.link,
     loop: existing?.loop ?? null,
     did: existing?.did ?? null,
-    triaged: false,
+    triaged: seen.action !== undefined,
     version: seen.version,
     pushed: false,
+    ...(seen.action ? { action: seen.action } : {}),
   };
   await write(item);
   return { item, changed: true };
@@ -178,10 +190,21 @@ export async function resolve(id: string, what: string): Promise<void> {
   await write(item);
 }
 
-/** Done items go after thirty days; nothing else is ever deleted here. */
+/**
+ * Done items go after thirty days; nothing else is ever deleted here. A
+ * proposal nobody tapped expires first, as a done item that says so.
+ */
 export async function sweep(now = Date.now()): Promise<number> {
   let removed = 0;
   for (const item of await readAll()) {
+    if (
+      item.source === "proposal" &&
+      item.state !== "done" &&
+      now - Date.parse(item.at) >= PROPOSAL_DAYS * 86_400_000
+    ) {
+      await resolve(item.id, "expired untapped");
+      continue;
+    }
     if (item.state !== "done") continue;
     if (now - Date.parse(item.at) < DONE_KEPT_DAYS * 86_400_000) continue;
     await fs.rm(fileOf(item.id), { force: true });

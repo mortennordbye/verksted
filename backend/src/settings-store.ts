@@ -29,6 +29,13 @@ export const KNOWN_AGENT_KEYS = [
   "CALDAV_URL",
   "CALDAV_USER",
   "CALDAV_PASSWORD",
+  // Sending, for a proposal you tapped. SMTP_USER and SMTP_PASSWORD fall back
+  // to the IMAP ones, which is what most providers want.
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_USER",
+  "SMTP_PASSWORD",
+  "MAIL_FROM",
 ];
 
 /**
@@ -46,6 +53,11 @@ export const SOURCE_KEYS = [
   "CALDAV_URL",
   "CALDAV_USER",
   "CALDAV_PASSWORD",
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_USER",
+  "SMTP_PASSWORD",
+  "MAIL_FROM",
 ];
 const SOURCE_ONLY = new Set(SOURCE_KEYS);
 

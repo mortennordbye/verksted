@@ -1,6 +1,7 @@
 import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { agoLabel } from "../api";
+import { cite } from "./chat/cite";
 import { MD } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 
@@ -67,7 +68,7 @@ function Reply({
       )}
       {entry?.text && (
         <div className="text-[15px] leading-[1.55]">
-          <Markdown components={MD}>{entry.text}</Markdown>
+          <Markdown components={MD}>{cite(entry.text)}</Markdown>
         </div>
       )}
       {live !== undefined && (

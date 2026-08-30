@@ -11,6 +11,7 @@ import NotFound from "./screens/NotFound";
 import Project from "./screens/Project";
 import Session from "./screens/Session";
 import Settings from "./screens/Settings";
+import Share from "./screens/Share";
 import Today from "./screens/Today";
 
 export default function App() {
@@ -49,6 +50,7 @@ export default function App() {
               installed the app then still has the door on its home screen. */}
           <Route path="/council" element={<Navigate to="/ai" replace />} />
           <Route path="/runs" element={<Inbox />} />
+          <Route path="/share" element={<Share />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
