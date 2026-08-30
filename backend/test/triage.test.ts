@@ -127,6 +127,69 @@ describe("triage", () => {
     expect(await feed.untriaged()).toEqual([]);
   });
 
+  it("sorts by the rules the person has kept", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/memory/renovate-quiet",
+      payload: { text: "Renovate's patch bumps are never worth attention.", type: "preference" },
+    });
+    await arrived("github:6", "verksted: Bump eslint");
+    fake.reply("claude", "-p", { stdout: run("github:6\tquiet\tRenovate.\t-") });
+
+    await scheduler.runTriage(log, true);
+
+    const argv = fake.argvFor("claude")[0];
+    const system = argv[argv.indexOf("--append-system-prompt") + 1];
+    expect(system).toContain("- Renovate's patch bumps are never worth attention.");
+  });
+
+  it("learns from what was dismissed, into the review queue and not past it", async () => {
+    const at = new Date().toISOString();
+    for (const [id, title] of [
+      ["mail:1", "Newsletter: weekly deals"],
+      ["mail:2", "Newsletter: more deals"],
+      ["mail:3", "Kari: hytta"],
+    ]) {
+      await feed.upsert({
+        id,
+        source: "mail",
+        at,
+        title,
+        detail: "",
+        link: null,
+        version: "1",
+      });
+      await feed.judge(id, { urgency: id === "mail:3" ? "attention" : "new" });
+    }
+    await feed.setState("mail:1", "done");
+    await feed.setState("mail:2", "done");
+    fake.reply("claude", "-p", {
+      stdout: run(
+        "newsletters-quiet\tNewsletters from the deals sender are quiet, never attention.",
+      ),
+    });
+
+    expect(await scheduler.runLearning(log)).toBe(1);
+
+    const argv = fake.argvFor("claude")[0];
+    const prompt = argv[argv.indexOf("-p") + 1];
+    expect(prompt).toContain("mail\tNewsletter: weekly deals\tnew\tdismissed");
+    expect(prompt).toContain("mail\tKari: hytta\tattention\tnew");
+    expect(argv[argv.indexOf("--append-system-prompt") + 1]).toContain(
+      "would have sorted it right",
+    );
+    // Queued, not kept: nothing reaches triage until the person keeps it.
+    const queue = (await app.inject({ url: "/api/memory/proposed" })).json().proposals;
+    expect(queue.map((p: { slug: string; text: string }) => [p.slug, p.text])).toEqual([
+      ["sort-newsletters-quiet", "Newsletters from the deals sender are quiet, never attention."],
+    ]);
+    expect(
+      (await app.inject({ url: "/api/memory" }))
+        .json()
+        .memories.map((m: { slug: string }) => m.slug),
+    ).not.toContain("sort-newsletters-quiet");
+  });
+
   it("spaces itself out, so a busy hour is six calls and not sixty", async () => {
     await arrived("github:4", "one");
     fake.reply("claude", "-p", { stdout: run("github:4\tnew\tOne.\t-") });

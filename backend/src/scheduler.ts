@@ -1,7 +1,13 @@
 import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
 import { MAX_CONVENED, runUnattended, saidOn } from "./assistant.js";
-import { cataloguePrompt, journalPrompt, triagePrompt } from "./assistant-persona.js";
+import {
+  cataloguePrompt,
+  journalPrompt,
+  learningPrompt,
+  triagePrompt,
+} from "./assistant-persona.js";
+import * as memory from "./memory-store.js";
 import * as docs from "./docs.js";
 import * as feed from "./feed-store.js";
 import * as journal from "./journal-store.js";
@@ -107,6 +113,9 @@ const JOURNAL_CRON = "55 23 * * *";
 /** The share, read at night: extract what changed, then catalogue a few. */
 let catalogueJob: Cron | null = null;
 const CATALOGUE_CRON = "30 2 * * *";
+/** What the day's dismissals say about the sorting, before the journal. */
+let learningJob: Cron | null = null;
+const LEARNING_CRON = "50 23 * * *";
 /** Documents catalogued per night: a bounded cost, and a share is read over weeks. */
 export const CATALOGUE_PER_NIGHT = 8;
 /** How far ahead a date in a document is worth a loop. */
@@ -542,10 +551,11 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
     return 0;
   }
   lastTriage = now;
-  const [{ name }, profile, open] = await Promise.all([
+  const [{ name }, profile, open, rules] = await Promise.all([
     readAssistantConfig(),
     readProfile(),
     loops.list(),
+    sortingRules(),
   ]);
   const material = items
     .map((i) => `${i.id}\t${i.source}\t${i.title}\t${i.detail.replace(/\s+/g, " ")}`)
@@ -553,7 +563,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   const { text, failed } = await runUnattended(material, "", false, {
     model: env.ASSISTANT_MODEL,
     effort: env.ASSISTANT_EFFORT,
-    systemPrompt: triagePrompt(name, profile, loops.render(open)),
+    systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
   });
   if (failed) {
     log.warn({}, `triage failed: ${text || "the turn produced nothing"}`);
@@ -676,6 +686,79 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
   return filed;
 }
 
+/**
+ * The rules triage sorts by: the kept preferences, which is where a learned
+ * rule lands once the person keeps it. A rule you can read is a rule you can
+ * delete, which is the whole reason they are memories rather than weights.
+ */
+async function sortingRules(): Promise<string> {
+  const facts = await memory.list();
+  return facts
+    .filter((m) => m.type === "preference")
+    .map((m) => `- ${m.text.replace(/\s*\n\s*/g, " ")}`)
+    .join("\n");
+}
+
+/**
+ * Learn from what the person did with the day's items: one cheap turn over
+ * the day's feed with its states, proposing rules to the review queue. Runs
+ * only on a day with a signal, since a day with nothing dismissed teaches
+ * nothing, and a proposal costs the person a decision.
+ */
+export async function runLearning(log: Logger, day = journal.today()): Promise<number> {
+  const items = (await feed.list()).filter(
+    (i) => journal.dayOf(i.at) === day && i.source !== "proposal" && i.triaged,
+  );
+  const signal = items.filter(
+    (i) => (i.state === "done" && !i.did) || i.state === "snoozed" || i.urgency === "attention",
+  );
+  if (signal.length < 2) return 0;
+  if (overDailyCeiling(1)) {
+    log.warn({ day }, `learning for ${day} skipped: daily unattended ceiling reached`);
+    return 0;
+  }
+  const { name } = await readAssistantConfig();
+  const material = items
+    .map(
+      (i) =>
+        `${i.source}\t${i.title}\t${i.urgency}\t${
+          i.state === "done" ? (i.did ? `acted: ${i.did}` : "dismissed") : i.state
+        }`,
+    )
+    .join("\n");
+  const { text, failed } = await runUnattended(material, "", false, {
+    model: env.ASSISTANT_MODEL,
+    effort: env.ASSISTANT_EFFORT,
+    systemPrompt: learningPrompt(name, await sortingRules()),
+  });
+  if (failed) {
+    log.warn({ day }, `learning failed: ${text || "the turn produced nothing"}`);
+    return 0;
+  }
+  let proposed = 0;
+  for (const raw of text.split("\n")) {
+    const [slug, rule] = raw.split("\t").map((p) => p.trim());
+    if (!slug || !rule) continue;
+    try {
+      await memory.propose({
+        slug: `sort-${slug
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, "-")
+          .slice(0, 40)}`,
+        text: rule,
+        type: "preference",
+        scope: "global",
+        source: `learned from what you did with the inbox on ${day}`,
+      });
+      proposed++;
+    } catch {
+      // Already remembered, or a bad slug: a proposal not worth a queue entry.
+    }
+  }
+  log.info(`learning: ${proposed} rule(s) proposed for ${day}`);
+  return proposed;
+}
+
 async function rebuild(log: Logger): Promise<void> {
   for (const job of jobs.values()) job.stop();
   jobs.clear();
@@ -688,6 +771,10 @@ async function rebuild(log: Logger): Promise<void> {
   catalogueJob?.stop();
   catalogueJob = new Cron(CATALOGUE_CRON, { protect: true, timezone: env.TZ }, () => {
     void runCatalogue(log).catch((err) => log.warn(err, "catalogue failed"));
+  });
+  learningJob?.stop();
+  learningJob = new Cron(LEARNING_CRON, { protect: true, timezone: env.TZ }, () => {
+    void runLearning(log).catch((err) => log.warn(err, "learning failed"));
   });
   for (const cancel of [...waits]) cancel();
   for (const schedule of await schedules.listSchedules()) {

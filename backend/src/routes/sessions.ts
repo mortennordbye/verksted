@@ -14,6 +14,7 @@ import type {
 import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail, readImage } from "../chat.js";
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
+import * as desk from "../desk.js";
 import * as store from "../sessions-store.js";
 import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
@@ -111,6 +112,37 @@ export default async function sessionRoutes(app: FastifyInstance) {
         autoPermissions: req.body.autoPermissions,
       });
       return reply.code(201).send(session);
+    },
+  );
+
+  /**
+   * A desk session: life admin in a directory of its own under the desk,
+   * with the full toolset and no remote. The assistant's move for anything
+   * that is more than a lookup and not code.
+   */
+  app.post<{ Body: { title: string; ask: string } }>(
+    "/api/desk/sessions",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["title", "ask"],
+          additionalProperties: false,
+          properties: {
+            title: { type: "string", minLength: 1, maxLength: 120 },
+            ask: { type: "string", minLength: 1, maxLength: 4000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const { dir, rel, prompt } = await desk.newTask(req.body.title, req.body.ask);
+      const session = await store.createSession(desk.DESK, dir, "claude", {
+        title: req.body.title,
+        prompt,
+        autoPermissions: true,
+      });
+      return reply.code(201).send({ ...session, task: rel });
     },
   );
 
