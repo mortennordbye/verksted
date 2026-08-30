@@ -150,6 +150,7 @@ describe("the tool set", () => {
       return res.result.tools.map((t) => t.name);
     };
     expect(await names({})).not.toContain("mail_read");
+    expect(await names({})).not.toContain("docs_read");
     expect(await names({ VK_MEMBER: "uriel", VK_TOOLS: "mail_read,status" })).toEqual([
       "status",
       "mail_read",

@@ -50,6 +50,24 @@ export function resolveInsideRepos(
 }
 
 /**
+ * The same discipline for a root that is not the repos: a path from a client
+ * or a model resolves to a real path inside `root`, or is denied. No `.git`
+ * rule, since the roots this serves hold documents rather than checkouts.
+ */
+export function resolveInside(root: string, relPath = ""): string {
+  let realRoot: string;
+  let real: string;
+  try {
+    realRoot = fs.realpathSync(root);
+    real = fs.realpathSync(path.resolve(realRoot, relPath));
+  } catch {
+    throw new PathDeniedError();
+  }
+  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) throw new PathDeniedError();
+  return real;
+}
+
+/**
  * Validate a client-supplied repo-relative path for use as a git pathspec.
  * Unlike resolveInsideRepos it must accept paths that no longer exist on disk
  * (staged deletions), so the check is lexical: relative and no ".." escape.
