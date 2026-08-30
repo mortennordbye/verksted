@@ -96,11 +96,15 @@ describe("the tool set", () => {
     // Sorted so the assertion does not depend on the order they are declared in.
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
       [
+        "brief_material",
         "ci_log",
         "ci_rerun",
         "ci_runs",
+        "close_loop",
         "cluster_status",
         "council_add",
+        "feed",
+        "feed_done",
         "create_schedule",
         "delete_schedule",
         "end_session",
@@ -108,8 +112,10 @@ describe("the tool set", () => {
         "list_memories",
         "list_prs",
         "list_schedules",
+        "loops",
         "merge_pr",
         "notify",
+        "open_loop",
         "pause_schedules",
         "person_note",
         "pr_detail",
@@ -152,14 +158,17 @@ describe("the tool set", () => {
 
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
       [
+        "brief_material",
         "ci_log",
         "ci_runs",
+        "feed",
         // Read-only, and the cluster is exactly the thing an unwatched run needs
         // to see: a scheduled deploy check has no one to ask.
         "cluster_status",
         "list_memories",
         "list_prs",
         "list_schedules",
+        "loops",
         "notify",
         "pr_detail",
         // Writes to the review queue, never to memory — which is exactly why it

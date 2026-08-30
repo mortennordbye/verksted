@@ -1,9 +1,14 @@
 import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
 import { MAX_CONVENED, runUnattended, saidOn } from "./assistant.js";
-import { journalPrompt } from "./assistant-persona.js";
+import { journalPrompt, triagePrompt } from "./assistant-persona.js";
+import * as feed from "./feed-store.js";
 import * as journal from "./journal-store.js";
+import * as loops from "./loops-store.js";
+import { announce } from "./notifier.js";
+import { readProfile } from "./profile-store.js";
 import { readAssistantConfig } from "./settings-store.js";
+import type { FeedUrgency } from "../../shared/api.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
 import { claimIssue, pickIssue, readContract, stagePrompt } from "./maintainer.js";
@@ -43,8 +48,13 @@ const MAX_LIVE_SESSIONS = 6;
  * In memory, and reset by a restart. That is the right trade for a backstop:
  * the failure it guards against is a runaway loop within one day, and a file on
  * the volume to survive a reboot would be state kept for nothing.
+ *
+ * Sixty rather than twelve since triage joined: a busy day is twenty or thirty
+ * small triage calls, and a ceiling that bit on an ordinary Tuesday would be a
+ * budget rather than a backstop. Triage is bounded by its own ten-minute
+ * spacing; this is what stops everything else.
  */
-const MAX_UNATTENDED_PER_DAY = 12;
+const MAX_UNATTENDED_PER_DAY = 60;
 let unattendedDay = "";
 let unattendedToday = 0;
 
@@ -391,6 +401,32 @@ export async function watchUnattended(log: Logger, now = Date.now()): Promise<vo
   }
 }
 
+/**
+ * The feed's two timers: judge what has arrived, and sweep what is done.
+ *
+ * Here rather than in maintenance.ts, which reaps browsers and docker debris
+ * and is imported by a route test before that test has set its directories:
+ * pulling the scheduler in there made `env` evaluate at import time, and a
+ * module that reads a path at import is a module that must not be imported
+ * early. Intervals rather than crons, and started once from the bootstrap, so
+ * a schedule reload cannot stack a second copy.
+ */
+export function startFeedWork(log: Logger): void {
+  const every = (ms: number, what: string, fn: () => Promise<unknown>) => {
+    const timer = setInterval(() => {
+      void fn().catch((err: unknown) => log.warn(err, `${what} failed`));
+    }, ms);
+    timer.unref?.();
+  };
+  // Triage spaces itself out; this is only how often it is asked whether
+  // anything is waiting to be judged.
+  every(60_000, "triage", () => runTriage(log));
+  every(24 * 60 * 60_000, "feed sweep", async () => {
+    const n = await feed.sweep();
+    if (n) log.info(`feed: ${n} done item(s) swept`);
+  });
+}
+
 export function reloadSchedules(log: Logger): Promise<void> {
   if (!watcher) {
     watcher = setInterval(() => {
@@ -436,6 +472,129 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
   await journal.writeDay(day, text);
   log.info(`journal written for ${day}`);
   return true;
+}
+
+/**
+ * One triage verdict, as parsed off a line of the reply.
+ *
+ * Exported for the test: the grammar is the whole contract with the model, and
+ * a line that does not fit is skipped rather than guessed at.
+ */
+export interface Verdict {
+  id: string;
+  urgency: FeedUrgency;
+  summary: string;
+  loop: { slug: string } | { open: string; due: string | null } | null;
+}
+
+export function parseVerdicts(text: string): Verdict[] {
+  const out: Verdict[] = [];
+  for (const raw of text.split("\n")) {
+    const parts = raw.split("\t").map((p) => p.trim());
+    if (parts.length < 3) continue;
+    const [id, urgency, summary, loop = "-"] = parts;
+    if (!id || !["attention", "new", "quiet"].includes(urgency)) continue;
+    let ref: Verdict["loop"] = null;
+    if (loop.startsWith("new:")) {
+      const [what, due = "-"] = loop
+        .slice(4)
+        .split("|")
+        .map((p) => p.trim());
+      if (what) ref = { open: what, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null };
+    } else if (loop && loop !== "-") {
+      ref = { slug: loop };
+    }
+    out.push({ id, urgency: urgency as FeedUrgency, summary, loop: ref });
+  }
+  return out;
+}
+
+/** Not more often than this, so a busy hour is six calls and not sixty. */
+const TRIAGE_EVERY_MS = 10 * 60_000;
+let lastTriage = 0;
+
+/** Sources whose attention items already reach the phone another way. */
+const PUSHES_ITSELF = new Set(["bench", "schedule", "memory"]);
+
+/**
+ * Judge what has arrived since the last time: one cheap call over the batch,
+ * with the profile and the open loops in front of the model, then the verdicts
+ * applied and the attention items pushed once.
+ *
+ * Nothing here trusts the reply's shape: an id it did not have is ignored, an
+ * item it did not mention keeps the poller's verdict and is still marked judged
+ * so the next batch does not carry it again, and a bad line is a skipped line.
+ */
+export async function runTriage(log: Logger, force = false, now = Date.now()): Promise<number> {
+  const items = await feed.untriaged();
+  if (!items.length) return 0;
+  if (!force && now - lastTriage < TRIAGE_EVERY_MS) return 0;
+  if (overDailyCeiling(1)) {
+    log.warn({}, "triage skipped: daily unattended ceiling reached");
+    return 0;
+  }
+  lastTriage = now;
+  const [{ name }, profile, open] = await Promise.all([
+    readAssistantConfig(),
+    readProfile(),
+    loops.list(),
+  ]);
+  const material = items
+    .map((i) => `${i.id}\t${i.source}\t${i.title}\t${i.detail.replace(/\s+/g, " ")}`)
+    .join("\n");
+  const { text, failed } = await runUnattended(material, "", false, {
+    model: env.ASSISTANT_MODEL,
+    effort: env.ASSISTANT_EFFORT,
+    systemPrompt: triagePrompt(name, profile, loops.render(open)),
+  });
+  if (failed) {
+    log.warn({}, `triage failed: ${text || "the turn produced nothing"}`);
+    return 0;
+  }
+  const verdicts = new Map(parseVerdicts(text).map((v) => [v.id, v]));
+  let judged = 0;
+  for (const item of items) {
+    const v = verdicts.get(item.id);
+    if (!v) {
+      await feed.judge(item.id, { urgency: item.urgency });
+      continue;
+    }
+    let loop: string | null | undefined;
+    if (v.loop && "open" in v.loop) {
+      loop = (await loops.open({ what: v.loop.open, due: v.loop.due, from: item.id })).slug;
+    } else if (v.loop && "slug" in v.loop) {
+      loop = (await loops.get(v.loop.slug)) ? v.loop.slug : undefined;
+    }
+    const updated = await feed.judge(item.id, { urgency: v.urgency, detail: v.summary, loop });
+    judged++;
+    if (
+      updated &&
+      updated.urgency === "attention" &&
+      !updated.pushed &&
+      !PUSHES_ITSELF.has(updated.source)
+    ) {
+      try {
+        await announce(
+          {
+            title: updated.title.slice(0, 100),
+            body: updated.detail.slice(0, 500),
+            url: updated.link?.startsWith("/") ? updated.link : "/runs",
+            tag: "bell",
+          },
+          log,
+        );
+        await feed.markPushed(updated.id);
+      } catch (err) {
+        // A push that cannot go out must not undo the sorting that already
+        // happened: the item is judged, it is on the inbox, and the phone is
+        // the part that failed. Marked as pushed either way would be a lie,
+        // so it stays unpushed and the next attention item tries again.
+        log.warn(err, `could not push ${updated.id}`);
+      }
+    }
+  }
+  log.info(`triage: ${items.length} item(s) judged, ${judged} by the model`);
+  return items.length;
 }
 
 async function rebuild(log: Logger): Promise<void> {
