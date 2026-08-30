@@ -89,6 +89,76 @@ export async function search(query: string): Promise<CalendarEvent[]> {
 }
 
 /**
+ * The one write, which only a tapped proposal reaches: a new event on the
+ * account's first calendar, as a file of its own. Nothing here edits or
+ * deletes what is there.
+ */
+export async function put(event: {
+  summary: string;
+  start: string;
+  end: string;
+  location?: string;
+  description?: string;
+}): Promise<{ uid: string }> {
+  const config = await calendarConfig();
+  if (!config) {
+    throw new CalendarUnavailable(
+      "the calendar is not set up: CALDAV_URL, CALDAV_USER, CALDAV_PASSWORD",
+    );
+  }
+  const client = await createDAVClient({
+    serverUrl: config.url,
+    credentials: { username: config.user, password: config.password },
+    authMethod: "Basic",
+    defaultAccountType: "caldav",
+  });
+  const [calendar] = await client.fetchCalendars();
+  if (!calendar) throw new CalendarUnavailable("the account has no calendar to write to");
+  const uid = `vk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  await client.createCalendarObject({
+    calendar,
+    filename: `${uid}.ics`,
+    iCalString: ics({ ...event, uid }),
+  });
+  return { uid };
+}
+
+const esc = (v: string) =>
+  v.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+const stamp = (iso: string) =>
+  new Date(iso)
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d{3}/, "");
+
+/** An event as the server stores it. UTC times, so no zone is asserted. */
+export function ics(e: {
+  uid: string;
+  summary: string;
+  start: string;
+  end: string;
+  location?: string;
+  description?: string;
+}): string {
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//verksted//EN",
+    "BEGIN:VEVENT",
+    `UID:${e.uid}`,
+    `DTSTAMP:${stamp(new Date().toISOString())}`,
+    `DTSTART:${stamp(e.start)}`,
+    `DTEND:${stamp(e.end)}`,
+    `SUMMARY:${esc(e.summary)}`,
+    ...(e.location ? [`LOCATION:${esc(e.location)}`] : []),
+    ...(e.description ? [`DESCRIPTION:${esc(e.description)}`] : []),
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+}
+
+/**
  * The parts of an iCalendar file this needs, without a library: unfold the
  * lines, walk each VEVENT, read six properties. Dates come in three shapes
  * and go out as ISO strings; a floating or zoned local time is read in the

@@ -7,6 +7,7 @@ import type {
   CouncilMember,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { cite } from "../components/chat/cite";
 import { MD } from "../components/chat/markdown";
 import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
 import Sheet from "../components/Sheet";
@@ -78,7 +79,7 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
 function Said({ text }: { text: string }) {
   return (
     <div className="text-[14px]">
-      <Markdown components={MD}>{text}</Markdown>
+      <Markdown components={MD}>{cite(text)}</Markdown>
     </div>
   );
 }

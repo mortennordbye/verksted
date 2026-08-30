@@ -5,6 +5,7 @@ import type {
   AssistantConfig,
   AssistantThread,
   CalendarEvent,
+  FeedItem,
   Loop,
   Memory,
   Profile,
@@ -13,7 +14,9 @@ import type {
   SourceStatus,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { cite } from "../components/chat/cite";
 import { MD } from "../components/chat/markdown";
+import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
@@ -173,7 +176,7 @@ function Composer({ name }: { name: string }) {
           {error && <div className="font-mono text-[12px] text-fail">{error}</div>}
           {reply && (
             <div className="text-[14px]">
-              <Markdown components={MD}>{reply}</Markdown>
+              <Markdown components={MD}>{cite(reply)}</Markdown>
             </div>
           )}
           <div className="mt-4 flex justify-end">
@@ -194,6 +197,8 @@ export default function Today() {
   const { data: config } = usePoll<AssistantConfig>("/api/assistant/config", 300_000);
   const { data: profile } = usePoll<Profile>("/api/profile", 300_000);
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
+  const { data: feed, refresh: refreshFeed } = usePoll<FeedItem[]>("/api/feed", 30_000);
+  const cards = (feed ?? []).filter((i) => i.source === "proposal" && i.state !== "done");
   const { data: sources } = usePoll<SourceStatus>("/api/sources", 300_000);
   const { data: events } = usePoll<CalendarEvent[]>(
     sources?.calendar ? "/api/calendar/today" : null,
@@ -256,6 +261,20 @@ export default function Today() {
                       text={`${proposals} proposed memor${proposals === 1 ? "y" : "ies"} to keep or drop`}
                     />
                   )}
+                </div>
+              </div>
+            )}
+
+            {cards.length > 0 && (
+              <div>
+                <Label>Proposed</Label>
+                <div className="flex flex-col gap-2">
+                  {cards.map((p) => (
+                    <div key={p.id}>
+                      <div className="text-[13.5px] font-medium">{p.title}</div>
+                      <ProposalCard item={p} onChange={refreshFeed} />
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -336,7 +355,7 @@ export default function Today() {
                     <span className="ml-auto flex-none">{agoLabel(brief.at)}</span>
                   </div>
                   <div className="text-[14px]">
-                    <Markdown components={MD}>{brief.report ?? ""}</Markdown>
+                    <Markdown components={MD}>{cite(brief.report ?? "")}</Markdown>
                   </div>
                 </div>
               ) : (
