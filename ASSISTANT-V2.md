@@ -6,9 +6,10 @@ owner's. Milestones 1 (one door), 2 (Today, profile, journal) and 3 (feed, polle
 triage, loops) are built and verified, as is milestone 4 in two halves: 4a
 (mail and calendar read over IMAP and CalDAV, their pollers, the mail
 specialist, the web moved to a specialist) and 4b (proposals you tap, intake
-from the share sheet, citations as chips), and milestone 5 (the share: text
-extraction, search, the catalogue and the loops it opens). 6 onward is not
-started. This block is updated as each lands, so the plan and
+from the share sheet, citations as chips), milestone 5 (the share: text
+extraction, search, the catalogue and the loops it opens) and milestone 6
+(finance into the door: Ariel seeded with headroom on unattended runs too,
+a one-tap finance watch and morning briefing). 7 and 8 are not started. This block is updated as each lands, so the plan and
 its state stay in one file.
 
 It supersedes the product shape in ASSISTANT.md (two rooms, the council as a

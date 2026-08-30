@@ -34,6 +34,49 @@ const CRON_PRESETS = [
 ];
 
 /**
+ * The two schedules a bench wants on its first day, as buttons rather than
+ * prompts to compose: the morning brief, which is the product, and the
+ * finance watch, which is the one poller this bench cannot write itself,
+ * since headroom is reached only through its own tools. Matched by name, so
+ * pressing one twice cannot leave two.
+ */
+const STARTERS: {
+  name: string;
+  cron: string;
+  member: string;
+  convenes: boolean;
+  prompt: string;
+}[] = [
+  {
+    name: "morning briefing",
+    cron: "0 7 * * *",
+    member: "",
+    convenes: true,
+    prompt: [
+      "Brief me for the day. Start from brief_material. Lead with what is due or",
+      "needs me, then today's calendar, then what happened since yesterday in a",
+      "line each, then what you did; fold the quiet things into a count. Where a",
+      "loop or an item points at the money, the mail or a document, ask the one",
+      "who holds it before calling anything unpaid or unanswered. Ten lines at",
+      "most, and cite what you read.",
+    ].join(" "),
+  },
+  {
+    name: "finance watch",
+    cron: "30 7 * * *",
+    member: "ariel",
+    convenes: false,
+    prompt: [
+      "Read headroom's overview and budget summary. Against the floors and limits",
+      "in the profile, say whether any category is over its month, any balance is",
+      "under its floor, or anything due is unpaid. One line each, figures as",
+      'headroom gives them. Sign off "ok" when nothing is, "attention" when',
+      "something is.",
+    ].join(" "),
+  },
+];
+
+/**
  * Recurring prompts. Each one starts a claude session in its project on the
  * cron and submits the prompt, in auto permission mode — nobody is there to
  * answer a permission question at 07:00. The run shows up as an ordinary
@@ -186,6 +229,40 @@ export default function SchedulesPanel({ project }: { project?: string }) {
       </div>
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
       {note && <div className="mb-3 font-mono text-[12px] text-muted">{note}</div>}
+      {/* The starters, until each exists. A bench without a morning briefing
+          has no front page, and the button is the whole of setting one up. */}
+      {!project &&
+        schedules &&
+        STARTERS.some((st) => !schedules.some((s) => s.name === st.name)) && (
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[11px] text-faint">start with:</span>
+            {STARTERS.filter((st) => !schedules.some((s) => s.name === st.name)).map((st) => (
+              <button
+                key={st.name}
+                onClick={() =>
+                  run(async () => {
+                    await api("/api/schedules", {
+                      method: "POST",
+                      body: JSON.stringify({
+                        name: st.name,
+                        kind: "assistant",
+                        cron: st.cron,
+                        prompt: st.prompt,
+                        ...(st.member ? { member: st.member } : {}),
+                        ...(st.convenes ? { convenes: true } : {}),
+                      }),
+                    });
+                    refresh();
+                  })
+                }
+                disabled={busy}
+                className={ghost}
+              >
+                {st.name}
+              </button>
+            ))}
+          </div>
+        )}
       <div className="flex flex-col gap-2">
         {(schedules ?? []).map((s) => (
           <div key={s.id} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
