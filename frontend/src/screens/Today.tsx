@@ -4,11 +4,13 @@ import { Link } from "react-router";
 import type {
   AssistantConfig,
   AssistantThread,
+  CalendarEvent,
   Loop,
   Memory,
   Profile,
   ScheduleRun,
   Session,
+  SourceStatus,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { MD } from "../components/chat/markdown";
@@ -55,6 +57,11 @@ function dateLine(): string {
     day: "numeric",
     month: "long",
   });
+}
+
+/** 14:30, in the browser's own zone and convention. */
+function timeOf(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
 /** A row that needs you, and where it goes. */
@@ -187,6 +194,11 @@ export default function Today() {
   const { data: config } = usePoll<AssistantConfig>("/api/assistant/config", 300_000);
   const { data: profile } = usePoll<Profile>("/api/profile", 300_000);
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
+  const { data: sources } = usePoll<SourceStatus>("/api/sources", 300_000);
+  const { data: events } = usePoll<CalendarEvent[]>(
+    sources?.calendar ? "/api/calendar/today" : null,
+    300_000,
+  );
   const open = (loops ?? []).filter((l) => l.state === "open");
   const name = config?.name?.trim() || "the assistant";
 
@@ -245,6 +257,47 @@ export default function Today() {
                     />
                   )}
                 </div>
+              </div>
+            )}
+
+            {sources?.calendar && (
+              <div>
+                <Label>Today</Label>
+                {events?.length ? (
+                  <div className="flex flex-col gap-1.5">
+                    {events.map((e) => (
+                      <div
+                        key={`${e.uid}-${e.start}`}
+                        className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px]"
+                      >
+                        <span className="w-[3.2rem] flex-none font-mono text-[12px] text-muted">
+                          {e.allDay ? "all day" : timeOf(e.start)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">{e.summary}</span>
+                        {e.url ? (
+                          <a
+                            href={e.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex-none font-mono text-[11px] text-accent hover:underline"
+                          >
+                            join ↗
+                          </a>
+                        ) : (
+                          e.location && (
+                            <span className="max-w-[9rem] flex-none truncate font-mono text-[11px] text-faint">
+                              {e.location}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[13px] text-faint">
+                    {events === null ? "reading…" : "nothing on the calendar"}
+                  </div>
+                )}
               </div>
             )}
 

@@ -331,7 +331,7 @@ describe("adding somebody", () => {
   // whoever was added is taken back off before the next one runs.
   afterEach(async () => {
     for (const m of await roster()) {
-      if (!["chair", "michael", "raphael", "uriel"].includes(m.id)) {
+      if (!["chair", "michael", "raphael", "uriel", "sophia"].includes(m.id)) {
         await app.inject({ method: "DELETE", url: `/api/council/${m.id}` });
       }
     }
@@ -374,6 +374,7 @@ describe("asking the whole room", () => {
     whenAsked("Michael", "I watch the cluster.");
     whenAsked("Raphael", "I read the code.");
     whenAsked("Uriel", "I keep what is not work.");
+    whenAsked("Sophia", "I read the web.");
     fake.reply("claude", "-p The council answered.", { stdout: run("That is the room.") });
   });
 
@@ -382,17 +383,17 @@ describe("asking the whole room", () => {
     // would be a call spent on a decision with one possible answer.
     const got = entries(await say("@all who are you?"));
 
-    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Uriel" }]);
+    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Sophia, Uriel" }]);
     expect(got[1].text).toBe("");
     expect(
       got
         .filter((e) => e.member)
         .map((e) => e.member)
         .sort(),
-    ).toEqual(["michael", "raphael", "uriel"]);
+    ).toEqual(["michael", "raphael", "sophia", "uriel"]);
     expect(got.at(-1)?.text).toBe("That is the room.");
-    // Three advisors and the chair's last word: no opening turn.
-    expect(fake.argvFor("claude")).toHaveLength(4);
+    // Four advisors and the chair's last word: no opening turn.
+    expect(fake.argvFor("claude")).toHaveLength(5);
     // And the @ is addressing, not part of what they are asked.
     expect(callsFor("Michael")[0][1]).toBe("who are you?");
   });
@@ -402,14 +403,14 @@ describe("asking the whole room", () => {
 
     const got = entries(await say("what does everyone make of this?"));
 
-    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Uriel" }]);
-    expect(got.filter((e) => e.member)).toHaveLength(3);
+    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Sophia, Uriel" }]);
+    expect(got.filter((e) => e.member)).toHaveLength(4);
   });
 
   it("seats the whole room at the round table when the switch is on", async () => {
     const got = entries(await say("@all who are you?", true));
 
-    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael, Uriel" }]);
+    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael, Sophia, Uriel" }]);
     // Sequential, so the last one asked has read the ones before it.
     const asked = callsFor("Uriel")[0][1];
     expect(asked).toContain("Michael: I watch the cluster.");
@@ -419,7 +420,7 @@ describe("asking the whole room", () => {
     // A meeting that says "everyone" and means "the first six" is lying about
     // what it did, so whoever was left out is named in the mark.
     const { MAX_EVERYONE } = await import("../src/assistant.js");
-    const extra = MAX_EVERYONE - 2;
+    const extra = MAX_EVERYONE - 3;
     for (let i = 0; i < extra; i++) {
       await app.inject({
         method: "POST",
