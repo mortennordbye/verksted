@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { CalendarEvent, MailMessage, MailSummary, SourceStatus } from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
+import * as docs from "../docs.js";
 import * as mail from "../mail.js";
 
 /**
@@ -14,6 +15,7 @@ export default async function sourceRoutes(app: FastifyInstance) {
   app.get("/api/sources", async (): Promise<SourceStatus> => ({
     mail: (await mail.mailConfig()) !== null,
     calendar: (await calendar.calendarConfig()) !== null,
+    docs: await docs.configured(),
   }));
 
   const guard = async <T>(
