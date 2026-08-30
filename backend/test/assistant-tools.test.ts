@@ -97,6 +97,9 @@ describe("the tool set", () => {
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
       [
         "brief_material",
+        "calendar_search",
+        "calendar_today",
+        "calendar_upcoming",
         "ci_log",
         "ci_rerun",
         "ci_runs",
@@ -134,6 +137,23 @@ describe("the tool set", () => {
     );
   });
 
+  it("offers the mail to an advisor and never to the chair", async () => {
+    // Mail is text written by strangers, which is the shape a prompt
+    // injection takes, and the chair holds every tool that acts. So the mail
+    // tools exist only in a process started for a member.
+    const names = async (env: Record<string, string>) => {
+      const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, env)) as {
+        result: { tools: { name: string }[] };
+      };
+      return res.result.tools.map((t) => t.name);
+    };
+    expect(await names({})).not.toContain("mail_read");
+    expect(await names({ VK_MEMBER: "uriel", VK_TOOLS: "mail_read,status" })).toEqual([
+      "status",
+      "mail_read",
+    ]);
+  });
+
   it("names no tool that writes to a repo", async () => {
     const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })) as {
       result: { tools: { name: string }[] };
@@ -159,6 +179,9 @@ describe("the tool set", () => {
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
       [
         "brief_material",
+        "calendar_search",
+        "calendar_today",
+        "calendar_upcoming",
         "ci_log",
         "ci_runs",
         "feed",
@@ -318,7 +341,15 @@ describe("one advisor's tools", () => {
     // write-time validation are both built on it.
     const { TOOL_INVENTORY } = await import("../src/council-store.js");
 
-    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual((await list({})).sort());
+    // As a member with no filter, since the mail tools exist only for one.
+    const all = (await list({ VK_MEMBER: "uriel" })).sort();
+    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual(all);
+    // And the chair's view is the inventory minus what is a member's alone.
+    expect(
+      TOOL_INVENTORY.filter((t) => !t.memberOnly)
+        .map((t) => t.name)
+        .sort(),
+    ).toEqual((await list({})).sort());
   });
 });
 

@@ -113,21 +113,22 @@ describe("POST /api/assistant/messages", () => {
     // Stronger than either list: this is the set that exists. It is also what
     // stops the CLI deferring tool schemas, which cost a whole ToolSearch round
     // trip per turn before the assistant could look at anything.
-    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,WebFetch,WebSearch");
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob");
   });
 
-  it("can read the web, deliberately, since it is asked to look things up", async () => {
-    // This was denied until it was asked for; the exfiltration reasoning behind
-    // that (repo read access plus fetch) is still true and written down in
-    // ASSISTANT.md. Asserted so re-adding the deny is a decision, not a merge.
+  it("cannot read the web itself: that is a specialist with nothing private", async () => {
+    // The chair reads the bench, the calendar and the feed. A page it could
+    // fetch would be the way any of that leaves, so the web is an advisor's
+    // (Sophia's) that holds nothing of the person's. Asserted so giving the
+    // chair the web back is a decision, not a merge.
     await say("hello");
 
     const [argv] = fake.argvFor("claude");
     const denied = argv[argv.indexOf("--disallowed-tools") + 1];
     const allowed = argv[argv.indexOf("--allowed-tools") + 1];
     for (const tool of ["WebFetch", "WebSearch"]) {
-      expect(denied).not.toContain(tool);
-      expect(allowed).toContain(tool);
+      expect(denied).toContain(tool);
+      expect(allowed).not.toContain(tool);
     }
   });
 

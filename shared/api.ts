@@ -1200,6 +1200,43 @@ export interface Loop {
   closedAt: string | null;
 }
 
+/** One message's envelope, as the feed and the mail tools show it. */
+export interface MailSummary {
+  uid: number;
+  subject: string;
+  from: string;
+  address: string;
+  at: string;
+  unread: boolean;
+}
+
+export interface MailMessage extends MailSummary {
+  to: string;
+  /** Plain text, HTML reduced, cut at a size a model should read. */
+  text: string;
+  attachments: string[];
+}
+
+export interface CalendarEvent {
+  uid: string;
+  summary: string;
+  /** ISO; for an all-day event, local midnight. */
+  start: string;
+  end: string;
+  allDay: boolean;
+  location: string | null;
+  /** A video link, from URL or found in the description. */
+  url: string | null;
+  description: string | null;
+  calendar: string;
+}
+
+/** Which of the credentialed sources are set up on this bench. */
+export interface SourceStatus {
+  mail: boolean;
+  calendar: boolean;
+}
+
 /** The profile page: one markdown file, and how much of its budget it uses. */
 export interface Profile {
   text: string;

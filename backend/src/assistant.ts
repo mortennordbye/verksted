@@ -973,7 +973,7 @@ function policyFor(
     tools: member.chair ? null : member.tools,
     denied: [
       ...DENIED_TOOLS,
-      ...(member.chair || member.web ? [] : WEB_TOOLS),
+      ...(member.web ? [] : WEB_TOOLS),
       ...(headroom ? HEADROOM_DENIED : []),
     ],
   };
