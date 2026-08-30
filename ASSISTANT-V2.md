@@ -1,21 +1,16 @@
 # The assistant, second shape
 
-**Status: being built, milestone by milestone, on PR #99 and the branches
-after it.** Milestone 0 (prove the pipes) waits on a week in the pod and is the
-owner's. Milestones 1 (one door), 2 (Today, profile, journal) and 3 (feed, pollers,
-triage, loops) are built and verified, as is milestone 4 in two halves: 4a
-(mail and calendar read over IMAP and CalDAV, their pollers, the mail
-specialist, the web moved to a specialist) and 4b (proposals you tap, intake
-from the share sheet, citations as chips), milestone 5 (the share: text
-extraction, search, the catalogue and the loops it opens) and milestone 6
-(finance into the door: Ariel seeded with headroom on unattended runs too,
-a one-tap finance watch and morning briefing), and milestone 7 (desk sessions
-for life admin, and the nightly learning pass that proposes sorting rules to
-the review queue), and milestone 8 (the brief read aloud, the language line,
-an evening-brief starter, the PC right column with the inbox and the
-sources). What remains is the owner's: milestone 0 in the pod, the
-credentials, the mount, and the decisions listed at the end. This block is updated as each lands, so the plan and
-its state stay in one file.
+**Status: built and merged.** Milestones 1 to 8 are on `main` (#99 to #106):
+one door, Today, the profile and the journal, the feed with pollers and model
+triage, open loops, mail and calendar over IMAP and CalDAV, proposals you tap,
+intake, citations, the documents on the share with their catalogue, the money
+in the same door, desk sessions, the nightly learning pass, and the polish.
+
+What is left is the owner's, and none of it is code: milestone 0, a week of
+the morning briefing on a real cron in the pod, which is what everything here
+rides on; the credentials on the settings page (IMAP, CalDAV, SMTP, headroom);
+the share mounted read-only at `/data/docs` in the Homelab manifests; and the
+decisions at the end of this document, where every assumption taken is named.
 
 It supersedes the product shape in ASSISTANT.md (two rooms, the council as a
 place you go, the chat as the front door) and keeps its runtime and its safety
