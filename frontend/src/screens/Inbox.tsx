@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import ProposalCard from "../components/ProposalCard";
 import { StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
@@ -115,11 +116,13 @@ function Row({
       >
         {item.title}
       </button>
-      {item.detail && (
+      {item.detail && item.source !== "proposal" && (
         <div className={`mt-0.5 text-[12.5px] text-muted ${open ? "" : "line-clamp-2"}`}>
           {item.detail}
         </div>
       )}
+      {/* A proposal is shown whole, with the tap; done and snooze do not apply. */}
+      {item.source === "proposal" && <ProposalCard item={item} onChange={onChange} />}
       {(item.loop || item.did) && (
         <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
           {item.loop && <span>loop: {item.loop}</span>}
@@ -163,7 +166,7 @@ function Row({
               </button>
             </>
           )}
-          {!done && item.state !== "snoozed" && (
+          {!done && item.state !== "snoozed" && item.source !== "proposal" && (
             <button
               onClick={() => void setState("snoozed", tomorrowMorning())}
               disabled={busy}
@@ -173,7 +176,7 @@ function Row({
               snooze
             </button>
           )}
-          {!done ? (
+          {!done && item.source === "proposal" ? null : !done ? (
             <button onClick={() => void setState("done")} disabled={busy} className={button}>
               done
             </button>

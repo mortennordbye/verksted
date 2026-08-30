@@ -1,4 +1,5 @@
 import type { Components } from "react-markdown";
+import { Cite } from "./cite";
 
 /**
  * How an agent writes: headings, bold, bullets, and a great deal of `code`.
@@ -28,11 +29,17 @@ export const MD: Components = {
       {children}
     </pre>
   ),
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">
-      {children}
-    </a>
-  ),
+  // A citation the persona wrote as [feed:…] arrives here as a vk: link (see
+  // cite.tsx) and is drawn as a chip that opens the thing; any other link is
+  // a link.
+  a: ({ href, children }) =>
+    href?.startsWith("vk:") ? (
+      <Cite href={href} />
+    ) : (
+      <a href={href} target="_blank" rel="noreferrer" className="text-accent underline">
+        {children}
+      </a>
+    ),
   blockquote: ({ children }) => (
     <blockquote className="mb-2 border-l-2 border-line pl-3 text-muted last:mb-0">
       {children}

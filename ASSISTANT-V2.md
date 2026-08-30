@@ -3,10 +3,10 @@
 **Status: being built, milestone by milestone, on PR #99 and the branches
 after it.** Milestone 0 (prove the pipes) waits on a week in the pod and is the
 owner's. Milestones 1 (one door), 2 (Today, profile, journal) and 3 (feed, pollers,
-triage, loops) are built and verified. Milestone 4 is in two halves: 4a (mail
-and calendar read over IMAP and CalDAV, their pollers, the mail specialist,
-the web moved to a specialist) is built; 4b (proposals you tap, intake,
-citations) is next. Nothing from 5 onward is started. This block is updated as each lands, so the plan and
+triage, loops) are built and verified, as is milestone 4 in two halves: 4a
+(mail and calendar read over IMAP and CalDAV, their pollers, the mail
+specialist, the web moved to a specialist) and 4b (proposals you tap, intake
+from the share sheet, citations as chips). Nothing from 5 onward is started. This block is updated as each lands, so the plan and
 its state stay in one file.
 
 It supersedes the product shape in ASSISTANT.md (two rooms, the council as a

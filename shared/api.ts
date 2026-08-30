@@ -1154,6 +1154,24 @@ export type FeedSource =
 export type FeedUrgency = "attention" | "new" | "quiet";
 export type FeedState = "new" | "seen" | "done" | "snoozed";
 
+/**
+ * What a proposal would do when tapped. Prepared in full by the assistant,
+ * shown whole on the card, executed on the pod on the tap and never before.
+ */
+export type ProposalAction =
+  | { kind: "send"; to: string; subject: string; body: string; inReplyTo?: string }
+  | {
+      kind: "calendar_put";
+      summary: string;
+      start: string;
+      end: string;
+      location?: string;
+      description?: string;
+    }
+  | { kind: "merge_pr"; project: string; number: number }
+  | { kind: "end_session"; id: string }
+  | { kind: "delete_schedule"; id: string };
+
 export interface FeedItem {
   /** `<source>:<the source's own id>`. */
   id: string;
@@ -1179,6 +1197,8 @@ export interface FeedItem {
   version: string;
   /** Whether an attention push went out for it. */
   pushed: boolean;
+  /** A proposal's action; only on `source: "proposal"` items. */
+  action?: ProposalAction;
 }
 
 /**

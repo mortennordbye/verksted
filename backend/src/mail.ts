@@ -1,5 +1,6 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import nodemailer from "nodemailer";
 import type { MailMessage, MailSummary } from "../../shared/api.js";
 import { sourceEnv } from "./settings-store.js";
 
@@ -149,6 +150,63 @@ export async function read(uid: number): Promise<MailMessage | null> {
       attachments: (parsed.attachments ?? []).map((a) => a.filename ?? "(unnamed)"),
     };
   });
+}
+
+/**
+ * Sending, which only a tapped proposal reaches.
+ *
+ * SMTP submission with the mail credential unless an SMTP one is given. The
+ * one outbound channel in this file, and the reason it is here rather than
+ * in a tool: the card the person tapped is the whole of the authorisation,
+ * and nothing a model says can reach this without one.
+ */
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  user: string;
+  password: string;
+  from: string;
+}
+
+export async function smtpConfig(): Promise<SmtpConfig | null> {
+  const vars = await sourceEnv();
+  const user = vars.SMTP_USER || vars.IMAP_USER;
+  const password = vars.SMTP_PASSWORD || vars.IMAP_PASSWORD;
+  if (!vars.SMTP_HOST || !user || !password) return null;
+  const port = Number(vars.SMTP_PORT ?? "587");
+  return {
+    host: vars.SMTP_HOST,
+    port: Number.isInteger(port) && port > 0 ? port : 587,
+    user,
+    password,
+    from: vars.MAIL_FROM || user,
+  };
+}
+
+export async function send(mail: {
+  to: string;
+  subject: string;
+  body: string;
+  inReplyTo?: string;
+}): Promise<{ messageId: string }> {
+  const config = await smtpConfig();
+  if (!config)
+    throw new MailUnavailable("sending is not set up: SMTP_HOST, and a user and password");
+  const transport = nodemailer.createTransport({
+    host: config.host,
+    port: config.port,
+    secure: config.port === 465,
+    auth: { user: config.user, pass: config.password },
+    connectionTimeout: 20_000,
+  });
+  const info = await transport.sendMail({
+    from: config.from,
+    to: mail.to,
+    subject: mail.subject,
+    text: mail.body,
+    ...(mail.inReplyTo ? { inReplyTo: mail.inReplyTo, references: mail.inReplyTo } : {}),
+  });
+  return { messageId: String(info.messageId ?? "") };
 }
 
 /** Tags out, entities in, whitespace folded: what a model needs of an HTML mail. */

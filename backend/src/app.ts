@@ -23,6 +23,8 @@ import memoryRoutes from "./routes/memory.js";
 import profileRoutes from "./routes/profile.js";
 import feedRoutes from "./routes/feed.js";
 import sourceRoutes from "./routes/sources.js";
+import proposalRoutes from "./routes/proposals.js";
+import intakeRoutes from "./routes/intake.js";
 import councilRoutes from "./routes/council.js";
 import attachRoutes from "./ws/attach.js";
 import browserRoutes from "./ws/browser.js";
@@ -104,6 +106,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(profileRoutes);
   await app.register(feedRoutes);
   await app.register(sourceRoutes);
+  await app.register(proposalRoutes);
+  await app.register(intakeRoutes);
   await app.register(councilRoutes);
   await app.register(attachRoutes);
   await app.register(browserRoutes);

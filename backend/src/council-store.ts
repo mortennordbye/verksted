@@ -78,6 +78,7 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean; memberOnly?: bo
   { name: "notify", chairOnly: true },
   { name: "council_add", chairOnly: true },
   { name: "person_note", chairOnly: true },
+  { name: "propose", chairOnly: true },
   { name: "feed", chairOnly: false },
   { name: "feed_done", chairOnly: true },
   { name: "brief_material", chairOnly: false },
