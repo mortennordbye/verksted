@@ -557,6 +557,17 @@ const TOOLS = [
       ),
   },
   {
+    name: "person_note",
+    description:
+      "Add one line to the profile of the person you work for: a person who matters and how they relate, an account, a standing date or arrangement, a rule about what counts as urgent or when not to be interrupted. Something they just told you about themselves needs no permission: note it and say in one line that you did. Not for facts about repos, which are remember's.",
+    inputSchema: {
+      type: "object",
+      properties: { text: { type: "string", description: "one line, as a note to yourself" } },
+      required: ["text"],
+    },
+    run: (a) => call("POST", "/api/profile/lines", { text: a.text }).then(() => "noted"),
+  },
+  {
     name: "council_add",
     description:
       "Add an advisor to the council. Use it when the person says they want someone for a subject nobody here covers — do not offer it for a question you can answer yourself. The remit is one line saying what they are for, and the persona is how they think, written as instructions to them in the second person: it is the whole of their character, so make it specific about what they lead with and what they refuse to guess at. Tools are the read-only ones, and fewer is better: an advisor with no tool answers from what it is told and costs almost nothing. Colours are amber, violet, teal, rose, sky and lime; faces are owl, fox, bear, cat, robot and raccoon — pick ones nobody else on the roster already has. Say who you are about to add and what for, then add them.",

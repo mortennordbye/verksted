@@ -967,16 +967,6 @@ export interface AssistantToolCall {
   detail: string;
 }
 
-/**
- * Which room a thread belongs to.
- *
- * Two of them, and they are separate on purpose: the assistant answers alone,
- * one to one and cheap, and the council is the room you go to when a question
- * wants more than one head. Each keeps its own conversation, so an afternoon of
- * meetings does not make the next quick question expensive.
- */
-export type ChatRoom = "assistant" | "council";
-
 /** One turn in a thread. */
 export interface AssistantEntry {
   id: string;
@@ -1022,7 +1012,7 @@ export interface AssistantThread {
 }
 
 /**
- * One past conversation in a room, as the thread list shows it.
+ * One past conversation, as the thread list shows it.
  *
  * Enough to pick it out and nothing more: the entries come over the socket once
  * it is opened, the way the current thread's always have.
@@ -1116,6 +1106,16 @@ export interface AssistantVoices {
   current: string;
 }
 
+/**
+ * One thing the assistant can do, as its own tool server describes it. The
+ * settings page lists these so the assistant does not have to describe itself
+ * in a reply.
+ */
+export interface AssistantTool {
+  name: string;
+  description: string;
+}
+
 export type MemoryType = "preference" | "project" | "reference";
 /** "global", or the name of the project the fact belongs to. */
 export type MemoryScope = string;
@@ -1129,6 +1129,13 @@ export interface Memory {
   /** Where it came from, which is the answer to "why does it think that?". */
   source: string | null;
   createdAt: string | null;
+}
+
+/** The profile page: one markdown file, and how much of its budget it uses. */
+export interface Profile {
+  text: string;
+  used: number;
+  budget: number;
 }
 
 export interface MemoryList {

@@ -74,6 +74,9 @@ const VOICE = [
   "",
   "Say plainly when you do not know, and say what you would check.",
   "",
+  "Do not describe your own tools, or who else sits on this bench, unless asked",
+  "what you can do. Use them; do not narrate them.",
+  "",
   "Do not ask permission for anything that can be undone. Writing a memory,",
   "starting a session, fetching a page, running a lookup: do it, then say in one",
   "line what you did. Confirm beforehand only where there is no undo, which is",
@@ -155,6 +158,13 @@ const JOB = [
   "Every conversation you have ever had is kept. When they refer to something",
   "settled earlier and it is not in this thread, use recall before saying you do",
   "not know — a new thread is not a new relationship.",
+  "",
+  "The profile below is who you work for: their people, their arrangements, what",
+  "counts as urgent. When they tell you something about themselves that belongs",
+  "there — a person, an account, a standing date, a rule about when to be woken",
+  "— person_note adds it, and you read it at the start of every conversation",
+  "from then on. Say in one line that you did. Facts about repos go to remember;",
+  "facts about them go to the profile.",
 ];
 
 /**
@@ -318,39 +328,6 @@ function councilBlock(roster: { id: string; name: string; remit: string }[]): st
 }
 
 /**
- * What the assistant is told about the council, in the room where it has none.
- *
- * It knows who they are and it cannot ask them, and that is the split: the
- * council is a room the person walks into, not a bill the assistant can run up
- * on their behalf. The one thing it may do is name whose question it was, which
- * costs a line and saves the wrong four calls.
- *
- * Shorter than the chair's block because there is no protocol to teach — one
- * line, at the end, and the screen turns it into the way over.
- */
-function nextDoorBlock(roster: { id: string; name: string; remit: string }[]): string[] {
-  if (!roster.length) return [];
-  return [
-    "",
-    "There is a council next door, and you are not in it here. These sit on it:",
-    ...roster.map((m) => `- ${m.id} (${m.name}): ${m.remit}`),
-    "",
-    "You cannot ask them and must not pretend to have. When a question is",
-    "squarely one of theirs, answer what you can of it yourself and then make",
-    "the LAST line of your reply exactly:",
-    "",
-    "theirs: <id>[, <id>]",
-    "",
-    "and nothing after it. It is turned into a way to put the question to them,",
-    "which the person decides to spend. Use it for a question you genuinely",
-    "cannot answer as well as they would, not to hand off work you could do:",
-    "you can read the bench, the repos, the cluster and the web yourself, and a",
-    "handoff for something you already have the tools for is you being unhelpful",
-    "at their expense.",
-  ];
-}
-
-/**
  * The same, for a briefing that is allowed to ask the council.
  *
  * It says less, because an unattended chair has fewer choices: it cannot act on
@@ -385,34 +362,15 @@ export function systemPrompt(
   name: string,
   instructions: string,
   roster: { id: string; name: string; remit: string }[] = [],
+  ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [
     ...opening(name),
     "",
     ...VOICE,
     ...JOB,
+    ...contextBlock(ctx),
     ...councilBlock(roster),
-    ...standingOrders(instructions),
-  ].join("\n");
-}
-
-/**
- * The whole prompt for the room where the assistant answers alone.
- *
- * The same identity, voice and job as the chair's — it is the same assistant —
- * with the council block swapped for one that says they are next door.
- */
-export function soloPrompt(
-  name: string,
-  instructions: string,
-  roster: { id: string; name: string; remit: string }[] = [],
-): string {
-  return [
-    ...opening(name),
-    "",
-    ...VOICE,
-    ...JOB,
-    ...nextDoorBlock(roster),
     ...standingOrders(instructions),
   ].join("\n");
 }
@@ -470,14 +428,77 @@ export function unattendedPrompt(
   name: string,
   instructions: string,
   roster: { id: string; name: string; remit: string }[] = [],
+  ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [
     ...opening(name),
     "",
     ...VOICE,
     ...UNATTENDED_JOB,
+    ...contextBlock(ctx),
     ...unattendedCouncilBlock(roster),
     ...standingOrders(instructions),
+  ].join("\n");
+}
+
+/**
+ * Who this is for, and what the last few days were, ahead of the roster.
+ *
+ * The profile is the answer to every "who is Kari" and "what do you mean
+ * urgent"; the journal is the answer to "as we said yesterday". Both are
+ * carried in full, which is why each has a budget of its own, and both come
+ * before the council block so the chair knows the person before it decides
+ * whether a question is somebody else's.
+ */
+export interface PromptContext {
+  profile: string;
+  journal: string;
+}
+
+function contextBlock(ctx: PromptContext): string[] {
+  const out: string[] = [];
+  if (ctx.profile.trim()) {
+    out.push(
+      "",
+      "Who you work for, in their own words. Read it before answering anything;",
+      "it is the standing context every question is asked in.",
+      "",
+      ctx.profile.trim(),
+    );
+  }
+  if (ctx.journal.trim()) {
+    out.push(
+      "",
+      "What the last few days were, as you summarised them at the end of each.",
+      "Treat it as your own memory of them: what was decided stays decided, and",
+      "what was left open is still open unless they say otherwise.",
+      "",
+      ctx.journal.trim(),
+    );
+  }
+  return out;
+}
+
+/**
+ * The job on the one turn that writes the journal.
+ *
+ * It replaces JOB and the sign-off, because this turn answers nobody: it reads
+ * the day and writes what a future turn will need to know about it. Ten lines
+ * is the cap because every one of them is re-sent for three days.
+ */
+export function journalPrompt(name: string): string {
+  return [
+    ...opening(name),
+    "",
+    "The day is over and you are writing the journal for it. Below is what was",
+    "said today, in order. Write at most ten short lines, plain text, no heading,",
+    "no bullets: what was decided, what they asked for and whether it was done,",
+    "what is still open and waiting on whom, and anything they told you about",
+    "themselves that a future turn should know. Names, numbers and dates exactly",
+    "as said. Leave out what was merely looked up and answered.",
+    "",
+    "Do not call any tool: everything you need is below. Write nothing but the",
+    "journal itself. If nothing worth keeping was said, write one line: quiet.",
   ].join("\n");
 }
 

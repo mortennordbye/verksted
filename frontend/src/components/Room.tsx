@@ -1,17 +1,18 @@
 import Markdown from "react-markdown";
-import { useNavigate } from "react-router";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { agoLabel } from "../api";
 import { MD } from "./chat/markdown";
-import Portrait, { Face, MEMBER_CARD, MEMBER_TEXT } from "./Face";
+import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 
 /**
- * The assistant's room: one person to talk to, and everything it said.
+ * The room: one person to talk to, and everything said in it.
  *
- * The same visual language as the council's table — a tonal seat at the top,
- * answers as cards in the speaker's colour — without the table, because there
- * is nobody else at it. What it keeps from a chat is the order: it is a
- * conversation, and a conversation reads top to bottom.
+ * A tonal seat at the top and answers as cards in the speaker's colour. There
+ * is one seat because there is one thing you talk to; when it brings a
+ * specialist in, that answer lands as a card in the specialist's own colour,
+ * which is how a consultation shows without being a place you went to. What
+ * it keeps from a chat is the order: it is a conversation, and a conversation
+ * reads top to bottom.
  */
 
 function ToolChip({ name, detail }: { name: string; detail: string }) {
@@ -26,71 +27,18 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   );
 }
 
-/**
- * The way over to the council, drawn under the answer it came with.
- *
- * The assistant cannot ask them, so this is the whole handoff: the question is
- * carried across prefilled and not sent, because the meeting is the person's to
- * spend.
- */
-function Handoff({
-  ids,
-  members,
-  question,
-}: {
-  ids: string[];
-  members: CouncilMember[];
-  question: string;
-}) {
-  const navigate = useNavigate();
-  const named = ids
-    .map((id) => members.find((m) => m.id === id))
-    .filter(Boolean) as CouncilMember[];
-  if (!named.length) return null;
-  const ask = `${named.length === 1 ? `@${named[0].id} ` : ""}${question}`.trim();
-  return (
-    <button
-      type="button"
-      onClick={() => navigate(`/council?ask=${encodeURIComponent(ask)}`)}
-      className="tap flex max-w-full items-center gap-2 self-start rounded-full bg-accent-tint px-3 py-1.5 font-mono text-[11px] text-accent ring-1 ring-accent/30 hover:brightness-110"
-    >
-      {named.map((m) => (
-        <Face
-          key={m.id}
-          face={m.face}
-          className={`h-[15px] w-[15px] flex-none ${MEMBER_TEXT[m.colour]}`}
-        />
-      ))}
-      <span className="truncate">
-        ask {named.map((m) => m.name).join(" and ")} in the council →
-      </span>
-    </button>
-  );
-}
-
-/** The question an answer was answering: the nearest thing typed above it. */
-function lastAskedBefore(entries: AssistantEntry[], index: number): string {
-  for (let i = index; i >= 0; i--) {
-    if (entries[i].role === "user" && entries[i].text.trim()) return entries[i].text;
-  }
-  return "";
-}
-
 function Reply({
   who,
   entry,
   live,
-  members,
-  question,
 }: {
   who: CouncilMember;
   entry?: AssistantEntry;
   live?: string;
-  members: CouncilMember[];
-  question: string;
 }) {
+  // "handoff" is a mark old threads carry from when the council was a screen
+  // of its own; it pointed next door, and there is no next door.
   const tools = entry?.tools.filter((t) => t.name !== "handoff") ?? [];
-  const handoff = entry?.tools.find((t) => t.name === "handoff");
   return (
     <div
       className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
@@ -128,7 +76,6 @@ function Reply({
           <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
         </div>
       )}
-      {handoff && <Handoff ids={handoff.detail.split(",")} members={members} question={question} />}
     </div>
   );
 }
@@ -178,13 +125,13 @@ export default function Room({
         <div className="mt-8 text-center">
           <div className="font-mono text-[13px] text-muted">nothing said yet</div>
           <p className="mx-auto mt-2 max-w-[42ch] text-[14px] text-faint">
-            Ask what needs you, or tell it something to remember. It can read your projects,
-            sessions and runs, and it will say when a question is really the council's.
+            Ask what needs you, or tell it something to remember. It reads your projects, sessions,
+            runs and the cluster, and brings in a specialist when a question is theirs.
           </p>
         </div>
       )}
 
-      {thread.entries.map((e, i) =>
+      {thread.entries.map((e) =>
         e.role === "user" ? (
           <div key={e.id} className="animate-rise flex flex-col items-end gap-1.5">
             {e.images?.map((name) => (
@@ -202,19 +149,11 @@ export default function Room({
             )}
           </div>
         ) : (
-          <Reply
-            key={e.id}
-            who={members.find((m) => m.id === e.member) ?? chair}
-            entry={e}
-            members={members}
-            question={lastAskedBefore(thread.entries, i)}
-          />
+          <Reply key={e.id} who={members.find((m) => m.id === e.member) ?? chair} entry={e} />
         ),
       )}
 
-      {thinking && thread.live && (
-        <Reply who={chair} live={thread.live} members={members} question="" />
-      )}
+      {thinking && thread.live && <Reply who={chair} live={thread.live} />}
       {thinking && !thread.live && (
         <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />

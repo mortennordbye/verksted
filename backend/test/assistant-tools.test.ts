@@ -111,6 +111,7 @@ describe("the tool set", () => {
         "merge_pr",
         "notify",
         "pause_schedules",
+        "person_note",
         "pr_detail",
         "propose_memory",
         "read_session_output",

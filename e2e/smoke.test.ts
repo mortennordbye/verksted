@@ -140,8 +140,13 @@ afterAll(async () => {
 });
 
 describe("the app in a real browser", () => {
-  it("serves the hub with the repos on the volume", async () => {
+  it("opens on today, with nothing needing you", async () => {
     await page.goto(base, { waitUntil: "networkidle" });
+    await page.getByText("Nothing needs you.").waitFor({ timeout: 15_000 });
+  });
+
+  it("serves the bench with the repos on the volume", async () => {
+    await page.goto(`${base}/bench`, { waitUntil: "networkidle" });
     await page.getByText("demo").first().waitFor({ timeout: 15_000 });
   });
 
@@ -205,7 +210,7 @@ describe("the app in a real browser", () => {
       .getByLabel("verksted — home")
       .click();
     await page.waitForURL((u) => u.pathname === "/");
-    await page.getByText("demo").first().waitFor({ timeout: 15_000 });
+    await page.getByText("Nothing needs you.").waitFor({ timeout: 15_000 });
   });
 
   // A phone is the main way in, and a single element that will not wrap is
@@ -216,7 +221,7 @@ describe("the app in a real browser", () => {
   // the element still overflowed.
   it("has nothing hanging off the side of a phone screen", async () => {
     const offenders: string[] = [];
-    for (const route of ["/", "/settings", "/runs", "/p/demo", "/s/vk-demo-1"]) {
+    for (const route of ["/", "/bench", "/settings", "/runs", "/p/demo", "/s/vk-demo-1"]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(300);
       const wide = await page.evaluate(() => {

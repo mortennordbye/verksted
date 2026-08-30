@@ -1,16 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router";
-import type {
-  AssistantThread,
-  AssistantThreadSummary,
-  ChatRoom,
-  CouncilMember,
-} from "../../../shared/api";
+import type { AssistantThread, AssistantThreadSummary, CouncilMember } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import Raccoon, { type RaccoonMood } from "../components/Raccoon";
 import Room from "../components/Room";
 import Sheet from "../components/Sheet";
-import Table from "../components/Table";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
@@ -42,12 +34,16 @@ function Ico({ children }: { children: ReactNode }) {
 }
 
 /**
- * The two rooms, on one screen.
+ * The conversation, and the only room there is.
  *
- * They share everything that is not the picture: the socket the thread arrives
- * on, sending, attachments, the voice, the thread list. What differs is what
- * the thread is drawn as — the council is a table with one question on it, the
- * assistant is a conversation — and that is the one branch here.
+ * One thread, whoever answers in it: the assistant alone, or a specialist it
+ * brings in, whose answer lands as a card in their own colour. The council
+ * was a second screen with a thread of its own; that made the person route
+ * every question before asking it, so it is gone, and what it was for happens
+ * here without being asked for. Addressing one of them by name is still
+ * possible — the chips under the field write the `@id` the server reads — but
+ * it is a shortcut past a decision that is made for you, not one you have to
+ * make.
  *
  * The thread arrives whole over a websocket rather than being polled or
  * diffed: it is a few kilobytes, and a diff protocol would be the only
@@ -80,12 +76,10 @@ const NO_CHAIR: CouncilMember = {
  * started, which is something you did a moment ago on this same screen.
  */
 function Threads({
-  room,
   current,
   onOpen,
   onClose,
 }: {
-  room: string;
   current: string | undefined;
   onOpen: (thread: AssistantThread) => void;
   onClose: () => void;
@@ -93,15 +87,15 @@ function Threads({
   const [threads, setThreads] = useState<AssistantThreadSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    api<AssistantThreadSummary[]>(`/api/assistant/threads${room}`)
+    api<AssistantThreadSummary[]>("/api/assistant/threads")
       .then(setThreads)
       .catch((e: Error) => setError(e.message));
-  }, [room]);
+  }, []);
 
   async function open(id: string) {
     try {
       onOpen(
-        await api<AssistantThread>(`/api/assistant/threads/${id}/open${room}`, {
+        await api<AssistantThread>(`/api/assistant/threads/${id}/open`, {
           method: "POST",
         }),
       );
@@ -194,28 +188,13 @@ function Chip({
   );
 }
 
-export default function Chat({ room }: { room: ChatRoom }) {
-  const council = room === "council";
-  // Everything that names a room in a URL, in one place: the query the server
-  // reads, and the socket the thread arrives on.
-  const q = council ? "?room=council" : "";
-  /**
-   * A question handed over from the assistant: it starts in the field, unsent.
-   *
-   * Prefilled rather than asked, because the meeting is the thing that costs
-   * and the person is the one who decides to spend it. Taken as the field's
-   * initial value rather than pushed in afterwards, so there is no render where
-   * the field is empty and no way for it to overwrite something being typed.
-   */
-  const [params, setParams] = useSearchParams();
+export default function Chat() {
   const [thread, setThread] = useState<AssistantThread | null>(null);
-  const [text, setText] = useState(() => params.get("ask") ?? "");
+  const [text, setText] = useState("");
   const grow = useGrow(text);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const [browsing, setBrowsing] = useState(false);
-  // Which question is on the council's table; null is the latest.
-  const [viewing, setViewing] = useState<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
@@ -225,7 +204,7 @@ export default function Chat({ room }: { room: ChatRoom }) {
   // to talk to it"; this answers "I want to hear it", which is the case where
   // you type a question and then look away. Kept apart because the coupling was
   // the complaint: wanting to be read to meant having the microphone open.
-  // Remembered per device, like the raccoon — whoever wants it wants it always.
+  // Remembered per device: whoever wants it wants it always.
   const [speakReplies, setSpeakReplies] = useState(
     () => localStorage.getItem("vk.assistant.speak") === "1",
   );
@@ -238,37 +217,25 @@ export default function Chat({ room }: { room: ChatRoom }) {
    * survive a session you have forgotten you started.
    */
   const [roundTable, setRoundTable] = useState(false);
-  // Off unless asked for, and remembered per device: it is decoration, and the
-  // people who want it want it every time.
-  const [showRaccoon, setShowRaccoon] = useState(
-    () => localStorage.getItem("vk.assistant.raccoon") === "1",
-  );
   /**
    * Entries already read out. A set rather than one id, because a meeting lands
    * several at once and "the last one" would silently drop the rest.
    */
   const spokenRef = useRef<Set<string>>(new Set());
   // The roster changes when somebody edits it in settings, which is rarely, so
-  // it is polled slowly rather than pushed. Both rooms need it: the council to
-  // draw the seats, and the assistant to draw its own and whoever it hands a
-  // question to.
+  // it is polled slowly rather than pushed: the seat at the top is the chair's,
+  // and a specialist's card is drawn in its own colour when one answers.
   const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
   const chair = members.find((m) => m.chair) ?? NO_CHAIR;
   const advisors = members.filter((m) => !m.chair);
 
-  // Dropped from the URL once it is in the field, so a reload does not put a
-  // question back that has already been asked or thrown away.
-  useEffect(() => {
-    if (params.has("ask")) setParams({}, { replace: true });
-  }, [params, setParams]);
-
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/assistant/stream${q}`);
+    const ws = new WebSocket(`${proto}://${location.host}/api/assistant/stream`);
     ws.onmessage = (e: MessageEvent<string>) => {
       try {
         setThread(JSON.parse(e.data) as AssistantThread);
@@ -278,11 +245,10 @@ export default function Chat({ room }: { room: ChatRoom }) {
     };
     // The socket sends the thread on connect, so there is no separate fetch.
     return () => ws.close();
-  }, [q]);
+  }, []);
 
   // Follow the conversation as it grows, the way a conversation is expected
-  // to. The table does the same: an answer landing under the question is
-  // worth scrolling to.
+  // to: an answer landing under the question is worth scrolling to.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [thread?.entries.length, thread?.status, thread?.live]);
@@ -395,11 +361,9 @@ export default function Chat({ room }: { room: ChatRoom }) {
     if ((!value && !pending.length) || thinking) return;
     if (!spoken) setText("");
     setError(null);
-    // A new question always goes on the table, whatever was being looked at.
-    setViewing(null);
     try {
       setThread(
-        await api<AssistantThread>(`/api/assistant/messages${q}`, {
+        await api<AssistantThread>("/api/assistant/messages", {
           method: "POST",
           body: JSON.stringify({
             text: value || "(see image)",
@@ -419,19 +383,17 @@ export default function Chat({ room }: { room: ChatRoom }) {
   }
 
   async function stop() {
-    await api(`/api/assistant/stop${q}`, { method: "POST" }).catch(() => {});
+    await api("/api/assistant/stop", { method: "POST" }).catch(() => {});
   }
 
   async function newThread() {
     setThread(null);
-    setViewing(null);
-    await api(`/api/assistant/new${q}`, { method: "POST" }).catch(() => {});
+    await api("/api/assistant/new", { method: "POST" }).catch(() => {});
   }
 
   /** Opening an old thread: what was read is already whatever is read aloud. */
   function openThread(opened: AssistantThread) {
     for (const e of opened.entries) spokenRef.current.add(e.id);
-    setViewing(null);
     setThread(opened);
   }
 
@@ -450,18 +412,6 @@ export default function Chat({ room }: { room: ChatRoom }) {
   const long = calls >= 15;
 
   /**
-   * The mouth moves when there are words, and only then: while it is writing
-   * them, or while they are being read aloud. Thinking is not talking.
-   */
-  const mood: RaccoonMood = listening
-    ? "listening"
-    : speaking || thread?.live
-      ? "speaking"
-      : thinking || transcribing
-        ? "thinking"
-        : "idle";
-
-  /**
    * Who the next question goes to, read off the front of the field: `@id`
    * names one advisor, `@all` the room, nothing the chair. The seats and the
    * chips below both write it there, so the field is the one source of truth
@@ -476,18 +426,12 @@ export default function Chat({ room }: { room: ChatRoom }) {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar crumb={[{ label: council ? "council" : "assistant" }]} back="/" />
+      <TopBar crumb={[{ label: "assistant" }]} back="/" />
 
       <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pt-4 pb-3">
-        {showRaccoon && (
-          <div className="flex flex-none justify-center pt-1 pb-2">
-            <Raccoon mood={mood} className="w-[170px]" />
-          </div>
-        )}
-
         {/* The count reads left, the controls sit together on the right. The
-            two decorations are plain words; the two that change which thread
-            you are in are the bordered ones. */}
+            switch is a plain word; the two that change which thread you are in
+            are the lifted ones. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-faint">
           {turns > 0 && (
             <span>
@@ -496,17 +440,6 @@ export default function Chat({ room }: { room: ChatRoom }) {
             </span>
           )}
           <span className="ml-auto flex flex-wrap items-center gap-1.5">
-            <Toggle
-              on={showRaccoon}
-              title={showRaccoon ? "hide the raccoon" : "show the raccoon"}
-              onClick={() => {
-                const next = !showRaccoon;
-                setShowRaccoon(next);
-                localStorage.setItem("vk.assistant.raccoon", next ? "1" : "0");
-              }}
-            >
-              raccoon
-            </Toggle>
             {canSpeak() && (
               <Toggle
                 on={speakReplies}
@@ -541,17 +474,7 @@ export default function Chat({ room }: { room: ChatRoom }) {
 
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 
-        {thread && council && (
-          <Table
-            thread={thread}
-            members={members}
-            viewing={viewing}
-            onView={setViewing}
-            addressed={addressed}
-            onPick={(id) => address(id)}
-          />
-        )}
-        {thread && !council && <Room thread={thread} members={members} chair={chair} />}
+        {thread && <Room thread={thread} members={members} chair={chair} />}
 
         {voiceMode && (
           <div className="flex items-center gap-2.5 rounded-xl bg-accent-tint px-3 py-2 font-mono text-[12px] ring-1 ring-accent/30">
@@ -628,9 +551,9 @@ export default function Chat({ room }: { room: ChatRoom }) {
         />
 
         {/* Tonal and lifted off the page: it is the one thing here you act on.
-            Field on top, controls underneath; in the council the audience sits
-            in the same row as the send button, since who hears it and sending
-            it are one decision. */}
+            Field on top, controls underneath; the audience sits in the same
+            row as the send button, since who hears it and sending it are one
+            decision. */}
         <div className="rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 shadow-[0_20px_60px_rgba(0,0,0,.55)]">
           <textarea
             ref={grow}
@@ -655,15 +578,9 @@ export default function Chat({ room }: { room: ChatRoom }) {
             }}
             rows={1}
             placeholder={
-              listening
-                ? "listening…"
-                : thinking
-                  ? "working…"
-                  : council
-                    ? "Put a question to the room…"
-                    : "Ask, or tell me something…"
+              listening ? "listening…" : thinking ? "working…" : "Ask, or tell me something…"
             }
-            aria-label={council ? "put a question to the council" : "message the assistant"}
+            aria-label="message the assistant"
             className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none placeholder:text-faint"
           />
           {/* On a phone the audience takes a row of its own above the buttons,
@@ -680,7 +597,10 @@ export default function Chat({ room }: { room: ChatRoom }) {
               </Ico>
             </button>
 
-            {council && advisors.length > 0 && (
+            {/* Who hears it. The chair decides by default and hands the
+                question on itself; these are the shortcut for when you already
+                know whose it is, not a routing decision you have to make. */}
+            {advisors.length > 0 && (
               <div className="order-1 flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto rounded-xl bg-surface p-0.5 min-[620px]:order-2 min-[620px]:basis-auto">
                 {named ? (
                   <Chip
@@ -788,7 +708,6 @@ export default function Chat({ room }: { room: ChatRoom }) {
 
       {browsing && (
         <Threads
-          room={q}
           current={thread?.conversationId}
           onOpen={openThread}
           onClose={() => setBrowsing(false)}

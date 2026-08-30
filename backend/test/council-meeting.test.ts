@@ -75,17 +75,12 @@ beforeEach(() => {
   fake.reset();
 });
 
-/** In the council's room, which is the only one that holds meetings. */
 const say = (text: string, roundTable = false) =>
   app.inject({
     method: "POST",
-    url: "/api/assistant/messages?room=council",
+    url: "/api/assistant/messages",
     payload: { text, ...(roundTable ? { roundTable: true } : {}) },
   });
-
-/** In the assistant's room, where it answers alone. */
-const ask = (text: string) =>
-  app.inject({ method: "POST", url: "/api/assistant/messages", payload: { text } });
 
 interface Entry {
   role: string;
@@ -95,9 +90,6 @@ interface Entry {
 }
 
 const entries = (res: { json: () => { entries: Entry[] } }) => res.json().entries;
-
-const threadIn = async (room: string): Promise<Entry[]> =>
-  (await app.inject({ url: `/api/assistant?room=${room}` })).json().entries;
 
 /** Every call that carried this advisor's persona. */
 const callsFor = (name: string) =>
@@ -320,82 +312,6 @@ describe("a round table", () => {
   });
 });
 
-describe("the assistant's room", () => {
-  it("answers alone, and never puts an advisor on it", async () => {
-    // The whole of why the rooms are separate: a question asked here costs one
-    // turn, whatever the chair might have done with it next door.
-    fake.reply("claude", "-p", { stdout: run("Two things need you.") });
-    whenAsked("Michael", "should never run");
-
-    const got = entries(await ask("what needs me?"));
-
-    expect(got.map((e) => [e.member ?? "chair", e.text])).toEqual([
-      ["chair", "what needs me?"],
-      ["chair", "Two things need you."],
-    ]);
-    expect(callsFor("Michael")).toHaveLength(0);
-  });
-
-  it("does not convene, even if it writes the line", async () => {
-    // It is not told the protocol here, so a line that looks like one is prose.
-    // Acting on it anyway would be the room spending a meeting it does not have.
-    fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });
-
-    const got = entries(await ask("is the pr safe?"));
-
-    expect(got[1].text).toBe("convene: michael, raphael");
-    expect(fake.argvFor("claude")).toHaveLength(1);
-  });
-
-  it("takes a handoff line off the answer and leaves a way over", async () => {
-    fake.reply("claude", "-p", {
-      stdout: run(
-        "I can see the build went green, but whether it deployed is not mine.\ntheirs: michael",
-      ),
-    });
-
-    const got = entries(await ask("did it deploy?"));
-
-    expect(got[1].text).toBe(
-      "I can see the build went green, but whether it deployed is not mine.",
-    );
-    expect(got[1].tools).toEqual([{ name: "handoff", detail: "michael" }]);
-  });
-
-  it("keeps a handoff line naming nobody real, rather than eating a sentence", async () => {
-    fake.reply("claude", "-p", { stdout: run("No idea.\ntheirs: nobody-at-all") });
-
-    const got = entries(await ask("well?"));
-
-    expect(got[1].text).toContain("theirs: nobody-at-all");
-    expect(got[1].tools).toEqual([]);
-  });
-
-  it("does not address an advisor by @id", async () => {
-    // Addressing is the council's, and here the @ is part of the question.
-    fake.reply("claude", "-p", { stdout: run("He watches the cluster.") });
-
-    const got = entries(await ask("@michael who is that?"));
-
-    expect(callsFor("Michael")).toHaveLength(0);
-    expect(got[1].text).toBe("He watches the cluster.");
-  });
-
-  it("keeps its thread and the council's apart", async () => {
-    fake.reply("claude", "-p", { stdout: run("Mine.") });
-    await ask("a question for you");
-    fake.reset();
-    fake.reply("claude", "-p", { stdout: run("Ours.") });
-    await say("a question for the room");
-
-    const alone = (await threadIn("assistant")).map((e) => e.text);
-    const room = (await threadIn("council")).map((e) => e.text);
-
-    expect(alone).toEqual(["a question for you", "Mine."]);
-    expect(room).toEqual(["a question for the room", "Ours."]);
-  });
-});
-
 describe("adding somebody", () => {
   const add = (body: Record<string, unknown>) =>
     app.inject({ method: "POST", url: "/api/council", payload: body });
@@ -563,26 +479,18 @@ describe("stopping", () => {
     const turn = say("is the homelab pr safe to merge?");
     // Wait for the advisors to actually be out before pressing stop.
     for (let i = 0; i < 200; i++) {
-      const thread: { speaking?: string[] } = (
-        await app.inject({ url: "/api/assistant?room=council" })
-      ).json();
+      const thread: { speaking?: string[] } = (await app.inject({ url: "/api/assistant" })).json();
       if (thread.speaking?.length) break;
       await new Promise((r) => setTimeout(r, 20));
     }
-    // The other room's button, which has nothing in flight: a meeting must not
-    // be killed from a screen nobody pressed anything on.
-    const elsewhere = await app.inject({ method: "POST", url: "/api/assistant/stop" });
-    const stopped = await app.inject({ method: "POST", url: "/api/assistant/stop?room=council" });
+    const stopped = await app.inject({ method: "POST", url: "/api/assistant/stop" });
     const got = entries(await turn);
 
-    expect(elsewhere.json()).toEqual({ stopped: false });
     expect(stopped.json()).toEqual({ stopped: true });
     expect(fake.argvFor("claude").some((argv) => argv[1].startsWith("The council"))).toBe(false);
     expect(got.at(-1)?.text).not.toBe("Should never run.");
     // And nothing is left marked as speaking afterwards.
-    expect(
-      (await app.inject({ url: "/api/assistant?room=council" })).json().speaking,
-    ).toBeUndefined();
+    expect((await app.inject({ url: "/api/assistant" })).json().speaking).toBeUndefined();
   });
 });
 

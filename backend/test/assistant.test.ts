@@ -191,7 +191,7 @@ describe("the thread", () => {
     // state is gone, the volume is not.
     vi.resetModules();
     const fresh = await import("../src/assistant.js");
-    const thread = await fresh.readThread("assistant");
+    const thread = await fresh.readThread();
 
     expect(thread.status).toBe("idle");
     expect(thread.entries).toHaveLength(2);
@@ -204,9 +204,7 @@ describe("the thread", () => {
     // invisible: the transcript is written, and nothing is reading it.
     const { currentConversation } = await import("../src/assistant.js");
 
-    const ids = await Promise.all(
-      Array.from({ length: 8 }, () => currentConversation("assistant")),
-    );
+    const ids = await Promise.all(Array.from({ length: 8 }, () => currentConversation()));
 
     expect(new Set(ids).size).toBe(1);
     expect(fs.readFileSync(path.join(assistantDir, "current"), "utf8").trim()).toBe(ids[0]);
@@ -236,7 +234,7 @@ describe("the thread", () => {
     expect(fs.existsSync(path.join(assistantDir, `${before}.jsonl`))).toBe(true);
   });
 
-  it("lists the room's threads, newest first, and opens an old one again", async () => {
+  it("lists the threads, newest first, and opens an old one again", async () => {
     await say("first thread");
     const first = (await app.inject({ url: "/api/assistant" })).json().conversationId;
     await app.inject({ method: "POST", url: "/api/assistant/new" });
@@ -260,43 +258,22 @@ describe("the thread", () => {
     expect((await app.inject({ url: "/api/assistant" })).json().conversationId).toBe(first);
   });
 
-  it("keeps each room's threads out of the other's list", async () => {
-    await say("mine");
-    await app.inject({
-      method: "POST",
-      url: "/api/assistant/messages?room=council",
-      payload: { text: "theirs" },
-    });
-
-    const titles = (room: string) =>
-      app
-        .inject({ url: `/api/assistant/threads?room=${room}` })
-        .then((r) => r.json().map((t: { title: string }) => t.title));
-    expect(await titles("assistant")).toEqual(["mine"]);
-    expect(await titles("council")).toEqual(["theirs"]);
-  });
-
-  it("places a thread written before the rooms kept lists by what is in it", async () => {
-    const chatted = "11111111-1111-4111-8111-111111111111";
+  it("lists a meeting held when the council was a room of its own", async () => {
+    // Threads written before the rooms merged carry advisors' turns; they are
+    // conversations like any other now, and open the same way.
     const met = "22222222-2222-4222-8222-222222222222";
     const line = (e: object) =>
       `${JSON.stringify({ id: "x", at: "2026-01-01T00:00:00Z", ...e })}\n`;
-    fs.writeFileSync(
-      path.join(assistantDir, `${chatted}.jsonl`),
-      line({ role: "user", text: "old chat", tools: [] }),
-    );
     fs.writeFileSync(
       path.join(assistantDir, `${met}.jsonl`),
       line({ role: "user", text: "old meeting", tools: [] }) +
         line({ role: "assistant", text: "yes", tools: [], member: "michael" }),
     );
 
-    const ids = async (room: string) =>
-      (await app.inject({ url: `/api/assistant/threads?room=${room}` }))
-        .json()
-        .map((t: { conversationId: string }) => t.conversationId);
-    expect(await ids("assistant")).toEqual([chatted]);
-    expect(await ids("council")).toEqual([met]);
+    const ids = (await app.inject({ url: "/api/assistant/threads" }))
+      .json()
+      .map((t: { conversationId: string }) => t.conversationId);
+    expect(ids).toContain(met);
   });
 
   it("refuses to open a thread that is not there", async () => {
@@ -305,6 +282,16 @@ describe("the thread", () => {
       url: "/api/assistant/threads/33333333-3333-4333-8333-333333333333/open",
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("what it can do", () => {
+  it("is read from the tool server itself, so the settings page cannot drift from it", async () => {
+    const tools = (await app.inject({ url: "/api/assistant/tools" })).json();
+    const names = tools.map((t: { name: string }) => t.name);
+    expect(names).toContain("status");
+    expect(names).toContain("start_session");
+    for (const t of tools) expect(t.description.length).toBeGreaterThan(10);
   });
 });
 

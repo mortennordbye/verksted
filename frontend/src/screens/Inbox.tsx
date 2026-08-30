@@ -9,6 +9,7 @@ import type {
   SessionWork,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { ReviewMark, StatusChip } from "../components/StatusChip";
 import { tokens, usd } from "../components/UsagePanel";
@@ -100,8 +101,8 @@ export default function Inbox() {
 
   return (
     <>
-      <TopBar back="/" crumb={[{ label: "inbox" }]} />
-      <main className="mx-auto max-w-[900px] px-[18px] pt-[22px] pb-[60px]">
+      <TopBar crumb={[{ label: "inbox" }]} />
+      <main className="mx-auto max-w-[900px] px-[18px] pt-[22px] pb-[calc(80px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
         <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
           Inbox
         </div>
@@ -289,6 +290,7 @@ export default function Inbox() {
           )}
         </div>
       </main>
+      <Tabs />
     </>
   );
 }
