@@ -62,6 +62,19 @@ const STARTERS: {
     ].join(" "),
   },
   {
+    name: "evening brief",
+    cron: "0 18 * * *",
+    member: "",
+    convenes: false,
+    prompt: [
+      "Close the day. From brief_material: what is still open and waiting on me,",
+      "what arrived this afternoon that needs me tomorrow, and what tomorrow's",
+      "calendar starts with. Five lines at most, nothing that was already in the",
+      'morning brief unless it changed. Sign off "ok" unless something needs me',
+      "tonight.",
+    ].join(" "),
+  },
+  {
     name: "finance watch",
     cron: "30 7 * * *",
     member: "ariel",

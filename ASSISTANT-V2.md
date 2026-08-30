@@ -11,7 +11,10 @@ extraction, search, the catalogue and the loops it opens) and milestone 6
 (finance into the door: Ariel seeded with headroom on unattended runs too,
 a one-tap finance watch and morning briefing), and milestone 7 (desk sessions
 for life admin, and the nightly learning pass that proposes sorting rules to
-the review queue). Milestone 8, polish, is not started. This block is updated as each lands, so the plan and
+the review queue), and milestone 8 (the brief read aloud, the language line,
+an evening-brief starter, the PC right column with the inbox and the
+sources). What remains is the owner's: milestone 0 in the pod, the
+credentials, the mount, and the decisions listed at the end. This block is updated as each lands, so the plan and
 its state stay in one file.
 
 It supersedes the product shape in ASSISTANT.md (two rooms, the council as a
