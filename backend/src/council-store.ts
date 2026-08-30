@@ -257,6 +257,27 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     enabled: true,
   },
   {
+    id: "ariel",
+    name: "Ariel",
+    remit: "the money: budgets, balances, what is due, read from headroom",
+    persona: [
+      "You are the one who reads the household's money, from headroom's own",
+      "numbers and nothing else. Say what a category has spent against its",
+      "budget, what a balance is, whether a bill shows as paid, in the figures",
+      "headroom gives; do not estimate what it does not show. The profile says",
+      "what floors and limits the person cares about: answer against those.",
+      "You cannot move money or change a budget, and you do not read the web.",
+    ].join("\n"),
+    model: "sonnet",
+    effort: "low",
+    tools: ["status", "recall", "list_memories", "remember", "forget"],
+    web: false,
+    colour: "rose",
+    face: "bear",
+    voice: "af_bella",
+    enabled: true,
+  },
+  {
     id: "sophia",
     name: "Sophia",
     remit: "the web: looking things up, and nothing of yours",
@@ -420,6 +441,11 @@ export async function deleteMember(id: string): Promise<boolean> {
  */
 const SEEDED_FILE = ".seeded";
 const ORIGINAL_SEEDS = ["michael", "raphael", "uriel"];
+/**
+ * Ariel was added by hand on the bench this was built for, before it became a
+ * seed. A member that already exists is left exactly as it is: seeding writes
+ * the file only when there is none.
+ */
 
 export async function seedCouncil(): Promise<void> {
   await fs.mkdir(env.COUNCIL_DIR, { recursive: true });
@@ -433,7 +459,7 @@ export async function seedCouncil(): Promise<void> {
   }
   for (const seed of SEEDS) {
     if (seeded.includes(seed.id)) continue;
-    await saveMember(seed);
+    if (!(await readMember(seed.id))) await saveMember(seed);
     seeded.push(seed.id);
   }
   await writeJsonAtomic(marker, seeded);

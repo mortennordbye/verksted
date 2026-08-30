@@ -331,7 +331,7 @@ describe("adding somebody", () => {
   // whoever was added is taken back off before the next one runs.
   afterEach(async () => {
     for (const m of await roster()) {
-      if (!["chair", "michael", "raphael", "uriel", "sophia"].includes(m.id)) {
+      if (!["chair", "michael", "raphael", "uriel", "sophia", "ariel"].includes(m.id)) {
         await app.inject({ method: "DELETE", url: `/api/council/${m.id}` });
       }
     }
@@ -375,6 +375,7 @@ describe("asking the whole room", () => {
     whenAsked("Raphael", "I read the code.");
     whenAsked("Uriel", "I keep what is not work.");
     whenAsked("Sophia", "I read the web.");
+    whenAsked("Ariel", "I count the money.");
     fake.reply("claude", "-p The council answered.", { stdout: run("That is the room.") });
   });
 
@@ -383,17 +384,19 @@ describe("asking the whole room", () => {
     // would be a call spent on a decision with one possible answer.
     const got = entries(await say("@all who are you?"));
 
-    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Sophia, Uriel" }]);
+    expect(got[1].tools).toEqual([
+      { name: "everyone", detail: "Ariel, Michael, Raphael, Sophia, Uriel" },
+    ]);
     expect(got[1].text).toBe("");
     expect(
       got
         .filter((e) => e.member)
         .map((e) => e.member)
         .sort(),
-    ).toEqual(["michael", "raphael", "sophia", "uriel"]);
+    ).toEqual(["ariel", "michael", "raphael", "sophia", "uriel"]);
     expect(got.at(-1)?.text).toBe("That is the room.");
-    // Four advisors and the chair's last word: no opening turn.
-    expect(fake.argvFor("claude")).toHaveLength(5);
+    // Five advisors and the chair's last word: no opening turn.
+    expect(fake.argvFor("claude")).toHaveLength(6);
     // And the @ is addressing, not part of what they are asked.
     expect(callsFor("Michael")[0][1]).toBe("who are you?");
   });
@@ -403,14 +406,18 @@ describe("asking the whole room", () => {
 
     const got = entries(await say("what does everyone make of this?"));
 
-    expect(got[1].tools).toEqual([{ name: "everyone", detail: "Michael, Raphael, Sophia, Uriel" }]);
-    expect(got.filter((e) => e.member)).toHaveLength(4);
+    expect(got[1].tools).toEqual([
+      { name: "everyone", detail: "Ariel, Michael, Raphael, Sophia, Uriel" },
+    ]);
+    expect(got.filter((e) => e.member)).toHaveLength(5);
   });
 
   it("seats the whole room at the round table when the switch is on", async () => {
     const got = entries(await say("@all who are you?", true));
 
-    expect(got[1].tools).toEqual([{ name: "discuss", detail: "Michael, Raphael, Sophia, Uriel" }]);
+    expect(got[1].tools).toEqual([
+      { name: "discuss", detail: "Ariel, Michael, Raphael, Sophia, Uriel" },
+    ]);
     // Sequential, so the last one asked has read the ones before it.
     const asked = callsFor("Uriel")[0][1];
     expect(asked).toContain("Michael: I watch the cluster.");
@@ -420,7 +427,7 @@ describe("asking the whole room", () => {
     // A meeting that says "everyone" and means "the first six" is lying about
     // what it did, so whoever was left out is named in the mark.
     const { MAX_EVERYONE } = await import("../src/assistant.js");
-    const extra = MAX_EVERYONE - 3;
+    const extra = MAX_EVERYONE - 4;
     for (let i = 0; i < extra; i++) {
       await app.inject({
         method: "POST",
@@ -545,12 +552,13 @@ const serversIn = (argv: string[]): string[] => {
 };
 
 describe("the advisor that reads headroom", () => {
-  // Added the way the settings page adds one, rather than seeded: which member
-  // this is, is a decision in assistant.ts, and the member itself is a file.
+  // Seeded now, but which member this is stays a decision in assistant.ts,
+  // and the member itself is a file the settings page can rewrite: here it is
+  // saved the way the page saves one, so the test does not lean on the seed.
   beforeEach(async () => {
     await app.inject({
-      method: "POST",
-      url: "/api/council",
+      method: "PUT",
+      url: "/api/council/ariel",
       payload: { id: "ariel", name: "Ariel", remit: "money", tools: [], web: true },
     });
     fake.reply("claude", "-p", { stdout: run("convene: ariel, michael") });
@@ -560,9 +568,28 @@ describe("the advisor that reads headroom", () => {
   });
 
   afterEach(async () => {
-    await app.inject({ method: "DELETE", url: "/api/council/ariel" });
+    const { SEEDS, saveMember } = await import("../src/council-store.js");
+    await saveMember(SEEDS.find((s) => s.id === "ariel")!);
     const { writeVars } = await import("../src/settings-store.js");
     await writeVars({ HEADROOM_URL: "https://headroom.example", HEADROOM_PASSWORD: "hunter2" });
+  });
+
+  it("keeps headroom on a run nobody is reading, and keeps it read-only there", async () => {
+    // The finance watch is a schedule Ariel answers at 07:30; without this it
+    // would answer from nothing. The writes and the raw dump stay denied.
+    fake.reset();
+    whenAsked("Ariel", "ok: everything within budget.");
+    const { runUnattended } = await import("../src/assistant.js");
+
+    await runUnattended("anything over budget?", "ariel");
+
+    const argv = callsFor("Ariel")[0];
+    expect(serversIn(argv)).toContain("headroom");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    expect(denied).toContain("mcp__headroom__get_raw_data");
+    expect(denied).toContain("mcp__headroom__set_category_budget");
+    expect(denied).toContain("WebFetch");
   });
 
   it("leaves the server off a bench that has not said where headroom is", async () => {

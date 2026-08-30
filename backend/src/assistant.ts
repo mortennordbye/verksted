@@ -141,8 +141,10 @@ function mcpConfig(
 ) {
   // Never unattended: a nightly briefing reads the bench, and the bench is not
   // where the money is. Never without both vars set, so a bench that does not
-  // run headroom offers no tools that would fail on every call.
-  const headroom = !unattended && member === HEADROOM_MEMBER && headroomConfigured;
+  // run headroom offers no tools that would fail on every call. Unattended
+  // too: the finance watch is a schedule Ariel answers, and the deny list on
+  // the writes holds whether or not anyone is reading.
+  const headroom = member === HEADROOM_MEMBER && headroomConfigured;
   return {
     mcpServers: {
       ...(headroom
@@ -1602,8 +1604,7 @@ export async function runUnattended(
             true,
           ),
           builtins: UNATTENDED_BUILTIN_TOOLS,
-          allowed: UNATTENDED_ALLOWED_TOOLS,
-          denied: UNATTENDED_DENIED_TOOLS,
+          ...unattendedPolicy(member),
           tools: member.tools,
           timeoutMs: TURN_TIMEOUT_MS,
         }
@@ -1709,6 +1710,19 @@ export async function runUnattended(
 }
 
 /**
+ * What a member may touch on a run nobody is reading: the unattended set, and
+ * for the one that reads headroom, headroom's reads. The writes and the raw
+ * dump stay denied, exactly as when someone is watching.
+ */
+function unattendedPolicy(member: CouncilMember): Pick<Speaker, "allowed" | "denied"> {
+  const headroom = member.id === HEADROOM_MEMBER;
+  return {
+    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...(headroom ? ["mcp__headroom"] : [])],
+    denied: [...UNATTENDED_DENIED_TOOLS, ...(headroom ? HEADROOM_DENIED : [])],
+  };
+}
+
+/**
  * One advisor answering a briefing nobody asked for.
  *
  * A fresh conversation every time, like the chair's: a schedule has no
@@ -1735,8 +1749,7 @@ async function unattendedMemberTurn(
         true,
       ),
       builtins: UNATTENDED_BUILTIN_TOOLS,
-      allowed: UNATTENDED_ALLOWED_TOOLS,
-      denied: UNATTENDED_DENIED_TOOLS,
+      ...unattendedPolicy(member),
       tools: member.tools,
       timeoutMs: MEMBER_TURN_TIMEOUT_MS,
     },
