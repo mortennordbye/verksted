@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import Markdown from "react-markdown";
-import type {
-  AssistantEntry,
-  AssistantThread,
-  AssistantThreadSummary,
-  CouncilMember,
-} from "../../../shared/api";
+import type { AssistantThread, AssistantThreadSummary, CouncilMember } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import { MD } from "../components/chat/markdown";
-import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
+import Room from "../components/Room";
 import Sheet from "../components/Sheet";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
@@ -41,12 +34,16 @@ function Ico({ children }: { children: ReactNode }) {
 }
 
 /**
- * The conversation with the assistant.
+ * The conversation, and the only room there is.
  *
- * One thread, whoever answers in it: the chair alone, or the advisors it
- * brings in, which is decided on the server and shown here as a meeting card.
- * Nothing on this screen lists who else is on the bench; that is a settings
- * matter, and a person who never opens settings loses nothing by it.
+ * One thread, whoever answers in it: the assistant alone, or a specialist it
+ * brings in, whose answer lands as a card in their own colour. The council
+ * was a second screen with a thread of its own; that made the person route
+ * every question before asking it, so it is gone, and what it was for happens
+ * here without being asked for. Addressing one of them by name is still
+ * possible — the chips under the field write the `@id` the server reads — but
+ * it is a shortcut past a decision that is made for you, not one you have to
+ * make.
  *
  * The thread arrives whole over a websocket rather than being polled or
  * diffed: it is a few kilobytes, and a diff protocol would be the only
@@ -55,223 +52,25 @@ function Ico({ children }: { children: ReactNode }) {
  * a second device watching the same thread stay in step.
  */
 
-/** The marks that open a meeting: the chair handing a question on. */
-const MEETING = new Set(["convene", "discuss", "everyone"]);
-
-function ToolChip({ name, detail }: { name: string; detail: string }) {
-  return (
-    <span className="inline-flex max-w-full items-center gap-2 self-start rounded-full border border-line bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-muted">
-      <span className="flex-none text-run">✓</span>
-      <span className="truncate">
-        {name}
-        {detail && <span className="text-faint"> · {detail}</span>}
-      </span>
-    </span>
-  );
-}
-
-/**
- * A reply, rendered. Inline code, links and the odd list: the persona asks for
- * prose, but a PR number in backticks or a URL it found is still markdown, and
- * shown as source it was asterisks and angle brackets through the answer.
- */
-function Said({ text }: { text: string }) {
-  return (
-    <div className="text-[14px]">
-      <Markdown components={MD}>{text}</Markdown>
-    </div>
-  );
-}
+/** The chair before the roster has arrived, so the room has a seat to draw. */
+const NO_CHAIR: CouncilMember = {
+  id: "chair",
+  name: "Assistant",
+  remit: "",
+  persona: "",
+  model: "",
+  effort: "low",
+  tools: [],
+  web: false,
+  colour: "amber",
+  face: "raccoon",
+  voice: "",
+  chair: true,
+  enabled: true,
+};
 
 /**
- * Who is speaking, beside what they said.
- *
- * An advisor is named above what it said and ruled in its own colour. A name
- * rather than colour alone: four hues is more than anyone reliably tells apart
- * on a phone, and the name is what you would say out loud anyway. The chair
- * gets the same treatment inside a meeting, where it is one voice among
- * several; answering alone it is the only voice and keeps a bare bubble.
- */
-function Bubble({
-  who,
-  failed,
-  children,
-}: {
-  who?: CouncilMember;
-  failed?: boolean;
-  children: ReactNode;
-}) {
-  const colour = who?.colour ?? "teal";
-  const bubble = (
-    <div
-      className={`max-w-[88%] rounded-[14px] rounded-bl-[5px] border px-3 py-2 ${
-        failed
-          ? "border-fail/40 bg-fail/10 text-text"
-          : who
-            ? `${MEMBER_RULE[colour]} border-l-2 bg-surface`
-            : "border-line bg-surface"
-      }`}
-    >
-      {children}
-    </div>
-  );
-  if (!who) return <div className="flex">{bubble}</div>;
-  return (
-    <div className="flex items-start gap-2">
-      <Portrait face={who.face} colour={colour} size={28} title={who.remit} />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <span className={`font-mono text-[11px] ${MEMBER_TEXT[colour]}`}>{who.name}</span>
-        <div className="flex">{bubble}</div>
-      </div>
-    </div>
-  );
-}
-
-function Turn({
-  entry,
-  who,
-}: {
-  entry: AssistantEntry;
-  /** Who said it, when that is worth drawing. Absent for a bare bubble. */
-  who?: CouncilMember;
-}) {
-  if (entry.role === "user") {
-    return (
-      <div className="flex flex-col items-end gap-1.5">
-        {entry.images?.map((name) => (
-          <img
-            key={name}
-            src={`/api/assistant/uploads/${name}`}
-            alt="attached"
-            className="max-h-52 max-w-[82%] rounded-[12px] border border-line"
-          />
-        ))}
-        {entry.text && (
-          <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent">
-            {entry.text}
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <div className="flex flex-col gap-2.5">
-      {/* "handoff" is a mark old threads carry from when the council was a
-          room of its own; it pointed next door, and there is no next door. */}
-      {entry.tools
-        .filter((t) => t.name !== "handoff" && !MEETING.has(t.name))
-        .map((t, i) => (
-          <ToolChip key={i} name={t.name} detail={t.detail} />
-        ))}
-      {entry.text && (
-        <Bubble who={who} failed={entry.failed}>
-          <Said text={entry.text} />
-        </Bubble>
-      )}
-    </div>
-  );
-}
-
-/**
- * The thread cut into what is drawn: a turn, or a meeting.
- *
- * A meeting is several entries — the chair handing the question on, an answer
- * from each advisor, and the chair's last word — and the data has that shape
- * already. Flattened into a row of bubbles it read as one voice with labels;
- * this groups them so the screen shows the same thing the transcript does:
- * who was asked, what each said, and what the chair made of it.
- */
-type Block =
-  | { kind: "turn"; entry: AssistantEntry; index: number }
-  | {
-      kind: "meeting";
-      opener: AssistantEntry;
-      answers: AssistantEntry[];
-      verdict: AssistantEntry | null;
-      index: number;
-    };
-
-function blocksOf(entries: AssistantEntry[]): Block[] {
-  const out: Block[] = [];
-  let open: Extract<Block, { kind: "meeting" }> | null = null;
-  entries.forEach((entry, index) => {
-    if (open && entry.role === "assistant") {
-      if (entry.member) open.answers.push(entry);
-      else open.verdict = entry;
-      return;
-    }
-    open = null;
-    if (entry.role === "assistant" && entry.tools.some((t) => MEETING.has(t.name))) {
-      open = { kind: "meeting", opener: entry, answers: [], verdict: null, index };
-      out.push(open);
-      return;
-    }
-    out.push({ kind: "turn", entry, index });
-  });
-  return out;
-}
-
-/** What the chair did with the question, as a sentence. */
-function meetingLabel(opener: AssistantEntry): string {
-  const mark = opener.tools.find((t) => MEETING.has(t.name));
-  if (!mark) return "";
-  return mark.name === "discuss"
-    ? `round table: ${mark.detail}`
-    : mark.name === "everyone"
-      ? `everyone: ${mark.detail}`
-      : `asks ${mark.detail}`;
-}
-
-function Meeting({
-  block,
-  members,
-  chair,
-  tail,
-}: {
-  block: Extract<Block, { kind: "meeting" }>;
-  members: Map<string, CouncilMember>;
-  chair?: CouncilMember;
-  /** What is still happening in this meeting, drawn inside it. */
-  tail?: ReactNode;
-}) {
-  const asked = block.opener.tools.find((t) => MEETING.has(t.name))?.detail ?? "";
-  // The mark names them by display name, so that is how their faces are found.
-  const names = asked.replace(/\s*\(\+\d+ not asked\)$/, "").split(", ");
-  const faces = [...members.values()].filter((m) => !m.chair && names.includes(m.name));
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-accent/30 bg-accent-tint px-3 py-3">
-      <div className="flex items-center gap-2 font-mono text-[11px] text-accent">
-        <span className="flex flex-none -space-x-1.5">
-          {faces.slice(0, 4).map((m) => (
-            <Face
-              key={m.id}
-              face={m.face}
-              className={`h-[18px] w-[18px] ${MEMBER_TEXT[m.colour]}`}
-            />
-          ))}
-        </span>
-        <span className="truncate">{meetingLabel(block.opener)}</span>
-      </div>
-      {block.opener.tools
-        .filter((t) => !MEETING.has(t.name))
-        .map((t, i) => (
-          <ToolChip key={i} name={t.name} detail={t.detail} />
-        ))}
-      {block.answers.map((e) => (
-        <Turn key={e.id} entry={e} who={e.member ? members.get(e.member) : undefined} />
-      ))}
-      {block.verdict && (
-        <div className="border-t border-accent/20 pt-3">
-          <Turn entry={block.verdict} who={chair} />
-        </div>
-      )}
-      {tail}
-    </div>
-  );
-}
-
-/**
- * Every conversation there has been, and the way back into one.
+ * Every conversation this room has had, and the way back into one.
  *
  * Fetched when opened rather than polled: the list changes when a thread is
  * started, which is something you did a moment ago on this same screen.
@@ -320,8 +119,8 @@ function Threads({
               type="button"
               onClick={() => void open(t.conversationId)}
               disabled={here}
-              className={`tap flex flex-col items-start gap-0.5 rounded-lg border px-3 py-2 text-left hover:border-line-strong disabled:cursor-default ${
-                here ? "border-accent/40 bg-accent-tint" : "border-line bg-surface-2"
+              className={`tap flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left hover:bg-surface-2 disabled:cursor-default ${
+                here ? "bg-accent-tint ring-1 ring-accent/30" : "bg-surface-2/60"
               }`}
             >
               <span className="w-full truncate text-[13.5px]">{t.title}</span>
@@ -355,6 +154,33 @@ function Toggle({
       aria-pressed={on}
       className={`rounded-md px-1.5 py-1 font-medium hover:text-text ${
         on ? "text-accent" : "text-faint"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One of the composer's audience chips: who hears the next question. */
+function Chip({
+  on,
+  title,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  title: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-pressed={on}
+      className={`rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
+        on ? "bg-line-strong text-text" : "text-muted hover:text-text"
       }`}
     >
       {children}
@@ -397,13 +223,13 @@ export default function Chat() {
    */
   const spokenRef = useRef<Set<string>>(new Set());
   // The roster changes when somebody edits it in settings, which is rarely, so
-  // it is polled slowly rather than pushed. It is needed only to draw whoever
-  // answered inside a meeting: the chair alone keeps a bare bubble.
+  // it is polled slowly rather than pushed: the seat at the top is the chair's,
+  // and a specialist's card is drawn in its own colour when one answers.
   const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
-  const chair = members.find((m) => m.chair);
-  const advisors = members.filter((m) => !m.chair && m.enabled).length;
+  const chair = members.find((m) => m.chair) ?? NO_CHAIR;
+  const advisors = members.filter((m) => !m.chair);
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
@@ -421,7 +247,8 @@ export default function Chat() {
     return () => ws.close();
   }, []);
 
-  // Follow the conversation as it grows, the way a chat is expected to.
+  // Follow the conversation as it grows, the way a conversation is expected
+  // to: an answer landing under the question is worth scrolling to.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [thread?.entries.length, thread?.status, thread?.live]);
@@ -584,66 +411,27 @@ export default function Chat() {
   const calls = thread?.entries.filter((e) => e.role === "assistant").length ?? 0;
   const long = calls >= 15;
 
-  const blocks = blocksOf(thread?.entries ?? []);
-  const last = blocks[blocks.length - 1];
-  // A meeting still running draws its own progress inside its card, so what
-  // is happening stays with the question it is happening to.
-  const inMeeting = thinking && last?.kind === "meeting";
-
-  /* Who is still out. An advisor's tokens are deliberately not streamed:
-     three of them writing at once onto a phone is noise, and the names say
-     the same thing for none of the traffic. The sentence being written is the
-     chair's, and says so where the chair is one voice among several; it is
-     replaced by the stored entry the moment the model finishes it, so it
-     never appears twice. */
-  const progress = thinking && (
-    <>
-      {thread?.speaking?.length ? (
-        <div className="flex flex-wrap items-center gap-2 px-1 font-mono text-[12px] text-faint">
-          {thread.speaking.map((id) => {
-            const m = byId.get(id);
-            return m ? (
-              <Portrait
-                key={id}
-                face={m.face}
-                colour={m.colour}
-                mood="speaking"
-                size={24}
-                title={m.name}
-              />
-            ) : null;
-          })}
-          {thread.speaking.map((id) => byId.get(id)?.name ?? id).join(", ")} answering…
-        </div>
-      ) : null}
-      {thread?.live && (
-        <Bubble who={inMeeting ? chair : undefined}>
-          {/* Plain while it is being written: markdown half-typed re-flows on
-              every token, and the stored entry it becomes is rendered. */}
-          <div className="text-[14px] whitespace-pre-wrap">
-            {thread.live}
-            <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
-          </div>
-        </Bubble>
-      )}
-      {!thread?.live && (
-        <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
-          <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
-          thinking…
-        </div>
-      )}
-    </>
-  );
+  /**
+   * Who the next question goes to, read off the front of the field: `@id`
+   * names one advisor, `@all` the room, nothing the chair. The seats and the
+   * chips below both write it there, so the field is the one source of truth
+   * and what is sent is exactly what is shown.
+   */
+  const addressed = /^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null;
+  function address(id: string | null) {
+    const stripped = text.replace(/^@[a-z][a-z0-9-]*\s*/, "");
+    setText(id === null || id === "chair" ? stripped : `@${id} ${stripped}`);
+  }
+  const named = addressed && addressed !== "all" ? byId.get(addressed) : undefined;
 
   return (
     <div className="flex h-full flex-col">
       <TopBar crumb={[{ label: "assistant" }]} back="/" />
 
-      <main className="mx-auto flex w-full max-w-[760px] flex-1 flex-col gap-3.5 overflow-y-auto px-[18px] pt-4 pb-3">
+      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pt-4 pb-3">
         {/* The count reads left, the controls sit together on the right. The
-            switches are plain words; the two that change which thread you are
-            in are the bordered ones, so the row reads as one pair of actions
-            and not a row of toggles of the same weight. */}
+            switch is a plain word; the two that change which thread you are in
+            are the lifted ones. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-faint">
           {turns > 0 && (
             <span>
@@ -652,22 +440,6 @@ export default function Chat() {
             </span>
           )}
           <span className="ml-auto flex flex-wrap items-center gap-1.5">
-            {/* Only means anything when more than one advisor could answer,
-                and it is the one switch here that costs money every time it
-                is on, which is why it is not remembered. */}
-            {advisors > 1 && (
-              <Toggle
-                on={roundTable}
-                title={
-                  roundTable
-                    ? "back to one answer each, in parallel"
-                    : "have the advisors talk it over: each answers having read the others"
-                }
-                onClick={() => setRoundTable((r) => !r)}
-              >
-                round table
-              </Toggle>
-            )}
             {canSpeak() && (
               <Toggle
                 on={speakReplies}
@@ -684,7 +456,7 @@ export default function Chat() {
             <button
               onClick={() => setBrowsing(true)}
               disabled={thinking}
-              className="ml-1 rounded-md border border-line px-2 py-1 font-medium text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
+              className="ml-1 rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
             >
               threads
             </button>
@@ -692,7 +464,7 @@ export default function Chat() {
               <button
                 onClick={() => void newThread()}
                 disabled={thinking}
-                className="rounded-md border border-line px-2 py-1 font-medium text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
+                className="rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
               >
                 new thread
               </button>
@@ -702,39 +474,10 @@ export default function Chat() {
 
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 
-        {thread?.entries.length === 0 && (
-          <div className="mt-6 text-center">
-            <div className="font-mono text-[13px] text-muted">nothing said yet</div>
-            <p className="mx-auto mt-2 max-w-[42ch] text-[13.5px] text-faint">
-              Ask what needs you, or tell it something to remember. It reads your projects,
-              sessions, runs and the cluster, and brings in a specialist when a question is theirs.
-            </p>
-          </div>
-        )}
-
-        {thread &&
-          blocks.map((b, i) =>
-            b.kind === "meeting" ? (
-              <Meeting
-                key={b.opener.id}
-                block={b}
-                members={byId}
-                chair={chair}
-                tail={inMeeting && i === blocks.length - 1 ? progress : undefined}
-              />
-            ) : (
-              <Turn
-                key={b.entry.id}
-                entry={b.entry}
-                who={b.entry.member ? byId.get(b.entry.member) : undefined}
-              />
-            ),
-          )}
-
-        {!inMeeting && progress}
+        {thread && <Room thread={thread} members={members} chair={chair} />}
 
         {voiceMode && (
-          <div className="flex items-center gap-2.5 rounded-[11px] border border-accent/40 bg-accent/[.06] px-3 py-2 font-mono text-[12px]">
+          <div className="flex items-center gap-2.5 rounded-xl bg-accent-tint px-3 py-2 font-mono text-[12px] ring-1 ring-accent/30">
             <span
               className={`h-2 w-2 flex-none rounded-full ${
                 listening ? "animate-pulse bg-accent" : speaking ? "bg-run" : "bg-idle"
@@ -758,19 +501,18 @@ export default function Chat() {
         <div ref={endRef} />
       </main>
 
-      <div className="mx-auto w-full max-w-[760px] flex-none px-[18px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      <div className="mx-auto w-full max-w-[800px] flex-none px-[18px] pb-[max(14px,env(safe-area-inset-bottom))]">
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
-        {/* Said where the next turn is typed, with the remedy beside it, rather
-            than as a coloured word in the toolbar you have scrolled past. */}
+        {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
-          <div className="mb-2 flex items-center gap-3 rounded-lg border border-wait/40 bg-wait/10 px-3 py-2 text-[12.5px] text-wait">
+          <div className="mb-2 flex items-center gap-3 rounded-xl bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">
             <span className="min-w-0 flex-1">
               {calls} replies in this thread, and every new one carries all of them. If the subject
               has moved on, start fresh.
             </span>
             <button
               onClick={() => void newThread()}
-              className="flex-none rounded-md border border-wait/50 px-2 py-1 font-medium hover:brightness-110"
+              className="flex-none rounded-lg bg-wait/15 px-2.5 py-1 font-semibold hover:brightness-110"
             >
               new thread
             </button>
@@ -783,12 +525,12 @@ export default function Chat() {
                 <img
                   src={`/api/assistant/uploads/${name}`}
                   alt="attached"
-                  className="h-16 w-16 rounded-lg border border-line object-cover"
+                  className="h-16 w-16 rounded-lg object-cover"
                 />
                 <button
                   onClick={() => setPending((p) => p.filter((n) => n !== name))}
                   aria-label="remove attachment"
-                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full border border-line bg-surface-2 font-mono text-[11px] text-muted hover:text-fail"
+                  className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-surface-2 font-mono text-[11px] text-muted ring-1 ring-line hover:text-fail"
                 >
                   ×
                 </button>
@@ -807,11 +549,12 @@ export default function Chat() {
             e.target.value = "";
           }}
         />
-        {/* Field on top, controls on their own row underneath. In one row the
-            four buttons crowded the field from both sides and the send button
-            drifted with the field's width; here each control has a fixed home
-            and the field gets the full width at any size. */}
-        <div className="rounded-xl border border-line bg-surface px-3 py-2.5">
+
+        {/* Tonal and lifted off the page: it is the one thing here you act on.
+            Field on top, controls underneath; the audience sits in the same
+            row as the send button, since who hears it and sending it are one
+            decision. */}
+        <div className="rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 shadow-[0_20px_60px_rgba(0,0,0,.55)]">
           <textarea
             ref={grow}
             value={text}
@@ -838,27 +581,79 @@ export default function Chat() {
               listening ? "listening…" : thinking ? "working…" : "Ask, or tell me something…"
             }
             aria-label="message the assistant"
-            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
+            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none placeholder:text-faint"
           />
-          <div className="mt-2 flex items-center gap-2">
+          {/* On a phone the audience takes a row of its own above the buttons,
+              since four buttons and three chips do not share 350px. */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => fileRef.current?.click()}
               disabled={thinking}
               aria-label="attach an image"
-              className="tap-sq flex flex-none items-center justify-center rounded-lg border border-line px-2.5 py-2 text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
+              className="tap-sq order-2 flex h-9 w-9 flex-none items-center justify-center rounded-xl text-muted hover:bg-line-strong/40 hover:text-text disabled:opacity-40 min-[620px]:order-1"
             >
               <Ico>
                 <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </Ico>
             </button>
-            <span className="flex-1" />
+
+            {/* Who hears it. The chair decides by default and hands the
+                question on itself; these are the shortcut for when you already
+                know whose it is, not a routing decision you have to make. */}
+            {advisors.length > 0 && (
+              <div className="order-1 flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto rounded-xl bg-surface p-0.5 min-[620px]:order-2 min-[620px]:basis-auto">
+                {named ? (
+                  <Chip
+                    on
+                    title="asking this one alone; tap to ask the chair instead"
+                    onClick={() => address(null)}
+                  >
+                    to {named.name} ×
+                  </Chip>
+                ) : (
+                  <>
+                    <Chip
+                      on={!addressed}
+                      title="the chair answers, or hands it to whoever it belongs to"
+                      onClick={() => address(null)}
+                    >
+                      {chair.name} decides
+                    </Chip>
+                    {advisors.length > 1 && (
+                      <Chip
+                        on={addressed === "all"}
+                        title="put it to the whole room: everybody answers"
+                        onClick={() => address(addressed === "all" ? null : "all")}
+                      >
+                        everyone
+                      </Chip>
+                    )}
+                  </>
+                )}
+                {advisors.length > 1 && (
+                  <Chip
+                    on={roundTable}
+                    title={
+                      roundTable
+                        ? "back to one answer each, in parallel"
+                        : "have them talk it over: each one answers having read the others"
+                    }
+                    onClick={() => setRoundTable((r) => !r)}
+                  >
+                    talk it over
+                  </Chip>
+                )}
+              </div>
+            )}
+
+            <span className="order-3 flex-1" />
             {canSpeak() && canListen() && !thinking && (
               <button
                 onClick={toggleVoice}
                 aria-label={voiceMode ? "end voice mode" : "start voice mode"}
                 title="hands free: it reads replies out and listens again"
-                className={`tap-sq flex flex-none items-center justify-center rounded-lg border px-2.5 py-2 hover:border-line-strong ${
-                  voiceMode ? "border-accent bg-accent-tint text-accent" : "border-line text-muted"
+                className={`tap-sq order-4 flex h-9 w-9 flex-none items-center justify-center rounded-xl hover:bg-line-strong/40 ${
+                  voiceMode ? "bg-accent-tint text-accent" : "text-muted"
                 }`}
               >
                 <Ico>
@@ -873,10 +668,8 @@ export default function Chat() {
                 onClick={() => (listening ? speech.stopListening() : void speech.listen())}
                 aria-label={listening ? "stop dictating" : "dictate"}
                 title="dictate into the field"
-                className={`tap-sq flex flex-none items-center justify-center rounded-lg border px-2.5 py-2 hover:border-line-strong ${
-                  listening
-                    ? "animate-pulse border-accent bg-accent-tint text-accent"
-                    : "border-line text-muted"
+                className={`tap-sq order-4 flex h-9 w-9 flex-none items-center justify-center rounded-xl hover:bg-line-strong/40 ${
+                  listening ? "animate-pulse bg-accent-tint text-accent" : "text-muted"
                 }`}
               >
                 <Ico>
@@ -888,7 +681,7 @@ export default function Chat() {
             {thinking ? (
               <button
                 onClick={() => void stop()}
-                className="tap-sq flex flex-none items-center gap-1.5 rounded-lg border border-line px-3 py-2 text-[13px] font-semibold text-muted hover:border-line-strong hover:text-text"
+                className="tap-sq order-4 flex h-9 flex-none items-center gap-1.5 rounded-xl bg-surface px-3 text-[13px] font-semibold text-muted hover:text-text"
               >
                 <Ico>
                   <rect x="7" y="7" width="10" height="10" rx="2" />
@@ -896,14 +689,13 @@ export default function Chat() {
                 Stop
               </button>
             ) : (
-              // A filled circle rather than a rounded rectangle: it is the one
-              // action in this row that commits something, and at four buttons
-              // wide the outlined ones stopped reading as a set with it.
+              // A filled circle: it is the one action in this row that commits
+              // something.
               <button
                 onClick={() => void send()}
                 disabled={!text.trim() && !pending.length}
                 aria-label="send"
-                className="tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition hover:brightness-110 disabled:bg-surface-2 disabled:text-faint"
+                className="tap-sq order-4 flex h-10 w-10 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition hover:brightness-110 disabled:bg-surface disabled:text-faint"
               >
                 <Ico>
                   <path d="M12 19V5M5 12l7-7 7 7" />

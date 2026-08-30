@@ -57,6 +57,26 @@ export const MEMBER_RULE: Record<CouncilColour, string> = {
   lime: "border-member-lime/40",
 };
 
+/** A soft disc of their own colour behind a face: a seat, rather than a ring. */
+export const MEMBER_FILL: Record<CouncilColour, string> = {
+  amber: "bg-member-amber/15",
+  violet: "bg-member-violet/15",
+  teal: "bg-member-teal/15",
+  rose: "bg-member-rose/15",
+  sky: "bg-member-sky/15",
+  lime: "bg-member-lime/15",
+};
+
+/** A card tinted with what they said: their colour, faintly, edge and ground. */
+export const MEMBER_CARD: Record<CouncilColour, string> = {
+  amber: "bg-member-amber/[.07] ring-member-amber/25",
+  violet: "bg-member-violet/[.07] ring-member-violet/25",
+  teal: "bg-member-teal/[.07] ring-member-teal/25",
+  rose: "bg-member-rose/[.07] ring-member-rose/25",
+  sky: "bg-member-sky/[.07] ring-member-sky/25",
+  lime: "bg-member-lime/[.07] ring-member-lime/25",
+};
+
 /**
  * Eyes, and what the mood does to them.
  *
@@ -257,20 +277,29 @@ export default function Portrait({
   mood = "idle",
   size = 30,
   title,
+  tone = false,
 }: {
   face: CouncilFace;
   colour: CouncilColour;
   mood?: FaceMood;
   size?: number;
   title?: string;
+  /**
+   * A filled disc in their colour instead of a ring on the surface: the seat
+   * at a table rather than a badge in a list. Talking is a halo in the same
+   * colour rather than the bench's green pulse.
+   */
+  tone?: boolean;
 }) {
   return (
     <span
       title={title}
       style={{ width: size, height: size }}
-      className={`inline-flex flex-none items-center justify-center rounded-full border bg-surface-2 ${
-        MEMBER_TEXT[colour]
-      } ${MEMBER_RULE[colour]} ${mood === "speaking" ? "animate-pulse-run" : ""}`}
+      className={`inline-flex flex-none items-center justify-center rounded-full ${MEMBER_TEXT[colour]} ${
+        tone
+          ? `${MEMBER_FILL[colour]} ${mood === "speaking" ? "animate-glow" : ""}`
+          : `border bg-surface-2 ${MEMBER_RULE[colour]} ${mood === "speaking" ? "animate-pulse-run" : ""}`
+      }`}
     >
       <Face face={face} mood={mood} className="h-[70%] w-[70%]" />
     </span>
