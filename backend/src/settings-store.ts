@@ -19,7 +19,35 @@ export const KNOWN_AGENT_KEYS = [
   // environment its process was spawned with.
   "HEADROOM_URL",
   "HEADROOM_PASSWORD",
+  // Mail and calendar, read by the backend itself (see mail.ts, calendar.ts).
+  // Typed on the phone like the rest, and unlike the rest never injected into
+  // a session: a coding agent has no business holding a mail password.
+  "IMAP_HOST",
+  "IMAP_PORT",
+  "IMAP_USER",
+  "IMAP_PASSWORD",
+  "CALDAV_URL",
+  "CALDAV_USER",
+  "CALDAV_PASSWORD",
 ];
+
+/**
+ * Vars the backend reads for its own sources, and agentEnv leaves out.
+ *
+ * Allowlisted the way EXEC_KEYS is, and for the same reason: a settings var
+ * must never become an input to the server process by accident. These are
+ * the only ones the pollers read, and no session is ever handed them.
+ */
+export const SOURCE_KEYS = [
+  "IMAP_HOST",
+  "IMAP_PORT",
+  "IMAP_USER",
+  "IMAP_PASSWORD",
+  "CALDAV_URL",
+  "CALDAV_USER",
+  "CALDAV_PASSWORD",
+];
+const SOURCE_ONLY = new Set(SOURCE_KEYS);
 
 // ANTHROPIC_API_KEY silently overrides Claude Max subscription auth and bills
 // per token — never storable, never injected.
@@ -126,9 +154,20 @@ export async function setSchedulesPaused(paused: boolean): Promise<void> {
 export async function agentEnv(): Promise<Record<string, string>> {
   const vars = await readVars();
   for (const key of Object.keys(vars)) {
-    if (BLOCKED_KEYS.has(key)) delete vars[key];
+    if (BLOCKED_KEYS.has(key) || SOURCE_ONLY.has(key)) delete vars[key];
   }
   return vars;
+}
+
+/** The mail and calendar credentials, for the backend's own readers only. */
+export async function sourceEnv(): Promise<Record<string, string>> {
+  const vars = await readVars();
+  const out: Record<string, string> = {};
+  for (const key of SOURCE_KEYS) {
+    const value = vars[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
 }
 
 /**

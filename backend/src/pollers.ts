@@ -1,4 +1,13 @@
-import type { MaintainerIssue, Memory, ScheduleRun, Session } from "../../shared/api.js";
+import type {
+  CalendarEvent,
+  MailSummary,
+  MaintainerIssue,
+  Memory,
+  ScheduleRun,
+  Session,
+} from "../../shared/api.js";
+import * as calendar from "./calendar.js";
+import * as mail from "./mail.js";
 import * as feed from "./feed-store.js";
 import type { Seen } from "./feed-store.js";
 import { ghNotifications, type Notification } from "./gh.js";
@@ -130,6 +139,45 @@ export function notificationItems(threads: Notification[]): Seen[] {
   }));
 }
 
+/** New mail: one item per message, the envelope until triage reads it. */
+export function mailItems(messages: MailSummary[]): Seen[] {
+  return messages.map((m) => ({
+    id: `mail:${m.uid}`,
+    source: "mail",
+    at: m.at,
+    title: `${m.from}: ${m.subject}`,
+    detail: m.address,
+    link: null,
+    version: String(m.uid),
+  }));
+}
+
+/**
+ * The calendar's only feed items: something with a place or a link starting
+ * soon. The rest of the calendar is on Today already, and an item for every
+ * event would be the calendar twice.
+ */
+export const SOON_MS = 30 * 60_000;
+
+export function calendarItems(events: CalendarEvent[], now = Date.now()): Seen[] {
+  return events
+    .filter((e) => !e.allDay && (e.location || e.url))
+    .filter((e) => {
+      const start = Date.parse(e.start);
+      return start > now && start - now <= SOON_MS;
+    })
+    .map((e) => ({
+      id: `calendar:${e.uid}:${e.start}`,
+      source: "calendar",
+      at: e.start,
+      title: `${e.summary} starts soon`,
+      detail: [e.location, e.url].filter(Boolean).join(" "),
+      link: e.url,
+      version: e.start,
+      urgency: "attention",
+    }));
+}
+
 /** File what a source says now, and end what it no longer says. */
 async function apply(seen: Seen[], over: string[] = [], why = "over"): Promise<number> {
   let changed = 0;
@@ -214,18 +262,64 @@ export async function pollGithub(log: Logger): Promise<number> {
   }
 }
 
+/** A source that is not set up is quiet, not broken; one that broke says so once. */
+async function pollSource(
+  name: "mail" | "calendar",
+  configured: () => Promise<unknown>,
+  read: () => Promise<Seen[]>,
+  log: Logger,
+): Promise<number> {
+  if (!(await configured())) return 0;
+  try {
+    const n = await apply(await read());
+    await feed.resolve(`${name}:poller`, "reading again");
+    return n;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.warn(err, `${name} unavailable`);
+    await feed.upsert({
+      id: `${name}:poller`,
+      source: name,
+      at: new Date().toISOString(),
+      title: `${name === "mail" ? "Mail" : "The calendar"} could not be read`,
+      detail: message.slice(0, 200),
+      link: "/settings",
+      version: message.slice(0, 200),
+    });
+    return 0;
+  }
+}
+
+export const pollMail = (log: Logger) =>
+  pollSource("mail", mail.mailConfig, async () => mailItems(await mail.recent()), log);
+
+export const pollCalendar = (log: Logger) =>
+  pollSource(
+    "calendar",
+    calendar.calendarConfig,
+    async () => calendarItems(await calendar.today()),
+    log,
+  );
+
 const GITHUB_EVERY_MS = 5 * 60_000;
+const MAIL_EVERY_MS = 5 * 60_000;
+const CALENDAR_EVERY_MS = 15 * 60_000;
 
 /** The timers, for the sources that are not on this volume. */
 export function startPollers(log: Logger): void {
-  const tick = async () => {
-    try {
-      const n = (await pollGithub(log)) + (await pollQueue(log));
-      if (n) log.info(`feed: ${n} item(s) from github`);
-    } catch (err) {
-      log.warn(err, "github poll failed");
-    }
+  const every = (ms: number, name: string, fn: () => Promise<number>) => {
+    const tick = async () => {
+      try {
+        const n = await fn();
+        if (n) log.info(`feed: ${n} item(s) from ${name}`);
+      } catch (err) {
+        log.warn(err, `${name} poll failed`);
+      }
+    };
+    void tick();
+    setInterval(() => void tick(), ms).unref?.();
   };
-  void tick();
-  setInterval(() => void tick(), GITHUB_EVERY_MS).unref?.();
+  every(GITHUB_EVERY_MS, "github", async () => (await pollGithub(log)) + (await pollQueue(log)));
+  every(MAIL_EVERY_MS, "mail", () => pollMail(log));
+  every(CALENDAR_EVERY_MS, "calendar", () => pollCalendar(log));
 }

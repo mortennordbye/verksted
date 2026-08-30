@@ -110,7 +110,11 @@ describe("the roster", () => {
     await store.saveMember(member());
     const [chair, advisor] = await store.listCouncil();
 
-    expect(chair.tools).toEqual(store.TOOL_INVENTORY.map((t) => t.name));
+    // Every tool but the ones that are a member's alone: the chair never
+    // reads a stranger's mail.
+    expect(chair.tools).toEqual(
+      store.TOOL_INVENTORY.filter((t) => !t.memberOnly).map((t) => t.name),
+    );
     expect(advisor.tools).toEqual(["status", "cluster_status"]);
   });
 
@@ -134,6 +138,42 @@ describe("the roster", () => {
     await store.seedCouncil();
 
     expect((await store.listMembers()).map((m) => m.id)).not.toContain("uriel");
+  });
+
+  it("adds a seed that arrived later, once, and lets it be removed for good", async () => {
+    // The council directory of a bench seeded before Sophia existed: the
+    // original three and no marker.
+    for (const f of fs.readdirSync(process.env.COUNCIL_DIR!)) {
+      fs.rmSync(path.join(process.env.COUNCIL_DIR!, f));
+    }
+    for (const seed of store.SEEDS.filter((s) => ["michael", "raphael", "uriel"].includes(s.id))) {
+      await store.saveMember(seed);
+    }
+    await store.seedCouncil();
+    expect((await store.listMembers()).map((m) => m.id)).toContain("sophia");
+
+    await store.deleteMember("sophia");
+    await store.seedCouncil();
+    expect((await store.listMembers()).map((m) => m.id)).not.toContain("sophia");
+  });
+
+  it("refuses the web beside anything private, whoever asks", async () => {
+    // A page an advisor fetches is how a prompt injection would carry the
+    // private thing out, so the two never sit in one process.
+    expect(() =>
+      store.validate({ id: "leak", name: "Leak", remit: "x", tools: ["mail_read"], web: true }),
+    ).toThrow(/cannot sit beside the web/);
+    expect(
+      store.validate({ id: "post", name: "Post", remit: "x", tools: ["mail_read"], web: false })
+        .tools,
+    ).toEqual(["mail_read"]);
+  });
+
+  it("never hands the chair the mail", async () => {
+    const chair = await store.chair();
+    expect(chair.web).toBe(false);
+    for (const t of chair.tools) expect(t).not.toMatch(/^mail_/);
+    expect(chair.tools).toContain("calendar_today");
   });
 
   it("seeds nobody who can change anything outside their own head", async () => {
