@@ -22,6 +22,7 @@ import { AgentMark, StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
+import { canSpeak, unlockAudio, useSpeech } from "../useSpeech";
 
 /**
  * The home screen: what the assistant would tell you if you asked, before you
@@ -199,6 +200,12 @@ export default function Today() {
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
   const { data: feed, refresh: refreshFeed } = usePoll<FeedItem[]>("/api/feed", 30_000);
   const cards = (feed ?? []).filter((i) => i.source === "proposal" && i.state !== "done");
+  const newest = (feed ?? [])
+    .filter((i) => i.state !== "done" && i.source !== "proposal")
+    .slice(0, 6);
+  // Read the brief aloud, in the pod's voice where it has one. No microphone
+  // here: that is the chat's; this is the morning read while the coffee pours.
+  const speech = useSpeech(() => {});
   const { data: sources } = usePoll<SourceStatus>("/api/sources", 300_000);
   const { data: events } = usePoll<CalendarEvent[]>(
     sources?.calendar ? "/api/calendar/today" : null,
@@ -352,7 +359,25 @@ export default function Today() {
                   <div className="mb-2 flex items-center gap-2 font-mono text-[11px] text-faint">
                     <StatusChip kind={OUTCOME[brief.outcome] ?? "idle"} label={brief.outcome} />
                     <span className="truncate">{brief.schedule}</span>
-                    <span className="ml-auto flex-none">{agoLabel(brief.at)}</span>
+                    <span className="ml-auto flex flex-none items-center gap-2">
+                      {canSpeak() && (
+                        <button
+                          onClick={() => {
+                            if (speech.speaking) {
+                              speech.cancelSpeech();
+                              return;
+                            }
+                            unlockAudio();
+                            speech.speak(brief.report ?? "");
+                          }}
+                          className="tap rounded-md border border-line px-2 py-0.5 text-muted hover:border-line-strong hover:text-text"
+                          title={speech.speaking ? "stop reading" : "read the brief aloud"}
+                        >
+                          {speech.speaking ? "stop" : "read aloud"}
+                        </button>
+                      )}
+                      <span>{agoLabel(brief.at)}</span>
+                    </span>
                   </div>
                   <div className="text-[14px]">
                     <Markdown components={MD}>{cite(brief.report ?? "")}</Markdown>
@@ -399,6 +424,59 @@ export default function Today() {
 
           <aside className="hidden min-[1000px]:flex min-[1000px]:flex-col min-[1000px]:gap-7">
             <Running sessions={running} />
+            <div>
+              <Label>Inbox</Label>
+              {newest.length ? (
+                <div className="flex flex-col gap-1.5">
+                  {newest.map((i) => (
+                    <Link
+                      key={i.id}
+                      to={`/runs#${i.id}`}
+                      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 hover:border-line-strong"
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 flex-none rounded-full ${
+                          i.urgency === "attention"
+                            ? "bg-wait"
+                            : i.urgency === "new"
+                              ? "bg-accent"
+                              : "bg-idle"
+                        }`}
+                      />
+                      <span className="min-w-0 flex-1 truncate text-[12.5px]">{i.title}</span>
+                      <span className="flex-none font-mono text-[11px] text-faint">{i.source}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-[13px] text-faint">nothing new</div>
+              )}
+            </div>
+            <div>
+              <Label>Sources</Label>
+              <div className="flex flex-col gap-1">
+                {(
+                  [
+                    ["github", true],
+                    ["mail", sources?.mail ?? false],
+                    ["calendar", sources?.calendar ?? false],
+                    ["documents", sources?.docs ?? false],
+                  ] as [string, boolean][]
+                ).map(([name, on]) => (
+                  <Link
+                    key={name}
+                    to="/settings"
+                    className="flex items-center gap-2 px-1 py-0.5 font-mono text-[12px] text-muted hover:text-text"
+                    title={on ? "set up" : "not set up: tap to add the credential"}
+                  >
+                    <span
+                      className={`h-1.5 w-1.5 flex-none rounded-full ${on ? "bg-run" : "bg-idle"}`}
+                    />
+                    {name}
+                  </Link>
+                ))}
+              </div>
+            </div>
             <div>
               <Label>Recent runs</Label>
               {runs?.length ? (
