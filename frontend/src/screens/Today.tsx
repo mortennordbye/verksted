@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import type {
   AssistantConfig,
   AssistantThread,
+  Loop,
   Memory,
   Profile,
   ScheduleRun,
@@ -185,6 +186,8 @@ export default function Today() {
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
   const { data: config } = usePoll<AssistantConfig>("/api/assistant/config", 300_000);
   const { data: profile } = usePoll<Profile>("/api/profile", 300_000);
+  const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
+  const open = (loops ?? []).filter((l) => l.state === "open");
   const name = config?.name?.trim() || "the assistant";
 
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
@@ -240,6 +243,31 @@ export default function Today() {
                       chip="wait"
                       text={`${proposals} proposed memor${proposals === 1 ? "y" : "ies"} to keep or drop`}
                     />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {open.length > 0 && (
+              <div>
+                <Label>Open</Label>
+                <div className="flex flex-col gap-1.5">
+                  {open.slice(0, 6).map((l) => (
+                    <Link
+                      key={l.slug}
+                      to="/runs"
+                      className="tap flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] hover:border-line-strong"
+                    >
+                      <span className="min-w-0 flex-1 truncate">{l.what}</span>
+                      {l.due && (
+                        <span className="flex-none font-mono text-[11px] text-wait">{l.due}</span>
+                      )}
+                    </Link>
+                  ))}
+                  {open.length > 6 && (
+                    <Link to="/runs" className="font-mono text-[11px] text-faint hover:text-accent">
+                      and {open.length - 6} more →
+                    </Link>
                   )}
                 </div>
               </div>

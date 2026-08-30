@@ -1131,6 +1131,75 @@ export interface Memory {
   createdAt: string | null;
 }
 
+/**
+ * One thing that happened, as the feed shows it.
+ *
+ * Written by a poller, judged by triage, acted on by the person. The id is the
+ * source's own, so an event becomes one item once and survives a restart; the
+ * `version` is what the poller saw last, so a thread that moved on reads as
+ * new again rather than as the item you already dismissed.
+ */
+export type FeedSource =
+  | "github"
+  | "mail"
+  | "calendar"
+  | "finance"
+  | "docs"
+  | "bench"
+  | "schedule"
+  | "memory"
+  | "paper"
+  | "intake"
+  | "proposal";
+export type FeedUrgency = "attention" | "new" | "quiet";
+export type FeedState = "new" | "seen" | "done" | "snoozed";
+
+export interface FeedItem {
+  /** `<source>:<the source's own id>`. */
+  id: string;
+  source: FeedSource;
+  /** When it happened, or was first seen. */
+  at: string;
+  title: string;
+  /** Two lines at most: the poller's, until triage rewrites it. */
+  detail: string;
+  urgency: FeedUrgency;
+  state: FeedState;
+  /** For a snoozed item: when it comes back. */
+  until: string | null;
+  /** An app path, or an https URL the screen opens outside the app. */
+  link: string | null;
+  /** The open loop this belongs to, if triage attached it to one. */
+  loop: string | null;
+  /** What the assistant did about it, when it did something. */
+  did: string | null;
+  /** Whether triage has judged it yet. */
+  triaged: boolean;
+  /** What the poller saw last; a change resets the item to new. */
+  version: string;
+  /** Whether an attention push went out for it. */
+  pushed: boolean;
+}
+
+/**
+ * One commitment: what you owe or are owed, kept until it ends.
+ *
+ * Separate from the memory of facts because a fact stays true and a loop is
+ * meant to close.
+ */
+export interface Loop {
+  slug: string;
+  what: string;
+  who: string | null;
+  /** Where it came from: a feed item id, a thread, or "you". */
+  from: string | null;
+  /** YYYY-MM-DD, when one is known. */
+  due: string | null;
+  state: "open" | "closed";
+  openedAt: string;
+  closedAt: string | null;
+}
+
 /** The profile page: one markdown file, and how much of its budget it uses. */
 export interface Profile {
   text: string;
