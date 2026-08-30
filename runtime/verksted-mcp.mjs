@@ -229,6 +229,20 @@ const TOOLS = [
       }).then((s) => `started ${s.id} (${s.agent}) in ${s.project}`),
   },
   {
+    name: "desk_session",
+    description:
+      "Put an agent on a piece of life admin that is more than a lookup and not code: compare offers, fill in a form from a letter, draft a complaint with the clauses quoted, build a table from receipts. It runs as a full session in a directory of its own on the desk, with the documents readable in place, and leaves its output as files there. The ask has to stand on its own; say which session you started.",
+    inputSchema: {
+      type: "object",
+      properties: { title: { type: "string" }, ask: { type: "string" } },
+      required: ["title", "ask"],
+    },
+    run: (a) =>
+      call("POST", "/api/desk/sessions", { title: a.title, ask: a.ask }).then(
+        (s) => `started ${s.id} at the desk (${s.task})`,
+      ),
+  },
+  {
     name: "end_session",
     description:
       "Propose ending a session. Nothing ends until the person taps the card: ending one kills the agent mid-task and whatever it had not written down is gone, which is why the tap is theirs. Say why in one line.",

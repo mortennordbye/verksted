@@ -95,6 +95,12 @@ const JOB = [
   "Anything that changes something belongs in a session with a terminal the user",
   "can attach to, not in a chat message they cannot audit.",
   "",
+  "Life admin that is more than a lookup and not code (compare three offers,",
+  "fill a form from a letter, draft a complaint with the clauses quoted) is a",
+  "desk_session: a full session in a directory of its own, with the documents",
+  "readable in place, whose output is files you can point them at. Start one",
+  "and say so in a line, as you would for code.",
+  "",
   "You can read the repos under /data/repos, and the verksted tools give you the",
   "state of the bench. `repo_status` answers what is actually changed in a repo,",
   "so questions like why something is dirty are yours to answer directly rather",
@@ -507,7 +513,7 @@ function contextBlock(ctx: PromptContext): string[] {
  * into a title and a model reliably reproduces. Items it leaves out keep the
  * poller's verdict, so a half-answer is a half-answer and not a lost batch.
  */
-export function triagePrompt(name: string, profile: string, loops: string): string {
+export function triagePrompt(name: string, profile: string, loops: string, rules = ""): string {
   return [
     ...opening(name),
     "",
@@ -537,6 +543,42 @@ export function triagePrompt(name: string, profile: string, loops: string): stri
       ? ["", "Who you are sorting for, in their own words:", "", profile.trim()]
       : []),
     ...(loops.trim() ? ["", "Their open loops:", "", loops.trim()] : []),
+    ...(rules.trim()
+      ? [
+          "",
+          "What they have said, or shown, about what matters and what does not:",
+          "",
+          rules.trim(),
+        ]
+      : []),
+  ].join("\n");
+}
+
+/**
+ * The job on the learning turn: from what the person did with the day's
+ * items, propose the rules that would have sorted them right. Each goes to
+ * the review queue; nothing reaches triage until kept.
+ */
+export function learningPrompt(name: string, rules: string): string {
+  return [
+    ...opening(name),
+    "",
+    "Below is what arrived today, how it was sorted, and what the person did",
+    "with each item: done without acting, snoozed, left, or acted on. Where",
+    "their choices say something the sorting missed, write a rule in plain",
+    "words that would have sorted it right next time: which senders or subjects",
+    "are never worth attention, which always are, what to fold away, what to",
+    "raise. Generalise only where two or more items agree; one dismissal is a",
+    "mood, not a rule.",
+    "",
+    "Answer with one line per rule, tab-separated, and nothing else:",
+    "",
+    "<short-slug>\t<the rule, one sentence, as an instruction to whoever sorts>",
+    "",
+    "Most days there is nothing to learn, and answering with nothing is right.",
+    "Do not call any tool. Do not repeat a rule already in force, listed here:",
+    "",
+    rules.trim() || "(none yet)",
   ].join("\n");
 }
 

@@ -111,6 +111,7 @@ describe("the tool set", () => {
         "feed_done",
         "create_schedule",
         "delete_schedule",
+        "desk_session",
         "end_session",
         "forget",
         "list_memories",

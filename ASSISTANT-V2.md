@@ -9,7 +9,9 @@ specialist, the web moved to a specialist) and 4b (proposals you tap, intake
 from the share sheet, citations as chips), milestone 5 (the share: text
 extraction, search, the catalogue and the loops it opens) and milestone 6
 (finance into the door: Ariel seeded with headroom on unattended runs too,
-a one-tap finance watch and morning briefing). 7 and 8 are not started. This block is updated as each lands, so the plan and
+a one-tap finance watch and morning briefing), and milestone 7 (desk sessions
+for life admin, and the nightly learning pass that proposes sorting rules to
+the review queue). Milestone 8, polish, is not started. This block is updated as each lands, so the plan and
 its state stay in one file.
 
 It supersedes the product shape in ASSISTANT.md (two rooms, the council as a

@@ -63,6 +63,7 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean; memberOnly?: bo
   { name: "cluster_status", chairOnly: false },
   { name: "start_session", chairOnly: true },
   { name: "end_session", chairOnly: true },
+  { name: "desk_session", chairOnly: true },
   { name: "list_prs", chairOnly: false },
   { name: "pr_detail", chairOnly: false },
   { name: "merge_pr", chairOnly: true },
