@@ -1,6 +1,9 @@
 import { Cron } from "croner";
 import type { Schedule, Session } from "../../shared/api.js";
-import { MAX_CONVENED, runUnattended } from "./assistant.js";
+import { MAX_CONVENED, runUnattended, saidOn } from "./assistant.js";
+import { journalPrompt } from "./assistant-persona.js";
+import * as journal from "./journal-store.js";
+import { readAssistantConfig } from "./settings-store.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
 import { claimIssue, pickIssue, readContract, stagePrompt } from "./maintainer.js";
@@ -86,6 +89,10 @@ interface Logger {
 }
 
 const jobs = new Map<string, Cron>();
+/** The journal's own timer, rebuilt with the rest. */
+let journalJob: Cron | null = null;
+/** Late enough that the day is over, early enough that it is still today. */
+const JOURNAL_CRON = "55 23 * * *";
 /** Cancels for jitter waits in flight, so a reload doesn't leave one hanging. */
 const waits = new Set<() => void>();
 
@@ -400,9 +407,46 @@ export function reloadSchedules(log: Logger): Promise<void> {
   return run;
 }
 
+/**
+ * Write the day's journal, if anything was said.
+ *
+ * One cheap turn, on the floor settings from the environment rather than the
+ * chair's own, over the day's conversation handed in as text: the turn reads
+ * nothing and writes nothing itself, which is what makes it safe to run with
+ * nobody watching. A day with no conversation costs nothing, and counts
+ * against the same ceiling as every other unattended turn.
+ */
+export async function runJournal(log: Logger, day = journal.today()): Promise<boolean> {
+  const said = journal.material(await saidOn(day), day);
+  if (!said.trim()) return false;
+  if (overDailyCeiling(1)) {
+    log.warn({ day }, `journal for ${day} skipped: daily unattended ceiling reached`);
+    return false;
+  }
+  const { name } = await readAssistantConfig();
+  const { text, failed } = await runUnattended(said, "", false, {
+    model: env.ASSISTANT_MODEL,
+    effort: env.ASSISTANT_EFFORT,
+    systemPrompt: journalPrompt(name),
+  });
+  if (failed || !text.trim()) {
+    log.warn({ day }, `journal for ${day} failed: ${text || "the turn produced nothing"}`);
+    return false;
+  }
+  await journal.writeDay(day, text);
+  log.info(`journal written for ${day}`);
+  return true;
+}
+
 async function rebuild(log: Logger): Promise<void> {
   for (const job of jobs.values()) job.stop();
   jobs.clear();
+  journalJob?.stop();
+  // Unnamed, unlike the schedules' timers: croner's own list is how a lost
+  // schedule timer is found, and this one is held right here.
+  journalJob = new Cron(JOURNAL_CRON, { protect: true, timezone: env.TZ }, () => {
+    void runJournal(log).catch((err) => log.warn(err, "journal failed"));
+  });
   for (const cancel of [...waits]) cancel();
   for (const schedule of await schedules.listSchedules()) {
     if (!schedule.enabled) continue;

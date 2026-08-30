@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router";
 import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
+import { TabLinks } from "./Tabs";
 
 /**
  * A count worth interrupting for, in the corner of whatever carries it. Nothing
@@ -170,7 +171,9 @@ export default function TopBar({
           ))}
         </div>
       )}
-      <div className="ml-auto flex flex-none items-center gap-3">
+      <div className="ml-auto flex flex-none items-center gap-4">
+        {/* The four screens, as words, where there is room for words. */}
+        {!crumb?.length && <TabLinks />}
         <IconLink
           to="/runs"
           title="inbox — what the schedules did"

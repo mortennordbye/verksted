@@ -1131,6 +1131,13 @@ export interface Memory {
   createdAt: string | null;
 }
 
+/** The profile page: one markdown file, and how much of its budget it uses. */
+export interface Profile {
+  text: string;
+  used: number;
+  budget: number;
+}
+
 export interface MemoryList {
   memories: Memory[];
   /** Bytes carried into every session, against the budget. */

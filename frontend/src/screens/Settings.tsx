@@ -12,6 +12,7 @@ import { copyText } from "../clipboard";
 import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
 import AssistantPanel from "../components/AssistantPanel";
+import ProfilePanel from "../components/ProfilePanel";
 import CouncilPanel from "../components/CouncilPanel";
 import MemoryPanel from "../components/MemoryPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
@@ -64,6 +65,7 @@ export default function Settings() {
         <SchedulesPanel />
         <Notifications />
         <AssistantPanel />
+        <ProfilePanel />
         <CouncilPanel />
         <MemoryPanel />
         <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">

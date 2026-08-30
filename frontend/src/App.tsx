@@ -11,6 +11,7 @@ import NotFound from "./screens/NotFound";
 import Project from "./screens/Project";
 import Session from "./screens/Session";
 import Settings from "./screens/Settings";
+import Today from "./screens/Today";
 
 export default function App() {
   const [palette, setPalette] = useState(false);
@@ -37,7 +38,10 @@ export default function App() {
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<Hub />} />
+          {/* Today is the front door; the bench is where the work is. The
+              installed app's start_url stays "/", so this is what opens. */}
+          <Route path="/" element={<Today />} />
+          <Route path="/bench" element={<Hub />} />
           <Route path="/p/:name" element={<Project />} />
           <Route path="/s/:id" element={<Session />} />
           <Route path="/ai" element={<Chat />} />

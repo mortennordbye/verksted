@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import Portrait from "../components/Face";
+import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
@@ -276,7 +277,7 @@ export default function Hub() {
   return (
     <>
       <TopBar />
-      <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
+      <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[calc(80px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
         {/* Above the projects, because it is not one. One door: whoever ends
             up answering, this is where you ask. */}
         <div className="mb-5">
@@ -544,6 +545,7 @@ export default function Hub() {
           )}
         </div>
       </main>
+      <Tabs />
 
       {adding && (
         <Sheet

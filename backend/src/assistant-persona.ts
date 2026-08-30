@@ -158,6 +158,13 @@ const JOB = [
   "Every conversation you have ever had is kept. When they refer to something",
   "settled earlier and it is not in this thread, use recall before saying you do",
   "not know — a new thread is not a new relationship.",
+  "",
+  "The profile below is who you work for: their people, their arrangements, what",
+  "counts as urgent. When they tell you something about themselves that belongs",
+  "there — a person, an account, a standing date, a rule about when to be woken",
+  "— person_note adds it, and you read it at the start of every conversation",
+  "from then on. Say in one line that you did. Facts about repos go to remember;",
+  "facts about them go to the profile.",
 ];
 
 /**
@@ -355,12 +362,14 @@ export function systemPrompt(
   name: string,
   instructions: string,
   roster: { id: string; name: string; remit: string }[] = [],
+  ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [
     ...opening(name),
     "",
     ...VOICE,
     ...JOB,
+    ...contextBlock(ctx),
     ...councilBlock(roster),
     ...standingOrders(instructions),
   ].join("\n");
@@ -419,14 +428,77 @@ export function unattendedPrompt(
   name: string,
   instructions: string,
   roster: { id: string; name: string; remit: string }[] = [],
+  ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [
     ...opening(name),
     "",
     ...VOICE,
     ...UNATTENDED_JOB,
+    ...contextBlock(ctx),
     ...unattendedCouncilBlock(roster),
     ...standingOrders(instructions),
+  ].join("\n");
+}
+
+/**
+ * Who this is for, and what the last few days were, ahead of the roster.
+ *
+ * The profile is the answer to every "who is Kari" and "what do you mean
+ * urgent"; the journal is the answer to "as we said yesterday". Both are
+ * carried in full, which is why each has a budget of its own, and both come
+ * before the council block so the chair knows the person before it decides
+ * whether a question is somebody else's.
+ */
+export interface PromptContext {
+  profile: string;
+  journal: string;
+}
+
+function contextBlock(ctx: PromptContext): string[] {
+  const out: string[] = [];
+  if (ctx.profile.trim()) {
+    out.push(
+      "",
+      "Who you work for, in their own words. Read it before answering anything;",
+      "it is the standing context every question is asked in.",
+      "",
+      ctx.profile.trim(),
+    );
+  }
+  if (ctx.journal.trim()) {
+    out.push(
+      "",
+      "What the last few days were, as you summarised them at the end of each.",
+      "Treat it as your own memory of them: what was decided stays decided, and",
+      "what was left open is still open unless they say otherwise.",
+      "",
+      ctx.journal.trim(),
+    );
+  }
+  return out;
+}
+
+/**
+ * The job on the one turn that writes the journal.
+ *
+ * It replaces JOB and the sign-off, because this turn answers nobody: it reads
+ * the day and writes what a future turn will need to know about it. Ten lines
+ * is the cap because every one of them is re-sent for three days.
+ */
+export function journalPrompt(name: string): string {
+  return [
+    ...opening(name),
+    "",
+    "The day is over and you are writing the journal for it. Below is what was",
+    "said today, in order. Write at most ten short lines, plain text, no heading,",
+    "no bullets: what was decided, what they asked for and whether it was done,",
+    "what is still open and waiting on whom, and anything they told you about",
+    "themselves that a future turn should know. Names, numbers and dates exactly",
+    "as said. Leave out what was merely looked up and answered.",
+    "",
+    "Do not call any tool: everything you need is below. Write nothing but the",
+    "journal itself. If nothing worth keeping was said, write one line: quiet.",
   ].join("\n");
 }
 

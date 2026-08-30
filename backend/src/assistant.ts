@@ -10,12 +10,19 @@ import type {
   AssistantTool,
   CouncilMember,
 } from "../../shared/api.js";
-import { memberPrompt, systemPrompt, unattendedPrompt } from "./assistant-persona.js";
+import {
+  memberPrompt,
+  systemPrompt,
+  unattendedPrompt,
+  type PromptContext,
+} from "./assistant-persona.js";
 import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
+import * as journal from "./journal-store.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
+import { readProfile } from "./profile-store.js";
 import { agentEnv, readAssistantConfig } from "./settings-store.js";
 
 /**
@@ -230,6 +237,26 @@ export function uploadsDir(): string {
  */
 function threadPath(conversationId: string, unattended = false): string {
   return path.join(env.ASSISTANT_DIR, unattended ? "unattended" : "", `${conversationId}.jsonl`);
+}
+
+/**
+ * Everything said today, across every thread, in the order it was said.
+ *
+ * For the journal: a day can span a new thread or two, and the summary is of
+ * the day rather than of a thread. Unattended threads are not read — the
+ * briefing already lands in the inbox, and a journal that summarised its own
+ * summaries would be the machine talking to itself.
+ */
+export async function saidOn(day: string): Promise<AssistantEntry[]> {
+  const files = await fs.readdir(env.ASSISTANT_DIR).catch(() => []);
+  const entries: AssistantEntry[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const id = file.slice(0, -6);
+    if (!CONV_RE.test(id)) continue;
+    for (const e of await readEntries(id)) if (journal.dayOf(e.at) === day) entries.push(e);
+  }
+  return entries.sort((a, b) => a.at.localeCompare(b.at));
 }
 
 /**
@@ -971,11 +998,22 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
  * before there was a council.
  */
 async function chairSpeaker(): Promise<Speaker> {
-  const [config, me, members] = await Promise.all([readAssistantConfig(), chair(), listMembers()]);
+  const [config, me, members, ctx] = await Promise.all([
+    readAssistantConfig(),
+    chair(),
+    listMembers(),
+    promptContext(),
+  ]);
   const roster = members
     .filter((m) => m.enabled)
     .map(({ id, name, remit }) => ({ id, name, remit }));
-  return speakerFor(me, systemPrompt(config.name, config.instructions, roster));
+  return speakerFor(me, systemPrompt(config.name, config.instructions, roster, ctx));
+}
+
+/** The profile and the last few days, read fresh for every chair turn. */
+async function promptContext(): Promise<PromptContext> {
+  const [profile, days] = await Promise.all([readProfile(), journal.recent()]);
+  return { profile, journal: journal.render(days) };
 }
 
 /**
@@ -1532,11 +1570,20 @@ export async function runUnattended(
   prompt: string,
   memberId = "",
   mayConvene = false,
+  /**
+   * A turn with a job of its own: the journal, which answers nobody and signs
+   * nothing off, and runs on the cheap settings whatever the chair is set to.
+   * The system prompt replaces the briefing job wholesale; the roster is not
+   * offered, since a turn that must not call a tool must not convene either.
+   */
+  own: { model: string; effort: string; systemPrompt: string } | null = null,
 ): Promise<{ text: string; failed: boolean; turns: number }> {
   if (unattendedRunning) throw new Error("an unattended turn is still running");
   const conversationId = randomUUID();
   const config = await readAssistantConfig();
-  const roster = mayConvene && !memberId ? (await listMembers()).filter((m) => m.enabled) : [];
+  const ctx = own ? { profile: "", journal: "" } : await promptContext();
+  const roster =
+    mayConvene && !memberId && !own ? (await listMembers()).filter((m) => m.enabled) : [];
   // A named advisor answers in its own voice, on its own subject, with its own
   // tools narrowed further by the unattended filter. One of them, never a
   // meeting: the daily ceiling counts turns, and a briefing that convened three
@@ -1562,13 +1609,16 @@ export async function runUnattended(
         }
       : {
           id: CHAIR_ID,
-          model: config.model,
-          effort: config.effort,
-          systemPrompt: unattendedPrompt(
-            config.name,
-            config.instructions,
-            roster.map(({ id, name, remit }) => ({ id, name, remit })),
-          ),
+          model: own?.model ?? config.model,
+          effort: own?.effort ?? config.effort,
+          systemPrompt:
+            own?.systemPrompt ??
+            unattendedPrompt(
+              config.name,
+              config.instructions,
+              roster.map(({ id, name, remit }) => ({ id, name, remit })),
+              ctx,
+            ),
           builtins: UNATTENDED_BUILTIN_TOOLS,
           allowed: UNATTENDED_ALLOWED_TOOLS,
           denied: UNATTENDED_DENIED_TOOLS,

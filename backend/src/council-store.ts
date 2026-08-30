@@ -77,6 +77,7 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   { name: "pause_schedules", chairOnly: true },
   { name: "notify", chairOnly: true },
   { name: "council_add", chairOnly: true },
+  { name: "person_note", chairOnly: true },
   { name: "repo_diff", chairOnly: false },
   { name: "recent_prompts", chairOnly: false },
   { name: "propose_memory", chairOnly: false },
