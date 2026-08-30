@@ -9,7 +9,7 @@ import type {
   UsageSummary,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import Portrait, { Face, MEMBER_RULE, MEMBER_TEXT } from "../components/Face";
+import Portrait from "../components/Face";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
@@ -228,18 +228,12 @@ export default function Hub() {
   // and the hub already polls two other things. Only the status is read now —
   // the strip explains what the assistant is instead of quoting it.
   const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
-  // The other room, polled the same way. Two doors rather than one, because
-  // they are two conversations: what the council is still talking about has
-  // nothing to do with whether the assistant is free.
-  const { data: councilThread } = usePoll<AssistantThread>("/api/assistant?room=council", 10_000);
+  // Only for the chair's face: who else is on the council is settings' business.
   const { data: council } = usePoll<CouncilMember[]>("/api/council", 120_000);
-  // The chair is on the roster and is not somebody you convene, so a council
-  // worth its own door is one with anybody else on it.
-  const advisors = (council ?? []).filter((m) => !m.chair && m.enabled);
   const chair = (council ?? []).find((m) => m.chair);
 
   /**
-   * One live fact per door, instead of a paragraph explaining what is behind
+   * One live fact on the door, instead of a paragraph explaining what is behind
    * it. The last thing asked and when it was answered is what tells you
    * whether to go back in; the explanation is on the empty screen inside.
    */
@@ -254,7 +248,6 @@ export default function Hub() {
     }`;
   }
   const assistantLast = lastWord(assistant);
-  const councilLast = lastWord(councilThread);
 
   async function addProject() {
     const value = input.trim();
@@ -284,12 +277,9 @@ export default function Hub() {
     <>
       <TopBar />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
-        {/* Above the projects, because neither of them is one. Two doors, side
-            by side where there is room for it: the assistant answers alone and
-            the council is where several do, and which one you want is a
-            decision you make before you type rather than one it makes for
-            you. */}
-        <div className="mb-5 grid gap-3 min-[620px]:grid-cols-2">
+        {/* Above the projects, because it is not one. One door: whoever ends
+            up answering, this is where you ask. */}
+        <div className="mb-5">
           <Link
             to="/ai"
             // Flat tint rather than the gradient that was here: northlight rules
@@ -297,9 +287,7 @@ export default function Hub() {
             // gets, which is what this strip is.
             className="flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
           >
-            {/* The chair's own face, so the two doors read as the same
-                family: this is who answers here, and who sits at the head of
-                the table next door. */}
+            {/* The chair's own face: this is who answers. */}
             <Portrait
               face={chair?.face ?? "raccoon"}
               colour={chair?.colour ?? "amber"}
@@ -327,55 +315,6 @@ export default function Hub() {
             </span>
             <span className="flex-none pt-1 text-[13px] text-faint">→</span>
           </Link>
-
-          {/* The other room, and only when there is one: an advisor has to exist
-            before a door to them means anything. */}
-          {advisors.length > 0 && (
-            <Link
-              to="/council"
-              className="flex items-start gap-3 rounded-xl border border-line bg-surface px-[15px] py-3.5 hover:border-line-strong"
-            >
-              {/* Who is in there, rather than an icon standing for them. Four
-                at most, and a count for the rest: it is a door, not a roster. */}
-              <span className="flex h-9 flex-none -space-x-2">
-                {advisors.slice(0, 4).map((m) => (
-                  <span
-                    key={m.id}
-                    className={`flex h-9 w-9 items-center justify-center rounded-full border bg-surface-2 ${MEMBER_TEXT[m.colour]} ${MEMBER_RULE[m.colour]}`}
-                  >
-                    <Face
-                      face={m.face}
-                      mood={councilThread?.speaking?.includes(m.id) ? "speaking" : "idle"}
-                      className="h-[21px] w-[21px]"
-                    />
-                  </span>
-                ))}
-                {advisors.length > 4 && (
-                  <span className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-2 font-mono text-[11px] text-muted">
-                    +{advisors.length - 4}
-                  </span>
-                )}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="mb-0.5 flex items-center gap-2">
-                  <span className="text-[14.5px] font-semibold tracking-[-.02em]">Council</span>
-                  {councilThread?.status === "thinking" && (
-                    <span className="flex items-center gap-1.5 text-[12px] text-accent">
-                      <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                      {councilThread.speaking?.length
-                        ? `${councilThread.speaking.length} answering`
-                        : "working"}
-                    </span>
-                  )}
-                </span>
-                <span className="block truncate text-[12.5px] text-faint">
-                  {councilLast ??
-                    `${advisors.length} in the room. Put a question to them, or to one by @id.`}
-                </span>
-              </span>
-              <span className="flex-none pt-1 text-[13px] text-faint">→</span>
-            </Link>
-          )}
         </div>
 
         {/* Stacked on a phone: the headline is a sentence that wraps to two

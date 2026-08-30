@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AssistantConfig, AssistantVoices } from "../../../shared/api";
+import type { AssistantConfig, AssistantTool, AssistantVoices } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import {
   POD_VOICE_KEY,
@@ -20,6 +20,59 @@ import {
  * through and says so on the next turn.
  */
 const EFFORTS: AssistantConfig["effort"][] = ["low", "medium", "high", "xhigh", "max"];
+
+/**
+ * What it can do, listed here so it never has to say so in a reply.
+ *
+ * Read from its own tool server rather than written here, so the page cannot
+ * drift from what the model is actually offered. Folded by default: it is the
+ * answer to a question asked once, not something to scroll past every visit.
+ */
+function CanDo() {
+  const [tools, setTools] = useState<AssistantTool[] | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open || tools) return;
+    void api<AssistantTool[]>("/api/assistant/tools")
+      .then(setTools)
+      .catch(() => setTools([]));
+  }, [open, tools]);
+  return (
+    <div className="mt-3 rounded-[11px] border border-line bg-surface px-[15px] py-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 text-left text-[13.5px] font-medium hover:text-text"
+      >
+        <span className="font-mono text-[11px] text-faint">{open ? "▾" : "▸"}</span>
+        What it can do
+        <span className="ml-auto font-mono text-[11px] text-faint">
+          read the bench, the repos, the cluster and the web; act through these
+        </span>
+      </button>
+      {open && (
+        <div className="mt-3 flex flex-col gap-2">
+          {tools === null && <div className="text-sm text-muted">asking…</div>}
+          {tools?.length === 0 && (
+            <div className="text-sm text-muted">its tool server did not answer</div>
+          )}
+          {tools?.map((t) => (
+            <div
+              key={t.name}
+              className="flex flex-col gap-0.5 min-[620px]:flex-row min-[620px]:gap-3"
+            >
+              <code className="flex-none font-mono text-[12px] text-accent min-[620px]:w-[150px]">
+                {t.name}
+              </code>
+              <span className="text-[13px] text-muted">{t.description}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AssistantPanel() {
   const { data } = usePoll<AssistantConfig>("/api/assistant/config", 60_000);
@@ -240,6 +293,7 @@ export default function AssistantPanel() {
           </span>
         </div>
       </div>
+      <CanDo />
     </section>
   );
 }

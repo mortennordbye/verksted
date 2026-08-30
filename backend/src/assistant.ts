@@ -7,10 +7,10 @@ import type {
   AssistantSearchHit,
   AssistantThread,
   AssistantThreadSummary,
-  ChatRoom,
+  AssistantTool,
   CouncilMember,
 } from "../../shared/api.js";
-import { memberPrompt, soloPrompt, systemPrompt, unattendedPrompt } from "./assistant-persona.js";
+import { memberPrompt, systemPrompt, unattendedPrompt } from "./assistant-persona.js";
 import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
@@ -205,15 +205,9 @@ async function ensureMcpConfig(o: {
   return file;
 }
 
-/**
- * Where the active conversation id is remembered across restarts, per room.
- *
- * The assistant keeps the filename it always had, so the thread that was here
- * before the rooms were split is still the one that opens: what was said to it
- * was said to the assistant, whoever else happened to answer.
- */
-function currentPath(room: ChatRoom): string {
-  return path.join(env.ASSISTANT_DIR, room === "council" ? "current-council" : "current");
+/** Where the active conversation id is remembered across restarts. */
+function currentPath(): string {
+  return path.join(env.ASSISTANT_DIR, "current");
 }
 
 /** Where attached images land, outside any repo and readable by the agent. */
@@ -238,6 +232,67 @@ function threadPath(conversationId: string, unattended = false): string {
   return path.join(env.ASSISTANT_DIR, unattended ? "unattended" : "", `${conversationId}.jsonl`);
 }
 
+/**
+ * What the assistant can do, from the server that offers it.
+ *
+ * The settings page shows this so the assistant does not have to describe
+ * itself in every reply. Read from the MCP server's own `tools/list` rather
+ * than from `TOOL_INVENTORY`, which has names and not descriptions: what the
+ * page says is then exactly what the model is offered, and cannot drift from
+ * it. Cached for the life of the process, since the file is baked into the
+ * image; a failed read is not cached, so a transient fault costs one retry.
+ */
+let toolList: Promise<AssistantTool[]> | null = null;
+
+export function listTools(): Promise<AssistantTool[]> {
+  toolList ??= readTools().catch((err: unknown) => {
+    toolList = null;
+    throw err;
+  });
+  return toolList;
+}
+
+/** The image's copy where there is one, the repo's under tsx and in tests. */
+async function mcpServerPath(): Promise<string> {
+  const baked = "/etc/verksted/verksted-mcp.mjs";
+  try {
+    await fs.access(baked);
+    return baked;
+  } catch {
+    return path.resolve(import.meta.dirname, "../../runtime/verksted-mcp.mjs");
+  }
+}
+
+async function readTools(): Promise<AssistantTool[]> {
+  const child = spawn(process.execPath, [await mcpServerPath()], {
+    stdio: ["pipe", "pipe", "ignore"],
+  });
+  const out: string[] = [];
+  child.stdout.on("data", (d: Buffer) => out.push(String(d)));
+  const closed = new Promise<void>((resolve, reject) => {
+    child.on("error", reject);
+    child.on("close", () => resolve());
+  });
+  // The handshake first, as the CLI does it; the server exits when stdin ends.
+  child.stdin.end(
+    `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} })}\n${JSON.stringify(
+      { jsonrpc: "2.0", id: 2, method: "tools/list" },
+    )}\n`,
+  );
+  await closed;
+  for (const line of out.join("").split("\n")) {
+    if (!line.trim()) continue;
+    const msg = JSON.parse(line) as {
+      id?: number;
+      result?: { tools?: { name: string; description: string }[] };
+    };
+    if (msg.id === 2 && msg.result?.tools) {
+      return msg.result.tools.map(({ name, description }) => ({ name, description }));
+    }
+  }
+  throw new Error("the tool server did not answer");
+}
+
 /** Conversation ids are uuids we generate; nothing else may name a file here. */
 const CONV_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -249,9 +304,9 @@ const CONV_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * promotion" is answerable without carrying a forty-turn thread forward: start
  * a new one and let it look the old one up.
  *
- * Both rooms' open conversations are deliberately excluded — they are already
- * in somebody's context, so a hit there would spend a result slot on something
- * that can be read by scrolling up.
+ * The open conversation is deliberately excluded — it is already in the
+ * context, so a hit there would spend a result slot on something that can be
+ * read by scrolling up.
  *
  * Substring matching, all words required, no index. The store is a few hundred
  * kilobytes of text on a volume this pod owns; anything cleverer would be a
@@ -260,11 +315,7 @@ const CONV_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function search(query: string, limit = 8): Promise<AssistantSearchHit[]> {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [];
-  // Both rooms' open threads, because either one may be the one you are reading
-  // when you ask: a hit there would spend a result slot on something on screen.
-  const open = new Set(
-    await Promise.all([currentConversation("assistant"), currentConversation("council")]),
-  );
+  const open = new Set([await currentConversation()]);
   const files = await fs.readdir(env.ASSISTANT_DIR).catch(() => []);
   const hits: AssistantSearchHit[] = [];
   for (const file of files) {
@@ -381,13 +432,13 @@ type Child = ReturnType<typeof spawn>;
 const runKey = (threadId: string, member: string) => `${threadId}\u0000${member}`;
 
 /**
- * Everything that is true of one room and not the other.
+ * What is true of the conversation while somebody is in it.
  *
- * Two rooms rather than one because they are two things: the assistant answers
- * alone, and the council is where several do. Their threads are separate, so a
- * meeting does not sit in the context of the next quick question and get paid
- * for again with every turn of it — which is the whole reason the split is at
- * the conversation and not only in the UI.
+ * One conversation, whoever answers in it: the chair alone, or the advisors it
+ * convenes, all land in the same thread. The council used to be a second room
+ * with a thread of its own so a meeting was never re-sent with a quick
+ * question; that cost the person a routing decision before every message, and
+ * the ceilings on convening are what keep a thread cheap now.
  *
  * `turn` and `thread` are the guard, and they are set on the very first line of
  * `send` before anything is awaited, because two things the registry cannot
@@ -398,12 +449,8 @@ const runKey = (threadId: string, member: string) => `${threadId}\u0000${member}
  * get past a check that came after it — and, on a bench whose first message
  * this is, would each mint a thread of their own and answer in different
  * conversations.
- *
- * One room being busy says nothing about the other: asking the assistant
- * something while the council is still talking is two conversations, not a
- * queue.
  */
-interface RoomState {
+interface ChatState {
   turn: boolean;
   thread: string | null;
   listeners: Set<Listener>;
@@ -412,28 +459,22 @@ interface RoomState {
   /**
    * A mint in flight, so concurrent callers agree on one conversation.
    *
-   * The first message in a fresh room and the poll watching for its answer both
-   * find no file and both would mint: the turn would then write to one thread
-   * while the screen read another, and the first exchange would never appear.
+   * The first message on a fresh bench and the poll watching for its answer
+   * both find no file and both would mint: the turn would then write to one
+   * thread while the screen read another, and the first exchange would never
+   * appear.
    */
   minting: Promise<string> | null;
 }
 
-const rooms: Record<ChatRoom, RoomState> = {
-  assistant: newRoomState(),
-  council: newRoomState(),
+const chat: ChatState = {
+  turn: false,
+  thread: null,
+  listeners: new Set(),
+  announceTimer: null,
+  pendingLive: "",
+  minting: null,
 };
-
-function newRoomState(): RoomState {
-  return {
-    turn: false,
-    thread: null,
-    listeners: new Set(),
-    announceTimer: null,
-    pendingLive: "",
-    minting: null,
-  };
-}
 
 /**
  * Threads whose turn was stopped.
@@ -444,9 +485,9 @@ function newRoomState(): RoomState {
  */
 const cancelled = new Set<string>();
 
-/** Whether anything at all is in flight in this room's thread. */
-function busy(room: ChatRoom, threadId: string): boolean {
-  if (rooms[room].turn) return true;
+/** Whether anything at all is in flight in this thread. */
+function busy(threadId: string): boolean {
+  if (chat.turn) return true;
   for (const r of running.values()) if (r.threadId === threadId) return true;
   return false;
 }
@@ -470,10 +511,10 @@ let unattendedRunning = false;
 
 type Listener = (thread: AssistantThread) => void;
 
-/** Subscribe to one room's thread changes; returns the unsubscribe. */
-export function subscribe(room: ChatRoom, fn: Listener): () => void {
-  rooms[room].listeners.add(fn);
-  return () => rooms[room].listeners.delete(fn);
+/** Subscribe to the thread's changes; returns the unsubscribe. */
+export function subscribe(fn: Listener): () => void {
+  chat.listeners.add(fn);
+  return () => chat.listeners.delete(fn);
 }
 
 /**
@@ -487,90 +528,55 @@ export function subscribe(room: ChatRoom, fn: Listener): () => void {
  */
 const ANNOUNCE_MS = 100;
 
-async function push(room: ChatRoom, live: string): Promise<void> {
-  const thread = { ...(await readThread(room)), live };
-  for (const fn of rooms[room].listeners) fn(thread);
+async function push(live: string): Promise<void> {
+  const thread = { ...(await readThread()), live };
+  for (const fn of chat.listeners) fn(thread);
 }
 
-function announce(room: ChatRoom, live = ""): void {
-  const state = rooms[room];
-  if (!state.listeners.size) return;
-  state.pendingLive = live;
-  if (state.announceTimer) return;
-  state.announceTimer = setTimeout(() => {
-    state.announceTimer = null;
-    void push(room, state.pendingLive);
+function announce(live = ""): void {
+  if (!chat.listeners.size) return;
+  chat.pendingLive = live;
+  if (chat.announceTimer) return;
+  chat.announceTimer = setTimeout(() => {
+    chat.announceTimer = null;
+    void push(chat.pendingLive);
   }, ANNOUNCE_MS);
   // A pod shutting down should not be held open by this.
-  state.announceTimer.unref?.();
+  chat.announceTimer.unref?.();
 }
 
-/** This room's active conversation id, minting and recording one on first use. */
-export async function currentConversation(room: ChatRoom): Promise<string> {
+/** The active conversation id, minting and recording one on first use. */
+export async function currentConversation(): Promise<string> {
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   try {
-    const stored = (await fs.readFile(currentPath(room), "utf8")).trim();
+    const stored = (await fs.readFile(currentPath(), "utf8")).trim();
     if (CONV_RE.test(stored)) return stored;
   } catch {
     // No conversation yet, or the file is unreadable: start a fresh one rather
     // than failing. The old thread stays on disk either way.
   }
-  const state = rooms[room];
-  state.minting ??= mintConversation(room).finally(() => {
-    state.minting = null;
+  chat.minting ??= mintConversation().finally(() => {
+    chat.minting = null;
   });
-  return state.minting;
+  return chat.minting;
 }
 
-async function mintConversation(room: ChatRoom): Promise<string> {
+async function mintConversation(): Promise<string> {
   const id = randomUUID();
   // Atomic, because a reader landing mid-write sees an empty file, decides
   // there is no conversation, and mints one of its own.
-  await writeTextAtomic(currentPath(room), id);
-  await fs.appendFile(indexPath(room), `${id}\n`);
+  await writeTextAtomic(currentPath(), id);
   return id;
 }
 
-/** Abandon this room's thread and start a new one. The old file is kept. */
-export async function newConversation(room: ChatRoom): Promise<string> {
-  if (busy(room, await currentConversation(room))) throw new Error("a turn is still running");
+/** Abandon the thread and start a new one. The old file is kept. */
+export async function newConversation(): Promise<string> {
+  if (busy(await currentConversation())) throw new Error("a turn is still running");
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   const id = randomUUID();
-  await writeTextAtomic(currentPath(room), id);
-  await fs.appendFile(indexPath(room), `${id}\n`);
-  announce(room);
+  await writeTextAtomic(currentPath(), id);
+  announce();
   return id;
-}
-
-/**
- * Which threads were started in which room.
- *
- * A thread file does not say: the two rooms write the same shape, and a
- * council thread the chair answered alone is indistinguishable from the
- * assistant's. So each room keeps a list of the ids it minted, appended to the
- * way the threads themselves are. Threads written before the list existed are
- * in neither, and are placed by what is in them.
- */
-function indexPath(room: ChatRoom): string {
-  return path.join(env.ASSISTANT_DIR, `threads-${room}`);
-}
-
-async function readIndex(room: ChatRoom): Promise<Set<string>> {
-  try {
-    const raw = await fs.readFile(indexPath(room), "utf8");
-    return new Set(raw.split("\n").filter((id) => CONV_RE.test(id)));
-  } catch {
-    return new Set();
-  }
-}
-
-/** A thread with an advisor in it, or a meeting called, was the council's. */
-function looksLikeCouncil(entries: AssistantEntry[]): boolean {
-  return entries.some(
-    (e) =>
-      e.member ||
-      e.tools.some((t) => t.name === "convene" || t.name === "discuss" || t.name === "everyone"),
-  );
 }
 
 /** A line of the first thing typed, which is what a thread is remembered by. */
@@ -581,16 +587,15 @@ function titleOf(entries: AssistantEntry[]): string {
 }
 
 /**
- * Every conversation this room has had, newest first, the current one included.
+ * Every conversation there has been, newest first, the current one included.
  *
  * Reads every thread file, as `search` does: the store is small, and a thread
  * list that had to be kept up to date on every append would be a second copy
  * of the truth to get wrong. Empty threads are left out — there is nothing in
- * one to go back to.
+ * one to go back to. Meetings held when the council was a room of its own are
+ * threads like any other, and open the same way.
  */
-export async function listThreads(room: ChatRoom): Promise<AssistantThreadSummary[]> {
-  const mine = await readIndex(room);
-  const theirs = await readIndex(room === "council" ? "assistant" : "council");
+export async function listThreads(): Promise<AssistantThreadSummary[]> {
   let names: string[];
   try {
     names = await fs.readdir(env.ASSISTANT_DIR);
@@ -600,10 +605,9 @@ export async function listThreads(room: ChatRoom): Promise<AssistantThreadSummar
   const out: AssistantThreadSummary[] = [];
   for (const name of names) {
     const id = name.replace(/\.jsonl$/, "");
-    if (id === name || !CONV_RE.test(id) || theirs.has(id)) continue;
+    if (id === name || !CONV_RE.test(id)) continue;
     const entries = await readEntries(id);
     if (!entries.length) continue;
-    if (!mine.has(id) && looksLikeCouncil(entries) !== (room === "council")) continue;
     out.push({
       conversationId: id,
       title: titleOf(entries),
@@ -615,23 +619,23 @@ export async function listThreads(room: ChatRoom): Promise<AssistantThreadSummar
 }
 
 /**
- * Make an old thread this room's current one again.
+ * Make an old thread the current one again.
  *
  * The same file switch `newConversation` does, pointed at a thread that exists.
  * The chair's claude conversation is the thread id, so its next turn resumes
  * exactly where that thread left off; an advisor's is looked up per thread the
  * same way it always was.
  */
-export async function openConversation(room: ChatRoom, id: string): Promise<void> {
+export async function openConversation(id: string): Promise<void> {
   if (!CONV_RE.test(id)) throw new Error("not a thread id");
-  if (busy(room, await currentConversation(room))) throw new Error("a turn is still running");
+  if (busy(await currentConversation())) throw new Error("a turn is still running");
   try {
     await fs.access(threadPath(id));
   } catch {
     throw new Error("no such thread");
   }
-  await writeTextAtomic(currentPath(room), id);
-  announce(room);
+  await writeTextAtomic(currentPath(), id);
+  announce();
 }
 
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
@@ -679,34 +683,30 @@ async function appendEntry(
   return entry;
 }
 
-export async function readThread(room: ChatRoom): Promise<AssistantThread> {
-  const conversationId = await currentConversation(room);
+export async function readThread(): Promise<AssistantThread> {
+  const conversationId = await currentConversation();
   const speaking = speakingIn(conversationId);
   return {
     conversationId,
-    status: busy(room, conversationId) ? "thinking" : "idle",
+    status: busy(conversationId) ? "thinking" : "idle",
     entries: await readEntries(conversationId),
     ...(speaking.length ? { speaking } : {}),
   };
 }
 
 /**
- * Stop everything in flight in one room, if anything is.
+ * Stop everything in flight, if anything is.
  *
- * Everything in it rather than one thing: mid-meeting, "stop" means stop the
+ * Everything rather than one thing: mid-meeting, "stop" means stop the
  * meeting. Leaving two advisors running while killing the third would spend the
  * calls and show the answers anyway, which is not what the button says.
- *
- * One room, though, because they are two conversations: stopping a meeting must
- * not kill the answer the assistant is writing next door, where nobody pressed
- * anything.
  *
  * A run with no child yet is between the registry entry and the spawn. It is
  * still in flight — it is already shown as speaking — so it counts, and the
  * mark on its thread is what kills it the moment it does spawn.
  */
-export function stop(room: ChatRoom): boolean {
-  const thread = rooms[room].thread;
+export function stop(): boolean {
+  const thread = chat.thread;
   let stopped = false;
   for (const run of running.values()) {
     if (run.threadId !== thread) continue;
@@ -964,24 +964,18 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
 }
 
 /**
- * The chair, ready to speak, with as much of the roster as its room allows.
+ * The chair, ready to speak, with the roster it may put a question to.
  *
- * The same identity in both rooms, and a different job in each: in the council
- * it may put the question to whoever it belongs to, and in its own room it may
- * only say whose it was. The roster is passed either way — the assistant has to
- * know who exists to name them — and what differs is the block that says what
- * it can do about it.
+ * The roster is in its prompt whether or not anyone is on it: with nobody, the
+ * block is empty and the chair answers alone, which is what the assistant was
+ * before there was a council.
  */
-async function chairSpeaker(room: ChatRoom): Promise<Speaker> {
+async function chairSpeaker(): Promise<Speaker> {
   const [config, me, members] = await Promise.all([readAssistantConfig(), chair(), listMembers()]);
   const roster = members
     .filter((m) => m.enabled)
     .map(({ id, name, remit }) => ({ id, name, remit }));
-  const prompt =
-    room === "council"
-      ? systemPrompt(config.name, config.instructions, roster)
-      : soloPrompt(config.name, config.instructions, roster);
-  return speakerFor(me, prompt);
+  return speakerFor(me, systemPrompt(config.name, config.instructions, roster));
 }
 
 /**
@@ -1107,7 +1101,6 @@ async function addressed(prompt: string): Promise<Addressed | null> {
  * arriving while a process is still starting would otherwise get past the guard.
  */
 async function speak(o: {
-  room: ChatRoom;
   threadId: string;
   member: CouncilMember;
   systemPrompt: string;
@@ -1122,15 +1115,6 @@ async function speak(o: {
    * append-only, which is the property the transcript is built on.
    */
   interceptConvene?: boolean;
-  /**
-   * Take a trailing `theirs: <id>` line off the reply and turn it into a mark.
-   *
-   * The assistant's half of the handoff, and unlike a convene line it is not a
-   * whole reply: it comes after an answer, so the answer is kept and only the
-   * machine line is lifted out of it. Rewritten before the entry is appended
-   * rather than after, so the transcript stays append-only.
-   */
-  interceptHandoff?: boolean;
 }): Promise<{ text: string; held: AssistantEntry | null }> {
   const { threadId, member } = o;
   const key = runKey(threadId, member.id);
@@ -1158,9 +1142,8 @@ async function speak(o: {
           held = full;
           return full;
         }
-        const marked = o.interceptHandoff ? await withHandoff(full) : full;
-        await appendEntry(threadId, marked);
-        return marked;
+        await appendEntry(threadId, full);
+        return full;
       },
       onSpawn: (child) => {
         const run = running.get(key);
@@ -1173,45 +1156,13 @@ async function speak(o: {
       // Only the chair streams its tokens: three advisors writing at once onto a
       // phone is noise, and a chip saying who is speaking carries the same
       // information for none of the traffic.
-      onChange: (live) => announce(o.room, member.chair ? live : ""),
+      onChange: (live) => announce(member.chair ? live : ""),
     });
     return { text, held };
   } finally {
     running.delete(key);
-    announce(o.room);
+    announce();
   }
-}
-
-/**
- * The handoff line, which is the assistant pointing rather than pulling.
- *
- * The assistant has no council: it answers alone, and the one thing it can do
- * with a question that is squarely somebody else's is say so. A trailing line
- * naming them becomes a mark on the entry, which the screen draws as a button
- * that carries the question into the council — so the person spends the
- * meeting, deliberately, rather than the assistant spending it for them.
- *
- * A line naming nobody who exists is left exactly where it is. Stripping it
- * would delete a sentence the model meant, and this one is at the end of a real
- * answer rather than instead of one.
- */
-const HANDOFF_RE = /\n\s*theirs:\s*([a-z0-9-]+(?:\s*,\s*[a-z0-9-]+)*)\s*$/i;
-
-async function withHandoff(entry: AssistantEntry): Promise<AssistantEntry> {
-  if (entry.role !== "assistant") return entry;
-  const match = HANDOFF_RE.exec(entry.text.trimEnd());
-  if (!match) return entry;
-  const ids: string[] = [];
-  for (const id of new Set(match[1].split(",").map((i) => i.trim()))) {
-    const member = await getMember(id);
-    if (member && member.enabled && !member.chair) ids.push(member.id);
-  }
-  if (!ids.length) return entry;
-  return {
-    ...entry,
-    text: entry.text.trimEnd().slice(0, match.index).trimEnd(),
-    tools: [...entry.tools, { name: "handoff", detail: ids.join(",") }],
-  };
 }
 
 /** Whether a reply is nothing but a request for advisors. */
@@ -1300,24 +1251,18 @@ function tableTurn(question: string, said: { name: string; text: string }[]): st
 }
 
 /**
- * Run one turn of a room: record what was asked, ask claude, record what came
- * back.
+ * Run one turn: record what was asked, ask claude, record what came back.
  *
- * In the assistant's room there is one shape: it answers, alone, which is what
- * a turn cost before any of this existed. It may end by naming whose question
- * it really was, and that is a mark on the screen rather than a meeting it
- * called.
- *
- * In the council's room there are three, and which one runs is decided by what
- * was typed and by what the chair says first:
+ * Three shapes, and which one runs is decided by what was typed and by what
+ * the chair says first:
  *
  * - `@michael ...` goes straight to that advisor. One call, no chair.
- * - the chair answers the room itself. One turn.
+ * - the chair answers itself. One turn, which is what a question cost before
+ *   there was a council, and what most questions still cost.
  * - the chair opens with `convene:` or `discuss:`, the advisors named answer,
  *   and the chair is asked once more with what they said.
  */
 export async function send(
-  room: ChatRoom,
   prompt: string,
   images: string[] = [],
   roundTable = false,
@@ -1325,14 +1270,13 @@ export async function send(
   // Taken before anything is awaited, which is the whole of why it is a plain
   // flag: everything below this line yields, and a guard that yields first is
   // one two requests walk through together.
-  const state = rooms[room];
-  if (state.turn) throw new Error("a turn is still running");
-  state.turn = true;
+  if (chat.turn) throw new Error("a turn is still running");
+  chat.turn = true;
 
   let threadId = "";
   try {
-    threadId = await currentConversation(room);
-    state.thread = threadId;
+    threadId = await currentConversation();
+    chat.thread = threadId;
     cancelled.delete(threadId);
 
     await appendEntry(threadId, {
@@ -1343,9 +1287,9 @@ export async function send(
       id: randomUUID(),
       at: new Date().toISOString(),
     });
-    announce(room);
+    announce();
 
-    const direct = room === "council" ? await addressed(prompt) : null;
+    const direct = await addressed(prompt);
     if (direct?.everyone) {
       // Nobody has to decide who this belongs to: it was put to the room. The
       // chair's opening turn is skipped entirely, so asking everybody costs one
@@ -1353,21 +1297,18 @@ export async function send(
       await runEveryone(threadId, direct, roundTable);
     } else if (direct) {
       await speak({
-        room,
         threadId,
         member: direct.members[0],
         systemPrompt: await memberSystemPrompt(direct.members[0]),
         prompt: direct.rest,
         images,
       });
-    } else if (room === "council") {
-      await runChair(threadId, prompt, images, roundTable);
     } else {
-      await runAlone(threadId, prompt, images);
+      await runChair(threadId, prompt, images, roundTable);
     }
   } finally {
-    state.turn = false;
-    state.thread = null;
+    chat.turn = false;
+    chat.thread = null;
     // Whatever happened, nothing should be left marked as speaking.
     for (const key of [...running.keys()]) {
       if (running.get(key)?.threadId === threadId) running.delete(key);
@@ -1380,30 +1321,9 @@ export async function send(
   // once per advisor.
   await injectMemory();
 
-  const thread = await readThread(room);
-  for (const fn of rooms[room].listeners) fn(thread);
+  const thread = await readThread();
+  for (const fn of chat.listeners) fn(thread);
   return thread;
-}
-
-/**
- * The assistant's turn: one call, and nobody else's.
- *
- * This is what the chat was before there was a council, and keeping it that way
- * is the point of the room being separate. It cannot convene — the tools that
- * would let it are not the issue, the roster simply is not offered to it — so
- * the only thing it can do with somebody else's question is say whose it is.
- */
-async function runAlone(threadId: string, prompt: string, images: string[]): Promise<void> {
-  const me = await chair();
-  await speak({
-    room: "assistant",
-    threadId,
-    member: me,
-    systemPrompt: (await chairSpeaker("assistant")).systemPrompt,
-    prompt,
-    images,
-    interceptHandoff: true,
-  });
 }
 
 /**
@@ -1430,10 +1350,9 @@ async function runChair(
   roundTable = false,
 ): Promise<void> {
   const me = await chair();
-  const speakerPrompt = (await chairSpeaker("council")).systemPrompt;
+  const speakerPrompt = (await chairSpeaker()).systemPrompt;
 
   const { held } = await speak({
-    room: "council",
     threadId,
     member: me,
     systemPrompt: speakerPrompt,
@@ -1456,7 +1375,7 @@ async function runChair(
     // exists. That is an answer, however odd, and swallowing it would leave the
     // turn silent — so it lands as written.
     await appendEntry(threadId, held);
-    announce("council");
+    announce();
     return;
   }
 
@@ -1475,7 +1394,7 @@ async function runChair(
       },
     ],
   });
-  announce("council");
+  announce();
 
   const answers = await runAdvisors(threadId, prompt, called, round);
 
@@ -1508,17 +1427,11 @@ async function runEveryone(threadId: string, asked: Addressed, roundTable: boole
     id: randomUUID(),
     at: new Date().toISOString(),
   });
-  announce("council");
+  announce();
 
   const answers = await runAdvisors(threadId, asked.rest, asked.members, round);
   if (cancelled.has(threadId)) return;
-  await closeMeeting(
-    threadId,
-    asked.rest,
-    answers,
-    round,
-    (await chairSpeaker("council")).systemPrompt,
-  );
+  await closeMeeting(threadId, asked.rest, answers, round, (await chairSpeaker()).systemPrompt);
 }
 
 /**
@@ -1537,7 +1450,6 @@ async function runAdvisors(
     return Promise.all(
       members.map(async (member) => {
         const said = await speak({
-          room: "council",
           threadId,
           member,
           systemPrompt: await memberSystemPrompt(member),
@@ -1554,7 +1466,6 @@ async function runAdvisors(
   for (const member of members) {
     if (cancelled.has(threadId)) break;
     const said = await speak({
-      room: "council",
       threadId,
       member,
       systemPrompt: await memberSystemPrompt(member),
@@ -1577,7 +1488,6 @@ async function closeMeeting(
   speakerPrompt: string,
 ): Promise<void> {
   await speak({
-    room: "council",
     threadId,
     member: await chair(),
     systemPrompt: speakerPrompt,

@@ -1,7 +1,10 @@
 # The assistant
 
-**Status: M1–M3 are built and work; M4 is proposed. The assistant and the
-council are two rooms now — see "The council" below.** The chat, the headless
+**Status: M1–M3 are built and work; M4 is proposed. The product shape is
+being superseded by ASSISTANT-V2.md, and its first milestone has landed: the
+assistant and the council are one conversation again, with the council kept
+as the mechanism behind it rather than a room of its own. Where "Two rooms"
+below describes screens and the `theirs:` handoff, it describes what was.** The chat, the headless
 runtime behind it, the thread store, explicit memory, recall over old threads,
 the tools the assistant acts through, a schedule that runs it with nobody
 watching, and the learning loop — review queue first, then the nightly harvest —

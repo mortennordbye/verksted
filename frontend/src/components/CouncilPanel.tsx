@@ -160,16 +160,17 @@ export default function CouncilPanel() {
   return (
     <section className="mt-8">
       <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-        Council
+        Specialists
       </div>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
-        {members.length} in the room
+        {members.length} on the bench
       </h2>
       <div className="mb-3 text-sm text-muted">
-        The chair answers every question and hands on the ones that belong to someone else. You can
-        also address one directly by starting a message with their @id. None of them can edit files,
-        run commands or change anything: that stays with the chair, which does it by starting a
-        session you can watch.
+        The assistant answers every question itself and brings one of these in when a question is
+        theirs; you never have to choose. You can still address one directly by starting a message
+        with their @id, or all of them with @all. None of them can edit files, run commands or
+        change anything: that stays with the assistant, which does it by starting a session you can
+        watch.
       </div>
 
       {error && (
