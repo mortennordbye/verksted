@@ -1,8 +1,14 @@
 # The assistant, second shape
 
-**Status: proposal.** Nothing here is built. It supersedes the product shape in
-ASSISTANT.md (two rooms, the council as a place you go, the chat as the front
-door) and keeps its runtime and its safety reasoning, which are sound. Where this
+**Status: being built, milestone by milestone, on PR #99 and the branches
+after it.** Milestone 0 (prove the pipes) waits on a week in the pod and is the
+owner's. Milestones 1 (one door), 2 (Today, profile, journal) and 3 (feed, pollers,
+triage, loops) are built and verified. Nothing from 4 onward is started. This block is updated as each lands, so the plan and
+its state stay in one file.
+
+It supersedes the product shape in ASSISTANT.md (two rooms, the council as a
+place you go, the chat as the front door) and keeps its runtime and its safety
+reasoning, which are sound. Where this
 document and ASSISTANT.md disagree about what the user sees, this one wins once
 accepted; where they disagree about how a process is spawned or what a tool may
 do, ASSISTANT.md still describes the code.

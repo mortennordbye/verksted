@@ -84,6 +84,10 @@ export const env = {
   MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
   // The council: one JSON file per member (see council-store.ts).
   COUNCIL_DIR: process.env.COUNCIL_DIR ?? "/data/council",
+  // The feed: what happened, one JSON file per item (see feed-store.ts).
+  FEED_DIR: process.env.FEED_DIR ?? "/data/feed",
+  // Open loops: what you owe or are owed, one JSON file each (see loops-store.ts).
+  LOOPS_DIR: process.env.LOOPS_DIR ?? "/data/loops",
   // The maintainer's stage prompts, shipped in the image (see maintainer.ts).
   MAINTAINER_DIR: process.env.MAINTAINER_DIR ?? "/etc/verksted/maintainer",
   // The plan's windows, sampled hourly (see plan.ts): one JSONL, on the PVC.

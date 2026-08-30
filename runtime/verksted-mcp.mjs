@@ -557,6 +557,89 @@ const TOOLS = [
       ),
   },
   {
+    name: "feed",
+    description:
+      "What has arrived lately that is not done: GitHub notifications, the maintainer's queue, runs that signed off, proposals waiting for review, sessions waiting on the person. One line each, newest first, attention first. Read it when asked what is new or what needs them; status covers the bench itself.",
+    inputSchema: { type: "object", properties: {} },
+    unattended: true,
+    run: async () => {
+      const items = (await call("GET", "/api/feed")).filter((i) => i.state !== "done");
+      const rank = { attention: 0, new: 1, quiet: 2 };
+      items.sort((a, b) => rank[a.urgency] - rank[b.urgency]);
+      return rows(
+        items.slice(0, 40),
+        (i) =>
+          `${i.id} [${i.urgency}${i.state === "snoozed" ? ", snoozed" : ""}] ${i.title}: ${i.detail}${i.loop ? ` (loop ${i.loop})` : ""}`,
+      );
+    },
+  },
+  {
+    name: "feed_done",
+    description:
+      "Mark a feed item as dealt with, saying what you did about it in a few words. Use it after you acted on something from the feed, so the row says so.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, did: { type: "string" } },
+      required: ["id", "did"],
+    },
+    run: (a) =>
+      call("POST", `/api/feed/${encodeURIComponent(a.id)}/did`, { did: a.did }).then(
+        () => `marked ${a.id}`,
+      ),
+  },
+  {
+    name: "brief_material",
+    description:
+      "Everything a briefing reads, in one call: what arrived since the last look, the open loops, what is running or waiting, and the last few days' journal. Reach for it first on a briefing and do not follow it with lookups it already answered.",
+    inputSchema: { type: "object", properties: {} },
+    unattended: true,
+    run: () => call("GET", "/api/feed/material").then((r) => r.text),
+  },
+  {
+    name: "loops",
+    description:
+      "The open loops: what the person owes and is owed, due first. One line each with the slug, so one can be closed by name.",
+    inputSchema: { type: "object", properties: {} },
+    unattended: true,
+    run: async () => {
+      const open = (await call("GET", "/api/loops")).filter((l) => l.state === "open");
+      return rows(
+        open,
+        (l) => `${l.slug}: ${l.what}${l.who ? ` (${l.who})` : ""}${l.due ? `, due ${l.due}` : ""}`,
+      );
+    },
+  },
+  {
+    name: "open_loop",
+    description:
+      "Open a loop: something the person owes or is owed, from 'remind me', 'I need to', 'they owe me', or anything you notice they will have to come back to. What, who it involves if anyone, and the due date if one is known. Say in one line that you did.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        what: { type: "string" },
+        who: { type: "string" },
+        due: { type: "string", description: "YYYY-MM-DD" },
+      },
+      required: ["what"],
+    },
+    run: (a) =>
+      call("POST", "/api/loops", {
+        what: a.what,
+        ...(a.who ? { who: a.who } : {}),
+        ...(a.due ? { due: a.due } : {}),
+        from: "the assistant",
+      }).then((l) => `opened ${l.slug}${l.due ? `, due ${l.due}` : ""}`),
+  },
+  {
+    name: "close_loop",
+    description: "Close a loop by its slug, because it is done or no longer matters.",
+    inputSchema: { type: "object", properties: { slug: { type: "string" } }, required: ["slug"] },
+    run: (a) =>
+      call("POST", `/api/loops/${encodeURIComponent(a.slug)}/close`).then(
+        (l) => `closed ${l.slug}: ${l.what}`,
+      ),
+  },
+  {
     name: "person_note",
     description:
       "Add one line to the profile of the person you work for: a person who matters and how they relate, an account, a standing date or arrangement, a rule about what counts as urgent or when not to be interrupted. Something they just told you about themselves needs no permission: note it and say in one line that you did. Not for facts about repos, which are remember's.",

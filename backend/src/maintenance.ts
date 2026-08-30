@@ -1,6 +1,8 @@
 import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
+import { sweep } from "./feed-store.js";
+import { runTriage } from "./scheduler.js";
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -54,6 +56,24 @@ export function startMaintenance(log: Logger): void {
       log.warn(err, "browser reap failed");
     }
   }, 60_000);
+
+  // Triage looks for unjudged items every minute and spaces itself out; the
+  // feed's done items go after thirty days, checked daily.
+  setInterval(async () => {
+    try {
+      await runTriage(log);
+    } catch (err) {
+      log.warn(err, "triage failed");
+    }
+  }, 60_000);
+  setInterval(async () => {
+    try {
+      const n = await sweep();
+      if (n) log.info(`feed: ${n} done item(s) swept`);
+    } catch (err) {
+      log.warn(err, "feed sweep failed");
+    }
+  }, PRUNE_EVERY_MS);
 
   setInterval(async () => {
     try {

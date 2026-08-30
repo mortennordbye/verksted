@@ -1,3 +1,4 @@
+import { env } from "./env.js";
 import { exec } from "./exec.js";
 import { execEnv } from "./settings-store.js";
 import type { PullRequest, RunLog } from "../../shared/api.js";
@@ -53,6 +54,24 @@ export async function ghJson<T>(
   } catch {
     throw new GhError(502, "unreadable gh output");
   }
+}
+
+/** One thread from `gh api notifications`, the fields the feed reads. */
+export interface Notification {
+  id: string;
+  reason: string;
+  updated_at: string;
+  subject: { title: string; type: string; url: string | null };
+  repository: { full_name: string; html_url: string };
+}
+
+/**
+ * The account's unread notifications: review requests, mentions, CI on your
+ * branches. Account-wide, so it runs in no repo; REPOS_DIR is only a cwd that
+ * exists. Fifty is more than a person reads in five minutes.
+ */
+export async function ghNotifications(): Promise<Notification[]> {
+  return ghJson<Notification[]>(env.REPOS_DIR, ["api", "notifications?per_page=50"]);
 }
 
 /** Map a failed gh call to a status and a message that says what to do about it. */

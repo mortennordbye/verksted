@@ -8,6 +8,7 @@ import { stop as stopVoice } from "./tts.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNightly as startNightlyBackup } from "./backups-store.js";
 import { startNotifier } from "./notifier.js";
+import { startPollers } from "./pollers.js";
 import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { seedCouncil } from "./council-store.js";
@@ -42,6 +43,7 @@ await seedCouncil();
 await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
 startNotifier(app.log);
+startPollers(app.log);
 startMaintenance(app.log);
 startNightlyBackup(app.log);
 // A pod killed mid-write leaves a temp file behind; sessions sweep theirs in

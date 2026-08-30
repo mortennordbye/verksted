@@ -771,12 +771,15 @@ describe("a schedule that runs the assistant", () => {
     vi.resetModules();
     const fresh = await import("../src/scheduler.js");
 
-    for (let i = 0; i < 12; i++) expect(await fresh.runSchedule(s.id, log)).not.toBeNull();
-    const thirteenth = await fresh.runSchedule(s.id, log);
+    // Sixty since triage joined the count: a busy day is twenty or thirty
+    // small triage calls, and a backstop that bit on an ordinary day would be
+    // a budget rather than a backstop.
+    for (let i = 0; i < 60; i++) expect(await fresh.runSchedule(s.id, log)).not.toBeNull();
+    const overflow = await fresh.runSchedule(s.id, log);
 
-    expect(thirteenth).toBeNull();
+    expect(overflow).toBeNull();
     expect((await store.getSchedule(s.id))!.lastError).toContain("already ran today");
-    expect(fake.argvFor("claude")).toHaveLength(12);
+    expect(fake.argvFor("claude")).toHaveLength(60);
   });
 
   it("keeps its threads out of the ones recall searches", async () => {
