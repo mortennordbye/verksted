@@ -18,6 +18,14 @@ interface StoredRun {
   sessionId: string | null;
   error: string | null;
   /**
+   * Whether that error was the run breaking rather than the schedule deciding
+   * not to start one. A ceiling, an empty queue and a previous run still open
+   * are the schedule working as designed; a turn that could not authenticate
+   * and a tmux that would not start are not. Absent on every record written
+   * before the difference was kept, which reads as the deciding kind.
+   */
+  broke?: boolean;
+  /**
    * What an assistant run replied. A session run has none: its verdict lives in
    * the report file the session wrote, and is read back by id.
    */
@@ -229,7 +237,7 @@ export async function stampFired(id: string): Promise<void> {
 /** Stamp the outcome of a run: the session it started, or why it started none. */
 export async function recordRun(
   id: string,
-  result: { sessionId?: string; reply?: string; error?: string },
+  result: { sessionId?: string; reply?: string; error?: string; broke?: boolean },
 ): Promise<void> {
   const stored = await readStored(id);
   if (!stored) return;
@@ -237,6 +245,7 @@ export async function recordRun(
     at: new Date().toISOString(),
     sessionId: result.sessionId ?? null,
     error: result.error ?? null,
+    ...(result.broke ? { broke: true } : {}),
     reply: result.reply ?? null,
   };
   await write({ ...stored, runs: [run, ...(stored.runs ?? [])].slice(0, MAX_RUNS) });
@@ -252,7 +261,7 @@ function outcome(
   report: string | null,
   session: Session | undefined,
 ): ScheduleRun["outcome"] {
-  if (run.error) return "blocked";
+  if (run.error) return run.broke ? "failed" : "blocked";
   if (report) {
     if (/^attention\b/i.test(report)) return "attention";
     if (/^failed\b/i.test(report)) return "failed";

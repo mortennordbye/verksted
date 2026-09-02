@@ -234,7 +234,10 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
   refundCeiling(reserved - turns);
   if (failed || !text) {
     const error = text || "the turn produced nothing";
-    await schedules.recordRun(id, { error });
+    // The turn broke rather than the schedule deciding not to run: an expired
+    // login reads the same as a ceiling otherwise, and a login nobody renews
+    // takes every schedule with it silently.
+    await schedules.recordRun(id, { error, broke: true });
     log.warn({ schedule: id }, `assistant schedule ${id} failed: ${error}`);
     return null;
   }
@@ -343,7 +346,7 @@ async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
   } catch (err) {
     // A deleted project, a tmux that would not start: record it for the UI
     // rather than letting it escape into an unhandled rejection.
-    await schedules.recordRun(id, { error: reason(err) });
+    await schedules.recordRun(id, { error: reason(err), broke: true });
     log.warn(err, `schedule ${id} failed`);
     return null;
   }
@@ -444,10 +447,40 @@ export function startFeedWork(log: Logger): void {
   });
 }
 
+/**
+ * End a scheduled session that has signed off.
+ *
+ * A schedule's own session runs the TUI rather than a headless agent: it writes
+ * its report and then sits at the prompt, because nothing tells it the run is
+ * over. tmux keeps listing it, the schedule refuses to overlap itself, and the
+ * next night is skipped for a run that finished at 02:00 — which is how one
+ * lapsed login cost three nights of renders. This is the mechanical half of
+ * what the tidy-up assistant did by hand, and the half that has to keep working
+ * when the assistant itself cannot authenticate.
+ *
+ * Only the session each schedule is waiting on, and only once it has written a
+ * verdict: a run that stopped to ask something has no report and is left where
+ * it is, which is what the amber chip is for. Writing the report is the agent
+ * saying it is done, so a person who wants to carry on from there starts a
+ * session of their own.
+ */
+export async function endSignedOffRuns(log: Logger): Promise<void> {
+  for (const schedule of await schedules.listSchedules()) {
+    const id = schedule.lastSessionId;
+    if (!id) continue;
+    const session = await getSession(id);
+    // Unattended runs are watchUnattended's; it ends them on the agent's exit.
+    if (!session || session.unattended || session.status === "done" || !session.report) continue;
+    await endSession(id);
+    log.info(`scheduled session ${id} ended: ${session.report}`);
+  }
+}
+
 export function reloadSchedules(log: Logger): Promise<void> {
   if (!watcher) {
     watcher = setInterval(() => {
       void watchUnattended(log).catch((err) => log.warn(err, "unattended watch failed"));
+      void endSignedOffRuns(log).catch((err) => log.warn(err, "signed-off sweep failed"));
     }, WATCH_EVERY_MS);
     // A timer must not be what keeps the process alive.
     watcher.unref();

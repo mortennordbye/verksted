@@ -68,8 +68,29 @@ function timeOf(iso: string): string {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-/** A row that needs you, and where it goes. */
-function Need({ to, chip, text }: { to: string; chip: "wait" | "fail"; text: string }) {
+/** How many of a schedule's firings in a row ended the way this one did. */
+function streak(runs: ScheduleRun[], run: ScheduleRun): number {
+  const own = runs.filter((r) => r.scheduleId === run.scheduleId);
+  const ended = own.findIndex((r) => r.outcome !== run.outcome);
+  return ended === -1 ? own.length : ended;
+}
+
+/**
+ * A row that needs you, and where it goes. `runs` is how many firings in a row
+ * ended this way, shown from two: one bad night and four are the same row
+ * otherwise, and the difference is the whole triage.
+ */
+function Need({
+  to,
+  chip,
+  text,
+  runs = 1,
+}: {
+  to: string;
+  chip: "wait" | "fail";
+  text: string;
+  runs?: number;
+}) {
   return (
     <Link
       to={to}
@@ -77,6 +98,7 @@ function Need({ to, chip, text }: { to: string; chip: "wait" | "fail"; text: str
     >
       <StatusChip kind={chip} label={chip === "wait" ? "needs you" : "failed"} />
       <span className="min-w-0 flex-1 truncate text-[13.5px]">{text}</span>
+      {runs > 1 && <span className="flex-none font-mono text-[11px] text-faint">{runs} runs</span>}
       <span className="flex-none text-[13px] text-faint">→</span>
     </Link>
   );
@@ -216,7 +238,14 @@ export default function Today() {
 
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
   const running = (sessions ?? []).filter((s) => s.status === "running");
-  const flagged = (runs ?? []).filter((r) => r.outcome === "attention" || r.outcome === "failed");
+  // One row per schedule, and only while the flagged run is its newest: three
+  // nights of the same failure are one problem, and a schedule that has since
+  // gone green is none. Runs arrive newest first, so the first of each is it.
+  const newestRun = new Map<string, ScheduleRun>();
+  for (const r of runs ?? []) if (!newestRun.has(r.scheduleId)) newestRun.set(r.scheduleId, r);
+  const flagged = [...newestRun.values()].filter(
+    (r) => r.outcome === "attention" || r.outcome === "failed",
+  );
   const proposals = proposed?.proposals.length ?? 0;
   // The brief is the newest thing an assistant schedule said. A run that
   // started a session is not one: its report is a repo's, not the morning's.
@@ -255,10 +284,11 @@ export default function Today() {
                   ))}
                   {flagged.map((r) => (
                     <Need
-                      key={`${r.scheduleId}-${r.at}`}
+                      key={r.scheduleId}
                       to={r.sessionId ? `/s/${r.sessionId}` : "/runs"}
                       chip={r.outcome === "failed" ? "fail" : "wait"}
                       text={`${r.schedule}: ${r.report ?? r.error ?? ""}`}
+                      runs={streak(runs ?? [], r)}
                     />
                   ))}
                   {proposals > 0 && (

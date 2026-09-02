@@ -807,6 +807,82 @@ describe("a schedule that runs the assistant", () => {
     expect((await store.getSchedule(s.id))!.lastError).toBeTruthy();
     expect((await store.getSchedule(s.id))!.lastReport).toBeNull();
   });
+
+  it("reads a turn that could not run as failed, not as a schedule holding off", async () => {
+    // The one that cost five nights: a lapsed login made every assistant run
+    // record an error, errors all read as "blocked", and blocked is the word
+    // for a schedule deciding not to start — so the screen that says what
+    // needs you showed the symptoms and never the cause.
+    fake.reply("claude", "-p", {
+      stdout: "",
+      code: 1,
+      stderr: "Failed to authenticate: OAuth session expired and could not be refreshed",
+    });
+    const s = await assistantSchedule("what needs me today?");
+
+    await scheduler.runSchedule(s.id, log);
+
+    const run = (await store.listRuns()).find((r) => r.scheduleId === s.id)!;
+    expect(run.outcome).toBe("failed");
+    expect(run.error).toContain("OAuth session expired");
+  });
+
+  it("still reads a ceiling or an empty queue as the schedule holding off", async () => {
+    const s = await schedule("check the open PRs");
+    const first = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+
+    await scheduler.runSchedule(s.id, log);
+
+    const run = (await store.listRuns()).find((r) => r.scheduleId === s.id)!;
+    expect(run.outcome).toBe("blocked");
+    expect(run.error).toMatch(/still open/);
+  });
+});
+
+describe("a scheduled session that has signed off", () => {
+  /** The verdict the run wrote for itself, in the file the prompt names. */
+  function signOff(id: string, line: string) {
+    fs.writeFileSync(path.join(sessionsDir, `${id}.report`), `${line}\n`);
+  }
+
+  it("is ended, so the next night is not skipped for a run that finished at 02:00", async () => {
+    const s = await schedule("render tonight's queue");
+    const session = await sessionFrom(s.id);
+    // A schedule's session runs the TUI: it writes its report and then sits at
+    // the prompt, so tmux goes on listing it until somebody ends it.
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    signOff(session!.id, "ok: nothing to render");
+
+    await scheduler.endSignedOffRuns(log);
+
+    expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
+      `=${session!.id}`,
+    );
+  });
+
+  it("is left alone while it has written nothing, because it may be asking", async () => {
+    const s = await schedule("render tonight's queue");
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+
+    await scheduler.endSignedOffRuns(log);
+
+    expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+  });
+
+  it("leaves an unattended run to the watch that knows when its agent exited", async () => {
+    const s = await stageSchedule();
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${session!.id}\n` });
+    signOff(session!.id, "ok: nothing to scout");
+
+    await scheduler.endSignedOffRuns(log);
+
+    // Its agent has not exited yet; ending it here would cut a headless run
+    // short and skip the worktree cleanup watchUnattended does after it.
+    expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+  });
 });
 
 describe("a tick the pod was down for", () => {
