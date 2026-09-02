@@ -209,6 +209,41 @@ export async function skipForIdle(schedule: Schedule): Promise<boolean> {
 }
 
 /**
+ * Record a run that broke, and wake someone the first time it does.
+ *
+ * Everything else that shouts goes through triage, and triage is an assistant
+ * turn: when the pod cannot authenticate, the thing that would say so is the
+ * thing that died. Five nights of scheduled work failed in silence that way,
+ * because a run that starts no session has no status change for the notifier
+ * to catch either. This is the one push the scheduler sends itself, and it
+ * asks nothing of a model to send it.
+ *
+ * On the edge only — the first break after a run that worked. A fault nobody
+ * has fixed yet is on Today with a count beside it, which is where a standing
+ * problem belongs; it must not push again every night.
+ */
+async function recordBreak(schedule: Schedule, error: string, log: Logger): Promise<void> {
+  const first = !(await schedules.lastRunBroke(schedule.id));
+  await schedules.recordRun(schedule.id, { error, broke: true });
+  if (!first) return;
+  try {
+    await announce(
+      {
+        title: `${schedule.name} could not run`,
+        body: error.slice(0, 500),
+        url: "/runs",
+        tag: "rotating_light",
+        priority: "high",
+      },
+      log,
+    );
+  } catch (err) {
+    // The run is recorded either way; the phone is the part that failed.
+    log.warn(err, `could not push the break on ${schedule.id}`);
+  }
+}
+
+/**
  * An assistant firing: one unattended turn, and what it said is the report.
  *
  * None of the session ceilings apply — it starts no session, holds no tmux and
@@ -237,7 +272,7 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
     // The turn broke rather than the schedule deciding not to run: an expired
     // login reads the same as a ceiling otherwise, and a login nobody renews
     // takes every schedule with it silently.
-    await schedules.recordRun(id, { error, broke: true });
+    await recordBreak(schedule, error, log);
     log.warn({ schedule: id }, `assistant schedule ${id} failed: ${error}`);
     return null;
   }
@@ -346,7 +381,7 @@ async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
   } catch (err) {
     // A deleted project, a tmux that would not start: record it for the UI
     // rather than letting it escape into an unhandled rejection.
-    await schedules.recordRun(id, { error: reason(err), broke: true });
+    await recordBreak(schedule, reason(err), log);
     log.warn(err, `schedule ${id} failed`);
     return null;
   }

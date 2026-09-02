@@ -252,6 +252,16 @@ export async function recordRun(
 }
 
 /**
+ * Whether the newest run of this schedule broke.
+ *
+ * What the scheduler's own push is edged on: the first break after a run that
+ * worked is worth a phone, and the fourth night of the same one is not.
+ */
+export async function lastRunBroke(id: string): Promise<boolean> {
+  return (await readStored(id))?.runs?.[0]?.broke === true;
+}
+
+/**
  * A run rolled into one word. What it said about itself wins — that is the
  * whole point of asking it to sign off — and only a run that said nothing is
  * judged by where it got to instead.

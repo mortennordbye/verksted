@@ -120,6 +120,12 @@ beforeAll(async () => {
   sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
   schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
   process.env.ASSISTANT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-assist-"));
+  // The scheduler pushes a broken run itself. Both channels are wired here so
+  // that path is the real one: the devices file lands in a temp dir rather than
+  // /data, and the topic is a port nothing listens on, so a test that does not
+  // stub fetch fails the send instantly and swallows it, as the pod would.
+  process.env.PUSH_FILE = path.join(process.env.ASSISTANT_DIR, "push.json");
+  process.env.NTFY_URL = "http://127.0.0.1:1/verksted";
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = schedulesDir;
@@ -837,6 +843,73 @@ describe("a schedule that runs the assistant", () => {
     const run = (await store.listRuns()).find((r) => r.scheduleId === s.id)!;
     expect(run.outcome).toBe("blocked");
     expect(run.error).toMatch(/still open/);
+  });
+});
+
+describe("a run that could not run at all", () => {
+  interface Push {
+    body: string;
+    headers: Record<string, string>;
+  }
+
+  /** Every ntfy push sent while the callback ran. */
+  async function pushes(fn: () => Promise<unknown>): Promise<Push[]> {
+    const sent: Push[] = [];
+    const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      const req = (init ?? {}) as { body?: string; headers?: Record<string, string> };
+      sent.push({ body: req.body ?? "", headers: req.headers ?? {} });
+      return new Response("", { status: 200 });
+    });
+    try {
+      await fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return sent;
+  }
+
+  it("wakes someone the first time, since the thing that would say so is what died", async () => {
+    // Triage is an assistant turn and the notifier watches sessions, so a
+    // briefing that cannot authenticate has neither a judge nor a transition.
+    // Nothing pushed for five nights. This is the push the scheduler sends.
+    fake.reply("claude", "-p", {
+      stdout: "",
+      code: 1,
+      stderr: "Failed to authenticate: OAuth session expired and could not be refreshed",
+    });
+    const s = await assistantSchedule("what needs me today?");
+
+    const sent = await pushes(() => scheduler.runSchedule(s.id, log));
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].headers["X-Title"]).toBe("briefing could not run");
+    expect(sent[0].body).toContain("OAuth session expired");
+    expect(sent[0].headers["X-Priority"]).toBe("high");
+  });
+
+  it("says it once, not every night it stays broken", async () => {
+    fake.reply("claude", "-p", { stdout: "", code: 1, stderr: "not logged in" });
+    const s = await assistantSchedule("what needs me today?");
+
+    const sent = await pushes(async () => {
+      await scheduler.runSchedule(s.id, log);
+      await scheduler.runSchedule(s.id, log);
+      await scheduler.runSchedule(s.id, log);
+    });
+
+    // A standing fault belongs on Today with a count beside it, not on a phone
+    // at 05:00 for the fourth morning running.
+    expect(sent).toHaveLength(1);
+  });
+
+  it("says nothing when the schedule simply held off", async () => {
+    const s = await schedule("render tonight's queue");
+    const first = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: `${first!.id}\n` });
+
+    const sent = await pushes(() => scheduler.runSchedule(s.id, log));
+
+    expect(sent).toEqual([]);
   });
 });
 
