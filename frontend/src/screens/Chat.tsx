@@ -3,6 +3,7 @@ import type { AssistantThread, AssistantThreadSummary, CouncilMember } from "../
 import { agoLabel, api, usePoll } from "../api";
 import Room from "../components/Room";
 import Sheet from "../components/Sheet";
+import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
@@ -152,7 +153,7 @@ function Toggle({
       onClick={onClick}
       title={title}
       aria-pressed={on}
-      className={`rounded-md px-1.5 py-1 font-medium hover:text-text ${
+      className={`tap-hit rounded-md px-1.5 py-1 font-medium hover:text-text ${
         on ? "text-accent" : "text-faint"
       }`}
     >
@@ -179,7 +180,7 @@ function Chip({
       onClick={onClick}
       title={title}
       aria-pressed={on}
-      className={`rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
+      className={`tap-hit rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
         on ? "bg-line-strong text-text" : "text-muted hover:text-text"
       }`}
     >
@@ -426,13 +427,13 @@ export default function Chat() {
 
   return (
     <div className="flex h-full flex-col">
-      <TopBar crumb={[{ label: "assistant" }]} back="/" />
+      <TopBar crumb={[{ label: "assistant" }]} />
 
       <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pt-4 pb-3">
         {/* The count reads left, the controls sit together on the right. The
             switch is a plain word; the two that change which thread you are in
             are the lifted ones. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[12px] text-faint">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 text-[12px] text-faint">
           {turns > 0 && (
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
@@ -456,7 +457,7 @@ export default function Chat() {
             <button
               onClick={() => setBrowsing(true)}
               disabled={thinking}
-              className="ml-1 rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
+              className="tap-hit ml-1 rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
             >
               threads
             </button>
@@ -464,7 +465,7 @@ export default function Chat() {
               <button
                 onClick={() => void newThread()}
                 disabled={thinking}
-                className="rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
+                className="tap-hit rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
               >
                 new thread
               </button>
@@ -501,7 +502,11 @@ export default function Chat() {
         <div ref={endRef} />
       </main>
 
-      <div className="mx-auto w-full max-w-[800px] flex-none px-[18px] pb-[max(14px,env(safe-area-inset-bottom))]">
+      {/* Clear of the bottom bar on a phone, and back to its own inset where
+          there is none. The thread is one of the four doors and was the only
+          one without them: leaving it meant the back arrow, which is not what
+          a door is. */}
+      <div className="mx-auto w-full max-w-[800px] flex-none px-[18px] pb-[calc(58px+env(safe-area-inset-bottom))] min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))]">
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
@@ -705,6 +710,8 @@ export default function Chat() {
           </div>
         </div>
       </div>
+
+      <Tabs />
 
       {browsing && (
         <Threads

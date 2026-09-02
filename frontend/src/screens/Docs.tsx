@@ -337,11 +337,18 @@ function Viewer({
             href={rawUrl(path)}
             target="_blank"
             rel="noreferrer"
-            className="ml-auto flex-none px-2 text-faint hover:text-text"
+            className="tap ml-auto flex flex-none items-center px-2 text-faint hover:text-text"
           >
             open
           </a>
-          <button onClick={onClose} className="flex-none px-2 text-faint hover:text-text">
+          {/* 18px glyphs, and one of them the way out of a full-screen overlay
+              on a phone. `tap-sq` is what the rest of the app gives an icon
+              with no label of its own. */}
+          <button
+            onClick={onClose}
+            aria-label="close"
+            className="tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text"
+          >
             ✕
           </button>
         </div>

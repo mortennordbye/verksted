@@ -255,7 +255,7 @@ export default function Today() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <TopBar />
+      <TopBar crumb={[{ label: "today" }]} />
       <main className="mx-auto w-full max-w-[1100px] flex-1 px-[18px] pt-[22px] pb-[calc(96px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
         <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_300px]">
           <section className="flex min-w-0 flex-col gap-7">

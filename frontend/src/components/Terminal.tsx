@@ -963,7 +963,7 @@ export default function Terminal({
                 setAuthUrl(null);
                 setCopied(false);
               }}
-              className="flex-none rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
+              className="tap-sq flex flex-none items-center justify-center rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
               aria-label="dismiss sign-in link"
             >
               ✕

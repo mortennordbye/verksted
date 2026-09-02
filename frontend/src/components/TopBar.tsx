@@ -1,7 +1,7 @@
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
-import { TabLinks } from "./Tabs";
+import { isTabRoute, TabLinks } from "./Tabs";
 
 /**
  * A count worth interrupting for, in the corner of whatever carries it. Nothing
@@ -119,11 +119,18 @@ export default function TopBar({
   // the queue is the one thing in the inbox that arrives without a session or a
   // run to announce it. Polled slowly on purpose — it changes once a night.
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
+  // One rule for the whole app, read off the route rather than passed in by
+  // each screen: the four doors carry the four as words and no back arrow,
+  // since every one of them is one tap away; anything you drilled into carries
+  // the arrow and its trail. Screens used to decide this for themselves and
+  // drifted — the inbox kept a trail and lost the nav, the thread kept a back
+  // arrow the bottom bar made redundant.
+  const onTab = isTabRoute(useLocation().pathname);
   return (
     <header
       className={`sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
     >
-      {back !== undefined && <BackButton to={back} />}
+      {back !== undefined && !onTab && <BackButton to={back} />}
       {/* The mark is a dot with a halo, carried over from the northlight header,
           rather than the mono lockup and blinking block it replaces — that read
           as a CLI that happens to have a web page. The dot is the accent, so it
@@ -173,7 +180,7 @@ export default function TopBar({
       )}
       <div className="ml-auto flex flex-none items-center gap-4">
         {/* The four screens, as words, where there is room for words. */}
-        {!crumb?.length && <TabLinks />}
+        {onTab && <TabLinks />}
         <IconLink
           to="/runs"
           title="inbox — what the schedules did"

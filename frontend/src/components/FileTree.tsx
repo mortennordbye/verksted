@@ -72,7 +72,7 @@ export default function FileTree({
               onClick={() => picker.current?.click()}
               disabled={busy}
               title="upload file to the repo root"
-              className="ml-auto normal-case tracking-normal text-muted hover:text-text disabled:opacity-50"
+              className="tap-hit ml-auto normal-case tracking-normal text-muted hover:text-text disabled:opacity-50"
             >
               {busy ? "…" : "⤒ upload"}
             </button>

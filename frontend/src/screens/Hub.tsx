@@ -277,7 +277,7 @@ export default function Hub() {
 
   return (
     <>
-      <TopBar />
+      <TopBar crumb={[{ label: "bench" }]} />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[calc(80px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
         {/* Above the projects, because it is not one. One door: whoever ends
             up answering, this is where you ask. */}
