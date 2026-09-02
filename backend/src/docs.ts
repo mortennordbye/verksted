@@ -59,6 +59,17 @@ async function root(): Promise<string> {
   return env.DOCS_DIR;
 }
 
+/**
+ * One document's real path on the share, for the route that streams its bytes.
+ *
+ * The same resolveInside every other read here goes through: a realpath check,
+ * so neither `..` nor a symlink out of the share resolves to anything the
+ * route will open. Throws when nothing is mounted, which the route answers 503.
+ */
+export async function realPathOf(rel: string): Promise<string> {
+  return resolveInside(await root(), rel);
+}
+
 /** The share's own relative path of a real path under it. */
 function relOf(real: string, base: string): string {
   return path.relative(base, real).split(path.sep).join("/");

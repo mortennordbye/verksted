@@ -100,6 +100,41 @@ describe("the share", () => {
     expect((await app.inject({ url: "/api/docs/read?path=link.txt" })).statusCode).toBe(404);
   });
 
+  it("serves a document's own bytes, with a range when one is asked for", async () => {
+    const whole = await app.inject({ url: "/api/docs/raw?path=notes.md" });
+    expect(whole.statusCode).toBe(200);
+    expect(whole.headers["content-type"]).toBe("text/plain; charset=utf-8");
+    expect(whole.headers["content-disposition"]).toContain("inline");
+    expect(whole.headers["accept-ranges"]).toBe("bytes");
+    expect(whole.body).toBe("# Hytta\n\nKari vil male stua i mai.\n");
+
+    // What a <video> asks for, and what Safari refuses to play without.
+    const part = await app.inject({
+      url: "/api/docs/raw?path=notes.md",
+      headers: { range: "bytes=2-6" },
+    });
+    expect(part.statusCode).toBe(206);
+    expect(part.headers["content-range"]).toBe(`bytes 2-6/${whole.body.length}`);
+    expect(part.body).toBe("Hytta");
+  });
+
+  it("hands over what it will not render, and reaches nothing outside the share", async () => {
+    // Markup from the share must never run on this app's own origin: it has
+    // no auth, so a document served inline would have the whole API.
+    fs.writeFileSync(path.join(share, "page.html"), "<script>alert(1)</script>");
+    const html = await app.inject({ url: "/api/docs/raw?path=page.html" });
+    expect(html.headers["content-type"]).toBe("application/octet-stream");
+    expect(html.headers["content-disposition"]).toContain("attachment");
+    expect(html.headers["x-content-type-options"]).toBe("nosniff");
+    fs.rmSync(path.join(share, "page.html"));
+
+    expect(
+      (await app.inject({ url: "/api/docs/raw?path=../vk-outside-secret.txt" })).statusCode,
+    ).toBe(404);
+    expect((await app.inject({ url: "/api/docs/raw?path=link.txt" })).statusCode).toBe(404);
+    expect((await app.inject({ url: "/api/docs/raw?path=bil" })).statusCode).toBe(404);
+  });
+
   it("extracts what it can, skips what it cannot, and searches the result", async () => {
     const { extracted, skipped } = await docs.sweep();
     expect(extracted).toBe(2);

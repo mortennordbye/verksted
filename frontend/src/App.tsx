@@ -5,6 +5,7 @@ import ConnectionBanner from "./components/ConnectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
 import UpdateBanner from "./components/UpdateBanner";
 import Chat from "./screens/Chat";
+import Docs from "./screens/Docs";
 import Hub from "./screens/Hub";
 import Inbox from "./screens/Inbox";
 import NotFound from "./screens/NotFound";
@@ -50,6 +51,7 @@ export default function App() {
               installed the app then still has the door on its home screen. */}
           <Route path="/council" element={<Navigate to="/ai" replace />} />
           <Route path="/runs" element={<Inbox />} />
+          <Route path="/docs" element={<Docs />} />
           <Route path="/share" element={<Share />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="*" element={<NotFound />} />

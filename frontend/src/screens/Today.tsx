@@ -495,9 +495,18 @@ export default function Today() {
                 ).map(([name, on]) => (
                   <Link
                     key={name}
-                    to="/settings"
+                    // The documents are the one source with somewhere of their
+                    // own to go: the share, browsable. The rest are a light and
+                    // a link to where the credential is typed.
+                    to={name === "documents" && on ? "/docs" : "/settings"}
                     className="flex items-center gap-2 px-1 py-0.5 font-mono text-[12px] text-muted hover:text-text"
-                    title={on ? "set up" : "not set up: tap to add the credential"}
+                    title={
+                      name === "documents" && on
+                        ? "browse the share"
+                        : on
+                          ? "set up"
+                          : "not set up: tap to add the credential"
+                    }
                   >
                     <span
                       className={`h-1.5 w-1.5 flex-none rounded-full ${on ? "bg-run" : "bg-idle"}`}
