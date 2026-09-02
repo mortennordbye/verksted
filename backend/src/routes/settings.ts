@@ -18,10 +18,17 @@ async function currentSettings(): Promise<Settings> {
       SCHEDULES_DIR: env.SCHEDULES_DIR,
       SETTINGS_FILE: env.SETTINGS_FILE,
     },
-    vars: keys.map((key) => ({
-      key,
-      source: stored[key] !== undefined ? "settings" : process.env[key] ? "env" : "unset",
-    })),
+    vars: keys.map((key) => {
+      const value = stored[key] ?? process.env[key];
+      return {
+        key,
+        source: stored[key] !== undefined ? "settings" : process.env[key] ? "env" : "unset",
+        // A fingerprint rather than the value: enough to tell a token you just
+        // pasted from the one it replaced, and to see that a save landed,
+        // without a live credential rendered on a screen.
+        fingerprint: value ? settings.fingerprint(value) : null,
+      } as const;
+    }),
     schedulesPaused: await settings.schedulesPaused(),
     blockedOwners: await settings.readBlockedOwners(),
   };
@@ -102,4 +109,26 @@ export default async function settingsRoutes(app: FastifyInstance) {
       return currentSettings();
     },
   );
+
+  /**
+   * The whole value of one stored variable, for the copy button.
+   *
+   * A POST rather than a GET so it goes through the same-origin check every
+   * other write does (see origin.ts) — ordinary GETs are exempt, and this is a
+   * read of a credential rather than of the bench.
+   *
+   * Only variables stored on the settings page. One set in the deployment is
+   * answered 404: it is not this page's to hand back, and reading arbitrary
+   * names out of the server's own environment is a different power than the one
+   * this button needs.
+   */
+  app.post<{ Params: { key: string } }>("/api/settings/vars/:key/reveal", async (req, reply) => {
+    const { key } = req.params;
+    if (!settings.VAR_KEY_RE.test(key) || settings.BLOCKED_KEYS.has(key)) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    const value = (await settings.readVars())[key];
+    if (value === undefined) return reply.code(404).send({ error: "not found" });
+    return { key, value };
+  });
 }
