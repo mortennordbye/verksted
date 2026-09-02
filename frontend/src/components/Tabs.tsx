@@ -47,6 +47,18 @@ const TABS: { to: string; label: string; icon: ReactNode }[] = [
   },
 ];
 
+/**
+ * Whether a path is one of the four doors.
+ *
+ * The top bar asks, so that "which screen carries the four as words" is decided
+ * in the same place as "which screen carries them as a bottom bar" — they were
+ * two different answers before, and the inbox and the thread fell between them:
+ * the bar dropped its nav the moment a screen named itself.
+ */
+export function isTabRoute(pathname: string): boolean {
+  return TABS.some((t) => (t.to === "/" ? pathname === "/" : pathname.startsWith(t.to)));
+}
+
 export default function Tabs() {
   return (
     <nav

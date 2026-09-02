@@ -634,7 +634,12 @@ export default function Session() {
               the keyboard-up top padding this row would sit inside the status
               bar strip, visible and unhittable, which is worse than absent.
               Dismissing the keyboard brings it straight back. */}
-          <div className="mb-2 flex flex-none items-center gap-2.5 kbd:hidden desk:hidden">
+          {/* Ruled and full-bleed, so the row reads as this screen's top bar
+              rather than as three controls floating over the pane: it is the
+              only screen without the real one, and it carries the bar's jobs —
+              the way back, what you are looking at, and (in the sheet its ⋯
+              opens) home, the inbox and its count, and settings. */}
+          <div className="-mx-[18px] mb-2 flex flex-none items-center gap-2.5 border-b border-line px-[18px] pb-2.5 kbd:hidden desk:hidden">
             <BackButton to={session ? `/p/${session.project}` : "/"} />
             <button
               onClick={() => setPicker(true)}
