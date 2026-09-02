@@ -14,6 +14,7 @@ import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
+import ClusterPanel from "../components/ClusterPanel";
 import UsagePanel from "../components/UsagePanel";
 
 function gb(bytes: number): string {
@@ -544,6 +545,10 @@ export default function Hub() {
             </div>
           )}
         </div>
+
+        {/* The pod's own facts are above; this is the cluster it runs in.
+            Renders nothing off the cluster. */}
+        <ClusterPanel />
       </main>
       <Tabs />
 
