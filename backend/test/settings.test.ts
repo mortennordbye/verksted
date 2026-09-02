@@ -41,6 +41,54 @@ describe("GET /api/settings", () => {
   });
 });
 
+describe("what the page shows of a value", () => {
+  it("fingerprints a stored value without ever returning it", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { vars: { CLAUDE_CODE_OAUTH_TOKEN: "sk-ant-oat01-abcdefghijklmnop-qrst" } },
+    });
+    const res = await app.inject({ url: "/api/settings" });
+    const v = res.json().vars.find((v: { key: string }) => v.key === "CLAUDE_CODE_OAUTH_TOKEN");
+    expect(v.fingerprint).toBe("sk-a…qrst · 34 chars");
+    // The point of the whole exercise: the value is not in the listing.
+    expect(res.body).not.toContain("abcdefghijklmnop");
+  });
+
+  /** Four characters at each end of a short value would be most of it. */
+  it("shows a short value's length and nothing else", async () => {
+    await app.inject({ method: "PUT", url: "/api/settings", payload: { vars: { SHORT: "abc" } } });
+    const res = await app.inject({ url: "/api/settings" });
+    const v = res.json().vars.find((v: { key: string }) => v.key === "SHORT");
+    expect(v.fingerprint).toBe("••• · 3 chars");
+    expect(res.body).not.toContain('abc"');
+  });
+
+  it("hands the whole value to the copy button, and only for what it stores", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { vars: { MINE: "secret" } },
+    });
+    const ok = await app.inject({ method: "POST", url: "/api/settings/vars/MINE/reveal" });
+    expect(ok.json()).toEqual({ key: "MINE", value: "secret" });
+
+    // Set in the deployment, not on this page: not this route's to hand back.
+    expect(
+      (await app.inject({ method: "POST", url: "/api/settings/vars/GH_TOKEN/reveal" })).statusCode,
+    ).toBe(404);
+    // Never storable, so never revealable.
+    expect(
+      (await app.inject({ method: "POST", url: "/api/settings/vars/ANTHROPIC_API_KEY/reveal" }))
+        .statusCode,
+    ).toBe(404);
+    expect(
+      (await app.inject({ method: "POST", url: "/api/settings/vars/..%2f..%2fetc/reveal" }))
+        .statusCode,
+    ).toBe(404);
+  });
+});
+
 describe("PUT /api/settings", () => {
   it("stores a var, reports it as settings-sourced, and clears it on null", async () => {
     let res = await app.inject({

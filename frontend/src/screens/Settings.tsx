@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation, useSearchParams } from "react-router";
 import type {
   BackupStatus,
   PushStatus,
@@ -24,8 +25,37 @@ function sourceChip(source: SettingVar["source"]) {
   return <StatusChip kind="idle" label="unset" />;
 }
 
+/**
+ * The screen's sections, as five groups rather than one column.
+ *
+ * Everything the pod does on your behalf ends up here, and it had grown to a
+ * page you scroll past four panels to reach the fifth — on a phone, where the
+ * thing you came for is usually one field. Grouped by what you are changing,
+ * with the group in the query so a tab survives a reload and can be linked to.
+ *
+ * `hash` keeps the deep links that already exist working: Today points at
+ * /settings#profile, and that has to land on the profile editor rather than on
+ * whichever group happens to be first.
+ */
+const GROUPS = [
+  { key: "assistant", label: "Assistant", hash: ["profile", "council", "memory"] },
+  { key: "runs", label: "Runs", hash: ["schedules", "notifications"] },
+  { key: "sources", label: "Sources", hash: [] },
+  { key: "agents", label: "Agents", hash: ["env", "ssh"] },
+  { key: "bench", label: "Bench", hash: ["backups"] },
+] as const;
+
+type GroupKey = (typeof GROUPS)[number]["key"];
+
 export default function Settings() {
   const { data, refresh } = usePoll<SettingsInfo>("/api/settings", 30_000);
+  const [params, setParams] = useSearchParams();
+  const { hash } = useLocation();
+  // The hash wins on arrival, since it is what an old link carries; after that
+  // the query is the truth, because tapping a tab writes it.
+  const fromHash = GROUPS.find((g) => (g.hash as readonly string[]).includes(hash.slice(1)))?.key;
+  const tab = (params.get("tab") ?? fromHash ?? "assistant") as GroupKey;
+  const show = (key: GroupKey) => tab === key;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [newKey, setNewKey] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -62,110 +92,180 @@ export default function Settings() {
         <div className="mb-6 text-sm text-muted">
           What the pod runs on your behalf, how it reaches you, and what the agents are given.
         </div>
-        <SchedulesPanel />
-        <Notifications />
-        <AssistantPanel />
-        <ProfilePanel />
-        <CouncilPanel />
-        <MemoryPanel />
-        <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />
-        <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-          Environment
-        </div>
-        <div className="mb-6 text-sm text-muted">
-          Variables reach the agent CLIs inside new tmux sessions. Values are write-only: the page
-          shows where a variable is defined, never what it contains.
-        </div>
-
-        {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
-
-        <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-          Server · from the deployment (read-only)
-        </div>
-        <div className="mb-7 overflow-hidden rounded-xl border border-line">
-          {Object.entries(data?.server ?? {}).map(([key, value]) => (
-            <div
-              key={key}
-              className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px] last:border-b-0"
-            >
-              <span className="break-all text-text">{key}</span>
-              <span className="ml-auto break-all text-muted">{value}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-          Agent environment
-        </div>
-        <div className="flex flex-col gap-2">
-          {(data?.vars ?? []).map((v) => (
-            <div
-              key={v.key}
-              className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5"
-            >
-              <span className="font-mono text-[12.5px]">{v.key}</span>
-              {sourceChip(v.source)}
-              <input
-                value={drafts[v.key] ?? ""}
-                onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
-                onKeyDown={(e) => e.key === "Enter" && saveDraft(v.key)}
-                placeholder={v.source === "unset" ? "enter value…" : "enter new value to replace…"}
-                className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
-              />
-              {drafts[v.key]?.trim() && (
-                <button
-                  onClick={() => saveDraft(v.key)}
-                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
-                >
-                  save
-                </button>
-              )}
-              {v.source === "settings" && (
-                <button
-                  onClick={() => save({ [v.key]: null })}
-                  title="remove the stored value"
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait"
-                >
-                  clear
-                </button>
-              )}
-            </div>
-          ))}
-
-          <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
-            <input
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value.toUpperCase())}
-              onKeyDown={(e) => e.key === "Enter" && addVar()}
-              placeholder="NEW_VARIABLE"
-              className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
-            />
-            <input
-              value={drafts[newKey.trim()] ?? ""}
-              onChange={(e) => setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))}
-              onKeyDown={(e) => e.key === "Enter" && addVar()}
-              placeholder="value"
-              className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
-            />
+        {/* Scrolls sideways rather than wrapping: five labels do not fit a
+            phone, and a strip that wraps to two lines pushes the content down
+            by exactly the height it was meant to save. */}
+        <nav
+          aria-label="settings sections"
+          className="mb-7 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          {GROUPS.map((g) => (
             <button
-              onClick={addVar}
-              disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              key={g.key}
+              aria-pressed={tab === g.key}
+              onClick={() => setParams({ tab: g.key }, { replace: true })}
+              className={`tap flex-none rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
+                tab === g.key
+                  ? "border-accent bg-surface-2 text-text"
+                  : "border-line bg-surface text-muted hover:text-text"
+              }`}
             >
-              add
+              {g.label}
             </button>
-          </div>
-        </div>
+          ))}
+        </nav>
 
-        <div className="mt-5 text-[13px] text-muted">
-          Settings-page values persist on the data volume and take precedence over deployment env
-          vars. Changes apply to sessions started afterwards.
-        </div>
-        <SshKeys />
-        <Backups />
-        <AppReset />
+        {show("runs") && <SchedulesPanel />}
+        {show("runs") && <Notifications />}
+        {show("assistant") && <AssistantPanel />}
+        {show("assistant") && <ProfilePanel />}
+        {show("assistant") && <CouncilPanel />}
+        {show("assistant") && <MemoryPanel />}
+        {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
+        {show("agents") && (
+          <>
+            <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Environment
+            </div>
+            <div className="mb-6 text-sm text-muted">
+              Variables reach the agent CLIs inside new tmux sessions. Each shows where it is
+              defined and enough of its value to recognise it; copy hands you the whole thing
+              without putting it on the screen.
+            </div>
+
+            {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Server · from the deployment (read-only)
+            </div>
+            <div className="mb-7 overflow-hidden rounded-xl border border-line">
+              {Object.entries(data?.server ?? {}).map(([key, value]) => (
+                <div
+                  key={key}
+                  className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px] last:border-b-0"
+                >
+                  <span className="break-all text-text">{key}</span>
+                  <span className="ml-auto break-all text-muted">{value}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+              Agent environment
+            </div>
+            <div className="flex flex-col gap-2">
+              {(data?.vars ?? []).map((v) => (
+                <div
+                  key={v.key}
+                  className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5"
+                >
+                  <span className="font-mono text-[12.5px]">{v.key}</span>
+                  {sourceChip(v.source)}
+                  {v.fingerprint && (
+                    <span className="font-mono text-[11.5px] text-faint">{v.fingerprint}</span>
+                  )}
+                  {v.source === "settings" && <CopyVar keyName={v.key} />}
+                  <input
+                    value={drafts[v.key] ?? ""}
+                    onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
+                    onKeyDown={(e) => e.key === "Enter" && saveDraft(v.key)}
+                    placeholder={
+                      v.source === "unset" ? "enter value…" : "enter new value to replace…"
+                    }
+                    className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+                  />
+                  {drafts[v.key]?.trim() && (
+                    <button
+                      onClick={() => saveDraft(v.key)}
+                      className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+                    >
+                      save
+                    </button>
+                  )}
+                  {v.source === "settings" && (
+                    <button
+                      onClick={() => save({ [v.key]: null })}
+                      title="remove the stored value"
+                      className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait"
+                    >
+                      clear
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
+                <input
+                  value={newKey}
+                  onChange={(e) => setNewKey(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => e.key === "Enter" && addVar()}
+                  placeholder="NEW_VARIABLE"
+                  className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+                />
+                <input
+                  value={drafts[newKey.trim()] ?? ""}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))}
+                  onKeyDown={(e) => e.key === "Enter" && addVar()}
+                  placeholder="value"
+                  className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+                />
+                <button
+                  onClick={addVar}
+                  disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
+                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                >
+                  add
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 text-[13px] text-muted">
+              Settings-page values persist on the data volume and take precedence over deployment
+              env vars. Changes apply to sessions started afterwards.
+            </div>
+            <SshKeys />
+          </>
+        )}
+        {show("bench") && (
+          <>
+            <Backups />
+            <AppReset />
+          </>
+        )}
       </main>
     </>
+  );
+}
+
+/**
+ * The whole value of one variable, to the clipboard and nowhere else.
+ *
+ * Fetched only when tapped, and never rendered: the point of showing a
+ * fingerprint on the row is that a live credential is not sitting on a screen
+ * to be photographed or shoulder-read, and printing it here on the way to the
+ * clipboard would give that back.
+ */
+function CopyVar({ keyName }: { keyName: string }) {
+  const [said, setSaid] = useState<string | null>(null);
+  return (
+    <button
+      onClick={async () => {
+        try {
+          const { value } = await api<{ value: string }>(
+            `/api/settings/vars/${encodeURIComponent(keyName)}/reveal`,
+            { method: "POST" },
+          );
+          setSaid((await copyText(value)) ? "copied" : "could not copy");
+        } catch (e) {
+          setSaid((e as Error).message);
+        }
+        setTimeout(() => setSaid(null), 2000);
+      }}
+      title="copy the value to the clipboard"
+      className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-text"
+    >
+      {said ?? "copy"}
+    </button>
   );
 }
 

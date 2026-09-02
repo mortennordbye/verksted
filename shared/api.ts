@@ -881,8 +881,15 @@ export interface ScheduleRun {
 
 export interface SettingVar {
   key: string;
-  /** Where the variable is defined; values are write-only and never returned. */
+  /** Where the variable is defined. */
   source: "env" | "settings" | "unset";
+  /**
+   * Enough of the value to recognise it, never enough to use it: the first and
+   * last four characters and the length. Null when nothing is set. The whole
+   * value is never rendered — it is fetched by the copy button and goes
+   * straight to the clipboard (see /api/settings/vars/:key/reveal).
+   */
+  fingerprint: string | null;
 }
 
 export interface Settings {

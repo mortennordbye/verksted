@@ -123,6 +123,19 @@ export async function credential(
   return (await readVars())[key] || process.env[key] || undefined;
 }
 
+/**
+ * Enough of a value to know which one it is, and not enough to use it.
+ *
+ * Every settings var is treated as a secret, with no list of which ones are:
+ * such a list is one someone forgets to add to, and the cost of being wrong is
+ * a credential on a screen. Anything short enough that four characters at each
+ * end would be most of it shows its length alone.
+ */
+export function fingerprint(value: string): string {
+  const n = `${value.length} char${value.length === 1 ? "" : "s"}`;
+  return value.length <= 12 ? `••• · ${n}` : `${value.slice(0, 4)}…${value.slice(-4)} · ${n}`;
+}
+
 export async function writeVars(vars: Record<string, string>): Promise<void> {
   await write({ vars });
 }
