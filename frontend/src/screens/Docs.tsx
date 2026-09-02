@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
 import { useSearchParams } from "react-router";
 import type { DocEntry, DocHit } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { MD } from "../components/chat/markdown";
 import TopBar from "../components/TopBar";
+import { parseCsv } from "../csv";
+import { marks, rehypeMark } from "../find";
 import { useOverlayDismiss } from "../useDismissOnBack";
 
 /**
@@ -166,8 +170,77 @@ export default function Docs() {
           </>
         )}
       </main>
-      {open && <Viewer path={open} onClose={() => setOpen(null)} />}
+      {open && (
+        // What the share was searched for goes into the viewer with the path:
+        // a hit is opened to read one line, not to start at the top.
+        <Viewer
+          path={open}
+          initialFind={query.trim().length >= 2 ? query.trim() : ""}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </>
+  );
+}
+
+/** How the extracted text is set: as a document, a grid, or as characters. */
+type Flavour = "markdown" | "csv" | "code" | "prose";
+
+const MARKDOWN = new Set(["md", "markdown"]);
+/** Written for a machine, so kept in the machine's font. */
+const CODE = new Set(["json", "log", "ics"]);
+
+export function flavourOf(name: string): Flavour {
+  const ext = name.split(".").at(-1)?.toLowerCase() ?? "";
+  if (MARKDOWN.has(ext)) return "markdown";
+  if (ext === "csv") return "csv";
+  if (CODE.has(ext)) return "code";
+  return "prose";
+}
+
+/** A delimited export as the grid it was, matches marked in the cells. */
+function CsvTable({ text, find }: { text: string; find: string }) {
+  const { rows, truncated } = useMemo(() => parseCsv(text), [text]);
+  if (rows.length === 0) return <div className="p-4 text-[13px] text-faint">nothing in it</div>;
+  const [head, ...body] = rows;
+  return (
+    <div className="overflow-x-auto p-4">
+      <table className="w-full border-collapse text-[12.5px]">
+        <thead>
+          <tr>
+            {head.map((cell, i) => (
+              <th
+                key={i}
+                className="sticky top-0 border-b border-line bg-surface px-2 py-1.5 text-left font-semibold whitespace-nowrap"
+              >
+                {marks(cell, find)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {body.map((row, i) => (
+            <tr key={i} className="even:bg-surface-2/50">
+              {/* Indexed by the header, not by the row: a short row would
+                  otherwise shift every cell after it one column left. */}
+              {head.map((_, c) => (
+                <td
+                  key={c}
+                  className="border-b border-line/60 px-2 py-1 align-top whitespace-nowrap text-muted"
+                >
+                  {marks(row[c] ?? "", find)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {truncated && (
+        <div className="mt-2 font-mono text-[11px] text-faint">
+          first {body.length} rows — the rest is in the file
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -179,11 +252,33 @@ export default function Docs() {
  * turns a .docx into something readable on a phone, and it is the same text the
  * search matched. Anything else is a download, since the alternative is
  * rendering a stranger's file on this app's own origin.
+ *
+ * That text used to be one wall of muted monospace whatever it was: a README
+ * showed its hashes and asterisks, a bank export its commas, and a scanned
+ * contract came out in the app's least readable style at its greatest length.
+ * So the extension decides the setting — a document, a grid, or characters —
+ * and the find box marks the words in all three.
  */
-function Viewer({ path, onClose }: { path: string; onClose: () => void }) {
-  const view = viewOf(path.split("/").at(-1) ?? path);
+function Viewer({
+  path,
+  initialFind,
+  onClose,
+}: {
+  path: string;
+  /** What the share was searched for, when the viewer opened on a hit. */
+  initialFind: string;
+  onClose: () => void;
+}) {
+  const name = path.split("/").at(-1) ?? path;
+  const view = viewOf(name);
+  const flavour = flavourOf(name);
   const [text, setText] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
+  const [find, setFind] = useState(initialFind);
+  const [hits, setHits] = useState(0);
+  const body = useRef<HTMLDivElement>(null);
+  /** Which match the next jump goes to. */
+  const next = useRef(0);
   useOverlayDismiss(true, onClose);
 
   useEffect(() => {
@@ -196,6 +291,31 @@ function Viewer({ path, onClose }: { path: string; onClose: () => void }) {
       live = false;
     };
   }, [path, view]);
+
+  /** Count what was actually drawn: markdown syntax is not on the screen. */
+  useEffect(() => {
+    setHits(body.current?.querySelectorAll("mark").length ?? 0);
+    next.current = 0;
+  }, [text, find]);
+
+  const jump = useCallback(() => {
+    const found = body.current?.querySelectorAll("mark");
+    if (!found?.length) return;
+    const el = found[next.current % found.length];
+    next.current = (next.current + 1) % found.length;
+    for (const m of found) m.classList.remove("ring-1", "ring-wait");
+    el.classList.add("ring-1", "ring-wait");
+    el.scrollIntoView({ block: "center" });
+  }, []);
+
+  // Arriving from a search hit, on the match rather than at the top: the
+  // document can be forty pages, and the reason for opening it is one line.
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !hits || !initialFind) return;
+    landed.current = true;
+    jump();
+  }, [hits, initialFind, jump]);
 
   return (
     <div
@@ -225,7 +345,33 @@ function Viewer({ path, onClose }: { path: string; onClose: () => void }) {
             ✕
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto bg-bg">
+        {view === "text" && (
+          <div className="flex items-center gap-2 border-b border-line px-3.5 py-2">
+            <input
+              value={find}
+              onChange={(e) => setFind(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && jump()}
+              placeholder="find in this document"
+              aria-label="find in this document"
+              className="min-w-0 flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+            />
+            {find.trim() !== "" && (
+              <>
+                <span className="flex-none font-mono text-[11px] text-faint">
+                  {hits === 0 ? "no matches" : `${hits} match${hits === 1 ? "" : "es"}`}
+                </span>
+                <button
+                  onClick={jump}
+                  disabled={hits === 0}
+                  className="tap flex-none rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[11px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
+                >
+                  next ↓
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        <div ref={body} className="min-h-0 flex-1 overflow-auto bg-bg">
           {view === "image" && (
             <img src={rawUrl(path)} alt={path} className="mx-auto block max-h-full" />
           )}
@@ -243,10 +389,36 @@ function Viewer({ path, onClose }: { path: string; onClose: () => void }) {
           {view === "pdf" && (
             <iframe src={rawUrl(path)} title={path} className="h-full w-full border-0" />
           )}
-          {view === "text" && (
+          {view === "text" && failed && (
+            <div className="p-4 font-mono text-[12.5px] text-wait">{failed}</div>
+          )}
+          {view === "text" && !failed && text === null && (
+            <div className="p-4 font-mono text-[12.5px] text-faint">…</div>
+          )}
+          {view === "text" && !failed && text !== null && flavour === "markdown" && (
+            <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7]">
+              <Markdown
+                components={MD}
+                rehypePlugins={find.trim() ? [rehypeMark(find.trim())] : []}
+              >
+                {text}
+              </Markdown>
+            </div>
+          )}
+          {view === "text" && !failed && text !== null && flavour === "csv" && (
+            <CsvTable text={text} find={find.trim()} />
+          )}
+          {view === "text" && !failed && text !== null && flavour === "code" && (
             <pre className="p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-muted">
-              {failed ?? text ?? "…"}
+              {marks(text, find.trim())}
             </pre>
+          )}
+          {/* Extracted prose: a measure it can be read at, in the reading
+              font, at the size the rest of the app sets prose in. */}
+          {view === "text" && !failed && text !== null && flavour === "prose" && (
+            <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7] whitespace-pre-wrap text-text">
+              {marks(text, find.trim())}
+            </div>
           )}
           {view === "download" && (
             <div className="p-4 text-[13px] text-muted">
