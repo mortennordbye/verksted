@@ -15,23 +15,49 @@ export class TmuxUnavailableError extends Error {
 // exits 1 with one of these on stderr. Anything else is a real failure.
 const NO_SERVER_RE = /no server running|error connecting to .*no such file or directory/i;
 
+/** One live session: its name, and what tells you whether it is still working. */
+export interface SessionActivity {
+  name: string;
+  /** Epoch seconds of the pane's last output. */
+  activity: number;
+  /**
+   * The pane's own process — the shell the agent command was started under, not
+   * the agent. `pane_current_command` is no use for telling the two apart: the
+   * agent runs in the shell's process group, so tmux reports the shell either
+   * way. What does distinguish them is whether that shell still has a child.
+   */
+  panePid: number;
+}
+
 /**
- * Live tmux session names.
+ * The live sessions.
  *
  * Throws rather than returning [] when tmux itself is unreachable. The
- * difference matters: callers use this set to decide a session is over, so
+ * difference matters: callers use this to decide a session is over, so
  * swallowing a fork failure or a missing binary would stamp every session as
  * finished and fire a "finished" push for each one, on every poll.
  */
-export async function listSessions(): Promise<string[]> {
+export async function listSessionsDetail(): Promise<SessionActivity[]> {
+  let stdout: string;
   try {
-    const { stdout } = await exec("tmux", ["ls", "-F", "#{session_name}"], { timeout: 5_000 });
-    return stdout.split("\n").filter(Boolean);
+    ({ stdout } = await exec(
+      "tmux",
+      ["ls", "-F", "#{session_name}\t#{session_activity}\t#{pane_pid}"],
+      { timeout: 5_000 },
+    ));
   } catch (err) {
     const e = err as { stderr?: string; killed?: boolean };
     if (!e.killed && NO_SERVER_RE.test(String(e.stderr ?? ""))) return [];
     throw new TmuxUnavailableError(err);
   }
+  const out: SessionActivity[] = [];
+  for (const line of stdout.split("\n").filter(Boolean)) {
+    const [name, activity, pid] = line.split("\t");
+    // A field tmux could not fill is not a session worth judging on it.
+    if (!name || !Number(activity) || !Number(pid)) continue;
+    out.push({ name, activity: Number(activity), panePid: Number(pid) });
+  }
+  return out;
 }
 
 /** KEY=VALUE args for tmux new-session -e (sets env inside the new session). */

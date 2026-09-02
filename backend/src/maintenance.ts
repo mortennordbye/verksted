@@ -1,6 +1,7 @@
 import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
+import { reapFinishedSessions } from "./sessions-store.js";
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -34,12 +35,16 @@ interface Logger {
 
 const REAP_AFTER_MS = 15 * 60_000;
 const PRUNE_EVERY_MS = 24 * 60 * 60_000;
+/** The session sweep's own tick. Its threshold is hours; this need not be fine. */
+const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
 
 /**
  * Housekeeping for the heavyweights the sessions spawn:
  * - reap session browsers that have had no pane viewers and no external CDP
  *   clients (agents) for a while — the backend itself always holds one
  *   connection, hence the > 1 threshold. They relaunch on demand.
+ * - end sessions whose agent has exited and left an idle pane behind, which
+ *   otherwise read as running for good (see reapFinishedSessions).
  * - prune old docker build debris daily so agent images don't fill the volume.
  */
 export function startMaintenance(log: Logger): void {
@@ -54,6 +59,14 @@ export function startMaintenance(log: Logger): void {
       log.warn(err, "browser reap failed");
     }
   }, 60_000);
+
+  setInterval(async () => {
+    try {
+      await reapFinishedSessions(log);
+    } catch (err) {
+      log.warn(err, "session sweep failed");
+    }
+  }, SESSION_SWEEP_EVERY_MS);
 
   setInterval(async () => {
     try {

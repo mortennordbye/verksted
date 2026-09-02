@@ -18,6 +18,7 @@ import sshRoutes from "./routes/ssh.js";
 import pushRoutes from "./routes/push.js";
 import backupRoutes from "./routes/backups.js";
 import githubRoutes from "./routes/github.js";
+import feedbackRoutes from "./routes/feedback.js";
 import assistantRoutes from "./routes/assistant.js";
 import memoryRoutes from "./routes/memory.js";
 import profileRoutes from "./routes/profile.js";
@@ -84,6 +85,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(pushRoutes);
   await app.register(backupRoutes);
   await app.register(githubRoutes);
+  // A note filed by `vk feedback` is the whole request body, as plain text —
+  // see routes/feedback.ts for why a shell client is not asked to write JSON.
+  app.addContentTypeParser("text/plain", { parseAs: "string" }, (_req, body, done) =>
+    done(null, body),
+  );
+  await app.register(feedbackRoutes);
   // Raw image bodies for the assistant's upload endpoint (the same shape the
   // per-project upload uses; a phone has no clipboard to paste a screenshot from).
   // Recorded audio for the transcribe endpoint; the container type depends on
