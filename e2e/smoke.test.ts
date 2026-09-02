@@ -223,6 +223,9 @@ describe("the app in a real browser", () => {
       .toContain("and a line typed in the app");
     // Back to reading, with what was saved on the screen.
     await viewer.getByRole("button", { name: "edit" }).waitFor({ timeout: 15_000 });
+    // The viewer's own header is a phone control like any other: its ✕ is the
+    // way out of a full-screen overlay, and it was an 18px glyph.
+    expect(await smallButtons()).toEqual([]);
   });
 
   it("reads the whole run in one scroll, and remembers what was read", async () => {
@@ -246,6 +249,109 @@ describe("the app in a real browser", () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
     await page.getByText("✓ approved").waitFor({ timeout: 15_000 });
     await page.getByText("1 of 1 read").first().waitFor({ timeout: 15_000 });
+  });
+
+  /**
+   * What the bar carries, on both screens this app is used from.
+   *
+   * The rule is one rule: the four doors carry the four as words on a wide
+   * screen and as a bottom bar on a phone, and no back arrow, because every
+   * other door is one tap away; anything you drilled into carries the arrow and
+   * its trail and neither kind of nav. It used to be decided screen by screen,
+   * and had drifted — the inbox showed a trail and lost the words, the thread
+   * had a back arrow and no bottom bar at all.
+   */
+  const DOORS = ["/", "/bench", "/runs", "/ai"];
+  const DRILLED = ["/settings", "/docs", "/p/demo"];
+
+  /** What the bar and the two navs are doing, as the browser has them. */
+  async function bar(on: Page) {
+    return on.evaluate(() => {
+      const { document, getComputedStyle, innerWidth, location } = globalThis as unknown as {
+        document: {
+          querySelector(s: string): { innerText: string } | null;
+          querySelectorAll(s: string): Iterable<object>;
+        };
+        getComputedStyle(el: object): { display: string };
+        innerWidth: number;
+        location: { pathname: string };
+      };
+      const navs = [...document.querySelectorAll('nav[aria-label="screens"]')];
+      const header = document.querySelector("header");
+      return {
+        path: location.pathname,
+        width: innerWidth,
+        // The one place the app names itself, and the way home from anywhere.
+        home: !!document.querySelector('a[aria-label="verksted — home"]'),
+        header: !!header && getComputedStyle(header).display !== "none",
+        crumb: header?.innerText.replace(/\n/g, " ") ?? "",
+        back: !!document.querySelector('button[aria-label="back"]'),
+        inbox: !!document.querySelector('a[href="/runs"]'),
+        settings: !!document.querySelector('a[href="/settings"]'),
+        words: navs.length > 0 && getComputedStyle(navs[0]).display !== "none",
+        bottom: navs.length > 1 && getComputedStyle(navs[1]).display !== "none",
+      };
+    });
+  }
+
+  it("carries the same bar on every screen of a phone", async () => {
+    for (const route of [...DOORS, ...DRILLED]) {
+      await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      const it = await bar(page);
+      expect({ route, ...it }).toMatchObject({
+        route,
+        header: true,
+        home: true,
+        inbox: true,
+        settings: true,
+        // Words are for a wide screen; a phone gets the bar along the bottom.
+        words: false,
+        bottom: DOORS.includes(route),
+        back: !DOORS.includes(route),
+      });
+    }
+  });
+
+  it("carries the same bar on every screen of a desktop, session included", async () => {
+    const desk = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    desk.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+    try {
+      for (const route of [...DOORS, ...DRILLED, "/s/vk-demo-1"]) {
+        await desk.goto(`${base}${route}`, { waitUntil: "networkidle" });
+        const it = await bar(desk);
+        expect({ route, ...it }).toMatchObject({
+          route,
+          header: true,
+          home: true,
+          inbox: true,
+          settings: true,
+          words: DOORS.includes(route),
+          // The bottom bar is the phone's half of the same nav, never both.
+          bottom: false,
+          back: !DOORS.includes(route),
+        });
+      }
+    } finally {
+      await desk.close();
+    }
+  });
+
+  /**
+   * The one screen without the real bar: a phone session hides it to give the
+   * terminal back the 75px, and its own row does the bar's jobs instead — the
+   * way back, what you are looking at, and a sheet holding home, the inbox and
+   * settings.
+   */
+  it("gives a phone session the bar's jobs without the bar", async () => {
+    await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
+    const it = await bar(page);
+    expect(it.header).toBe(false);
+    expect(it.back).toBe(true);
+    await page.getByRole("button", { name: /^session actions/ }).click();
+    const sheet = page.getByRole("dialog", { name: "overnight tidy" });
+    await sheet.getByRole("link", { name: "verksted — home" }).waitFor({ timeout: 15_000 });
+    await sheet.getByRole("link", { name: /^inbox/ }).waitFor({ timeout: 15_000 });
+    await sheet.getByRole("link", { name: "settings" }).waitFor({ timeout: 15_000 });
   });
 
   it("gets home from a session by the wordmark, not only the back arrow", async () => {
@@ -273,7 +379,16 @@ describe("the app in a real browser", () => {
   // the element still overflowed.
   it("has nothing hanging off the side of a phone screen", async () => {
     const offenders: string[] = [];
-    for (const route of ["/", "/bench", "/settings", "/runs", "/p/demo", "/s/vk-demo-1"]) {
+    for (const route of [
+      "/",
+      "/bench",
+      "/settings",
+      "/runs",
+      "/ai",
+      "/docs",
+      "/p/demo",
+      "/s/vk-demo-1",
+    ]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(300);
       const wide = await page.evaluate(() => {
@@ -312,6 +427,16 @@ describe("the app in a real browser", () => {
     await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
     await page.waitForTimeout(500);
     expect(await smallButtons()).toEqual([]);
+  });
+
+  // The share and the thread, which had never been asked: both are reached
+  // from the bottom bar and both are read on a phone before anywhere else.
+  it("gives a thumb something to hit on the share and the thread", async () => {
+    for (const route of ["/docs", "/ai"]) {
+      await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      await page.waitForTimeout(500);
+      expect([route, await smallButtons()]).toEqual([route, []]);
+    }
   });
 
   // The session screen's own row, because the ⋯ on it is the way to delete a
@@ -355,7 +480,7 @@ describe("the app in a real browser", () => {
   // ancestor that clips it, or the class landing on an element the rule's
   // `position: relative` cannot anchor.
   it("gives the tap-hit controls the 44px they are exempt on", async () => {
-    for (const route of ["/settings", "/s/vk-demo-1"]) {
+    for (const route of ["/settings", "/ai", "/s/vk-demo-1", "/s/vk-demo-1?side=files"]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
       await page.waitForTimeout(500);
       const bad = await page.evaluate(() => {

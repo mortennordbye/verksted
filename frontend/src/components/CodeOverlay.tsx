@@ -38,7 +38,13 @@ export default function CodeOverlay({
       >
         <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
           <span className="min-w-0 truncate">{title}</span>
-          <button onClick={onClose} className="ml-auto flex-none px-2 text-faint hover:text-text">
+          {/* The way out of a full-screen overlay on a phone, so it gets the
+              44px the rest of the app's icon controls have. */}
+          <button
+            onClick={onClose}
+            aria-label="close"
+            className="tap-sq ml-auto flex flex-none items-center justify-center px-2 text-faint hover:text-text"
+          >
             ✕
           </button>
         </div>

@@ -613,7 +613,7 @@ export default function Session() {
               <button
                 onClick={() => setSyncNote(null)}
                 aria-label="dismiss"
-                className="flex-none px-1 text-faint hover:text-text"
+                className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
               >
                 ✕
               </button>
@@ -769,14 +769,16 @@ export default function Session() {
               <div
                 role="group"
                 aria-label="side panel"
-                className="mb-2 flex flex-none flex-wrap gap-1.5"
+                // gap-2.5, not 1.5: these carry `tap-hit`, whose 44px overlay
+                // has to meet its neighbour's inside the gap when the row wraps.
+                className="mb-2 flex flex-none flex-wrap gap-2.5"
               >
                 {SIDES.map(({ key: t }) => (
                   <button
                     key={t}
                     aria-pressed={side === t}
                     onClick={() => setSide(t)}
-                    className={`rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+                    className={`tap-hit rounded-md border px-2.5 py-1 font-mono text-[11px] ${
                       side === t
                         ? "border-accent bg-surface-2 text-text"
                         : "border-line bg-surface text-muted"
@@ -1176,7 +1178,8 @@ export default function Session() {
                 <a
                   href={`/api/projects/${session.project}/raw?path=${encodeURIComponent(file.path)}&download=1`}
                   title="download"
-                  className="ml-auto flex-none px-2 text-faint hover:text-text"
+                  aria-label="download"
+                  className="tap-sq ml-auto flex flex-none items-center justify-center px-2 text-faint hover:text-text"
                 >
                   ⤓
                 </a>
@@ -1188,7 +1191,7 @@ export default function Session() {
                 (draft === null ? (
                   <button
                     onClick={() => setDraft(file.content)}
-                    className="flex-none px-2 text-faint hover:text-text"
+                    className="tap flex flex-none items-center px-2 text-faint hover:text-text"
                   >
                     edit
                   </button>
@@ -1197,7 +1200,7 @@ export default function Session() {
                     <button
                       onClick={() => void saveFile()}
                       disabled={saving || draft === file.content}
-                      className="flex-none px-2 text-accent hover:brightness-110 disabled:opacity-40"
+                      className="tap flex flex-none items-center px-2 text-accent hover:brightness-110 disabled:opacity-40"
                     >
                       {saving ? "saving…" : "save"}
                     </button>
@@ -1206,7 +1209,7 @@ export default function Session() {
                         setDraft(null);
                         setSaveError(null);
                       }}
-                      className="flex-none px-2 text-faint hover:text-text"
+                      className="tap flex flex-none items-center px-2 text-faint hover:text-text"
                     >
                       cancel
                     </button>
@@ -1214,7 +1217,8 @@ export default function Session() {
                 ))}
               <button
                 onClick={() => void closeFile()}
-                className={`${file.kind === "diff" ? "ml-auto" : ""} flex-none px-2 text-faint hover:text-text`}
+                aria-label="close"
+                className={`${file.kind === "diff" ? "ml-auto" : ""} tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text`}
               >
                 ✕
               </button>
