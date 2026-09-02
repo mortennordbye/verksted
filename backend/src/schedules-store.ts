@@ -73,6 +73,18 @@ export function nextRun(cron: string, enabled: boolean): string | null {
   }
 }
 
+/**
+ * The next few fire times of a pattern nobody has saved yet, for the preview
+ * under the cron field. Empty when the pattern does not parse.
+ */
+export function nextRuns(cron: string, count = 3): string[] {
+  try {
+    return new Cron(cron, { timezone: env.TZ }).nextRuns(count).map((d) => d.toISOString());
+  } catch {
+    return [];
+  }
+}
+
 /** True when croner can build a job from the pattern — the only cron check. */
 export function validCron(cron: string): boolean {
   try {

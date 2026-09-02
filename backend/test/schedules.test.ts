@@ -300,6 +300,29 @@ describe("the store's own guards", () => {
     expect((await store.listRuns(100)).filter((r) => r.scheduleId === id)).toHaveLength(20);
   });
 
+  it("previews when a pattern would fire, before anything is saved", async () => {
+    const res = await app.inject({ url: "/api/schedules/preview?cron=0%208%20*%20*%201-5" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.valid).toBe(true);
+    expect(body.next).toHaveLength(3);
+    // Ascending, in the future, and all at the same hour on weekdays.
+    const times = body.next.map((at: string) => Date.parse(at));
+    expect(times[0]).toBeGreaterThan(Date.now());
+    expect(times).toEqual([...times].sort((a, b) => a - b));
+    for (const at of body.next) {
+      const day = new Date(at).getDay();
+      expect(day).toBeGreaterThanOrEqual(1);
+      expect(day).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it("says a pattern is not one rather than failing", async () => {
+    const res = await app.inject({ url: "/api/schedules/preview?cron=every%20day" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ valid: false, next: [] });
+  });
+
   it("accepts real cron patterns and rejects prose", async () => {
     const { validCron } = await import("../src/schedules-store.js");
     for (const ok of ["0 8 * * 1-5", "*/15 * * * *", "0 7 * * *"]) {

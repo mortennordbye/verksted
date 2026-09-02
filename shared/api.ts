@@ -778,6 +778,20 @@ export interface MaintainerIssue {
  * A recurring prompt: on its cron the pod starts a claude session in the
  * project and submits the prompt, unattended (auto permission mode).
  */
+/**
+ * What a cron pattern would do, before anybody saves it.
+ *
+ * Answered by the pod rather than worked out in the browser: a pattern is read
+ * in the pod's own timezone (env.TZ), so a phone in another one would preview
+ * times the schedule will not fire at.
+ */
+export interface CronPreview {
+  /** False when croner cannot build a job from the pattern. */
+  valid: boolean;
+  /** The next few fire times as ISO instants, newest last. Empty when invalid. */
+  next: string[];
+}
+
 export interface Schedule {
   id: string;
   /** Human label; also the title of the sessions it starts. */

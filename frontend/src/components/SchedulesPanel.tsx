@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type {
   CouncilMember,
+  CronPreview,
   MaintainerStage,
   Project,
   Schedule,
@@ -32,6 +33,89 @@ const CRON_PRESETS = [
   { cron: "0 * * * *", label: "hourly" },
   { cron: "0 7 * * *", label: "daily 07:00" },
 ];
+
+const field =
+  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+const ghost =
+  "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
+
+/**
+ * A cron pattern, and what it would actually do.
+ *
+ * Five numbers is the hardest thing to type in this app and the only field
+ * whose mistake is silent: `0 8 * * 1-5` and `0 8 1-5 * *` both save, and one
+ * of them fires on the first five days of the month. So the pod says when the
+ * pattern would next fire — in its own timezone, which is the one that counts
+ * — and says so before anything is saved.
+ *
+ * The presets are here rather than only on the new-schedule form: changing an
+ * existing schedule to "hourly" was the one place you had to remember the
+ * syntax.
+ */
+function CronField({
+  value,
+  onChange,
+  width,
+}: {
+  value: string;
+  onChange: (cron: string) => void;
+  width: string;
+}) {
+  // Kept with the pattern it answers, so a preview never survives into the
+  // next pattern as though it described that one.
+  const [preview, setPreview] = useState<{ cron: string; result: CronPreview } | null>(null);
+  const pattern = value.trim();
+  const shown = preview?.cron === pattern ? preview.result : null;
+
+  useEffect(() => {
+    if (!pattern) return;
+    let live = true;
+    // Typed a character at a time, so the field is not asked about every
+    // half-written pattern on the way to the whole one.
+    const timer = setTimeout(() => {
+      api<CronPreview>(`/api/schedules/preview?cron=${encodeURIComponent(pattern)}`)
+        .then((result) => live && setPreview({ cron: pattern, result }))
+        .catch(() => undefined);
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [pattern]);
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="0 8 * * 1-5"
+          aria-label="cron pattern"
+          className={`${width} ${field}`}
+        />
+        {CRON_PRESETS.map((p) => (
+          <button
+            key={p.cron}
+            onClick={() => onChange(p.cron)}
+            className="tap font-mono text-[11px] text-faint hover:text-accent"
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      {shown !== null && (
+        <div
+          className={`font-mono text-[11px] ${shown.valid ? "text-faint" : "text-wait"}`}
+          aria-live="polite"
+        >
+          {shown.valid
+            ? `next: ${shown.next.map((at) => whenLabel(at)).join(" · ")}`
+            : "not a cron pattern"}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The two schedules a bench wants on its first day, as buttons rather than
@@ -205,11 +289,6 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     setEdit({ cron: s.cron, jitterMinutes: s.jitterMinutes, prompt: s.prompt });
   }
 
-  const field =
-    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
-  const ghost =
-    "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
-
   return (
     <>
       <div className={`mb-2.5 flex flex-wrap items-center gap-2.5 ${project ? "" : "mt-10"}`}>
@@ -334,12 +413,10 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             {open === s.id ? (
               <div className="mt-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <input
+                  <CronField
                     value={edit.cron}
-                    onChange={(e) => setEdit((d) => ({ ...d, cron: e.target.value }))}
-                    placeholder="0 8 * * 1-5"
-                    aria-label="cron pattern"
-                    className={`w-[200px] ${field}`}
+                    onChange={(cron) => setEdit((d) => ({ ...d, cron }))}
+                    width="w-[200px]"
                   />
                   <label className="font-mono text-[11px] text-faint">
                     jitter
@@ -426,12 +503,10 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 ))}
               </select>
             )}
-            <input
+            <CronField
               value={draft.cron}
-              onChange={(e) => setDraft((d) => ({ ...d, cron: e.target.value }))}
-              placeholder="0 8 * * 1-5"
-              aria-label="cron pattern"
-              className={`w-[130px] ${field}`}
+              onChange={(cron) => setDraft((d) => ({ ...d, cron }))}
+              width="w-[130px]"
             />
             {!assistantDraft && (
               <select
@@ -470,15 +545,6 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               />
               min
             </label>
-            {CRON_PRESETS.map((p) => (
-              <button
-                key={p.cron}
-                onClick={() => setDraft((d) => ({ ...d, cron: p.cron }))}
-                className="tap font-mono text-[11px] text-faint hover:text-accent"
-              >
-                {p.label}
-              </button>
-            ))}
           </div>
           <textarea
             value={draft.prompt}
