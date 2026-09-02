@@ -201,6 +201,30 @@ describe("the app in a real browser", () => {
     await page.getByText("+and what the run added").waitFor({ timeout: 15_000 });
   });
 
+  it("edits a file from the tree and writes it back to the repo", async () => {
+    // ?side=changes is the one deep link into the side pane; the files tab is
+    // a tap from there, which is the way a phone reaches the tree at all.
+    await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByText("readme.md").first().click();
+
+    const viewer = page.getByRole("dialog", { name: "readme.md" });
+    await viewer.getByRole("button", { name: "edit" }).click();
+    await viewer
+      .getByRole("textbox", { name: "readme.md (editing)" })
+      .fill("start\nand what the run added\nand a line typed in the app\n");
+    await viewer.getByRole("button", { name: "save" }).click();
+
+    // The point of the whole thing: the working tree the agent shares.
+    await expect
+      .poll(() => fs.readFileSync(path.join(reposDir, "demo", "readme.md"), "utf8"), {
+        timeout: 15_000,
+      })
+      .toContain("and a line typed in the app");
+    // Back to reading, with what was saved on the screen.
+    await viewer.getByRole("button", { name: "edit" }).waitFor({ timeout: 15_000 });
+  });
+
   it("reads the whole run in one scroll, and remembers what was read", async () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /review all/ }).click();
