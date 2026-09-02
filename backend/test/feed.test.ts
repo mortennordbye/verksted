@@ -164,6 +164,29 @@ describe("the pollers", () => {
     expect(pr.version).toBe("2026-08-30T08:00:00Z");
   });
 
+  it("does not let a login that expired sit among the quiet ones", () => {
+    const run = (schedule: string, outcome: string, error: string) => ({
+      scheduleId: `sch-${schedule}`,
+      schedule,
+      at: "2026-09-02T05:00:00.000Z",
+      outcome,
+      error,
+      report: null,
+      sessionId: null,
+    });
+    const items = pollers.runItems([
+      // The common blocked run: the schedule declining, several a night.
+      run("build", "blocked", "queue empty") as never,
+      // Not the schedule declining. Every schedule and every session is down,
+      // and the turn that would report it is the one that died.
+      run("morning briefing", "blocked", "Failed to authenticate: OAuth session expired") as never,
+    ]);
+    expect(items.map((i) => [i.title, i.urgency])).toEqual([
+      ["build", "quiet"],
+      ["morning briefing", "attention"],
+    ]);
+  });
+
   it("never files a notification from a blocked owner", () => {
     const thread = (repo: string) => ({
       id: repo,
