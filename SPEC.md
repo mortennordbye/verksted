@@ -180,6 +180,21 @@ agent can tell whether "two PRs open" is fine or needs someone, which is why
 the verdict is the agent's to write rather than something the backend infers.
 Sessions started by hand write no report and behave exactly as before.
 
+The sign-off also ends the run. A schedule's session runs the TUI, so it writes
+its report and then sits at the prompt; the sweep that ends unattended runs when
+their agent exits ends a signed-off scheduled one too. Without that the session
+stays live, the schedule refuses to overlap itself, and the next night is
+skipped for a run that finished at 02:00 — which is how one lapsed login cost
+three nights of renders. A run that stopped to ask something has written no
+report and is left where it is.
+
+A run that never started is told apart from a schedule holding off. An empty
+queue, a ceiling and a previous run still open are the schedule working as
+designed and read as "blocked"; a turn that could not authenticate and a tmux
+that would not start are failures and read as "failed". Both were "blocked"
+before, which is what let an expired login take every schedule with it while
+the screen that says what needs you showed only the symptoms.
+
 "ok" is the stated default and the other two have to earn themselves against
 it. Asked merely "which of these needs me?", an agent that had finished its
 work and left a list to read called that "attention" — so a run that was done

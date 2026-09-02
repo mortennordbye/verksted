@@ -880,3 +880,23 @@ what unblocks it / where the code lives.
   (then `vk-guard` reads its no-go list and denies edits there mechanically).
 - **Where:** `Dockerfile`, `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
   `runtime/vk-guard`, `backend/src/maintainer.ts` (`readContract`)
+
+## A scheduled run that never signs off still holds its schedule
+
+- **What:** The sweep ends a scheduled session once it has written its report.
+  One that never writes one — the agent could not start at all, which is what an
+  expired login looks like from the outside — stays live, keeps showing as a
+  session that needs you, and blocks its schedule's next tick. Four reelsmith
+  sessions sat that way from 31 August to 2 September and cost two nights.
+- **Why deferred:** From outside the pane, a run that stopped to ask something
+  and a run whose agent died look identical: both are a TUI at its prompt with
+  no report. Ending on a timer would kill the first, which is the case the amber
+  chip exists for. The honest signal is that the agent never took a turn — no
+  transcript entries — and reading a transcript per session per sweep is more
+  than the sweep does today.
+- **Unblocked by:** Deciding what the signal is. Either count the turns in the
+  session's own conversation (`transcripts.ts` already reads them by id) and end
+  a scheduled run that took none, or have `roomForSession` end a previous run
+  that is older than the schedule's own period and has written nothing.
+- **Where:** `backend/src/scheduler.ts` (`endSignedOffRuns`, `roomForSession`),
+  `backend/src/transcripts.ts`
