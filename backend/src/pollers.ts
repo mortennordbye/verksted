@@ -64,18 +64,37 @@ export function sessionItems(sessions: Session[]): { seen: Seen[]; over: string[
   return { seen, over };
 }
 
+/**
+ * A run that could not authenticate, told apart from one that had nothing to do.
+ *
+ * Both are recorded as `blocked`, and for almost everything blocked means the
+ * schedule declining: an empty queue, a previous run still open, the daily
+ * ceiling. Those are quiet by design and there are several a night. This is
+ * not one of them. A login that has expired stops every schedule and every
+ * session at once, it will be just as true tomorrow, and nothing else on the
+ * bench can report it — the assistant turn that would say so is the thing that
+ * died. Filed quiet, it spent three days inside "and 6 quiet things".
+ */
+const CANNOT_AUTHENTICATE =
+  /failed to authenticate|oauth session expired|not authenticated|invalid api key|please run `?\/login/i;
+
 /** Every firing, so the brief can count the quiet ones; only the bad ones shout. */
 export function runItems(runs: ScheduleRun[]): Seen[] {
-  return runs.map((r) => ({
-    id: `schedule:${r.scheduleId}:${r.at}`,
-    source: "schedule",
-    at: r.at,
-    title: r.schedule,
-    detail: r.report ?? r.error ?? "no sign-off",
-    link: r.sessionId ? `/s/${r.sessionId}` : "/runs",
-    version: `${r.outcome}:${(r.report ?? r.error ?? "").length}`,
-    urgency: r.outcome === "attention" || r.outcome === "failed" ? "attention" : "quiet",
-  }));
+  return runs.map((r) => {
+    const said = r.report ?? r.error ?? "";
+    const loud =
+      r.outcome === "attention" || r.outcome === "failed" || CANNOT_AUTHENTICATE.test(said);
+    return {
+      id: `schedule:${r.scheduleId}:${r.at}`,
+      source: "schedule" as const,
+      at: r.at,
+      title: r.schedule,
+      detail: said || "no sign-off",
+      link: r.sessionId ? `/s/${r.sessionId}` : "/runs",
+      version: `${r.outcome}:${said.length}`,
+      urgency: loud ? "attention" : "quiet",
+    };
+  });
 }
 
 /** A proposed memory waits for a keep or a drop; either ends the item. */
