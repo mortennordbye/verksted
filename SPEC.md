@@ -195,6 +195,13 @@ that would not start are failures and read as "failed". Both were "blocked"
 before, which is what let an expired login take every schedule with it while
 the screen that says what needs you showed only the symptoms.
 
+The second kind also pushes, and the scheduler sends that one itself. Every
+other push either follows a session's status changing, which a run that starts
+no session never does, or comes out of triage, which is an assistant turn and
+so is gone exactly when the pod cannot authenticate. This push asks nothing of
+a model, and fires on the edge: the first break after a run that worked, never
+the fourth night of the same one, which belongs on Today with a count beside it.
+
 "ok" is the stated default and the other two have to earn themselves against
 it. Asked merely "which of these needs me?", an agent that had finished its
 work and left a list to read called that "attention" — so a run that was done
