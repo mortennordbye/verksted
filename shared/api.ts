@@ -884,6 +884,8 @@ export interface Settings {
   vars: SettingVar[];
   /** Kill switch: no schedule fires on its cron while this is on. */
   schedulesPaused: boolean;
+  /** GitHub owners the feed never files anything from (see pollers.ts). */
+  blockedOwners: string[];
 }
 
 /** What a browser needs to subscribe to session pushes, and who is subscribed. */

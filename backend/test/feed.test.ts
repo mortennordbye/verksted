@@ -14,6 +14,7 @@ import type { FastifyInstance } from "fastify";
  */
 let app: FastifyInstance;
 let feedDir: string;
+let settingsFile: string;
 let feed: typeof import("../src/feed-store.js");
 let loops: typeof import("../src/loops-store.js");
 let pollers: typeof import("../src/pollers.js");
@@ -29,6 +30,8 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
   process.env.STATIC_DIR = "";
+  settingsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "vk-set-")), "settings.json");
+  process.env.SETTINGS_FILE = settingsFile;
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
   feed = await import("../src/feed-store.js");
@@ -45,6 +48,7 @@ beforeEach(() => {
   for (const dir of [feedDir, process.env.LOOPS_DIR!]) {
     for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f));
   }
+  fs.rmSync(settingsFile, { force: true });
 });
 
 const seen = (id: string, version = "1", at = "2026-08-30T07:00:00.000Z") => ({
@@ -158,6 +162,50 @@ describe("the pollers", () => {
     expect(pr.link).toBe("https://github.com/mortennordbye/verksted/pull/97");
     expect(pr.detail).toBe("PullRequest, your review was asked for");
     expect(pr.version).toBe("2026-08-30T08:00:00Z");
+  });
+
+  it("never files a notification from a blocked owner", () => {
+    const thread = (repo: string) => ({
+      id: repo,
+      reason: "review_requested",
+      updated_at: "2026-08-30T08:00:00Z",
+      subject: { title: "a client's branch", type: "PullRequest", url: null },
+      repository: { full_name: `${repo}/infrastructure`, html_url: `https://github.com/${repo}` },
+    });
+    const items = pollers.notificationItems(
+      [thread("NorskRikstoto"), thread("mortennordbye")],
+      ["norskrikstoto"],
+    );
+    expect(items.map((i) => i.title)).toEqual(["mortennordbye/infrastructure: a client's branch"]);
+  });
+
+  it("deletes what a newly blocked owner left behind, and leaves the rest", async () => {
+    await feed.upsert({
+      ...seen("github:1"),
+      title: "NorskRikstoto/infrastructure: fix(otel)",
+    });
+    await feed.upsert({ ...seen("github:2"), title: "mortennordbye/homelab: chore(helm)" });
+    await feed.upsert({ ...seen("github:queue:demo#3"), title: "demo #3: tidy the readme" });
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { blockedOwners: ["NorskRikstoto"] },
+    });
+
+    const items = await feed.list();
+    expect(items.map((i) => i.id).sort()).toEqual(["github:2", "github:queue:demo#3"]);
+    const settings = (await app.inject({ url: "/api/settings" })).json();
+    expect(settings.blockedOwners).toEqual(["norskrikstoto"]);
+  });
+
+  it("refuses an owner that is not a GitHub login", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { blockedOwners: ["not an owner/repo"] },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("polls the bench on every read of the feed, so the feed is never behind", async () => {

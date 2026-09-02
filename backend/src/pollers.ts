@@ -16,6 +16,7 @@ import { listProposals } from "./memory-store.js";
 import { resolveInsideRepos } from "./paths.js";
 import { listRuns, listSchedules } from "./schedules-store.js";
 import { listSessions } from "./sessions-store.js";
+import { readBlockedOwners } from "./settings-store.js";
 
 /**
  * The pollers: what turns a source into feed items.
@@ -127,16 +128,34 @@ const REASON: Record<string, string> = {
   team_mention: "your team was mentioned",
 };
 
-export function notificationItems(threads: Notification[]): Seen[] {
-  return threads.map((n) => ({
-    id: `github:${n.id}`,
-    source: "github",
-    at: n.updated_at,
-    title: `${n.repository.full_name}: ${n.subject.title}`,
-    detail: `${n.subject.type}, ${REASON[n.reason] ?? n.reason}`,
-    link: htmlUrl(n),
-    version: n.updated_at,
-  }));
+/**
+ * Whose repositories this bench does not read.
+ *
+ * An employer's org and a customer's are on GitHub under the same account as
+ * the hobby work, and a notification from one carries the client's name and
+ * the branch it is on. Filing it would put both on the volume and, through
+ * triage, into a model turn. So the owner is checked before anything is filed:
+ * blocked means never an item, never triaged, never pushed, never shown.
+ *
+ * Owners are stored lowercased (see settings-store); GitHub logins are
+ * case-insensitive, so the comparison has to be too.
+ */
+export function blockedOwner(fullName: string, owners: string[]): boolean {
+  return owners.includes(fullName.split("/")[0].toLowerCase());
+}
+
+export function notificationItems(threads: Notification[], blocked: string[] = []): Seen[] {
+  return threads
+    .filter((n) => !blockedOwner(n.repository.full_name, blocked))
+    .map((n) => ({
+      id: `github:${n.id}`,
+      source: "github",
+      at: n.updated_at,
+      title: `${n.repository.full_name}: ${n.subject.title}`,
+      detail: `${n.subject.type}, ${REASON[n.reason] ?? n.reason}`,
+      link: htmlUrl(n),
+      version: n.updated_at,
+    }));
 }
 
 /** New mail: one item per message, the envelope until triage reads it. */
@@ -243,7 +262,7 @@ export async function pollGithub(log: Logger): Promise<number> {
   try {
     const threads = await ghNotifications();
     await feed.resolve("github:poller", "reading again");
-    return apply(notificationItems(threads));
+    return apply(notificationItems(threads, await readBlockedOwners()));
   } catch (err) {
     githubBackoff = 6;
     const message = err instanceof Error ? err.message : String(err);
@@ -260,6 +279,29 @@ export async function pollGithub(log: Logger): Promise<number> {
     });
     return 0;
   }
+}
+
+/**
+ * Delete what a now-blocked owner left behind.
+ *
+ * The filter above only stops new items; anything filed before the owner was
+ * blocked is still a row with the repository's name on it. Run when the list
+ * is written and once at startup, which is every moment the list can change.
+ * A notification item's title is `owner/repo: subject`, and nothing else in
+ * the github source carries an owner, so a title with no slash is not ours.
+ */
+export async function purgeBlocked(): Promise<number> {
+  const owners = await readBlockedOwners();
+  if (!owners.length) return 0;
+  let removed = 0;
+  for (const item of await feed.list()) {
+    if (item.source !== "github") continue;
+    const repo = item.title.split(":")[0];
+    if (!repo.includes("/") || !blockedOwner(repo, owners)) continue;
+    await feed.remove(item.id);
+    removed++;
+  }
+  return removed;
 }
 
 /** A source that is not set up is quiet, not broken; one that broke says so once. */
@@ -319,6 +361,9 @@ export function startPollers(log: Logger): void {
     void tick();
     setInterval(() => void tick(), ms).unref?.();
   };
+  void purgeBlocked()
+    .then((n) => n && log.info(`feed: ${n} item(s) removed from blocked owners`))
+    .catch((err) => log.warn(err, "purge of blocked owners failed"));
   every(GITHUB_EVERY_MS, "github", async () => (await pollGithub(log)) + (await pollQueue(log)));
   every(MAIL_EVERY_MS, "mail", () => pollMail(log));
   every(CALENDAR_EVERY_MS, "calendar", () => pollCalendar(log));
