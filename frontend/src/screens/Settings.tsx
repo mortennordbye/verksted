@@ -68,6 +68,7 @@ export default function Settings() {
         <ProfilePanel />
         <CouncilPanel />
         <MemoryPanel />
+        <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />
         <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
           Environment
         </div>
@@ -164,6 +165,82 @@ export default function Settings() {
         <Backups />
         <AppReset />
       </main>
+    </>
+  );
+}
+
+/**
+ * GitHub owners this bench does not read: an employer's, a customer's.
+ *
+ * The inbox is one account's notifications, and that account is at work as
+ * well as at home. An owner listed here never becomes an item, so its
+ * repository names and branch titles never reach the volume or a model turn;
+ * saving the list also deletes what it filed before.
+ */
+function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => void }) {
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(next: string[]) {
+    setError(null);
+    try {
+      await api("/api/settings", { method: "PUT", body: JSON.stringify({ blockedOwners: next }) });
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function add() {
+    const owner = draft.trim();
+    if (!owner) return;
+    await save([...owners, owner]);
+    setDraft("");
+  }
+
+  return (
+    <>
+      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        Not mine to read
+      </div>
+      <div className="mb-3 text-sm text-muted">
+        GitHub owners the inbox skips entirely. Nothing from them is filed, triaged, pushed or
+        shown, and saving removes what was filed before.
+      </div>
+      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      <div className="flex flex-wrap items-center gap-2">
+        {owners.map((owner) => (
+          <span
+            key={owner}
+            className="flex items-center gap-2 rounded-[11px] border border-line bg-surface px-[13px] py-2 font-mono text-[12.5px]"
+          >
+            {owner}
+            <button
+              onClick={() => save(owners.filter((o) => o !== owner))}
+              title="read this owner again"
+              className="tap text-muted hover:text-wait"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="owner-or-org"
+          className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+        />
+        <button
+          onClick={add}
+          disabled={!draft.trim()}
+          className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+        >
+          add
+        </button>
+      </div>
     </>
   );
 }

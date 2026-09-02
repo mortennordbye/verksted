@@ -73,6 +73,8 @@ interface Stored {
   assistant?: Partial<AssistantConfig>;
   /** Kill switch for the scheduler; see scheduler.ts. */
   schedulesPaused?: boolean;
+  /** GitHub owners the feed refuses to file anything from; see pollers.ts. */
+  blockedOwners?: string[];
 }
 
 async function read(): Promise<Stored> {
@@ -152,6 +154,21 @@ export async function readAssistantConfig(): Promise<AssistantConfig> {
 export async function writeAssistantConfig(patch: Partial<AssistantConfig>): Promise<void> {
   const current = (await read()).assistant ?? {};
   await write({ assistant: { ...current, ...patch } });
+}
+
+/**
+ * GitHub owners this bench will not read: an employer's org, a customer's.
+ *
+ * Kept here rather than in the deployment because the deployment is a public
+ * repo, and the point of the list is that those names are not this bench's to
+ * publish. Lowercased on the way in, so the comparison is the one GitHub makes.
+ */
+export async function readBlockedOwners(): Promise<string[]> {
+  return (await read()).blockedOwners ?? [];
+}
+
+export async function writeBlockedOwners(owners: string[]): Promise<void> {
+  await write({ blockedOwners: [...new Set(owners.map((o) => o.trim().toLowerCase()))].sort() });
 }
 
 export async function schedulesPaused(): Promise<boolean> {

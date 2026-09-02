@@ -191,6 +191,17 @@ export async function resolve(id: string, what: string): Promise<void> {
 }
 
 /**
+ * Delete an item outright, leaving no row and no title behind.
+ *
+ * The one thing resolve() cannot do: a blocked owner's item must not survive
+ * as a done row, because the row is the repository name and the name is the
+ * thing that should not be here (see pollers.purgeBlocked).
+ */
+export async function remove(id: string): Promise<void> {
+  await fs.rm(fileOf(id), { force: true });
+}
+
+/**
  * Done items go after thirty days; nothing else is ever deleted here. A
  * proposal nobody tapped expires first, as a done item that says so.
  */

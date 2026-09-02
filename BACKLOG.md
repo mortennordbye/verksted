@@ -3,6 +3,26 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## A blocked owner's maintainer queue is not blocked
+
+- **What:** The owner list on the settings page keeps GitHub notifications from
+  an employer's or a customer's org out of the feed. The other half of the
+  github source is the maintainer's queue, and its items are filed under the
+  local checkout's directory name (`demo #3: tidy the readme`) with no owner in
+  them, so the same check cannot be made. A customer repo cloned onto the pod
+  and given a maintainer schedule would still have its issue titles filed and
+  triaged.
+- **Why deferred:** It takes deliberately setting a nightly maintainer on a work
+  repo to reach, which is not a thing that happens by accident the way an inbox
+  notification does, and the fix means teaching `projects-store` what a
+  checkout's GitHub owner is — a git remote read on a path that currently
+  touches no network.
+- **Unblocked by:** Wanting a work repo on the bench at all. Then resolve each
+  project's owner from its `origin` remote once, cache it, and run the same
+  `blockedOwner` check in `pollQueue` (and, at that point, refuse the clone).
+- **Where:** `backend/src/pollers.ts` (`queueItems`, `pollQueue`,
+  `blockedOwner`), `backend/src/projects-store.ts`
+
 ## The phone screen may still end short with the keyboard up
 
 - **What:** The session shell is `dvh` with the keyboard down and `--vvh` with it

@@ -343,6 +343,14 @@ as a pull request. Add `gh api notifications`
 minutes. A red check on `main` is attention immediately, by rule; everything
 else waits for triage.
 
+One account is at work as well as at home, and `gh api notifications` does not
+know the difference. The settings page keeps a list of owners this bench does
+not read — an employer's org, a customer's — checked before anything is filed,
+so their repository names and branch titles never reach the volume and never
+reach a triage turn. The list lives in `settings.json` on the volume rather
+than in the deployment, because the deployment is a public repo and those names
+are not this bench's to publish. Saving it also deletes what was filed before.
+
 **Mail.** IMAP over TLS with an app password, read-only by construction: the
 tools are `mail_recent`, `mail_search`, `mail_read` and `draft_mail`, and the
 last writes a message to the Drafts folder with no `To:` filled in unless the
