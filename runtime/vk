@@ -18,6 +18,47 @@ DATA_DIR=${VK_DATA_DIR:-/data}
 BACKUP_DIR=${VK_BACKUP_DIR:-$DATA_DIR/backups}
 MIN_FREE_KB=10485760
 DEFAULT_KEEP=7
+# When set, an archive is encrypted with it and carries a .enc suffix.
+#
+# Deliberately opt-in, and deliberately not defaulted to anything: an archive
+# nobody can decrypt is worse than one anybody can read. The passphrase has to
+# live somewhere that is not this volume — a password manager — because the
+# volume is the thing the archive exists to replace, and a key stored inside
+# what it protects protects nothing.
+PASSPHRASE=${VK_BACKUP_PASSPHRASE:-}
+export VK_BACKUP_PASSPHRASE
+
+# What an archive is, rather than what its name says: openssl writes "Salted__"
+# as the first eight bytes. The suffix is a label, this is the fact.
+is_encrypted() { [ "$(head -c 8 "$1" 2>/dev/null)" = "Salted__" ]; }
+
+# AES-256 under a PBKDF2-stretched passphrase. `openssl enc` carries no MAC, so
+# this buys confidentiality from anyone who can read the share — which is the
+# point, the share is the one the media sits on — and not proof that an archive
+# was never rewritten. The sha256 beside it catches the corruption that actually
+# happens; a NAS that is being tampered with is a different problem.
+encrypt() {
+  openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt \
+    -pass env:VK_BACKUP_PASSPHRASE -in "$1" -out "$2"
+}
+decrypt() {
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+    -pass env:VK_BACKUP_PASSPHRASE -in "$1"
+}
+
+# One archive's manifest, encrypted or not, empty when it cannot be read —
+# which includes an encrypted archive on a bench with no passphrase. The
+# manifest is the first member, so --occurrence=1 stops tar there rather than
+# decompressing (and decrypting) the whole thing.
+read_manifest() {
+  if is_encrypted "$1"; then
+    [ -n "$PASSPHRASE" ] || return 0
+    decrypt "$1" 2>/dev/null \
+      | tar -xzO --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true
+  else
+    tar -xzOf "$1" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true
+  fi
+}
 
 usage() {
   echo "usage: vk doctor              report this session's docker and cluster topology"
@@ -195,7 +236,8 @@ auto_name() {
 # directory is not ours to delete.
 prune() {
   n=0
-  ls -1t "$1"/verksted-????????-??????*.tar.gz 2>/dev/null | while read -r f; do
+  ls -1t "$1"/verksted-????????-??????*.tar.gz "$1"/verksted-????????-??????*.tar.gz.enc \
+    2>/dev/null | while read -r f; do
     n=$((n + 1))
     [ "$n" -gt "$2" ] || continue
     rm -f "$f" "$f.sha256"
@@ -219,6 +261,13 @@ backup() {
   [ -d "$DATA_DIR" ] || die "$DATA_DIR does not exist"
   mkdir -p "$outdir"
   [ -n "$name" ] || name=$(auto_name "$outdir")
+  # The suffix says what the file is before anything opens it: what prune
+  # matches, what the panel lists, and what tells somebody holding the file on
+  # another machine that a passphrase is part of reading it.
+  case $name in
+    *.enc) [ -n "$PASSPHRASE" ] || die "$name is named encrypted but no VK_BACKUP_PASSPHRASE is set" ;;
+    *) [ -z "$PASSPHRASE" ] && : || name=$name.enc ;;
+  esac
 
   # The share behind this mount is shared with every other PVC in the cluster,
   # so filling it is not a local mistake.
@@ -253,12 +302,33 @@ backup() {
   # a session's .state file flipping mid-read does not invalidate the archive.
   # Only exit 2 and up means tar could not do its job.
   rc=0
-  tar -czf "$part" -X "$tmp/excludes" --warning=no-file-changed \
+  # Encrypting is a second pass over a plain archive rather than a pipe: tar's
+  # exit 1 above is the normal case and has to stay readable, and a `set -e`
+  # shell without pipefail would swallow the distinction between that and a
+  # tar that genuinely failed. The plain file is deleted either way, and the
+  # free-space floor above already covers holding both for a moment.
+  plain=$part
+  [ -z "$PASSPHRASE" ] || plain=$part.plain
+  tar -czf "$plain" -X "$tmp/excludes" --warning=no-file-changed \
       -C "$tmp" .verksted-backup \
       -C "$DATA_DIR" . || rc=$?
-  [ "$rc" -le 1 ] || die "tar failed (exit $rc)"
+  [ "$rc" -le 1 ] || { rm -f "$plain"; die "tar failed (exit $rc)"; }
+
+  if [ -n "$PASSPHRASE" ]; then
+    chmod 0600 "$plain"
+    encrypt "$plain" "$part" || { rm -f "$plain" "$part"; die "encrypting the archive failed"; }
+    rm -f "$plain"
+  fi
 
   chmod 0600 "$part"
+
+  # Read it back the way a restore would, before anything old is pruned. An
+  # archive that cannot be opened is not a backup, and finding that out on the
+  # night you need it — after this run has already deleted the eighth-oldest —
+  # is the failure this whole command exists to avoid.
+  printf '%s' "$(read_manifest "$part")" | jq -e . >/dev/null 2>&1 \
+    || die "wrote an archive that cannot be read back — left nothing pruned"
+
   mv "$part" "$out"
   ( cd "$outdir" && sha256sum "$name" > "$name.sha256" )
   chmod 0600 "$out.sha256"
@@ -268,9 +338,17 @@ backup() {
   echo "wrote $out ($(du -h "$out" | cut -f1)), checksum in $out.sha256"
   [ "$keep" -eq 0 ] || prune "$outdir" "$keep"
   echo
-  echo "this archive holds every token, OAuth login and private key on the volume,"
-  echo "unencrypted. It also sits on the same NAS share it is protecting — copy it"
-  echo "somewhere else, and somewhere you would keep a password file."
+  if [ -n "$PASSPHRASE" ]; then
+    echo "encrypted with VK_BACKUP_PASSPHRASE. Every token, OAuth login and private"
+    echo "key on the volume is in here, so the archive is worth exactly as much as"
+    echo "that passphrase is secret — and worth nothing at all if it is lost. Keep"
+    echo "it in a password manager, not on this volume."
+  else
+    echo "this archive holds every token, OAuth login and private key on the volume,"
+    echo "unencrypted. It also sits on the same NAS share it is protecting — copy it"
+    echo "somewhere else, and somewhere you would keep a password file."
+    echo "Set VK_BACKUP_PASSPHRASE to encrypt what the next run writes."
+  fi
 
   # Only worth printing where it would actually work: outside the pod there is
   # no namespace to name and no pod to name it after.
@@ -304,11 +382,18 @@ restore() {
     echo "warning: no $archive.sha256 beside it, integrity unverified" >&2
   fi
 
-  # Proves it is a verksted archive before anything gets overwritten. The
-  # manifest is the first member, and --occurrence=1 stops tar there.
-  manifest=$(tar -xzOf "$archive" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
+  # An encrypted archive with no passphrase is a thing to say plainly, not a
+  # missing manifest: the file is fine and this bench cannot open it.
+  if is_encrypted "$archive" && [ -z "$PASSPHRASE" ]; then
+    die "$archive is encrypted — set VK_BACKUP_PASSPHRASE to the passphrase it was written with"
+  fi
+
+  # Proves it is a verksted archive, and that the passphrase is right, before
+  # anything gets overwritten. The manifest is the first member, and
+  # --occurrence=1 stops tar there.
+  manifest=$(read_manifest "$archive")
   printf '%s' "$manifest" | jq -e . >/dev/null 2>&1 \
-    || die "$archive has no manifest — not a vk backup archive"
+    || die "$archive has no manifest — wrong passphrase, or not a vk backup archive"
   printf '%s' "$manifest" | jq -r '
     "archive   \(.createdAt)  from \(.hostname)\(if .image then " on \(.image)" else "" end)",
     "repos     \(.repos | length) (\(.repos | map(select(.dirtyTracked > 0)) | length) with uncommitted work)"'
@@ -326,7 +411,13 @@ restore() {
   mkdir -p "$target"
   # Extract merges. Files the archive does not carry are left where they are;
   # this restores what was backed up, it does not make $target identical to it.
-  tar -xpzf "$archive" -C "$target" || die "extract failed"
+  if is_encrypted "$archive"; then
+    # The manifest read above already proved the passphrase, so a failure here
+    # is tar's, not openssl's.
+    decrypt "$archive" | tar -xpz -C "$target" || die "extract failed"
+  else
+    tar -xpzf "$archive" -C "$target" || die "extract failed"
+  fi
 
   # tar preserves modes, but these are the ones that must be right whatever the
   # archive says — the same modes settings-store.ts and routes/ssh.ts write.
@@ -352,44 +443,22 @@ restore() {
 backups_json() {
   first=1
   printf '['
-  for f in "$1"/*.tar.gz; do
+  for f in "$1"/*.tar.gz "$1"/*.tar.gz.enc; do
     [ -f "$f" ] || continue
-    m=$(tar -xzOf "$f" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
+    m=$(read_manifest "$f")
     printf '%s' "$m" | jq -e . >/dev/null 2>&1 || m=null
+    enc=false
+    ! is_encrypted "$f" || enc=true
     [ "$first" -eq 1 ] || printf ','
     first=0
     jq -nc --arg name "$(basename "$f")" --arg path "$f" \
            --arg size "$(du -h "$f" | cut -f1)" \
            --argjson bytes "$(stat -c %s "$f")" \
            --argjson mtime "$(stat -c %Y "$f")" \
+           --argjson encrypted "$enc" \
            --argjson m "$m" \
-      '"'"'{name: $name, path: $path, size: $size, bytes: $bytes, mtime: $mtime}
-       + (if $m == null then {createdAt: null, repos: null, dirty: null}
-          else {createdAt: $m.createdAt,
-                repos: ($m.repos | length),
-                dirty: ($m.repos | map(select(.dirtyTracked > 0)) | length)} end)'"'"'
-  done
-  printf ']'
-}
-
-# One JSON array describing the directory, which is both what `vk backups`
-# formats and what the settings page reads — the panel and the terminal cannot
-# disagree about what is on disk because there is only one reader.
-backups_json() {
-  first=1
-  printf '['
-  for f in "$1"/*.tar.gz; do
-    [ -f "$f" ] || continue
-    m=$(tar -xzOf "$f" --occurrence=1 .verksted-backup/MANIFEST.json 2>/dev/null || true)
-    printf '%s' "$m" | jq -e . >/dev/null 2>&1 || m=null
-    [ "$first" -eq 1 ] || printf ','
-    first=0
-    jq -nc --arg name "$(basename "$f")" --arg path "$f" \
-           --arg size "$(du -h "$f" | cut -f1)" \
-           --argjson bytes "$(stat -c %s "$f")" \
-           --argjson mtime "$(stat -c %Y "$f")" \
-           --argjson m "$m" \
-      '{name: $name, path: $path, size: $size, bytes: $bytes, mtime: $mtime}
+      '{name: $name, path: $path, size: $size, bytes: $bytes, mtime: $mtime,
+        encrypted: $encrypted}
        + (if $m == null then {createdAt: null, repos: null, dirty: null}
           else {createdAt: $m.createdAt,
                 repos: ($m.repos | length),
@@ -420,7 +489,10 @@ backups() {
   # A .tar.gz someone else left here still gets a row, named, so it is not
   # mistaken for a backup.
   printf '%s' "$out" \
-    | jq -r '.[] | [.name, .size, (.createdAt // "-"), (if .repos == null then "not a vk archive" else "\(.repos) repos" end)] | @tsv' \
+    | jq -r '.[] | [.name, .size, (.createdAt // "-"),
+        (if .repos != null then "\(.repos) repos"
+         elif .encrypted then "encrypted, no passphrase here"
+         else "not a vk archive" end)] | @tsv' \
     | while IFS='	' read -r n sz when what; do
         printf '%-40s %7s  %-22s %s\n' "$n" "$sz" "$when" "$what"
       done

@@ -1327,7 +1327,14 @@ export interface BackupArchive {
   bytes: number;
   /** Seconds since the epoch. */
   mtime: number;
-  /** Null for a .tar.gz in the directory that is not one of ours. */
+  /**
+   * Written under VK_BACKUP_PASSPHRASE. An encrypted archive on a pod without
+   * the passphrase reads back with no createdAt or repos — the file is fine,
+   * this bench just cannot open it, which is a different thing from junk in
+   * the directory.
+   */
+  encrypted: boolean;
+  /** Null for a .tar.gz that is not one of ours, or one this pod cannot open. */
   createdAt: string | null;
   repos: number | null;
   /** Repos that had uncommitted tracked changes when it was taken. */

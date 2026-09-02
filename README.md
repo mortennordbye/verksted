@@ -59,6 +59,16 @@ vk backups             # what is in there already
 vk restore ARCHIVE     # put one back
 ```
 
+The archive is everything on the volume, which means every token, OAuth login
+and private key on it. Set `VK_BACKUP_PASSPHRASE` and each one is written
+encrypted (`.tar.gz.enc`) and needs the same passphrase to read back; leave it
+unset and they are written in the clear, as they always were. Keep the
+passphrase in a password manager rather than on the volume — the volume is the
+thing the archive exists to replace, and an archive nobody can decrypt is worse
+than one anybody can read. Every backup reads its own manifest back before it
+prunes anything, so a run that produced something unreadable says so instead of
+deleting the archive you would have needed.
+
 The archive carries `/data` whole, including each repo's `.git`, so uncommitted
 and unpushed work comes back with it. What it leaves out is the rebuildable
 stuff: `~/.cache`, `~/.npm`, `~/.cargo`, `~/.rustup`, `~/.local`, and

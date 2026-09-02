@@ -612,8 +612,15 @@ function Backups() {
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[11px] border border-line bg-surface px-[15px] py-2.5 font-mono text-[12px]"
               >
                 <span className="min-w-0 break-all text-text">{a.name}</span>
+                {a.encrypted && <StatusChip kind="run" label="encrypted" />}
                 {a.createdAt === null ? (
-                  <StatusChip kind="wait" label="not a vk archive" />
+                  // An encrypted archive this pod cannot open is a fine
+                  // archive, not junk in the directory; saying "not a vk
+                  // archive" about one would send somebody to delete it.
+                  <StatusChip
+                    kind="wait"
+                    label={a.encrypted ? "no passphrase here" : "not a vk archive"}
+                  />
                 ) : (
                   <span className="text-muted">
                     {a.repos} repos{a.dirty ? `, ${a.dirty} dirty` : ""}

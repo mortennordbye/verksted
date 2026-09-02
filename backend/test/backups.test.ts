@@ -132,6 +132,59 @@ describe("POST /api/backups", () => {
     SETTLES,
   );
 
+  /**
+   * The archive holds every token, OAuth login and private key on the volume,
+   * and it lands on a NAS share the household can read. What is pinned here is
+   * that the passphrase actually changes that, and that a restore reads it back
+   * — an archive nobody can open is worse than one anybody can read, so the
+   * round trip is the test, not the encryption.
+   */
+  it(
+    "encrypts under a passphrase, and reads one back with it",
+    async () => {
+      process.env.VK_BACKUP_PASSPHRASE = "correct horse battery staple";
+      try {
+        expect((await app.inject({ method: "POST", url: "/api/backups" })).statusCode).toBe(202);
+        await settle();
+        const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
+        const enc = body.archives.find((a: { encrypted: boolean }) => a.encrypted);
+        expect(enc.name).toMatch(/\.tar\.gz\.enc$/);
+        // The manifest was read back through the decryption path, so the
+        // listing knowing what is inside is itself the round trip.
+        expect(enc.repos).toBe(1);
+
+        // The secret is not in the bytes: a plain archive hands it to zcat.
+        const raw = fs.readFileSync(path.join(backupDir, enc.name));
+        expect(raw.subarray(0, 8).toString()).toBe("Salted__");
+        expect(raw.includes(Buffer.from("settings.json"))).toBe(false);
+
+        const target = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bk-restore-"));
+        execFileSync("vk", ["restore", path.join(backupDir, enc.name), "--target", target], {
+          stdio: "pipe",
+        });
+        expect(fs.existsSync(path.join(target, "settings.json"))).toBe(true);
+        fs.rmSync(target, { recursive: true, force: true });
+      } finally {
+        delete process.env.VK_BACKUP_PASSPHRASE;
+      }
+    },
+    SETTLES,
+  );
+
+  it("refuses to open an encrypted archive without the passphrase", async () => {
+    const enc = (await app.inject({ method: "GET", url: "/api/backups" }))
+      .json()
+      .archives.find((a: { encrypted: boolean }) => a.encrypted);
+    // Filed as a fine archive this bench cannot open, not as junk to delete.
+    expect(enc.createdAt).toBeNull();
+    expect(() =>
+      execFileSync("vk", ["restore", path.join(backupDir, enc.name), "--target", "/tmp/nope"], {
+        stdio: "pipe",
+      }),
+    ).toThrow();
+    expect(fs.existsSync("/tmp/nope")).toBe(false);
+  });
+
   it("carries the repo's git history, which is where uncommitted work lives", async () => {
     const [archive] = (await app.inject({ method: "GET", url: "/api/backups" })).json().archives;
     const members = execFileSync("tar", ["-tzf", path.join(backupDir, archive.name)], {
