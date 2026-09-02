@@ -44,6 +44,12 @@ interface Viewed {
   path: string;
   content: string;
   kind: "text" | "diff" | "image";
+  /**
+   * The version read off disk, for If-Match on save. Absent on a diff, an
+   * image, and on the placeholder shown when the read itself failed — which is
+   * also what says whether this file can be edited.
+   */
+  etag?: string;
 }
 
 /**
@@ -280,16 +286,80 @@ export default function Session() {
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [file, setFile] = useState<Viewed | null>(null);
+  /**
+   * The draft, when the file is open for editing. Null is reading.
+   *
+   * The backend has been able to take a save since the file viewer was written
+   * — GET /file returns an etag and PUT takes it as If-Match, which is the
+   * whole of what a shared working tree needs — and nothing ever sent one. So
+   * a typo in a config the agent is about to read meant opening a terminal.
+   */
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+
+  const closeFile = useCallback(async () => {
+    if (draft !== null && draft !== file?.content) {
+      const ok = await confirm({
+        title: "Discard the changes to this file?",
+        body: "They have not been saved, and the agent will not see them.",
+        action: "discard them",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+    setDraft(null);
+    setSaveError(null);
+    setFile(null);
+  }, [confirm, draft, file]);
+
   // The file viewer could only be closed by pointer: no Escape, and Back left
   // the session entirely rather than closing it.
   useOverlayDismiss(
     file !== null,
-    useCallback(() => setFile(null), []),
+    useCallback(() => void closeFile(), [closeFile]),
   );
-  const [confirm, confirmDialog] = useConfirm();
+
+  /**
+   * Write the draft back, and refuse to if the file moved under it.
+   *
+   * The agent is editing the same tree from the other pane, so a blind
+   * overwrite is a real way to lose its work — hence the etag, and hence a 412
+   * that says to reopen rather than offering to force it.
+   */
+  async function saveFile() {
+    if (!session || !file || draft === null || file.etag === undefined) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${session.project}/file?path=${encodeURIComponent(file.path)}`,
+        {
+          method: "PUT",
+          headers: { "content-type": "application/octet-stream", "if-match": file.etag },
+          body: draft,
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `save failed (HTTP ${res.status})`);
+      }
+      const saved = (await res.json()) as { etag: string };
+      setFile({ ...file, content: draft, etag: saved.etag });
+      setDraft(null);
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function openFile(path: string) {
     if (!session) return;
+    // Whatever was being edited is not this file.
+    setDraft(null);
+    setSaveError(null);
     if (IMAGE_EXTS.has(path.split(".").at(-1)!.toLowerCase())) {
       setFile({ path, content: "", kind: "image" });
       return;
@@ -306,6 +376,9 @@ export default function Session() {
 
   async function openDiff(f: GitFileStatus) {
     if (!session) return;
+    // Whatever was being edited is not this file.
+    setDraft(null);
+    setSaveError(null);
     try {
       const d = await api<FileDiff>(
         `/api/projects/${session.project}/diff?path=${encodeURIComponent(f.path)}${f.staged ? "&staged=true" : ""}`,
@@ -319,6 +392,9 @@ export default function Session() {
   /** One file's diff over the session's own commit range, not the working tree. */
   async function openRangeDiff(path: string) {
     if (!session) return;
+    // Whatever was being edited is not this file.
+    setDraft(null);
+    setSaveError(null);
     try {
       const d = await api<SessionFileDiff>(
         `/api/sessions/${session.id}/changes/diff?path=${encodeURIComponent(path)}`,
@@ -1100,14 +1176,58 @@ export default function Session() {
                   ⤓
                 </a>
               )}
+              {/* Only a file actually read off disk can be written back: a
+                  diff, an image and a failed read all have no etag. */}
+              {file.kind === "text" &&
+                file.etag !== undefined &&
+                (draft === null ? (
+                  <button
+                    onClick={() => setDraft(file.content)}
+                    className="flex-none px-2 text-faint hover:text-text"
+                  >
+                    edit
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => void saveFile()}
+                      disabled={saving || draft === file.content}
+                      className="flex-none px-2 text-accent hover:brightness-110 disabled:opacity-40"
+                    >
+                      {saving ? "saving…" : "save"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDraft(null);
+                        setSaveError(null);
+                      }}
+                      className="flex-none px-2 text-faint hover:text-text"
+                    >
+                      cancel
+                    </button>
+                  </>
+                ))}
               <button
-                onClick={() => setFile(null)}
+                onClick={() => void closeFile()}
                 className={`${file.kind === "diff" ? "ml-auto" : ""} flex-none px-2 text-faint hover:text-text`}
               >
                 ✕
               </button>
             </div>
-            {file.kind === "image" && session ? (
+            {saveError && (
+              <div className="border-b border-line px-3.5 py-2 font-mono text-[12px] text-wait">
+                {saveError}
+              </div>
+            )}
+            {draft !== null ? (
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                spellCheck={false}
+                aria-label={`${file.path} (editing)`}
+                className="flex-1 resize-none bg-term p-4 font-mono text-[12.5px] leading-relaxed text-text outline-none"
+              />
+            ) : file.kind === "image" && session ? (
               <div className="flex flex-1 items-center justify-center overflow-auto bg-term p-4">
                 <img
                   src={`/api/projects/${session.project}/raw?path=${encodeURIComponent(file.path)}`}

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { MaintainerStage } from "../../../shared/api.js";
+import type { CronPreview, MaintainerStage } from "../../../shared/api.js";
 import { getMember } from "../council-store.js";
 import { repoDirOr404, resolveInsideRepos } from "../paths.js";
 import { reloadSchedules, runSchedule } from "../scheduler.js";
@@ -22,6 +22,31 @@ export default async function scheduleRoutes(app: FastifyInstance) {
     if (!repoDirOr404(reply, req.params.name)) return;
     return store.listSchedules(req.params.name);
   });
+
+  /**
+   * What a pattern would do, for the field somebody is typing it into.
+   *
+   * Read here rather than in the browser because a cron is wall-clock time in
+   * the pod's timezone: a phone in another one would preview the wrong hours,
+   * which is exactly the mistake this is meant to catch.
+   */
+  app.get<{ Querystring: { cron: string } }>(
+    "/api/schedules/preview",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["cron"],
+          additionalProperties: false,
+          properties: { cron: CRON },
+        },
+      },
+    },
+    async (req): Promise<CronPreview> => {
+      const next = store.nextRuns(req.query.cron);
+      return { valid: next.length > 0, next };
+    },
+  );
 
   // The inbox: what every schedule did while nobody was watching.
   app.get("/api/runs", async () => store.listRuns());
