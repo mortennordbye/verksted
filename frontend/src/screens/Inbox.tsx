@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import ProposalCard from "../components/ProposalCard";
+import Sheet from "../components/Sheet";
 import { StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import WaitingSession from "../components/WaitingSession";
+import { useConfirm } from "../useConfirm";
 
 /**
  * The inbox: everything that happened, newest first, and what to do with it.
@@ -37,25 +39,77 @@ const SOURCES: FeedSource[] = [
   "proposal",
 ];
 
-/** Tomorrow at seven, local: the one snooze everybody wants. */
-function tomorrowMorning(): string {
+/** A wall-clock time n days from now, in this device's zone. */
+function at(days: number, hour: number): Date {
   const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(7, 0, 0, 0);
-  return d.toISOString();
+  d.setDate(d.getDate() + days);
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+
+/**
+ * When an item can come back. Tomorrow at seven was the only answer this
+ * offered, and it is the wrong one for a thing that wants an evening, or that
+ * wants to be out of the way until Monday.
+ *
+ * Computed on the tap rather than at module load, so a tab left open
+ * overnight does not offer yesterday's evening.
+ */
+function snoozeChoices(): { label: string; at: Date }[] {
+  const now = new Date();
+  const evening = at(0, 18);
+  /** The next such weekday, never today. */
+  const nextDay = (weekday: number, hour: number) =>
+    at((weekday - now.getDay() + 7) % 7 || 7, hour);
+  return [
+    ...(evening > now ? [{ label: "this evening", at: evening }] : []),
+    { label: "tomorrow morning", at: at(1, 7) },
+    { label: "the weekend", at: nextDay(6, 9) },
+    { label: "next week", at: nextDay(1, 7) },
+  ];
+}
+
+/** Which day's heading an item belongs under. */
+function dayLabel(iso: string): string {
+  const day = new Date(iso);
+  day.setHours(0, 0, 0, 0);
+  const days = Math.round((at(0, 0).getTime() - day.getTime()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "yesterday";
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
+/** The list, cut into days, in the order the feed already had. */
+function byDay(items: FeedItem[]): { label: string; items: FeedItem[] }[] {
+  const days: { label: string; items: FeedItem[] }[] = [];
+  for (const item of items) {
+    const label = dayLabel(item.at);
+    const last = days.at(-1);
+    if (last?.label === label) last.items.push(item);
+    else days.push({ label, items: [item] });
+  }
+  return days;
 }
 
 function Row({
   item,
   session,
   onChange,
+  onActed,
 }: {
   item: FeedItem;
   session?: Session;
   onChange: () => void;
+  /** What just happened to which items, so the screen can offer it back. */
+  onActed: (ids: string[], label: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  const [snoozing, setSnoozing] = useState(false);
   const external = item.link?.startsWith("http");
   const u = URGENCY[item.urgency];
   const done = item.state === "done";
@@ -77,6 +131,12 @@ function Row({
         body: JSON.stringify(until ? { state, until } : { state }),
       }),
     );
+
+  const snooze = (choice: { label: string; at: Date }) =>
+    void setState("snoozed", choice.at.toISOString()).then(() => {
+      setSnoozing(false);
+      onActed([item.id], `snoozed until ${choice.label}`);
+    });
   const review = (keep: boolean) =>
     act(() =>
       api(
@@ -168,16 +228,20 @@ function Row({
           )}
           {!done && item.state !== "snoozed" && item.source !== "proposal" && (
             <button
-              onClick={() => void setState("snoozed", tomorrowMorning())}
+              onClick={() => setSnoozing(true)}
               disabled={busy}
               className={button}
-              title="back tomorrow at seven"
+              title="put it away until later"
             >
               snooze
             </button>
           )}
           {!done && item.source === "proposal" ? null : !done ? (
-            <button onClick={() => void setState("done")} disabled={busy} className={button}>
+            <button
+              onClick={() => void setState("done").then(() => onActed([item.id], "marked done"))}
+              disabled={busy}
+              className={button}
+            >
               done
             </button>
           ) : (
@@ -187,6 +251,29 @@ function Row({
           )}
         </span>
       </div>
+      {snoozing && (
+        <Sheet title="Bring it back" sub={item.title} onClose={() => setSnoozing(false)}>
+          <div className="flex flex-col gap-2">
+            {snoozeChoices().map((choice) => (
+              <button
+                key={choice.label}
+                onClick={() => snooze(choice)}
+                disabled={busy}
+                className="tap flex items-center gap-2.5 rounded-lg border border-line bg-surface-2 px-3 py-2.5 text-left text-[13.5px] hover:border-faint disabled:opacity-50"
+              >
+                <span className="min-w-0 flex-1">{choice.label}</span>
+                <span className="flex-none font-mono text-[11.5px] text-faint">
+                  {choice.at.toLocaleString(undefined, {
+                    weekday: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -198,6 +285,18 @@ export default function Inbox() {
   const [source, setSource] = useState<FeedSource | "all">("all");
   const [showDone, setShowDone] = useState(false);
   const [judging, setJudging] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  // What the last action did, and the way back out of it. An inbox where
+  // "done" is one tap and irreversible is one you stop trusting to tap in.
+  const [undo, setUndo] = useState<{ ids: string[]; label: string } | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+
+  // Offered for as long as it is plausibly still the thing you just did.
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), 15_000);
+    return () => clearTimeout(timer);
+  }, [undo]);
 
   const all = items ?? [];
   const live = all.filter((i) => i.state !== "done");
@@ -205,10 +304,58 @@ export default function Inbox() {
   const shown = all
     .filter((i) => showDone || i.state !== "done")
     .filter((i) => source === "all" || i.source === source);
+  // A proposal ends by being taken or dropped on its own card, so it is not
+  // one of the things "clear" is offering to clear.
+  const clearable = shown.filter((i) => i.state !== "done" && i.source !== "proposal");
   const attention = live.filter((i) => i.urgency === "attention").length;
   const unjudged = live.filter((i) => !i.triaged).length;
   const open = (loops ?? []).filter((l) => l.state === "open");
   const byId = new Map((sessions ?? []).map((s) => [s.id, s]));
+
+  /**
+   * Every item on the list as it is filtered, in one go.
+   *
+   * The list is one row per thing that arrived, and on a morning after a busy
+   * night that is thirty rows of quiet ones between the two that matter. The
+   * filter above decides what "all of them" means, so this clears a source at
+   * a time as readily as the lot.
+   */
+  async function clearShown(items: FeedItem[]) {
+    const ok = await confirm({
+      title: `Mark ${items.length} items done?`,
+      body: "They leave the list. Done keeps thirty days, and undo is on the next screen.",
+      action: `mark ${items.length} done`,
+    });
+    if (!ok) return;
+    setClearing(true);
+    try {
+      // One at a time: this is a write per item on the pod's volume, and
+      // thirty at once buys nothing on a list nobody is watching finish.
+      for (const item of items) {
+        await api(`/api/feed/${encodeURIComponent(item.id)}/state`, {
+          method: "POST",
+          body: JSON.stringify({ state: "done" }),
+        });
+      }
+      setUndo({ ids: items.map((i) => i.id), label: `${items.length} marked done` });
+    } finally {
+      setClearing(false);
+      refresh();
+    }
+  }
+
+  async function undoLast() {
+    if (!undo) return;
+    const { ids } = undo;
+    setUndo(null);
+    for (const id of ids) {
+      await api(`/api/feed/${encodeURIComponent(id)}/state`, {
+        method: "POST",
+        body: JSON.stringify({ state: "new" }),
+      });
+    }
+    refresh();
+  }
 
   async function judge() {
     if (judging) return;
@@ -237,8 +384,8 @@ export default function Inbox() {
         </h1>
         <div className="mb-5 text-sm text-muted">
           Everything that arrived, newest first: what the schedules did, what GitHub wants, what the
-          agents are waiting on, what was proposed to remember. Done keeps thirty days; snooze
-          brings it back tomorrow at seven.
+          agents are waiting on, what was proposed to remember. Done keeps thirty days, and undo is
+          on the next screen; snooze asks when to bring it back.
         </div>
 
         {open.length > 0 && (
@@ -296,6 +443,16 @@ export default function Inbox() {
                 {judging ? "sorting…" : `sort ${unjudged} new`}
               </button>
             )}
+            {clearable.length > 1 && (
+              <button
+                onClick={() => void clearShown(clearable)}
+                disabled={clearing}
+                className="tap rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                title="mark everything on this list done"
+              >
+                {clearing ? "clearing…" : `clear ${clearable.length}`}
+              </button>
+            )}
             <button
               onClick={() => setShowDone((d) => !d)}
               aria-pressed={showDone}
@@ -308,14 +465,36 @@ export default function Inbox() {
           </span>
         </div>
 
+        {undo && (
+          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13px]">
+            <span className="min-w-0 flex-1 text-muted">{undo.label}</span>
+            <button
+              onClick={() => void undoLast()}
+              className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11.5px] text-muted hover:border-faint hover:text-text"
+            >
+              undo
+            </button>
+          </div>
+        )}
+
         <div className="flex flex-col gap-2">
-          {shown.map((i) => (
-            <Row
-              key={i.id}
-              item={i}
-              session={i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined}
-              onChange={refresh}
-            />
+          {/* Cut into days: the feed is one long run of rows, and "when did
+              this arrive" is most of what tells the overnight ones apart. */}
+          {byDay(shown).map((day) => (
+            <div key={day.label} className="flex flex-col gap-2">
+              <div className="mt-2 font-mono text-[11px] tracking-[.12em] text-faint uppercase first:mt-0">
+                {day.label}
+              </div>
+              {day.items.map((i) => (
+                <Row
+                  key={i.id}
+                  item={i}
+                  session={i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined}
+                  onChange={refresh}
+                  onActed={(ids, label) => setUndo({ ids, label })}
+                />
+              ))}
+            </div>
           ))}
           {items !== null && shown.length === 0 && (
             <div className="font-mono text-[12.5px] text-faint">
@@ -325,6 +504,7 @@ export default function Inbox() {
         </div>
       </main>
       <Tabs />
+      {confirmDialog}
     </>
   );
 }
