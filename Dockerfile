@@ -152,7 +152,8 @@ COPY runtime/git-hooks/ /etc/verksted/git-hooks/
 # permission prompts an unattended run has nobody to answer (claude-hooks.ts).
 COPY runtime/maintainer/ /etc/verksted/maintainer/
 COPY runtime/vk-guard /usr/local/bin/vk-guard
-RUN chmod 0755 /usr/local/bin/vk /usr/local/bin/vk-guard /etc/verksted/git-hooks/* \
+COPY runtime/vk-signoff /usr/local/bin/vk-signoff
+RUN chmod 0755 /usr/local/bin/vk /usr/local/bin/vk-guard /usr/local/bin/vk-signoff /etc/verksted/git-hooks/* \
     && git config --system core.hooksPath /etc/verksted/git-hooks
 
 # Speech to text for the assistant's voice mode. ffmpeg is what turns whatever

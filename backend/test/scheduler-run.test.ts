@@ -321,8 +321,12 @@ describe("a schedule that runs a maintainer stage", () => {
     // which is what lets the scheduler know the run is over.
     expect(command).toMatch(/--permission-mode dontAsk --max-turns \d+ --verbose -p "\$VK_PROMPT"/);
     expect(command).not.toContain("--permission-mode auto");
-    // And the pane says when the agent is gone, since tmux will not.
-    expect(command).toContain('"$VK_PROMPT"; printf %s "$?" > "$VK_EXIT_FILE"');
+    // And the pane asks for the verdict a silent run did not write, then says
+    // the agent is gone, since tmux will not. That order matters: the exit
+    // file is what lets the watcher end the session.
+    expect(command).toContain(
+      '"$VK_PROMPT"; vk_code=$?; vk-signoff "$vk_code"; printf %s "$vk_code" > "$VK_EXIT_FILE"',
+    );
     const env = envOf(argv);
     expect(env.VK_UNATTENDED).toBe("1");
     expect(env.VK_STAGE).toBe("scout");

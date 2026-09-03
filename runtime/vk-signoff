@@ -1,0 +1,65 @@
+#!/bin/sh
+# vk-signoff: ask a run that finished without a word what it would have said.
+#
+# An unattended run is told to write one line to $VK_REPORT_FILE when it is
+# done (REPORT_CONTRACT, sessions-store). Most do. Some finish the work, stop,
+# and never write it — six headroom runs in one week — and the Stop hook then
+# records "failed: no sign-off", which reads in the inbox as a night that broke
+# when nothing broke at all. The same gate schedule wrote a clean verdict on
+# the two nights either side of three silent ones.
+#
+# So: one more turn, resuming the conversation the run just had, asking only
+# for the line. It runs in the pane the agent left, with that run's settings
+# and its guard, capped at a single turn. Silence is still never read as
+# success — a turn that answers nothing leaves the verdict failed, and says
+# that it was asked.
+#
+# Runs before the exit file is written, so the watcher does not end the session
+# out from under it (sessions-store launchAgent, scheduler watchUnattended).
+#
+# Argument: the agent's exit status.
+# Set per session by verksted (sessions-store launchAgent):
+#   VK_REPORT_FILE  the verdict file, holding the hook's sentinel by now
+#   VK_CONV_FILE    where claude wrote the conversation id
+#   VK_SETTINGS     the settings that run used, hooks and guard
+#
+# Tested by backend/test/vk-signoff.test.ts. POSIX sh.
+set -u
+
+SENTINEL='failed: no sign-off'
+code=${1:-1}
+report=${VK_REPORT_FILE:-}
+conv=${VK_CONV_FILE:-}
+
+# Only a clean exit that went quiet. A run that crashed already has its reason
+# recorded by the watcher, and resuming a broken thing to explain itself is not
+# a question worth a model call.
+[ "$code" = "0" ] || exit 0
+[ -n "$report" ] && [ -f "$report" ] || exit 0
+[ "$(head -n 1 "$report")" = "$SENTINEL" ] || exit 0
+id=$(cat "$conv" 2>/dev/null) || exit 0
+[ -n "$id" ] || exit 0
+
+ASK='You have finished, but you did not write the sign-off line this run asked
+you for. Write it now as your entire reply: one line, nothing before or after
+it, starting with one of three words.
+
+"failed: <summary>" if you could not finish what you were asked.
+"attention: <summary>" only if this cannot go any further without me.
+"ok: <summary>" for everything else, including work you finished and left for
+me to read.
+
+Do not use any tool. Do not write any file. Answer with the line.'
+
+answer=$(claude --resume "$id" \
+  ${VK_SETTINGS:+--settings "$VK_SETTINGS"} \
+  --permission-mode dontAsk --max-turns 1 -p "$ASK" 2>/dev/null) || answer=''
+
+line=$(printf '%s\n' "$answer" | grep -m 1 -iE '^(ok|attention|failed):' | cut -c 1-300)
+if [ -n "$line" ]; then
+  printf '%s\n' "$line" > "$report"
+else
+  # Asked and got nothing: still a failure, and now one that says why it is
+  # bare rather than looking like a run nobody ever went back to.
+  printf '%s (asked, no answer)\n' "$SENTINEL" > "$report"
+fi

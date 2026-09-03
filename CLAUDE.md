@@ -227,6 +227,7 @@ runtime/              # shipped into the image, not part of the build
 ├── vk-say.py         # text -> speech worker the backend talks to (tts.ts)
 ├── vk                # `vk doctor` — the live version of the same thing
 ├── vk-guard          # PreToolUse hook of an unattended run: deny, never ask
+├── vk-signoff        # asks a run that finished without a verdict for one
 └── maintainer/       # the maintainer's stage prompts (scout.md, …)
 backend/src/
 ├── index.ts          # bootstrap: env, fastify, routes, static serving
