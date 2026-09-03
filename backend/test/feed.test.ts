@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
  * The feed and the loops: stores, pollers and routes, without a model.
@@ -13,6 +14,8 @@ import type { FastifyInstance } from "fastify";
  * ordering, the retention sweep, and the shape of what a briefing is handed.
  */
 let app: FastifyInstance;
+let fake: FakeBin;
+const log = { info: () => {}, warn: () => {} };
 let feedDir: string;
 let settingsFile: string;
 let feed: typeof import("../src/feed-store.js");
@@ -21,6 +24,8 @@ let pollers: typeof import("../src/pollers.js");
 let scheduler: typeof import("../src/scheduler.js");
 
 beforeAll(async () => {
+  // Only gh: everything else on the path stays real, tmux included.
+  fake = FakeBin.install(["gh"]);
   feedDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-feed-"));
   process.env.FEED_DIR = feedDir;
   process.env.LOOPS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-loops-"));
@@ -42,9 +47,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await app.close();
+  fake.uninstall();
 });
 
 beforeEach(() => {
+  fake.reset();
   for (const dir of [feedDir, process.env.LOOPS_DIR!]) {
     for (const f of fs.readdirSync(dir)) fs.rmSync(path.join(dir, f));
   }
@@ -274,6 +281,80 @@ describe("the pollers", () => {
     expect((await loops.get(fromItem.slug))!.state).toBe("closed");
     expect((await loops.get(byHand.slug))!.state).toBe("open");
     expect((await loops.get(stillOpen.slug))!.state).toBe("open");
+  });
+
+  it("ends a github item once its pull request is closed, and keeps the open one", async () => {
+    const arrived = (n: number) =>
+      feed.upsert({
+        id: `github:${n}`,
+        source: "github" as const,
+        at: new Date().toISOString(),
+        title: `o/r: pull ${n}`,
+        detail: "your review was asked for",
+        link: `https://github.com/o/r/pull/${n}`,
+        version: "1",
+      });
+    await arrived(1);
+    await arrived(2);
+    fake.reply("gh", "api", { stdout: JSON.stringify([{ number: 2 }]) });
+    fake.reply("gh", "api", { contains: "notifications", stdout: "[]" });
+
+    await pollers.pollGithub(log);
+
+    expect((await feed.get("github:1"))!.state).toBe("done");
+    expect((await feed.get("github:1"))!.did).toBe("closed on GitHub");
+    expect((await feed.get("github:2"))!.state).toBe("new");
+    // One call for the repository, not one per item.
+    const asked = fake.argvFor("gh").filter((a) => a[1]?.startsWith("repos/"));
+    expect(asked).toEqual([["api", "repos/o/r/issues?state=open&per_page=100"]]);
+  });
+
+  it("ends anything a week unread, whatever it points at", async () => {
+    const old = new Date(Date.now() - 8 * 86_400_000).toISOString();
+    await feed.upsert({
+      id: "github:stale",
+      source: "github",
+      at: old,
+      title: "o/r: a mention nobody read",
+      detail: "",
+      link: "https://github.com/o/r",
+      version: "1",
+    });
+    fake.reply("gh", "api", { stdout: "[]" });
+
+    await pollers.pollGithub(log);
+
+    const item = (await feed.get("github:stale"))!;
+    expect([item.state, item.did]).toEqual(["done", "a week unread"]);
+  });
+
+  it("leaves a repository it cannot read, and one with a full page of open work", async () => {
+    for (const [id, repo] of [
+      ["github:10", "o/unreadable"],
+      ["github:11", "o/busy"],
+    ]) {
+      await feed.upsert({
+        id,
+        source: "github",
+        at: new Date().toISOString(),
+        title: `${repo}: pull 1`,
+        detail: "",
+        link: `https://github.com/${repo}/pull/1`,
+        version: "1",
+      });
+    }
+    fake.reply("gh", "api", { contains: "notifications", stdout: "[]" });
+    fake.reply("gh", "api", { contains: "o/unreadable", code: 1, stderr: "gh: not found" });
+    // A hundred open, so "not on the list" no longer means closed.
+    fake.reply("gh", "api", {
+      contains: "o/busy",
+      stdout: JSON.stringify(Array.from({ length: 100 }, (_, n) => ({ number: n + 2 }))),
+    });
+
+    await pollers.pollGithub(log);
+
+    expect((await feed.get("github:10"))!.state).toBe("new");
+    expect((await feed.get("github:11"))!.state).toBe("new");
   });
 
   it("polls the bench on every read of the feed, so the feed is never behind", async () => {
