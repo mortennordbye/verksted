@@ -607,7 +607,9 @@ async function launchAgent(
     // Status hooks: claude writes waiting/running into the session state file
     // and its conversation id into the conv file. MCP config: the playwright
     // MCP drives the session browser.
-    command += ` --settings "${await ensureHooksSettings(!!opts.unattended)}" --mcp-config "${await ensureMcpConfig()}"`;
+    const settings = await ensureHooksSettings(!!opts.unattended);
+    command += ` --settings "${settings}" --mcp-config "${await ensureMcpConfig()}"`;
+    extraEnv.VK_SETTINGS = settings;
     extraEnv.VK_STATE_FILE = statePath(meta.id);
     extraEnv.VK_CONV_FILE = convPath(meta.id);
     extraEnv.VK_REPORT_FILE = reportPath(meta.id);
@@ -640,7 +642,14 @@ async function launchAgent(
   }
   // The pane records that the agent is gone, and how it went, before it drops
   // into the shell that keeps the session readable (see tmux.newSession).
-  if (opts.unattended) command += '; printf %s "$?" > "$VK_EXIT_FILE"';
+  //
+  // vk-signoff runs between the two: a run that finished and never wrote its
+  // verdict is asked for it, in the conversation it just had. Before the exit
+  // file rather than after, because that file is what tells the watcher the
+  // session may be ended — written first, the pane would be killed mid-ask.
+  if (opts.unattended) {
+    command += '; vk_code=$?; vk-signoff "$vk_code"; printf %s "$vk_code" > "$VK_EXIT_FILE"';
+  }
 
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
 }

@@ -230,8 +230,14 @@ not stop. Claude runs headless (`-p`) in dontAsk mode with a PreToolUse guard
 an `rm` or an edit that resolves outside the working tree, anything the cluster
 or a backup could not undo — and a denied call fails in front of the model
 rather than waiting for a person. The Stop hook writes `failed: no sign-off`
-when the run left no report, the scheduler ends the session when the agent has
-exited (the pane keeps its shell, so tmux alone would say it was still going)
+when the run left no report, and the pane then asks for one
+(`runtime/vk-signoff`): a single turn resuming the conversation the run just
+had, wanting only the verdict line, because the failure in practice is an agent
+that finished the work and forgot the bookkeeping — six headroom runs in a week,
+the same gate schedule signing off cleanly on the nights either side. A turn
+that answers nothing leaves the verdict failed and records that it was asked,
+so silence is still never read as a night that went well. The scheduler ends
+the session when the agent has exited (the pane keeps its shell, so tmux alone would say it was still going)
 or after ninety minutes, and a pod restart fails it in its own words rather than
 resuming it. What a stage knows about the repo comes from the repo: the
 `## Maintainer` section of its CLAUDE.md, with the command that verifies it, what

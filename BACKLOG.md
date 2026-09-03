@@ -3,6 +3,30 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## A GitHub notification never ends on its own
+
+- **What:** Every other poller reconciles: `pollBench` and `pollQueue` hand
+  `apply` a list of what is gone and it resolves those items, and a routine
+  schedule run now ends once a later run replaces it. `pollGithub` passes no
+  such list, so a notification is filed once and stays `new` until someone
+  marks it done from the screen. That is how 87 github items reached the feed,
+  54 of them older than a week, and why the six the Today rail shows were the
+  six least worth reading. A one-off sweep on 2026-09-03 marked 114 items done;
+  the github half of that will build up again.
+- **Why deferred:** GitHub's notifications API only returns what is unread, so
+  "not in the response" cannot mean "over" the way an empty queue or a kept
+  proposal can — everything already read would resolve on the first poll, which
+  is right for a notification and wrong for the PR review it stands for. Ending
+  them correctly means asking what the item points at (is the PR merged, is the
+  thread closed), which is a `gh` call per item on a timer that currently makes
+  one call for the lot.
+- **Unblocked by:** Deciding what a github item's end actually is. The cheap
+  version is age: resolve a `new`/`quiet` notification older than N days, on the
+  grounds that an unread notification from last week is not news. The correct
+  version is a state read per open item, batched.
+- **Where:** `backend/src/pollers.ts` (`pollGithub`, `notificationItems`,
+  `apply`, `supersededRuns` for the pattern)
+
 ## A blocked owner's maintainer queue is not blocked
 
 - **What:** The owner list on the settings page keeps GitHub notifications from

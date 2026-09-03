@@ -105,6 +105,10 @@ beforeAll(async () => {
   // A schedule whose last run signed off at length. The report is free text of
   // any length and it is the one server string that reaches a chip, so it is
   // what the no-sideways-scroll test below is actually aimed at.
+  //
+  // It signs off with `attention`, because that is the case Today used to draw
+  // twice: once as the brief, in full, and once as a row that needs you with
+  // the same words truncated. The row is the brief, so there is no row.
   fs.writeFileSync(
     path.join(schedulesDir, "sch-1a2b3c4d.json"),
     JSON.stringify({
@@ -127,12 +131,65 @@ beforeAll(async () => {
           at: new Date().toISOString(),
           sessionId: null,
           reply:
-            "ok: three idle sessions, none stuck, one still holding uncommitted work, " +
+            "attention: three idle sessions, none stuck, one still holding uncommitted work, " +
             "two pull requests waiting on review and a nightly render that finished clean",
         },
       ],
     }),
   );
+
+  // A stage schedule whose run failed the same way it always does — the one
+  // row on Today that is meant to be waved off.
+  fs.writeFileSync(path.join(sessionsDir, "vk-demo-2.report"), "failed: no sign-off\n");
+  fs.writeFileSync(
+    path.join(schedulesDir, "sch-2b3c4d5e.json"),
+    JSON.stringify({
+      id: "sch-2b3c4d5e",
+      name: "scout",
+      kind: "session",
+      project: "demo",
+      stage: "scout",
+      cron: "0 3 * * *",
+      jitterMinutes: 0,
+      prompt: "",
+      skipWhenIdle: false,
+      member: "",
+      convenes: false,
+      enabled: true,
+      createdAt: new Date().toISOString(),
+      runs: [{ at: new Date().toISOString(), sessionId: "vk-demo-2", error: null }],
+    }),
+  );
+  // A weekly stage whose one run failed four days ago. Its session ended with
+  // it; there is nothing to open and nothing to do, so it is not a thing that
+  // needs you today however loud its verdict was.
+  fs.writeFileSync(path.join(sessionsDir, "vk-demo-3.report"), "failed: nothing was pushed\n");
+  fs.writeFileSync(
+    path.join(schedulesDir, "sch-3c4d5e6f.json"),
+    JSON.stringify({
+      id: "sch-3c4d5e6f",
+      name: "weekly sweep",
+      kind: "session",
+      project: "demo",
+      stage: "scout",
+      cron: "0 22 * * 0",
+      jitterMinutes: 0,
+      prompt: "",
+      skipWhenIdle: false,
+      member: "",
+      convenes: false,
+      enabled: true,
+      createdAt: new Date(Date.now() - 9 * 86_400_000).toISOString(),
+      runs: [
+        {
+          at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+          sessionId: "vk-demo-3",
+          error: null,
+        },
+      ],
+    }),
+  );
+
   process.env.STATIC_DIR = dist;
   const { buildApp } = await import("../backend/src/app.js");
   app = await buildApp({ logger: false });
@@ -165,8 +222,23 @@ afterAll(async () => {
 });
 
 describe("the app in a real browser", () => {
-  it("opens on today, with nothing needing you", async () => {
+  it("opens on today, with the brief in full and not also as a row", async () => {
     await page.goto(base, { waitUntil: "networkidle" });
+    // The failed scout, and only it: the briefing signed off with `attention`
+    // and is the card below, not a second thing to do.
+    await page.getByText("1 thing needs you").waitFor({ timeout: 15_000 });
+    await page.getByText("scout: no sign-off").waitFor({ timeout: 15_000 });
+    await page.getByText("three idle sessions").waitFor({ timeout: 15_000 });
+    // Four days old, and so not one of today's. Visible matches only: the
+    // desktop rails are in the DOM on a phone, hidden by CSS, and the run is
+    // still listed there — which is exactly where it belongs.
+    expect(await page.getByText("weekly sweep").locator("visible=true").count()).toBe(0);
+  });
+
+  it("waves off a verdict, and the row goes", async () => {
+    await page.goto(base, { waitUntil: "networkidle" });
+    await page.getByText("scout: no sign-off").waitFor({ timeout: 15_000 });
+    await page.getByRole("button", { name: "dismiss" }).click();
     await page.getByText("Nothing needs you.").waitFor({ timeout: 15_000 });
   });
 

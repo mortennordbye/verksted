@@ -54,6 +54,12 @@ type Stored = Omit<
   runs: StoredRun[];
   /** Absent on every record written before catch-up existed. */
   lastFiredAt?: string;
+  /**
+   * The flagged verdict the person waved off, as verdictKey writes it. One per
+   * schedule: dismissing is about the words, so a schedule that says the same
+   * thing every night is dismissed once.
+   */
+  dismissedVerdict?: string;
 };
 
 function filePath(id: string): string {
@@ -293,6 +299,37 @@ function outcome(
 }
 
 /**
+ * What a run said, as one string to compare against.
+ *
+ * The outcome and the words, because a schedule that fails for a new reason is
+ * news even though it failed last night too. The words are the report as
+ * written: a report that carries a timestamp or a count will differ every
+ * night and come back, which is the safe way round.
+ */
+function verdictKey(outcome: string, said: string): string {
+  return `${outcome}:${said.trim().replace(/\s+/g, " ")}`;
+}
+
+/**
+ * Wave off what a run said. It stops being a row on Today until the schedule
+ * says something else; Recent runs still lists it, because the run happened.
+ */
+export async function dismissRun(id: string, at: string): Promise<boolean> {
+  const stored = await readStored(id);
+  const run = stored?.runs?.find((r) => r.at === at);
+  if (!stored || !run) return false;
+  const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
+  const session = run.sessionId
+    ? (await listSessions()).find((s) => s.id === run.sessionId)
+    : undefined;
+  await write({
+    ...stored,
+    dismissedVerdict: verdictKey(outcome(run, report, session), report ?? run.error ?? ""),
+  });
+  return true;
+}
+
+/**
  * Every firing across every schedule, newest first — what happened while you
  * were not looking. Sessions are listed once and matched up here rather than
  * fetched per run: each lookup would otherwise shell out to tmux.
@@ -308,6 +345,7 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
   for (const { s, run } of rows) {
     const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
     const session = run.sessionId ? sessions.get(run.sessionId) : undefined;
+    const verdict = outcome(run, report, session);
     out.push({
       scheduleId: s.id,
       schedule: s.name,
@@ -318,7 +356,10 @@ export async function listRuns(limit = 50): Promise<ScheduleRun[]> {
       sessionId: run.sessionId,
       error: run.error,
       report,
-      outcome: outcome(run, report, session),
+      outcome: verdict,
+      dismissed:
+        s.dismissedVerdict !== undefined &&
+        s.dismissedVerdict === verdictKey(verdict, report ?? run.error ?? ""),
       work: session?.work ?? null,
       usage: session?.usage ?? null,
     });

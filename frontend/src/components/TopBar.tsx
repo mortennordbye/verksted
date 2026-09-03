@@ -1,23 +1,7 @@
 import { Link, useLocation, useNavigate } from "react-router";
 import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
-import { isTabRoute, TabLinks } from "./Tabs";
-
-/**
- * A count worth interrupting for, in the corner of whatever carries it. Nothing
- * is drawn at zero.
- *
- * Its own component because the phone session screen shows no top bar, so the
- * same pill has to ride on the ⋯ that took the bar's place.
- */
-export function Badge({ count }: { count: number }) {
-  if (!count) return null;
-  return (
-    <span className="absolute -top-1 -right-1 min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent">
-      {count > 9 ? "9+" : count}
-    </span>
-  );
-}
+import { Badge, isTabRoute, TabLinks } from "./Tabs";
 
 /**
  * The way up, as a pop rather than a push: pushing meant the browser's own Back
@@ -180,15 +164,21 @@ export default function TopBar({
       )}
       <div className="ml-auto flex flex-none items-center gap-4">
         {/* The four screens, as words, where there is room for words. */}
-        {onTab && <TabLinks />}
-        <IconLink
-          to="/runs"
-          title="inbox — what the schedules did"
-          badge={proposed?.proposals.length}
-        >
-          <rect x="2" y="4" width="20" height="16" rx="2" />
-          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-        </IconLink>
+        {onTab && <TabLinks badge={proposed?.proposals.length} />}
+        {/* The envelope is the way to the inbox from a screen that carries no
+            tabs. On a tab route it was a second door beside the word Inbox,
+            four items along the same bar and pointing at the same place, and
+            it was the door wearing the count. The word wears it now. */}
+        {!onTab && (
+          <IconLink
+            to="/runs"
+            title="inbox — what the schedules did"
+            badge={proposed?.proposals.length}
+          >
+            <rect x="2" y="4" width="20" height="16" rx="2" />
+            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+          </IconLink>
+        )}
         <IconLink to="/settings" title="settings">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />

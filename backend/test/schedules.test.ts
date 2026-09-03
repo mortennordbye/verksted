@@ -293,6 +293,46 @@ describe("the store's own guards", () => {
     expect(mine[0].schedule).toBe("hist");
   });
 
+  it("waves off a verdict until the schedule says something else", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "scout", project: "demo", cron: CRON, prompt: "x" })).json()
+      .id;
+    const mine = async () => (await store.listRuns(100)).filter((r) => r.scheduleId === id);
+
+    await store.recordRun(id, { sessionId: "vk-demo-20" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-20.report"), "failed: no sign-off\n");
+    expect((await mine())[0].dismissed).toBe(false);
+
+    const at = (await mine())[0].at;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/schedules/${id}/dismiss`,
+      payload: { at },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((await mine())[0].dismissed).toBe(true);
+
+    // The same failure the next night is the same thing, still waved off.
+    await store.recordRun(id, { sessionId: "vk-demo-21" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-21.report"), "failed: no sign-off\n");
+    expect((await mine())[0].dismissed).toBe(true);
+
+    // A different one is news.
+    await store.recordRun(id, { sessionId: "vk-demo-22" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-22.report"), "failed: gh could not auth\n");
+    expect((await mine())[0].dismissed).toBe(false);
+  });
+
+  it("404s a dismissal of a run that never happened", async () => {
+    const id = (await create({ name: "nope", project: "demo", cron: CRON, prompt: "x" })).json().id;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/schedules/${id}/dismiss`,
+      payload: { at: "2026-09-03T05:00:00.000Z" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it("caps the history so a schedule file cannot grow forever", async () => {
     const store = await import("../src/schedules-store.js");
     const id = (await create({ name: "cap", project: "demo", cron: CRON, prompt: "x" })).json().id;
