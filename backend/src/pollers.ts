@@ -11,6 +11,7 @@ import * as mail from "./mail.js";
 import * as feed from "./feed-store.js";
 import type { Seen } from "./feed-store.js";
 import { ghNotifications, type Notification } from "./gh.js";
+import * as loops from "./loops-store.js";
 import { listQueue } from "./maintainer.js";
 import { listProposals } from "./memory-store.js";
 import { resolveInsideRepos } from "./paths.js";
@@ -225,6 +226,29 @@ async function apply(seen: Seen[], over: string[] = [], why = "over"): Promise<n
 }
 
 /**
+ * A routine run that a later run has replaced.
+ *
+ * Every firing files an item, and a quiet one is a routine ok: worth a row on
+ * the morning it happened, and history the moment the schedule fires again.
+ * Nothing used to end them, so nine days of nightly renders and tidy-ups sat
+ * in the inbox as new, and the six the screen shows were the six least worth
+ * reading. Only the quiet ones: a run that needed someone keeps its row until
+ * someone deals with it, however many have run since.
+ */
+async function supersededRuns(): Promise<string[]> {
+  const newest = new Map<string, string>();
+  const items = (await feed.list()).filter((i) => i.source === "schedule" && i.state !== "done");
+  for (const i of items) {
+    // `schedule:<id>:<at>`, and the schedule id has no colons.
+    const id = i.id.split(":")[1];
+    if (!newest.has(id) || i.at > (newest.get(id) as string)) newest.set(id, i.at);
+  }
+  return items
+    .filter((i) => i.urgency === "quiet" && i.at !== newest.get(i.id.split(":")[1]))
+    .map((i) => i.id);
+}
+
+/**
  * The bench's own lists, read now. Cheap enough to run every time the feed is
  * opened, which is also what makes the feed correct in a test with no timers.
  */
@@ -237,13 +261,34 @@ export async function pollBench(): Promise<number> {
   const { seen, over } = sessionItems(sessions);
   let changed = await apply(seen, over, "answered");
   changed += await apply(runItems(runs));
+  // After filing, not before: the run that supersedes the others is the one
+  // this pass has just put on the feed.
+  for (const id of await supersededRuns()) await feed.resolve(id, "a later run");
   // A proposal that is gone was kept or dropped; either way it is over.
   const open = new Set(proposals.map((p) => `memory:${p.slug}`));
   const gone = (await feed.list())
     .filter((i) => i.source === "memory" && i.state !== "done" && !open.has(i.id))
     .map((i) => i.id);
   changed += await apply(proposalItems(proposals), gone, "reviewed");
+  await closeSettledLoops();
   return changed;
+}
+
+/**
+ * A loop whose source item is done is done.
+ *
+ * A loop outlives the item it came from, which is why it is a separate thing —
+ * but not past the point where the person has finished with that item. Only
+ * the loops opened from one: `from` is the feed id for those, and a word like
+ * "you" or a document's path for the rest, which end when someone says so.
+ * Nothing here reopens a loop, so an item that comes back does not revive a
+ * loop that was closed on purpose.
+ */
+async function closeSettledLoops(): Promise<void> {
+  const open = (await loops.list()).filter((l) => l.from !== null);
+  if (!open.length) return;
+  const done = new Set((await feed.list()).filter((i) => i.state === "done").map((i) => i.id));
+  for (const l of open) if (done.has(l.from as string)) await loops.close(l.slug);
 }
 
 /** The maintainer's queues, which need gh and so run on the timer. */

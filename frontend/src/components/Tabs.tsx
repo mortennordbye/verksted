@@ -1,5 +1,7 @@
 import { NavLink } from "react-router";
 import type { ReactNode } from "react";
+import type { Memory } from "../../../shared/api";
+import { usePoll } from "../api";
 
 /**
  * The four places a phone goes: Today, the inbox, the bench and the thread.
@@ -59,7 +61,26 @@ export function isTabRoute(pathname: string): boolean {
   return TABS.some((t) => (t.to === "/" ? pathname === "/" : pathname.startsWith(t.to)));
 }
 
+/**
+ * A count worth interrupting for, in the corner of whatever carries it. Nothing
+ * is drawn at zero.
+ *
+ * Its own component because the phone session screen shows no top bar, so the
+ * same pill has to ride on the ⋯ that took the bar's place.
+ */
+export function Badge({ count }: { count: number }) {
+  if (!count) return null;
+  return (
+    <span className="absolute -top-1 -right-1 min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
 export default function Tabs() {
+  // The same count the top bar carries, read the same way: the phone shows the
+  // bar's words nowhere, so the bottom tabs are where it has to appear.
+  const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
   return (
     <nav
       aria-label="screens"
@@ -71,7 +92,7 @@ export default function Tabs() {
           to={t.to}
           end={t.to === "/"}
           className={({ isActive }) =>
-            `tap flex flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-medium tracking-[.04em] ${
+            `tap relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-medium tracking-[.04em] ${
               isActive ? "text-accent" : "text-faint hover:text-text"
             }`
           }
@@ -90,6 +111,7 @@ export default function Tabs() {
             {t.icon}
           </svg>
           {t.label}
+          {t.to === "/runs" && <Badge count={proposed?.proposals.length ?? 0} />}
         </NavLink>
       ))}
     </nav>
@@ -97,7 +119,7 @@ export default function Tabs() {
 }
 
 /** The same four, as words, for the top bar on a wide screen. */
-export function TabLinks() {
+export function TabLinks({ badge = 0 }: { badge?: number }) {
   return (
     <nav aria-label="screens" className="hidden items-center gap-4 min-[800px]:flex">
       {TABS.map((t) => (
@@ -106,10 +128,11 @@ export function TabLinks() {
           to={t.to}
           end={t.to === "/"}
           className={({ isActive }) =>
-            `text-[13px] font-medium ${isActive ? "text-text" : "text-faint hover:text-text"}`
+            `relative text-[13px] font-medium ${isActive ? "text-text" : "text-faint hover:text-text"}`
           }
         >
           {t.label}
+          {t.to === "/runs" && <Badge count={badge} />}
         </NavLink>
       ))}
     </nav>

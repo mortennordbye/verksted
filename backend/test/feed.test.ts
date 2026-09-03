@@ -231,6 +231,51 @@ describe("the pollers", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("ends a routine run once a later one has replaced it, and keeps the loud ones", async () => {
+    const fired = (at: string, urgency: "quiet" | "attention") =>
+      feed.upsert({
+        id: `schedule:sch-a:${at}`,
+        source: "schedule" as const,
+        at,
+        title: "nightly render",
+        detail: urgency === "quiet" ? "ok" : "attention: nothing rendered",
+        link: "/runs",
+        version: "1",
+        urgency,
+      });
+    await fired("2026-08-30T00:00:00.000Z", "quiet");
+    await fired("2026-08-31T00:00:00.000Z", "attention");
+    await fired("2026-09-01T00:00:00.000Z", "quiet");
+    await fired("2026-09-02T00:00:00.000Z", "quiet");
+
+    await pollers.pollBench();
+
+    const state = async (at: string) => (await feed.get(`schedule:sch-a:${at}`))!.state;
+    // The two routine ones a later run replaced are history.
+    expect(await state("2026-08-30T00:00:00.000Z")).toBe("done");
+    expect(await state("2026-09-01T00:00:00.000Z")).toBe("done");
+    // The one that needed someone stays until someone deals with it, and the
+    // newest is the row the screen is for.
+    expect(await state("2026-08-31T00:00:00.000Z")).toBe("new");
+    expect(await state("2026-09-02T00:00:00.000Z")).toBe("new");
+    expect((await feed.get("schedule:sch-a:2026-08-30T00:00:00.000Z"))!.did).toBe("a later run");
+  });
+
+  it("closes a loop once the item it came from is done, and leaves the rest", async () => {
+    await feed.upsert(seen("github:9"));
+    const fromItem = await loops.open({ what: "review the PR", from: "github:9" });
+    const byHand = await loops.open({ what: "book the ferry", from: "you" });
+    const stillOpen = await loops.open({ what: "answer Kari", from: "github:10" });
+    await feed.upsert(seen("github:10"));
+
+    await feed.setState("github:9", "done");
+    await pollers.pollBench();
+
+    expect((await loops.get(fromItem.slug))!.state).toBe("closed");
+    expect((await loops.get(byHand.slug))!.state).toBe("open");
+    expect((await loops.get(stillOpen.slug))!.state).toBe("open");
+  });
+
   it("polls the bench on every read of the feed, so the feed is never behind", async () => {
     // A proposal on the volume becomes an item; keeping it ends the item.
     await app.inject({

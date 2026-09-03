@@ -51,6 +51,27 @@ export default async function scheduleRoutes(app: FastifyInstance) {
   // The inbox: what every schedule did while nobody was watching.
   app.get("/api/runs", async () => store.listRuns());
 
+  /** Wave off what a run said, until the schedule says something else. */
+  app.post<{ Params: { id: string }; Body: { at: string } }>(
+    "/api/schedules/:id/dismiss",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["at"],
+          additionalProperties: false,
+          properties: { at: { type: "string", format: "date-time" } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!(await store.dismissRun(req.params.id, req.body.at))) {
+        return reply.code(404).send({ error: "no such run" });
+      }
+      return { ok: true };
+    },
+  );
+
   app.post<{
     Body: {
       name: string;

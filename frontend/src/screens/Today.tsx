@@ -76,6 +76,39 @@ function streak(runs: ScheduleRun[], run: ScheduleRun): number {
 }
 
 /**
+ * A verdict as one line: the first sentence of what the run said.
+ *
+ * A report is paragraphs — the morning brief is four — and a row is one line,
+ * so the whole of it truncated left the sentence that matters off the end. The
+ * verdict word goes with it: the chip beside it already says "needs you".
+ */
+function oneLine(said: string): string {
+  const first = said
+    .trim()
+    .split(/\n\s*\n/)[0]
+    .replace(/\s*\n\s*/g, " ")
+    .replace(/^(attention|failed|ok|blocked)\b\s*:?\s*/i, "");
+  const end = first.search(/[.!?](\s|$)/);
+  return end === -1 ? first : first.slice(0, end + 1);
+}
+
+/**
+ * Which one a loop is about, in as few characters as say it.
+ *
+ * Triage writes the words ("review the PR") and files the item id beside them,
+ * and six rows reading "review PR" were six different PRs. The id is what
+ * tells them apart, so the row carries the repo and number the item links to,
+ * or the source's own name when the link is not a PR.
+ */
+function sourceLabel(loop: Loop, items: Map<string, FeedItem>): string | null {
+  const item = loop.from ? items.get(loop.from) : undefined;
+  if (!item) return null;
+  const pr = /github\.com\/[^/]+\/([^/]+)\/(?:pull|issues)\/(\d+)/.exec(item.link ?? "");
+  if (pr) return `${pr[1]}#${pr[2]}`;
+  return item.title.split(":")[0].split("/").pop() || null;
+}
+
+/**
  * A row that needs you, and where it goes. `runs` is how many firings in a row
  * ended this way, shown from two: one bad night and four are the same row
  * otherwise, and the difference is the whole triage.
@@ -85,22 +118,35 @@ function Need({
   chip,
   text,
   runs = 1,
+  onDismiss,
 }: {
   to: string;
   chip: "wait" | "fail";
   text: string;
   runs?: number;
+  onDismiss?: () => void;
 }) {
   return (
-    <Link
-      to={to}
-      className="tap flex items-center gap-2.5 rounded-lg border border-wait/30 bg-wait/8 px-3 py-2 hover:border-wait/60"
-    >
-      <StatusChip kind={chip} label={chip === "wait" ? "needs you" : "failed"} />
-      <span className="min-w-0 flex-1 truncate text-[13.5px]">{text}</span>
-      {runs > 1 && <span className="flex-none font-mono text-[11px] text-faint">{runs} runs</span>}
-      <span className="flex-none text-[13px] text-faint">→</span>
-    </Link>
+    <div className="flex items-center rounded-lg border border-wait/30 bg-wait/8 hover:border-wait/60">
+      <Link to={to} className="tap flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2">
+        <StatusChip kind={chip} label={chip === "wait" ? "needs you" : "failed"} />
+        <span className="min-w-0 flex-1 truncate text-[13.5px]">{text}</span>
+        {runs > 1 && (
+          <span className="flex-none font-mono text-[11px] text-faint">{runs} runs</span>
+        )}
+        <span className="flex-none text-[13px] text-faint">→</span>
+      </Link>
+      {onDismiss && (
+        <button
+          onClick={onDismiss}
+          title="nothing to do here; ask again if it changes"
+          aria-label="dismiss"
+          className="tap flex-none px-2.5 py-2 text-muted hover:text-wait"
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -214,12 +260,15 @@ function Composer({ name }: { name: string }) {
 }
 
 export default function Today() {
+  // The one thing that can fail from this screen without a sheet to say so:
+  // the × on a row. Kept next to the count, which is what it changes.
+  const [error, setError] = useState<string | null>(null);
   const { data: sessions } = usePoll<Session[]>("/api/sessions", 8_000);
-  const { data: runs } = usePoll<ScheduleRun[]>("/api/runs", 30_000);
+  const { data: runs, refresh: refreshRuns } = usePoll<ScheduleRun[]>("/api/runs", 30_000);
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
   const { data: config } = usePoll<AssistantConfig>("/api/assistant/config", 300_000);
   const { data: profile } = usePoll<Profile>("/api/profile", 300_000);
-  const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
+  const { data: loops, refresh: refreshLoops } = usePoll<Loop[]>("/api/loops", 60_000);
   const { data: feed, refresh: refreshFeed } = usePoll<FeedItem[]>("/api/feed", 30_000);
   const cards = (feed ?? []).filter((i) => i.source === "proposal" && i.state !== "done");
   const newest = (feed ?? [])
@@ -235,6 +284,31 @@ export default function Today() {
   );
   const open = (loops ?? []).filter((l) => l.state === "open");
   const name = config?.name?.trim() || "the assistant";
+  // What a loop came from, so a row can say which PR it means. The feed is on
+  // this screen already; a loop whose item has aged out simply says nothing.
+  const items = new Map((feed ?? []).map((i) => [i.id, i] as const));
+  const ghDown = (feed ?? []).some((i) => i.id === "github:poller" && i.state !== "done");
+
+  async function dismiss(r: ScheduleRun) {
+    try {
+      await api(`/api/schedules/${r.scheduleId}/dismiss`, {
+        method: "POST",
+        body: JSON.stringify({ at: r.at }),
+      });
+      refreshRuns();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function closeLoop(slug: string) {
+    try {
+      await api(`/api/loops/${slug}/close`, { method: "POST" });
+      refreshLoops();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   const waiting = (sessions ?? []).filter((s) => s.status === "waiting");
   const running = (sessions ?? []).filter((s) => s.status === "running");
@@ -243,13 +317,16 @@ export default function Today() {
   // gone green is none. Runs arrive newest first, so the first of each is it.
   const newestRun = new Map<string, ScheduleRun>();
   for (const r of runs ?? []) if (!newestRun.has(r.scheduleId)) newestRun.set(r.scheduleId, r);
-  const flagged = [...newestRun.values()].filter(
-    (r) => r.outcome === "attention" || r.outcome === "failed",
-  );
   const proposals = proposed?.proposals.length ?? 0;
   // The brief is the newest thing an assistant schedule said. A run that
   // started a session is not one: its report is a repo's, not the morning's.
   const brief = (runs ?? []).find((r) => r.kind === "assistant" && r.report);
+  // Never the brief: it is on this page in full, a screen further down, and a
+  // row that truncates the same words is not a second thing to do. Never a
+  // verdict already waved off, until the schedule says something else.
+  const flagged = [...newestRun.values()].filter(
+    (r) => (r.outcome === "attention" || r.outcome === "failed") && r !== brief && !r.dismissed,
+  );
   const loaded = sessions !== null && runs !== null;
   const needs = waiting.length + flagged.length + (proposals ? 1 : 0);
 
@@ -268,6 +345,7 @@ export default function Today() {
                     ? `${needs} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`
                     : "Nothing needs you."}
               </div>
+              {error && <div className="mt-1 font-mono text-[12px] text-fail">{error}</div>}
             </div>
 
             {loaded && needs > 0 && (
@@ -287,8 +365,9 @@ export default function Today() {
                       key={r.scheduleId}
                       to={r.sessionId ? `/s/${r.sessionId}` : "/runs"}
                       chip={r.outcome === "failed" ? "fail" : "wait"}
-                      text={`${r.schedule}: ${r.report ?? r.error ?? ""}`}
+                      text={`${r.schedule}: ${oneLine(r.report ?? r.error ?? "")}`}
                       runs={streak(runs ?? [], r)}
+                      onDismiss={() => void dismiss(r)}
                     />
                   ))}
                   {proposals > 0 && (
@@ -361,18 +440,40 @@ export default function Today() {
               <div>
                 <Label>Open</Label>
                 <div className="flex flex-col gap-1.5">
-                  {open.slice(0, 6).map((l) => (
-                    <Link
-                      key={l.slug}
-                      to="/runs"
-                      className="tap flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px] hover:border-line-strong"
-                    >
-                      <span className="min-w-0 flex-1 truncate">{l.what}</span>
-                      {l.due && (
-                        <span className="flex-none font-mono text-[11px] text-wait">{l.due}</span>
-                      )}
-                    </Link>
-                  ))}
+                  {open.slice(0, 6).map((l) => {
+                    const source = sourceLabel(l, items);
+                    return (
+                      <div
+                        key={l.slug}
+                        className="flex items-center rounded-lg border border-line bg-surface text-[13.5px] hover:border-line-strong"
+                      >
+                        <Link
+                          to={l.from ? `/runs#${l.from}` : "/runs"}
+                          className="tap flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2"
+                        >
+                          <span className="min-w-0 truncate">{l.what}</span>
+                          {source && (
+                            <span className="flex-none font-mono text-[11.5px] text-faint">
+                              {source}
+                            </span>
+                          )}
+                          {l.due && (
+                            <span className="ml-auto flex-none font-mono text-[11px] text-wait">
+                              {l.due}
+                            </span>
+                          )}
+                        </Link>
+                        <button
+                          onClick={() => void closeLoop(l.slug)}
+                          title="close this loop"
+                          aria-label={`close ${l.what}`}
+                          className="tap flex-none px-2.5 py-2 text-muted hover:text-wait"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
                   {open.length > 6 && (
                     <Link to="/runs" className="font-mono text-[11px] text-faint hover:text-accent">
                       and {open.length - 6} more →
@@ -487,7 +588,10 @@ export default function Today() {
               <div className="flex flex-col gap-1">
                 {(
                   [
-                    ["github", true],
+                    // The poller files one item when it cannot read github and
+                    // resolves it when it can again; that is the only truth
+                    // about this source the screen has, and it is the right one.
+                    ["github", !ghDown],
                     ["mail", sources?.mail ?? false],
                     ["calendar", sources?.calendar ?? false],
                     ["documents", sources?.docs ?? false],

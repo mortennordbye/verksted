@@ -127,6 +127,52 @@ describe("triage", () => {
     expect(await feed.untriaged()).toEqual([]);
   });
 
+  it("does not open a second loop for an item it has already attached to one", async () => {
+    await arrived("github:4", "homelab: review the terraform bump");
+    fake.reply("claude", "-p", {
+      stdout: run("github:4\tnew\tA terraform bump waiting on you.\tnew: review the PR | -"),
+    });
+    await scheduler.runTriage(log, true);
+    expect((await feed.get("github:4"))!.loop).toBe("review-the-pr");
+
+    // The same PR, later: a new comment moves the version on, so the item comes
+    // back unjudged while still carrying its loop. The turn cannot see that and
+    // proposes another one; the attachment is the answer.
+    await feed.upsert({
+      id: "github:4",
+      source: "github",
+      at: new Date().toISOString(),
+      title: "homelab: review the terraform bump",
+      detail: "PullRequest, a new comment",
+      link: "https://github.com/x/y/pull/1",
+      version: "2",
+    });
+    fake.reply("claude", "-p", {
+      stdout: run("github:4\tnew\tStill waiting on you.\tnew: review the PR | -"),
+    });
+    await scheduler.runTriage(log, true);
+
+    expect((await feed.get("github:4"))!.loop).toBe("review-the-pr");
+    expect((await loops.list()).map((l) => l.slug)).toEqual(["review-the-pr"]);
+
+    // Once the loop is closed, the same item may open a fresh one.
+    await loops.close("review-the-pr");
+    await feed.upsert({
+      id: "github:4",
+      source: "github",
+      at: new Date().toISOString(),
+      title: "homelab: review the terraform bump",
+      detail: "PullRequest, reopened",
+      link: "https://github.com/x/y/pull/1",
+      version: "3",
+    });
+    fake.reply("claude", "-p", {
+      stdout: run("github:4\tnew\tBack again.\tnew: review the PR | -"),
+    });
+    await scheduler.runTriage(log, true);
+    expect((await feed.get("github:4"))!.loop).toBe("review-the-pr-2");
+  });
+
   it("sorts by the rules the person has kept", async () => {
     await app.inject({
       method: "PUT",

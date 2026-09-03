@@ -15,7 +15,8 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
-import TopBar, { Badge, BackButton } from "../components/TopBar";
+import { Badge } from "../components/Tabs";
+import TopBar, { BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
 import ChangesPanel from "../components/ChangesPanel";

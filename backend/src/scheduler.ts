@@ -646,7 +646,15 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
       continue;
     }
     let loop: string | null | undefined;
-    if (v.loop && "open" in v.loop) {
+    // An item comes back for judging whenever its version moves on — a PR with
+    // a new comment is the same item, later — and the turn cannot see that it
+    // already has a loop, so it proposes a second one for the same PR. Six of
+    // eleven open loops were that. The attachment the item already carries is
+    // the answer, as long as the loop is still open.
+    const held = item.loop ? await loops.get(item.loop) : null;
+    if (held?.state === "open") {
+      loop = held.slug;
+    } else if (v.loop && "open" in v.loop) {
       loop = (await loops.open({ what: v.loop.open, due: v.loop.due, from: item.id })).slug;
     } else if (v.loop && "slug" in v.loop) {
       loop = (await loops.get(v.loop.slug)) ? v.loop.slug : undefined;

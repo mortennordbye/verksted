@@ -884,6 +884,13 @@ export interface ScheduleRun {
   report: string | null;
   outcome: "ok" | "attention" | "failed" | "blocked" | "running" | "done";
   /**
+   * Whether this verdict has been waved off: the person saw the flag, decided
+   * it needed nothing, and Today stops offering it. Tied to what the run said,
+   * not to the run — the same failure on the next four nights stays dismissed,
+   * and a different one comes back.
+   */
+  dismissed: boolean;
+  /**
    * What the run left in the repo, once its session has finished — the evidence
    * behind the sign-off. Null for an assistant run, which touches nothing, and
    * for a run still going.
