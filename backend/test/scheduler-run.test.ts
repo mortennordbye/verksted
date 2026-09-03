@@ -241,6 +241,44 @@ describe("runSchedule", () => {
     expect((await store.getSchedule(s.id))!.lastError).toMatch(/still open/);
   });
 
+  it("takes the slot back from a run that has held it a day with nothing to say", async () => {
+    const s = await schedule("check the open PRs");
+    const first = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
+    // Backdated a day and a minute: the run has now missed a whole tick.
+    const meta = path.join(sessionsDir, `${first!.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(meta, "utf8"));
+    stored.createdAt = new Date(Date.now() - 24 * 60 * 60_000 - 60_000).toISOString();
+    fs.writeFileSync(meta, JSON.stringify(stored));
+    fake.reset();
+
+    const second = await scheduler.runSchedule(s.id, log);
+
+    // The new run starts, and the old one is ended and recorded in its own
+    // words rather than left live and silent.
+    expect(second).not.toBeNull();
+    expect(fake.subcommand("tmux", "new-session")).toHaveLength(1);
+    expect(fake.subcommand("tmux", "kill-session").flat()).toContain(`=${first!.id}`);
+    expect(fs.readFileSync(path.join(sessionsDir, `${first!.id}.report`), "utf8")).toMatch(
+      /never signed off/,
+    );
+  });
+
+  it("leaves a run that has held the slot for less than that alone", async () => {
+    const s = await schedule("check the open PRs");
+    const first = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(first!.id) });
+    const meta = path.join(sessionsDir, `${first!.id}.json`);
+    const stored = JSON.parse(fs.readFileSync(meta, "utf8"));
+    stored.createdAt = new Date(Date.now() - 23 * 60 * 60_000).toISOString();
+    fs.writeFileSync(meta, JSON.stringify(stored));
+    fake.reset();
+
+    expect(await scheduler.runSchedule(s.id, log)).toBeNull();
+    expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+    expect(fs.existsSync(path.join(sessionsDir, `${first!.id}.report`))).toBe(false);
+  });
+
   it("fires again once the previous run has finished", async () => {
     const s = await schedule("check the open PRs");
     await scheduler.runSchedule(s.id, log);

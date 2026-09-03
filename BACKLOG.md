@@ -370,26 +370,34 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts` and `backend/src/routes/github.ts` (the PR/checks
   queries), `backend/src/schedules-store.ts` (the record shape to extend)
 
-## Nothing checks that a scheduled run actually writes its report
+## An ordinary scheduled run still has no sign-off of its own
 
-- **What:** The report loop is covered on the reading side — `readReport`
-  (first line, cap, path guard), `shouldNotify` (ok stays quiet, attention /
-  failed / no report push) and the schedule surfacing `lastReport`. What is
-  unverified is the writing side: that an agent handed `REPORT_CONTRACT`
-  reliably writes `$VK_REPORT_FILE` before it stops, and picks a sensible one
-  of the three words. If it forgets, the run falls back to the old "session
-  finished" push — noisier than intended, but nothing breaks.
-- **Why deferred:** It is a prompt-adherence question, not a code one; it can
-  only be answered by watching real runs.
-- **Unblocked by:** A week of real scheduled runs in the pod. If adherence is
-  poor, the fallback is a `Stop` hook that writes a default report when the
-  agent left none, so silence never masquerades as "ok". Maintainer stage runs
-  already have exactly that (`DEFAULT_REPORT` in `claude-hooks.ts`, plus the
-  watcher's backstop); moving it onto ordinary schedules is a one-line change
-  once a real run shows it is wanted there too.
-- **Where:** `backend/src/scheduler.ts` (`REPORT_CONTRACT`),
-  `backend/src/sessions-store.ts` (`readReport`), `backend/src/notifier.ts`
-  (`shouldNotify`), `backend/src/claude-hooks.ts` (`DEFAULT_REPORT`)
+- **What:** Adherence to `REPORT_CONTRACT` was the open question here, and a
+  week of real runs answered it: poor. Six headroom stage runs went silent in a
+  week — scout twice, build once, gate on three consecutive nights — while the
+  same gate schedule wrote a clean verdict on the nights either side. Stage runs
+  now handle it: the pane asks for the line (`runtime/vk-signoff`) and, failing
+  that, records that it asked. An ordinary scheduled session gets neither, so a
+  schedule with a prompt of its own still depends on the model remembering.
+- **Why deferred:** The fallback this entry used to propose — move
+  `DEFAULT_REPORT` onto ordinary schedules, "a one-line change" — is wrong for
+  them. An ordinary scheduled session is a TUI that does not exit, and its Stop
+  hook writes `waiting`, which is what turns the session amber for a person to
+  pick up. A Stop hook that also wrote a default report would file every
+  stop-to-ask as a failure, and `endSignedOffRuns` ends any scheduled session
+  that has a report — so it would kill the session at the moment the agent
+  stopped to ask a question, which is the case the amber chip exists for.
+  vk-signoff does not transfer either: it runs after the agent process exits,
+  and a TUI's does not.
+- **Unblocked by:** A signal that separates "finished and forgot" from "stopped
+  to ask" from inside a live TUI. The session's own conversation has it — a turn
+  that ended without a question is not the same shape as one that asked — and
+  `transcripts.ts` already reads entries by conversation id. Until then the slot
+  is no longer held (`roomForSession` takes it back after a day), so the cost is
+  a missing verdict rather than a missing night.
+- **Where:** `backend/src/sessions-store.ts` (`REPORT_CONTRACT`, `launchAgent`),
+  `backend/src/claude-hooks.ts` (`DEFAULT_REPORT`), `runtime/vk-signoff`,
+  `backend/src/scheduler.ts` (`endSignedOffRuns`, `roomForSession`)
 
 ## Terminal dictation is unverified on a real iPhone
 
@@ -902,23 +910,3 @@ what unblocks it / where the code lives.
   (then `vk-guard` reads its no-go list and denies edits there mechanically).
 - **Where:** `Dockerfile`, `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
   `runtime/vk-guard`, `backend/src/maintainer.ts` (`readContract`)
-
-## A scheduled run that never signs off still holds its schedule
-
-- **What:** The sweep ends a scheduled session once it has written its report.
-  One that never writes one — the agent could not start at all, which is what an
-  expired login looks like from the outside — stays live, keeps showing as a
-  session that needs you, and blocks its schedule's next tick. Four reelsmith
-  sessions sat that way from 31 August to 2 September and cost two nights.
-- **Why deferred:** From outside the pane, a run that stopped to ask something
-  and a run whose agent died look identical: both are a TUI at its prompt with
-  no report. Ending on a timer would kill the first, which is the case the amber
-  chip exists for. The honest signal is that the agent never took a turn — no
-  transcript entries — and reading a transcript per session per sweep is more
-  than the sweep does today.
-- **Unblocked by:** Deciding what the signal is. Either count the turns in the
-  session's own conversation (`transcripts.ts` already reads them by id) and end
-  a scheduled run that took none, or have `roomForSession` end a previous run
-  that is older than the schedule's own period and has written nothing.
-- **Where:** `backend/src/scheduler.ts` (`endSignedOffRuns`, `roomForSession`),
-  `backend/src/transcripts.ts`
