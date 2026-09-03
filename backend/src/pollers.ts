@@ -8,9 +8,10 @@ import type {
 } from "../../shared/api.js";
 import * as calendar from "./calendar.js";
 import * as mail from "./mail.js";
+import { env } from "./env.js";
 import * as feed from "./feed-store.js";
 import type { Seen } from "./feed-store.js";
-import { ghNotifications, type Notification } from "./gh.js";
+import { ghJson, ghNotifications, type Notification } from "./gh.js";
 import * as loops from "./loops-store.js";
 import { listQueue } from "./maintainer.js";
 import { listProposals } from "./memory-store.js";
@@ -311,6 +312,72 @@ export async function pollQueue(log: Logger): Promise<number> {
   return apply(queueItems(issues), gone, "off the queue");
 }
 
+/** How long an unread notification is still news. */
+const GITHUB_STALE_MS = 7 * 24 * 60 * 60_000;
+
+/** The repo and number a feed item's link points at, when it points at one. */
+function pullOrIssue(link: string | null): { repo: string; number: number } | null {
+  // Owner and repo as GitHub itself spells them: the link is built from the
+  // API's own url, and the pair goes into a request path.
+  const m = /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/(?:pull|issues)\/(\d+)/.exec(
+    link ?? "",
+  );
+  return m ? { repo: m[1], number: Number(m[2]) } : null;
+}
+
+/**
+ * End the github items that are over.
+ *
+ * GitHub's notifications endpoint answers with what is unread, so — unlike
+ * every other source here — absent from the response cannot mean over: on the
+ * first poll it would resolve everything already read, which is right for a
+ * notification and wrong for the review it stands for. So the item is asked
+ * about instead. A pull request or an issue that is closed upstream is done,
+ * whatever its age, and the loop it opened closes with it (closeSettledLoops).
+ * Anything still unread after a week is done too: a notification from last
+ * week is not news, and this is the half that keeps the feed from growing
+ * without bound whatever the item points at.
+ *
+ * One call per repository, not per item — the repo's open issues list carries
+ * its pull requests too. A repository with a full page of them is left alone:
+ * past a hundred, "not on the list" stops meaning closed.
+ */
+async function endSettledGithub(log: Logger, now = Date.now()): Promise<void> {
+  const open = (await feed.list()).filter(
+    (i) => i.source === "github" && i.state !== "done" && !i.id.startsWith("github:queue:"),
+  );
+  const byRepo = new Map<string, { id: string; number: number }[]>();
+  for (const i of open) {
+    if (now - Date.parse(i.at) > GITHUB_STALE_MS) {
+      await feed.resolve(i.id, "a week unread");
+      continue;
+    }
+    const at = pullOrIssue(i.link);
+    if (!at) continue;
+    const list = byRepo.get(at.repo) ?? [];
+    list.push({ id: i.id, number: at.number });
+    byRepo.set(at.repo, list);
+  }
+  for (const [repo, items] of byRepo) {
+    let listed: { number: number }[];
+    try {
+      listed = await ghJson<{ number: number }[]>(env.REPOS_DIR, [
+        "api",
+        `repos/${repo}/issues?state=open&per_page=100`,
+      ]);
+    } catch (err) {
+      // One unreadable repo leaves its items where they are.
+      log.warn(err, `open issues for ${repo} unavailable`);
+      continue;
+    }
+    if (listed.length >= 100) continue;
+    const stillOpen = new Set(listed.map((n) => n.number));
+    for (const i of items) {
+      if (!stillOpen.has(i.number)) await feed.resolve(i.id, "closed on GitHub");
+    }
+  }
+}
+
 /**
  * GitHub's notifications for the account. When it cannot be read, one item
  * says so and the poller backs off rather than filing the same failure every
@@ -326,7 +393,9 @@ export async function pollGithub(log: Logger): Promise<number> {
   try {
     const threads = await ghNotifications();
     await feed.resolve("github:poller", "reading again");
-    return apply(notificationItems(threads, await readBlockedOwners()));
+    const changed = await apply(notificationItems(threads, await readBlockedOwners()));
+    await endSettledGithub(log);
+    return changed;
   } catch (err) {
     githubBackoff = 6;
     const message = err instanceof Error ? err.message : String(err);
