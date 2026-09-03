@@ -42,6 +42,16 @@ import { execEnv, schedulesPaused } from "./settings-store.js";
  * pod is already full, it is full.
  */
 const MAX_LIVE_SESSIONS = 6;
+/**
+ * How long a scheduled session may hold its schedule's slot with nothing
+ * written before the next run takes it back.
+ *
+ * Generous on purpose: this is the run a person is meant to pick up, and the
+ * amber chip is how they notice. A daily schedule reclaims on its second miss,
+ * a weekly one on its next fire — which is the point, since a weekly schedule
+ * should not be skipped for a session left over from last week.
+ */
+export const SCHEDULED_HOLD_MS = 24 * 60 * 60_000;
 
 /**
  * How many unattended assistant turns may start in one day, across every
@@ -285,12 +295,31 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
  * Whether a session schedule may start one now: not while its previous run is
  * still open, and not on a pod that is already full. Records the refusal.
  */
-async function roomForSession(id: string, schedule: Schedule, log: Logger): Promise<boolean> {
+async function roomForSession(
+  id: string,
+  schedule: Schedule,
+  log: Logger,
+  now = Date.now(),
+): Promise<boolean> {
   const last = schedule.lastSessionId ? await getSession(schedule.lastSessionId) : null;
   if (last && last.status !== "done") {
-    await schedules.recordRun(id, { error: `previous run ${last.id} is still open` });
-    log.info(`schedule ${id} skipped: ${last.id} still open`);
-    return false;
+    if (now - Date.parse(last.createdAt) < SCHEDULED_HOLD_MS) {
+      await schedules.recordRun(id, { error: `previous run ${last.id} is still open` });
+      log.info(`schedule ${id} skipped: ${last.id} still open`);
+      return false;
+    }
+    // A day of holding the slot without a word, and the schedule takes it
+    // back. From outside the pane a run whose agent died and one that stopped
+    // to ask something look the same — both a TUI at its prompt with no report
+    // — so this does not try to tell them apart; it waits until the answer no
+    // longer matters. Four reelsmith sessions sat this way from 31 August to 2
+    // September and cost two nights, and the amber chip had a whole day to be
+    // acted on before this reaches it.
+    if (!last.report) {
+      await writeReport(last.id, "failed: never signed off, and the next run needed the slot");
+    }
+    await endSession(last.id);
+    log.warn({ session: last.id }, `schedule ${id} reclaimed ${last.id} after a day held`);
   }
   const live = (await listSessions()).filter((s) => s.status !== "done").length;
   if (live >= MAX_LIVE_SESSIONS) {
@@ -408,6 +437,7 @@ let reloading: Promise<void> = Promise.resolve();
  * that nobody is going to notice it not finishing.
  */
 export const UNATTENDED_CAP_MS = 90 * 60_000;
+
 const WATCH_EVERY_MS = 30_000;
 let watcher: NodeJS.Timeout | undefined;
 
