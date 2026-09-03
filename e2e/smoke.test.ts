@@ -160,6 +160,36 @@ beforeAll(async () => {
       runs: [{ at: new Date().toISOString(), sessionId: "vk-demo-2", error: null }],
     }),
   );
+  // A weekly stage whose one run failed four days ago. Its session ended with
+  // it; there is nothing to open and nothing to do, so it is not a thing that
+  // needs you today however loud its verdict was.
+  fs.writeFileSync(path.join(sessionsDir, "vk-demo-3.report"), "failed: nothing was pushed\n");
+  fs.writeFileSync(
+    path.join(schedulesDir, "sch-3c4d5e6f.json"),
+    JSON.stringify({
+      id: "sch-3c4d5e6f",
+      name: "weekly sweep",
+      kind: "session",
+      project: "demo",
+      stage: "scout",
+      cron: "0 22 * * 0",
+      jitterMinutes: 0,
+      prompt: "",
+      skipWhenIdle: false,
+      member: "",
+      convenes: false,
+      enabled: true,
+      createdAt: new Date(Date.now() - 9 * 86_400_000).toISOString(),
+      runs: [
+        {
+          at: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+          sessionId: "vk-demo-3",
+          error: null,
+        },
+      ],
+    }),
+  );
+
   process.env.STATIC_DIR = dist;
   const { buildApp } = await import("../backend/src/app.js");
   app = await buildApp({ logger: false });
@@ -199,6 +229,10 @@ describe("the app in a real browser", () => {
     await page.getByText("1 thing needs you").waitFor({ timeout: 15_000 });
     await page.getByText("scout: no sign-off").waitFor({ timeout: 15_000 });
     await page.getByText("three idle sessions").waitFor({ timeout: 15_000 });
+    // Four days old, and so not one of today's. Visible matches only: the
+    // desktop rails are in the DOM on a phone, hidden by CSS, and the run is
+    // still listed there — which is exactly where it belongs.
+    expect(await page.getByText("weekly sweep").locator("visible=true").count()).toBe(0);
   });
 
   it("waves off a verdict, and the row goes", async () => {

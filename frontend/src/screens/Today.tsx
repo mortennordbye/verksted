@@ -45,6 +45,18 @@ function Label({ children }: { children: string }) {
   );
 }
 
+/**
+ * How long a flagged run is today's business. A day, because that is what this
+ * screen is: the schedules that run daily get one morning's grace, and the
+ * ones that run weekly stop owning six mornings they have nothing to say on.
+ */
+const STALE_MS = 24 * 60 * 60_000;
+
+/** Whether a run has aged past that. Module scope, so render stays pure. */
+function stale(at: string): boolean {
+  return Date.now() - Date.parse(at) >= STALE_MS;
+}
+
 const OUTCOME: Record<string, "run" | "wait" | "fail" | "idle"> = {
   ok: "run",
   attention: "wait",
@@ -323,9 +335,17 @@ export default function Today() {
   const brief = (runs ?? []).find((r) => r.kind === "assistant" && r.report);
   // Never the brief: it is on this page in full, a screen further down, and a
   // row that truncates the same words is not a second thing to do. Never a
-  // verdict already waved off, until the schedule says something else.
+  // verdict already waved off, until the schedule says something else. And
+  // never one from before today: a weekly scout that failed on Sunday was on
+  // this list every morning until the next Sunday, pointing at a session that
+  // ended days ago with nothing in it to read. It stays in the inbox and in
+  // recent runs, where a thing you did not get to belongs.
   const flagged = [...newestRun.values()].filter(
-    (r) => (r.outcome === "attention" || r.outcome === "failed") && r !== brief && !r.dismissed,
+    (r) =>
+      (r.outcome === "attention" || r.outcome === "failed") &&
+      r !== brief &&
+      !r.dismissed &&
+      !stale(r.at),
   );
   const loaded = sessions !== null && runs !== null;
   const needs = waiting.length + flagged.length + (proposals ? 1 : 0);
