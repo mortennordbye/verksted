@@ -1,5 +1,11 @@
 import type { FastifyInstance } from "fastify";
-import type { CalendarEvent, MailMessage, MailSummary, SourceStatus } from "../../../shared/api.js";
+import type {
+  CalendarEvent,
+  MailFolder,
+  MailMessage,
+  MailSummary,
+  SourceStatus,
+} from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
 import * as docs from "../docs.js";
 import * as mail from "../mail.js";
@@ -9,7 +15,11 @@ import * as mail from "../mail.js";
  *
  * Both answer 503 with a sentence when they are not set up, so a tool or a
  * screen can tell "no mail here" from "mail broke", and 502 when the server
- * on the other side would not answer. Nothing here writes.
+ * on the other side would not answer.
+ *
+ * One thing here writes: a move between mailboxes, which is undone by moving
+ * back. A destination the server did not list is a 400 rather than a mailbox
+ * created on the way past.
  */
 export default async function sourceRoutes(app: FastifyInstance) {
   app.get("/api/sources", async (): Promise<SourceStatus> => ({
@@ -29,6 +39,9 @@ export default async function sourceRoutes(app: FastifyInstance) {
       if (err instanceof mail.MailUnavailable || err instanceof calendar.CalendarUnavailable) {
         return reply.code(503).send({ error: err.message });
       }
+      // A folder that is not there is the caller's mistake, and the sentence
+      // saying so is the whole of how a model corrects itself.
+      if (err instanceof mail.MailDenied) return reply.code(400).send({ error: err.message });
       app.log.warn(err, `${what} failed`);
       return reply.code(502).send({ error: `${what} could not be read` });
     }
@@ -69,6 +82,38 @@ export default async function sourceRoutes(app: FastifyInstance) {
         },
         reply,
         "mail",
+      ),
+  );
+
+  app.get("/api/mail/folders", (_req, reply) =>
+    guard<MailFolder[]>(() => mail.folders(), reply, "mail folders"),
+  );
+
+  app.post<{ Body: { uids: number[]; to: string } }>(
+    "/api/mail/move",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["uids", "to"],
+          additionalProperties: false,
+          properties: {
+            uids: {
+              type: "array",
+              minItems: 1,
+              maxItems: mail.MAX_MOVE,
+              items: { type: "integer", minimum: 1 },
+            },
+            to: { type: "string", minLength: 1, maxLength: 200 },
+          },
+        },
+      },
+    },
+    (req, reply) =>
+      guard<{ moved: number }>(
+        async () => ({ moved: await mail.move(req.body.uids, req.body.to) }),
+        reply,
+        "mail move",
       ),
   );
 

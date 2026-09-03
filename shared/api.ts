@@ -1274,6 +1274,16 @@ export interface MailMessage extends MailSummary {
   attachments: string[];
 }
 
+/** A mailbox on the server. `role` is its special-use flag, or "". */
+export interface MailFolder {
+  /** What IMAP calls it, and the only thing a move accepts: `[Gmail]/Spam`. */
+  path: string;
+  /** The leaf, for a person to read: `Spam`. */
+  name: string;
+  /** "junk", "trash", "sent", "drafts", "archive", "all", "inbox", or "". */
+  role: string;
+}
+
 export interface CalendarEvent {
   uid: string;
   summary: string;

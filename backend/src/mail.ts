@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
-import type { MailMessage, MailSummary } from "../../shared/api.js";
+import type { MailFolder, MailMessage, MailSummary } from "../../shared/api.js";
 import { sourceEnv } from "./settings-store.js";
 
 /**
@@ -14,12 +14,15 @@ import { sourceEnv } from "./settings-store.js";
  * which is an allowlist, and which `agentEnv` excludes, so a mail password
  * never reaches a coding session's environment.
  *
- * Read-only by construction. The only verbs here are FETCH and SEARCH; a
- * draft, when that lands, is an APPEND to the Drafts folder. Nothing here can
- * move, flag, delete or send. One connection per call rather than a kept one:
- * a poll every five minutes and the odd question do not justify a socket held
- * open across a phone's worth of idle time, and an IMAP server that dropped a
- * kept connection would fail the next call in a way that looks like a bug.
+ * What it may do is read, and move. FETCH, SEARCH and LIST, plus a MOVE into a
+ * mailbox the server itself listed — the verb that makes filing possible and
+ * is undone by filing back. Nothing here flags or deletes, and sending lives
+ * at the bottom of this file behind a card somebody tapped.
+ *
+ * One connection per call rather than a kept one: a poll every five minutes
+ * and the odd question do not justify a socket held open across a phone's
+ * worth of idle time, and an IMAP server that dropped a kept connection would
+ * fail the next call in a way that looks like a bug.
  */
 export interface MailConfig {
   host: string;
@@ -42,7 +45,7 @@ export async function mailConfig(): Promise<MailConfig | null> {
 
 export class MailUnavailable extends Error {}
 
-async function withInbox<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+async function withClient<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   const config = await mailConfig();
   if (!config) throw new MailUnavailable("mail is not set up: IMAP_HOST, IMAP_USER, IMAP_PASSWORD");
   const client = new ImapFlow({
@@ -57,13 +60,23 @@ async function withInbox<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
     socketTimeout: 60_000,
   });
   await client.connect();
-  const lock = await client.getMailboxLock("INBOX");
   try {
     return await fn(client);
   } finally {
-    lock.release();
     await client.logout().catch(() => undefined);
   }
+}
+
+/** The same connection with INBOX selected, which every verb but LIST needs. */
+async function withInbox<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+  return withClient(async (client) => {
+    const lock = await client.getMailboxLock("INBOX");
+    try {
+      return await fn(client);
+    } finally {
+      lock.release();
+    }
+  });
 }
 
 /** What an envelope says, as the feed and the tools show it. */
@@ -149,6 +162,70 @@ export async function read(uid: number): Promise<MailMessage | null> {
           : text,
       attachments: (parsed.attachments ?? []).map((a) => a.filename ?? "(unnamed)"),
     };
+  });
+}
+
+/**
+ * Every mailbox on the server, and what the server says each one is for.
+ *
+ * Named rather than guessed: Gmail spells its junk folder `[Gmail]/Spam`,
+ * translates that name with the account's language, and a bench that hardcoded
+ * either would file spam into a folder that does not exist. The special-use
+ * flag is the one thing every server agrees on, so `role` is what a caller
+ * matches and `path` is what it then sends back.
+ *
+ * `\Noselect` entries are dropped: `[Gmail]` itself is a container, and a move
+ * into it fails in a way that reads like a bug.
+ */
+async function mailboxes(client: ImapFlow): Promise<MailFolder[]> {
+  const list = await client.list();
+  return list
+    .filter((box) => !box.flags?.has("\\Noselect"))
+    .map((box) => ({
+      path: box.path,
+      name: box.name,
+      role: box.specialUse ? box.specialUse.replace("\\", "").toLowerCase() : "",
+    }));
+}
+
+export async function folders(): Promise<MailFolder[]> {
+  return withClient((client) => mailboxes(client));
+}
+
+/** A move the server would refuse, refused here, with something to read. */
+export class MailDenied extends Error {}
+
+/** One sweep's worth. A model that wants more asks twice. */
+export const MAX_MOVE = 50;
+
+/**
+ * Move messages out of the inbox into a mailbox that exists.
+ *
+ * The one mutating verb in this file, and it is here rather than behind a
+ * tapped card because a move is undone by a move back: the rule is that
+ * anything without an undo waits for the person, and this has one. Nothing
+ * here deletes, and the trash is a folder like any other — a message put there
+ * is still a message until the server expires it.
+ *
+ * The destination is checked against the server's own list rather than passed
+ * through. A folder a model invented is a refusal, not a mailbox quietly
+ * created, and `resolveInsideRepos` is the same idea one directory over.
+ */
+export async function move(uids: number[], to: string): Promise<number> {
+  const wanted = [...new Set(uids)].filter((u) => Number.isInteger(u) && u > 0).slice(0, MAX_MOVE);
+  if (!wanted.length) return 0;
+  return withInbox(async (client) => {
+    const target = (await mailboxes(client)).find((box) => box.path === to);
+    if (!target) throw new MailDenied(`no such folder: ${to}`);
+    if (target.role === "inbox") throw new MailDenied("the inbox is where they already are");
+    const res = await client.messageMove(wanted, target.path, { uid: true });
+    // What the server confirms, not what was asked: a uid already filed from
+    // the phone reads as a smaller number here, and a report saying "moved 12"
+    // when four of them were gone is the wrong kind of tidy. `false` is the
+    // library's "the server would not", and uidMap needs UIDPLUS, which not
+    // every server has; without it the count asked for is the best there is.
+    if (!res) return 0;
+    return res.uidMap ? res.uidMap.size : wanted.length;
   });
 }
 

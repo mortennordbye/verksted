@@ -132,6 +132,19 @@ describe("the routes", () => {
     expect(res.statusCode).toBe(503);
     expect(res.json().error).toMatch(/IMAP_HOST/);
     expect((await app.inject({ url: "/api/calendar/today" })).statusCode).toBe(503);
+    expect((await app.inject({ url: "/api/mail/folders" })).statusCode).toBe(503);
+  });
+
+  it("refuse a move that is not a list of uids and a folder", async () => {
+    const post = (payload: unknown) =>
+      app.inject({ method: "POST", url: "/api/mail/move", payload: payload as object });
+    expect((await post({ uids: [], to: "Junk" })).statusCode).toBe(400);
+    expect((await post({ uids: [1], to: "" })).statusCode).toBe(400);
+    // Well formed, and mail is not set up: the source speaks, not the schema.
+    expect((await post({ uids: [1], to: "Junk" })).statusCode).toBe(503);
+    // A field the schema does not name is dropped before the handler, so a
+    // move never grows a second verb by being asked for one.
+    expect((await post({ uids: [1], to: "Junk", flags: ["\\Deleted"] })).statusCode).toBe(503);
   });
 
   it("keep a mail password out of every session, and give it only to the readers", async () => {
