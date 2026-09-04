@@ -44,13 +44,7 @@ async function readAll(): Promise<FeedItem[]> {
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     try {
-      const item = JSON.parse(await fs.readFile(path.join(dir(), name), "utf8")) as FeedItem;
-      // Items filed before `from` and `facts` existed have neither key, and a
-      // required field that is undefined at runtime is a type that lies to
-      // every reader downstream. Filled here rather than at each of them.
-      item.from ??= null;
-      item.facts ??= [];
-      out.push(item);
+      out.push(stored(await fs.readFile(path.join(dir(), name), "utf8")));
     } catch {
       // One unreadable item loses one item, not the feed.
     }
@@ -58,9 +52,25 @@ async function readAll(): Promise<FeedItem[]> {
   return out;
 }
 
+/**
+ * An item as stored, with the fields it may predate filled in.
+ *
+ * Every read goes through this. Doing it in one of the two readers and not the
+ * other is what made the backfill in `upsert` dead code: it reads through
+ * `get`, which handed back an item whose `from` was `undefined` rather than
+ * null, so the guard looking for null never matched and no item ever gained a
+ * sender by that path.
+ */
+function stored(json: string): FeedItem {
+  const item = JSON.parse(json) as FeedItem;
+  item.from ??= null;
+  item.facts ??= [];
+  return item;
+}
+
 export async function get(id: string): Promise<FeedItem | null> {
   try {
-    return JSON.parse(await fs.readFile(fileOf(id), "utf8")) as FeedItem;
+    return stored(await fs.readFile(fileOf(id), "utf8"));
   } catch {
     return null;
   }

@@ -70,6 +70,64 @@ const seen = (id: string, version = "1", at = "2026-08-30T07:00:00.000Z") => ({
 });
 
 describe("the feed store", () => {
+  /**
+   * The bug this guards, which shipped and had to be found on the pod: the
+   * backfill reads the stored item through `get`, and `get` parsed the file
+   * raw. An item written before `from` existed came back with it `undefined`
+   * rather than null, the guard looking for null never matched, and nothing
+   * ever gained a sender — invisibly, because a source whose version changes
+   * takes the ordinary path and looked fine.
+   */
+  it("gives an item filed before senders existed one, without disturbing it", async () => {
+    // Written by hand, with no `from` and no `facts`, exactly as the old
+    // poller left it on the volume.
+    const file = path.join(feedDir, "mail_42.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        id: "mail:42",
+        source: "mail",
+        at: "2026-08-30T07:00:00.000Z",
+        title: "Kari: Hei",
+        detail: "k@e.no",
+        urgency: "new",
+        state: "snoozed",
+        until: "2036-01-01T00:00:00.000Z",
+        link: null,
+        loop: "answer-kari",
+        did: null,
+        triaged: true,
+        version: "42",
+        pushed: false,
+      }),
+    );
+
+    // The same uid, so the same version: a mail's version never changes, and
+    // this is the only path such an item is ever seen on again.
+    const again = await feed.upsert({
+      id: "mail:42",
+      source: "mail",
+      at: "2026-08-30T07:00:00.000Z",
+      title: "Hei",
+      from: "Kari",
+      facts: ["k@e.no", "unread"],
+      detail: "",
+      link: null,
+      version: "42",
+    });
+
+    expect(again.changed).toBe(false);
+    expect(again.item.from).toBe("Kari");
+    expect(again.item.facts).toEqual(["k@e.no", "unread"]);
+    // The sender came out of the title, so the title has to lose it.
+    expect(again.item.title).toBe("Hei");
+    // And nothing the person did to it moved.
+    expect(again.item.state).toBe("snoozed");
+    expect(again.item.until).toBe("2036-01-01T00:00:00.000Z");
+    expect(again.item.loop).toBe("answer-kari");
+    expect(again.item.triaged).toBe(true);
+  });
+
   it("files an event once, and again only when it moves on", async () => {
     const first = await feed.upsert(seen("github:1"));
     expect(first.changed).toBe(true);
