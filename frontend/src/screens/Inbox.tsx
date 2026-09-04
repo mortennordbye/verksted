@@ -96,6 +96,22 @@ function byDay(items: FeedItem[]): { label: string; items: FeedItem[] }[] {
   return days;
 }
 
+/**
+ * Whether the detail line is the facts line in a sentence.
+ *
+ * The pollers used to write both from the same words — a github row read
+ * "PullRequest, on something you watch" twice, once as prose and once as
+ * facts. They no longer do, but an item is only rewritten when its version
+ * moves on, so the ones filed in between keep the pair for as long as they
+ * live, and triage does not always replace a detail it was given. Cheaper to
+ * notice here than to rewrite the volume, and it covers every item at once.
+ */
+export function saysTheSame(item: FeedItem): boolean {
+  if (!item.facts.length) return false;
+  const plain = (s: string) => s.toLowerCase().replace(/[,·]/g, " ").replace(/\s+/g, " ").trim();
+  return plain(item.detail) === plain(item.facts.join(" "));
+}
+
 function Row({
   item,
   session,
@@ -192,7 +208,7 @@ function Row({
             {item.from && <span className="text-muted">{item.from} · </span>}
             <span className="font-medium">{item.title}</span>
           </span>
-          {item.detail && item.source !== "proposal" && (
+          {item.detail && item.source !== "proposal" && !saysTheSame(item) && (
             <span className={`block text-[12.5px] text-muted ${open ? "" : "truncate"}`}>
               {item.detail}
             </span>
