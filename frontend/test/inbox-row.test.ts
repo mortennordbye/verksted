@@ -36,7 +36,18 @@ describe("saysTheSame", () => {
     ).toBe(false);
   });
 
+  it("catches a detail that is one of the facts", () => {
+    // What a backfilled mail row became: the old detail was the sender's
+    // address, and the facts are that address plus the word unread, so the
+    // two never match whole and the row drew the address twice.
+    expect(saysTheSame(item("info@tailscale.com", ["info@tailscale.com", "unread"]))).toBe(true);
+    expect(
+      saysTheSame(item("service@service.ryanairemail.com", ["service@service.ryanairemail.com"])),
+    ).toBe(true);
+  });
+
   it("has nothing to compare when there are no facts", () => {
     expect(saysTheSame(item("anything at all", []))).toBe(false);
+    expect(saysTheSame(item("", ["a fact"]))).toBe(false);
   });
 });
