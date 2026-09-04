@@ -107,9 +107,13 @@ function byDay(items: FeedItem[]): { label: string; items: FeedItem[] }[] {
  * notice here than to rewrite the volume, and it covers every item at once.
  */
 export function saysTheSame(item: FeedItem): boolean {
-  if (!item.facts.length) return false;
+  if (!item.facts.length || !item.detail) return false;
   const plain = (s: string) => s.toLowerCase().replace(/[,·]/g, " ").replace(/\s+/g, " ").trim();
-  return plain(item.detail) === plain(item.facts.join(" "));
+  const detail = plain(item.detail);
+  // All of them, which is what a github row was — and any one of them, which is
+  // what a mail row became: the old detail was the sender's address, and the
+  // facts are that address and the word unread, so the two never matched whole.
+  return item.facts.some((f) => plain(f) === detail) || plain(item.facts.join(" ")) === detail;
 }
 
 function Row({
