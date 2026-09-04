@@ -104,7 +104,25 @@ export const PROPOSAL_DAYS = 3;
  */
 export async function upsert(seen: Seen): Promise<{ item: FeedItem; changed: boolean }> {
   const existing = await get(seen.id);
-  if (existing && existing.version === seen.version) return { item: existing, changed: false };
+  if (existing && existing.version === seen.version) {
+    // The same event, so the person's state is left exactly as it is. The one
+    // thing taken from it: a sender and its facts, for an item filed before
+    // the poller knew to keep them apart. A mail's version is its uid and
+    // never changes, so without this the items already on the volume would
+    // have drawn a row with no sender for as long as they lived — and the
+    // crude fix, a new version scheme, would mark every one of them unread
+    // again and undo the snoozes.
+    if (existing.from === null && seen.from !== undefined) {
+      existing.from = seen.from;
+      existing.facts = seen.facts ?? [];
+      // The title goes with them: the old one has the sender concatenated into
+      // it, so keeping it would draw "Google · Google: Security alert". Safe to
+      // take because the poller is the only thing that ever writes a title.
+      existing.title = seen.title;
+      await write(existing);
+    }
+    return { item: existing, changed: false };
+  }
   const item: FeedItem = {
     id: seen.id,
     source: seen.source,

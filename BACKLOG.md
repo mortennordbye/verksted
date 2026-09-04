@@ -954,3 +954,22 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `mock-inbox.html` in the repo root.
+
+## The inbox has no keyboard
+
+- **What:** The dense row was built for triage — mark, sender, subject, facts,
+  actions on the row under the pointer — but the keys that make a list like
+  that fast are not there. No `j`/`k` to move, no `e` to finish one, no `s` to
+  snooze, no `o` to open. On a desktop every decision still costs a mouse
+  journey to a row and then to a button on it.
+- **Why deferred:** It is a bigger surface than it looks. A list with a
+  selected row needs focus management that survives a poll replacing the
+  items under it, a visible focus ring that is not the hover state, and an
+  answer for what the keys do while a snooze sheet is open. None of that is
+  needed by the phone, which is the device this screen is mostly read on, and
+  the row is already half the height it was without it.
+- **Unblocked by:** Wanting to clear a morning's inbox at a desk. Then a
+  selected index in `Inbox`, `scrollIntoView` on change, and the same handlers
+  the buttons already call — the actions are already functions on the row.
+- **Where:** `frontend/src/screens/Inbox.tsx` (`Row`, and the list that maps
+  it), `frontend/src/components/SourceMark.tsx` for the mark.

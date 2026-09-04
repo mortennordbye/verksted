@@ -4,6 +4,7 @@ import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
+import SourceMark from "../components/SourceMark";
 import { StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
@@ -153,7 +154,7 @@ function Row({
   return (
     <div
       id={item.id}
-      className={`rounded-[11px] border px-[15px] py-2.5 ${
+      className={`group rounded-[11px] border px-3 py-2 ${
         done
           ? "border-line/60 bg-surface/60 opacity-70"
           : item.urgency === "attention"
@@ -161,37 +162,61 @@ function Row({
             : "border-line bg-surface"
       }`}
     >
-      <div className="flex flex-wrap items-center gap-2.5">
-        <StatusChip
-          kind={done ? "idle" : u.kind}
-          label={done ? "done" : item.state === "snoozed" ? "snoozed" : u.label}
+      <div className="flex items-start gap-2.5">
+        {/* The source, as a shape. It was the word `mail` in 11px grey at the
+            end of a chip row, which is somewhere the eye arrives rather than
+            lands; here it is the first thing on the row and the column the eye
+            reads down. Its colour is the urgency, so a row that needs you says
+            so before the chip is read. */}
+        <SourceMark
+          source={item.source}
+          className={`mt-[3px] ${
+            done
+              ? "text-faint"
+              : item.urgency === "attention"
+                ? "text-wait"
+                : item.urgency === "new"
+                  ? "text-accent"
+                  : "text-faint"
+          }`}
         />
-        <span className="font-mono text-[11px] text-faint">{item.source}</span>
-        <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(item.at)}</span>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="min-w-0 flex-1 text-left"
+        >
+          {/* Who it is from, ahead of the subject and lighter: six rows of
+              "review PR" are six different repositories, and a mail without
+              its sender is a subject line from nobody. */}
+          <span className={`block text-[13.5px] ${open ? "" : "truncate"}`}>
+            {item.from && <span className="text-muted">{item.from} · </span>}
+            <span className="font-medium">{item.title}</span>
+          </span>
+          {item.detail && item.source !== "proposal" && (
+            <span className={`block text-[12.5px] text-muted ${open ? "" : "truncate"}`}>
+              {item.detail}
+            </span>
+          )}
+          {item.facts.length > 0 && (
+            <span className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
+              {item.facts.map((f) => (
+                <span key={f}>{f}</span>
+              ))}
+            </span>
+          )}
+        </button>
+        <span className="flex flex-none items-center gap-2">
+          {/* Only when it says something. "new" and "quiet" are already in the
+              mark's colour, and a chip on every row is a column of chips. */}
+          {(done || item.state === "snoozed" || item.urgency === "attention") && (
+            <StatusChip
+              kind={done ? "idle" : u.kind}
+              label={done ? "done" : item.state === "snoozed" ? "snoozed" : u.label}
+            />
+          )}
+          <span className="font-mono text-[11px] text-faint">{agoLabel(item.at)}</span>
+        </span>
       </div>
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="mt-1.5 block w-full text-left text-[13.5px] font-medium hover:text-accent"
-      >
-        {/* Who it is from, ahead of the subject and in a lighter weight: six
-            rows of "review PR" are six different repositories, and a mail
-            without its sender is a subject line from nobody. */}
-        {item.from && <span className="font-normal text-muted">{item.from} · </span>}
-        {item.title}
-      </button>
-      {item.detail && item.source !== "proposal" && (
-        <div className={`mt-0.5 text-[12.5px] text-muted ${open ? "" : "line-clamp-2"}`}>
-          {item.detail}
-        </div>
-      )}
-      {item.facts.length > 0 && (
-        <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
-          {item.facts.map((f) => (
-            <span key={f}>{f}</span>
-          ))}
-        </div>
-      )}
       {/* A proposal is shown whole, with the tap; done and snooze do not apply. */}
       {item.source === "proposal" && <ProposalCard item={item} onChange={onChange} />}
       {(item.loop || item.did) && (
@@ -206,7 +231,12 @@ function Row({
           <WaitingSession session={session} />
         </div>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-2">
+      {/* The buttons cost every row a line of its own, on a screen whose job is
+          to be scrolled. They come back on the row under the pointer, and on
+          the row you tapped — which is the only one of the two a phone has. */}
+      <div
+        className={`mt-2 flex-wrap items-center gap-2 ${open ? "flex" : "hidden group-hover:flex"}`}
+      >
         {item.link &&
           (external ? (
             <a
@@ -311,7 +341,11 @@ export default function Inbox() {
 
   const all = items ?? [];
   const live = all.filter((i) => i.state !== "done");
-  const present = SOURCES.filter((s) => all.some((i) => i.source === s));
+  // What the chips are counting, and therefore what decides whether there is a
+  // chip at all: a source whose every item is done offered a filter reading
+  // "bench 0", which is a button that leads to an empty list.
+  const counted = showDone ? all : live;
+  const present = SOURCES.filter((s) => counted.some((i) => i.source === s));
   const shown = all
     .filter((i) => showDone || i.state !== "done")
     .filter((i) => source === "all" || i.source === source);
@@ -440,7 +474,16 @@ export default function Inbox() {
                   : "border-line text-faint hover:border-line-strong"
               }`}
             >
+              {s !== "all" && (
+                <SourceMark source={s} className="mr-1.5 inline-block align-[-2px]" />
+              )}
               {s}
+              {/* What is behind the chip, so a filter can be chosen rather than
+                  tried. Counted over what is live, which is what the list is
+                  showing unless done is switched on. */}
+              <span className="ml-1.5 text-line-strong">
+                {s === "all" ? counted.length : counted.filter((i) => i.source === s).length}
+              </span>
             </button>
           ))}
           <span className="ml-auto flex items-center gap-2">

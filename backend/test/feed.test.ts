@@ -168,7 +168,10 @@ describe("the pollers", () => {
     ]);
     expect(pr.id).toBe("github:77");
     expect(pr.link).toBe("https://github.com/mortennordbye/verksted/pull/97");
-    expect(pr.detail).toBe("PullRequest, your review was asked for");
+    // On the facts line, and only there: the row draws the detail as well, so
+    // saying it in both is the same words twice.
+    expect(pr.facts).toEqual(["PullRequest", "your review was asked for"]);
+    expect(pr.detail).toBe("");
     expect(pr.version).toBe("2026-08-30T08:00:00Z");
   });
 
