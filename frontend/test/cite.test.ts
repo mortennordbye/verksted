@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cite, citePath } from "../src/components/chat/cite";
+import { cite, citePath, citeUrl } from "../src/components/chat/cite";
 
 /**
  * Citations: the bracket form the persona writes becomes a link the markdown
@@ -22,5 +22,15 @@ describe("cite", () => {
     });
     expect(citePath("vk:mail/42")).toEqual({ to: "/runs#mail:42", label: "mail 42" });
     expect(citePath("https://example.com")).toBeNull();
+  });
+
+  // The bug this guards: react-markdown sanitises every scheme it does not
+  // know, so the link cite() had just written reached the element map as an
+  // empty string and every chip in the app drew an anchor pointing nowhere.
+  it("lets its own scheme through the renderer's sanitiser, and nothing else", () => {
+    expect(citeUrl("vk:session/vk-demo-1")).toBe("vk:session/vk-demo-1");
+    expect(citeUrl("https://example.com")).toBe("https://example.com");
+    expect(citeUrl("/runs#github:77")).toBe("/runs#github:77");
+    expect(citeUrl("javascript:alert(1)")).toBe("");
   });
 });

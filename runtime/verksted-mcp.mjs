@@ -705,6 +705,38 @@ const TOOLS = [
     },
   },
   {
+    name: "mail_folders",
+    memberOnly: true,
+    unattended: true,
+    description:
+      "Where a message can be put: every mailbox on the server, with the role the server gives it (junk, trash, archive, all, sent, drafts). Read this before mail_move and send back a path from it exactly — on Gmail the junk folder is called [Gmail]/Spam and archiving means moving to the one whose role is all.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () =>
+      rows(
+        await call("GET", "/api/mail/folders"),
+        (f) => `${f.path}${f.role ? `  (${f.role})` : ""}`,
+      ),
+  },
+  {
+    name: "mail_move",
+    memberOnly: true,
+    unattended: true,
+    description:
+      "File messages out of the inbox: give the uids and a folder path mail_folders listed. This is the one thing you may do to the mail without asking, because it is undone by moving them back — so file what you are sure of and say what you filed, and leave anything you would have to guess at in the inbox. Nothing here deletes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        uids: { type: "array", items: { type: "integer" } },
+        to: { type: "string" },
+      },
+      required: ["uids", "to"],
+    },
+    run: async (a) => {
+      const { moved } = await call("POST", "/api/mail/move", { uids: a.uids, to: a.to });
+      return `moved ${moved} to ${a.to}`;
+    },
+  },
+  {
     name: "docs_catalogue",
     memberOnly: true,
     description:

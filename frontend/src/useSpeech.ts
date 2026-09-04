@@ -199,8 +199,17 @@ export function audioPlayer(): HTMLAudioElement {
   return player;
 }
 
-/** Call from inside a user gesture, once, so later replies can be played. */
-export function unlockAudio(): void {
+/**
+ * Stop whatever is playing and leave the element primed, from inside a gesture.
+ *
+ * Both at once, and it has to be: swapping the source to the silent clip ends
+ * the clip that was playing, and the `play()` that follows is the one the tap
+ * is allowed to make. `pause()` would end it too, but it also aborts that
+ * `play()` — and an element whose unlocking play was aborted is not unlocked,
+ * so the reply, which arrives from the pod a second later and long after the
+ * tap, is refused and nothing is heard.
+ */
+function unlockAudio(): void {
   const audio = audioPlayer();
   audio.src = SILENCE;
   void audio.play().catch(() => {
@@ -444,7 +453,9 @@ export function useSpeech(onFinal: (said: string) => void) {
       if (!body) return onDone?.();
       const run = ++runRef.current;
       if (canSpeak()) speechSynthesis.cancel();
-      audioPlayer().pause();
+      // Called from the tap that asked for it, which is the only moment the
+      // element can be unlocked — see unlockAudio for why it is not a pause.
+      unlockAudio();
       setSpeaking(true);
       void speakOnPod(body, run, asVoice).then((spoken) => {
         if (runRef.current !== run) return;

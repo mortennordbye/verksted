@@ -1,3 +1,4 @@
+import { defaultUrlTransform } from "react-markdown";
 import { Link } from "react-router";
 
 /**
@@ -17,6 +18,20 @@ export function cite(text: string): string {
     CITE_RE,
     (_, kind: string, id: string) => `[${kind}:${id}](vk:${kind}/${id})`,
   );
+}
+
+/**
+ * The transform that lets those links survive to the renderer.
+ *
+ * react-markdown sanitises every href, and `vk:` is not one of the schemes it
+ * keeps — so the link `cite` just wrote arrived at the element map as an empty
+ * string, missed the chip branch, and drew a plain anchor pointing nowhere.
+ * Every citation in the app opened a blank tab. `vk:` is ours, written two
+ * functions above this and read by `citePath` below; everything else is
+ * sanitised exactly as before.
+ */
+export function citeUrl(url: string): string {
+  return url.startsWith("vk:") ? url : defaultUrlTransform(url);
 }
 
 /** Where a chip goes. */

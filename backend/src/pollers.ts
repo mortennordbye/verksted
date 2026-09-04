@@ -1,5 +1,6 @@
 import type {
   CalendarEvent,
+  FeedItem,
   MailSummary,
   MaintainerIssue,
   Memory,
@@ -172,7 +173,11 @@ export function notificationItems(threads: Notification[], blocked: string[] = [
       id: `github:${n.id}`,
       source: "github",
       at: n.updated_at,
-      title: `${n.repository.full_name}: ${n.subject.title}`,
+      title: n.subject.title,
+      // The repo, not the owner and the repo: six rows of "mortennordbye/" is
+      // six times the same word in the column the eye reads down.
+      from: n.repository.full_name.split("/").pop() ?? n.repository.full_name,
+      facts: [n.subject.type, REASON[n.reason] ?? n.reason],
       detail: `${n.subject.type}, ${REASON[n.reason] ?? n.reason}`,
       link: htmlUrl(n),
       version: n.updated_at,
@@ -185,11 +190,36 @@ export function mailItems(messages: MailSummary[]): Seen[] {
     id: `mail:${m.uid}`,
     source: "mail",
     at: m.at,
-    title: `${m.from}: ${m.subject}`,
+    // Sender and subject apart, not "Google: Security alert" in one string:
+    // the row draws them differently, and the address is the half that says
+    // whether a security alert is really Google's.
+    title: m.subject,
+    from: m.from,
+    facts: [m.address, ...(m.unread ? ["unread"] : [])],
     detail: m.address,
     link: null,
     version: String(m.uid),
   }));
+}
+
+/**
+ * A message that left the inbox is off the feed.
+ *
+ * Filing is the point of the move, and a spam row that stays on Today after
+ * the message was filed is the move half done. `recent` reads a window of the
+ * newest thirty, so absence only means something inside that window: anything
+ * older than the oldest message read is left alone, because "not in the last
+ * thirty" is not "gone". The poller's own error item is not a message and is
+ * matched out by the id shape.
+ */
+export function filedAway(seen: Seen[], items: FeedItem[]): string[] {
+  if (!seen.length) return [];
+  const here = new Set(seen.map((s) => s.id));
+  const oldest = seen.reduce((a, s) => (s.at < a ? s.at : a), seen[0].at);
+  return items
+    .filter((i) => /^mail:\d+$/.test(i.id) && i.state !== "done")
+    .filter((i) => i.at >= oldest && !here.has(i.id))
+    .map((i) => i.id);
 }
 
 /**
@@ -441,12 +471,13 @@ export async function purgeBlocked(): Promise<number> {
 async function pollSource(
   name: "mail" | "calendar",
   configured: () => Promise<unknown>,
-  read: () => Promise<Seen[]>,
+  read: () => Promise<{ seen: Seen[]; over?: string[] }>,
   log: Logger,
 ): Promise<number> {
   if (!(await configured())) return 0;
   try {
-    const n = await apply(await read());
+    const { seen, over } = await read();
+    const n = await apply(seen, over, "filed");
     await feed.resolve(`${name}:poller`, "reading again");
     return n;
   } catch (err) {
@@ -466,13 +497,21 @@ async function pollSource(
 }
 
 export const pollMail = (log: Logger) =>
-  pollSource("mail", mail.mailConfig, async () => mailItems(await mail.recent()), log);
+  pollSource(
+    "mail",
+    mail.mailConfig,
+    async () => {
+      const seen = mailItems(await mail.recent());
+      return { seen, over: filedAway(seen, await feed.list()) };
+    },
+    log,
+  );
 
 export const pollCalendar = (log: Logger) =>
   pollSource(
     "calendar",
     calendar.calendarConfig,
-    async () => calendarItems(await calendar.today()),
+    async () => ({ seen: calendarItems(await calendar.today()) }),
     log,
   );
 

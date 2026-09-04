@@ -44,7 +44,13 @@ async function readAll(): Promise<FeedItem[]> {
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     try {
-      out.push(JSON.parse(await fs.readFile(path.join(dir(), name), "utf8")) as FeedItem);
+      const item = JSON.parse(await fs.readFile(path.join(dir(), name), "utf8")) as FeedItem;
+      // Items filed before `from` and `facts` existed have neither key, and a
+      // required field that is undefined at runtime is a type that lies to
+      // every reader downstream. Filled here rather than at each of them.
+      item.from ??= null;
+      item.facts ??= [];
+      out.push(item);
     } catch {
       // One unreadable item loses one item, not the feed.
     }
@@ -71,6 +77,10 @@ export interface Seen {
   source: FeedSource;
   at: string;
   title: string;
+  /** Who it is from, where the source has one. See FeedItem.from. */
+  from?: string;
+  /** The facts that decide it, worded here. See FeedItem.facts. */
+  facts?: string[];
   detail: string;
   link: string | null;
   version: string;
@@ -100,6 +110,8 @@ export async function upsert(seen: Seen): Promise<{ item: FeedItem; changed: boo
     source: seen.source,
     at: existing?.at ?? seen.at,
     title: seen.title,
+    from: seen.from ?? null,
+    facts: seen.facts ?? [],
     detail: seen.detail,
     urgency: seen.urgency ?? "new",
     state: "new",

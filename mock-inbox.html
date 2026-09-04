@@ -1,0 +1,1366 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>verksted — four inboxes</title>
+    <style>
+      /* Palette lifted verbatim from frontend/src/theme.css so these mocks and
+         the app cannot drift. Fonts fall back to the system: the real faces are
+         served by the pod at /fonts and this file is meant to open from disk. */
+      :root {
+        --bg: #0a0a0a;
+        --surface: #141414;
+        --surface-2: #1c1c1c;
+        --line: #262626;
+        --line-strong: #3a3a3a;
+        --text: #e7e7e7;
+        --muted: #a5a5a5;
+        --faint: #868686;
+        --accent: #51a45e;
+        --accent-tint: rgba(81, 164, 94, 0.11);
+        --on-accent: #0a0a0a;
+        --run: #8ec798;
+        --wait: #bf9752;
+        --fail: #d18c82;
+        --idle: #4a4a4a;
+        --mono: "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        --sans: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color-scheme: dark;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 40px 24px 120px;
+      }
+
+      /* ---- page furniture -------------------------------------------- */
+      .eyebrow {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--faint);
+        margin-bottom: 8px;
+      }
+      h1 {
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        margin: 0 0 10px;
+      }
+      .lede {
+        color: var(--muted);
+        font-size: 14px;
+        max-width: 68ch;
+        margin: 0 0 16px;
+      }
+      code {
+        font-family: var(--mono);
+        font-size: 0.92em;
+      }
+      section.idea {
+        margin-top: 64px;
+        border-top: 1px solid var(--line);
+        padding-top: 28px;
+      }
+      .idea-head {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-bottom: 6px;
+      }
+      .idea-num {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--accent);
+      }
+      h2 {
+        font-size: 19px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin: 0;
+      }
+      .idea-why {
+        color: var(--muted);
+        font-size: 13.5px;
+        max-width: 74ch;
+        margin: 0 0 6px;
+      }
+      .tradeoff {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--faint);
+        margin: 0 0 20px;
+      }
+      .tradeoff b {
+        color: var(--wait);
+        font-weight: 500;
+      }
+
+      .screen {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--bg);
+        overflow: hidden;
+      }
+      .screen-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--faint);
+      }
+      .dot-live {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--accent);
+        flex: none;
+      }
+      .screen-body {
+        padding: 18px;
+      }
+
+      /* ---- source marks ------------------------------------------------
+         Shape carries the source, not colour. theme.css is explicit that every
+         hue here is already spoken for — the state trio (wait/fail/run), the
+         three agent brands, the six council members — so a seventh set keyed to
+         "which source" would collide with all of them. Six distinct silhouettes
+         at 15px read faster than six near-greys anyway. */
+      .ic {
+        width: 15px;
+        height: 15px;
+        flex: none;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        color: var(--faint);
+      }
+      .ic.lg {
+        width: 18px;
+        height: 18px;
+      }
+      /* The one exception: an item that needs you takes the state colour on its
+         mark too, so the row reads at a glance rather than by its chip alone. */
+      .attn .ic,
+      .ic.attn {
+        color: var(--wait);
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 1px 7px;
+        font-family: var(--mono);
+        font-size: 10.5px;
+        font-weight: 500;
+        white-space: nowrap;
+        flex: none;
+      }
+      .chip.wait {
+        color: var(--wait);
+        background: rgba(191, 151, 82, 0.14);
+      }
+      .chip.new {
+        color: var(--run);
+        background: rgba(142, 199, 152, 0.13);
+      }
+      .chip.idle {
+        color: var(--faint);
+        background: var(--surface-2);
+      }
+      .chip.fail {
+        color: var(--fail);
+        background: rgba(209, 140, 130, 0.14);
+      }
+      .ago {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--faint);
+        flex: none;
+        margin-left: auto;
+      }
+      .btn {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: none;
+        padding: 3px 9px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--muted);
+        cursor: default;
+        white-space: nowrap;
+      }
+      .btn.solid {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--on-accent);
+        font-weight: 600;
+      }
+      .filters {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .f {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 3px 10px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--muted);
+      }
+      .f.on {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-tint);
+      }
+      .f.on .ic {
+        color: var(--accent);
+      }
+      .f i {
+        font-style: normal;
+        color: var(--faint);
+      }
+      .daybar {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--faint);
+        padding: 14px 0 6px;
+      }
+
+      /* ---- the legend -------------------------------------------------- */
+      .legend {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+      .leg-row {
+        display: grid;
+        grid-template-columns: 150px 1fr;
+        gap: 20px;
+        padding: 11px 16px;
+        align-items: start;
+      }
+      .leg-row + .leg-row {
+        border-top: 1px solid var(--line);
+      }
+      .leg-name {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .leg-what {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .leg-what b {
+        color: var(--text);
+        font-weight: 550;
+      }
+      .leg-what em {
+        font-style: normal;
+        color: var(--faint);
+      }
+
+      /* ---- shared: the rich meta line ---------------------------------- */
+      .facts {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 12px;
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--faint);
+        margin-top: 3px;
+      }
+      .facts .ok {
+        color: var(--run);
+      }
+      .facts .bad {
+        color: var(--fail);
+      }
+      .facts .plus {
+        color: var(--run);
+      }
+      .facts .minus {
+        color: var(--fail);
+      }
+
+      /* =================================================================
+         1 — dense triage list
+         ================================================================= */
+      .row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: 7px;
+      }
+      .row + .row {
+        border-top: 1px solid rgba(38, 38, 38, 0.7);
+      }
+      .row > .ic {
+        margin-top: 2px;
+      }
+      .row .main {
+        min-width: 0;
+        flex: 1;
+      }
+      .row .line1 {
+        font-size: 13.5px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .row .line1 b {
+        font-weight: 600;
+      }
+      .row .line1 .who {
+        color: var(--muted);
+      }
+      .row .line1 .sep {
+        color: var(--line-strong);
+        margin: 0 6px;
+      }
+      .row .line1 .snip {
+        color: var(--faint);
+      }
+      .row.sel {
+        background: var(--surface);
+      }
+      .row.sel .acts {
+        display: flex;
+      }
+      .row .acts {
+        display: none;
+        gap: 5px;
+        flex: none;
+        margin-top: 1px;
+      }
+      .keys {
+        margin-top: 14px;
+        padding-top: 12px;
+        border-top: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--faint);
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .keys kbd {
+        background: var(--surface-2);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 0 5px;
+        color: var(--muted);
+        font-family: inherit;
+      }
+
+      /* =================================================================
+         2 — two-pane reader
+         ================================================================= */
+      .pane {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        min-height: 480px;
+      }
+      .pane-list {
+        border-right: 1px solid var(--line);
+        padding: 12px;
+        overflow: hidden;
+      }
+      .pane-item {
+        display: flex;
+        gap: 9px;
+        padding: 8px 10px;
+        border-radius: 8px;
+      }
+      .pane-item + .pane-item {
+        margin-top: 2px;
+      }
+      .pane-item.sel {
+        background: var(--accent-tint);
+        box-shadow: inset 2px 0 0 var(--accent);
+      }
+      .pane-item .ic {
+        margin-top: 2px;
+      }
+      .pane-item .pm {
+        min-width: 0;
+        flex: 1;
+      }
+      .pane-item .from {
+        display: flex;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .pane-item .t {
+        font-size: 13px;
+        font-weight: 550;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pane-item .s {
+        font-size: 12px;
+        color: var(--faint);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .pane-detail {
+        padding: 20px 22px;
+      }
+      .pane-detail h3 {
+        font-size: 17px;
+        font-weight: 650;
+        letter-spacing: -0.015em;
+        margin: 10px 0 4px;
+      }
+      .idline {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .meta {
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--faint);
+      }
+      .body {
+        margin: 16px 0;
+        font-size: 14px;
+        color: var(--muted);
+        max-width: 60ch;
+      }
+      .kv {
+        display: flex;
+        gap: 10px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        color: var(--faint);
+        padding: 5px 0;
+        border-top: 1px solid var(--line);
+      }
+      .kv span:first-child {
+        width: 84px;
+        flex: none;
+      }
+      .kv b {
+        color: var(--muted);
+        font-weight: 400;
+      }
+      .acts-bar {
+        display: flex;
+        gap: 8px;
+        margin-top: 20px;
+        padding-top: 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      /* =================================================================
+         3 — grouped by what it wants
+         ================================================================= */
+      .group {
+        margin-bottom: 22px;
+      }
+      .group-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        padding-bottom: 8px;
+        margin-bottom: 6px;
+        border-bottom: 1px solid var(--line);
+      }
+      .group-head h4 {
+        margin: 0;
+        font-size: 14px;
+        font-weight: 650;
+      }
+      .group-head .n {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--on-accent);
+        background: var(--accent);
+        border-radius: 999px;
+        padding: 0 6px;
+        font-weight: 600;
+      }
+      .group-head .n.q {
+        background: var(--surface-2);
+        color: var(--faint);
+      }
+      .group-head .say {
+        font-size: 12.5px;
+        color: var(--faint);
+        margin-left: auto;
+      }
+      .g-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: 7px;
+      }
+      .g-row .gm {
+        min-width: 0;
+        flex: 1;
+      }
+      .g-row .gt {
+        font-size: 13.5px;
+      }
+      .g-row .gt b {
+        font-weight: 600;
+      }
+
+      /* =================================================================
+         4 — bundled digest
+         ================================================================= */
+      .bundle {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+        padding: 9px 13px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 7px;
+      }
+      .bundle .caret {
+        color: var(--faint);
+        font-size: 11px;
+        flex: none;
+      }
+      .bundle .what {
+        font-size: 13.5px;
+        flex: 1;
+        min-width: 0;
+      }
+      .bundle .what em {
+        font-style: normal;
+        color: var(--faint);
+        font-size: 12.5px;
+      }
+      .single {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--surface);
+        padding: 10px 13px;
+        margin-bottom: 7px;
+        display: flex;
+        gap: 11px;
+      }
+      .single.attn {
+        border-color: rgba(191, 151, 82, 0.3);
+        background: rgba(191, 151, 82, 0.08);
+      }
+      .single .sm {
+        min-width: 0;
+        flex: 1;
+      }
+      .single .top {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 2px;
+      }
+      .single .t {
+        font-size: 13.5px;
+        font-weight: 600;
+      }
+      .single .d {
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      .single > .ic {
+        margin-top: 3px;
+      }
+      .expanded {
+        margin: -3px 0 7px 28px;
+        border-left: 1px solid var(--line);
+        padding-left: 14px;
+      }
+
+      .foot {
+        margin-top: 72px;
+        border-top: 1px solid var(--line);
+        padding-top: 20px;
+        color: var(--faint);
+        font-size: 13px;
+        max-width: 78ch;
+      }
+      .foot b {
+        color: var(--muted);
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Icon sprite. Stroke icons at 24, matching the set already drawn inline
+         in Tabs.tsx and TopBar.tsx so these do not arrive as a second style. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-mail" viewBox="0 0 24 24">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+        </symbol>
+        <symbol id="i-github" viewBox="0 0 24 24">
+          <circle cx="18" cy="6" r="3" />
+          <circle cx="6" cy="18" r="3" />
+          <path d="M6 9v6M18 9v3a3 3 0 0 1-3 3H9" />
+        </symbol>
+        <symbol id="i-schedule" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v5l3.5 2" />
+        </symbol>
+        <symbol id="i-calendar" viewBox="0 0 24 24">
+          <rect x="3" y="5" width="18" height="16" rx="2" />
+          <path d="M8 3v4M16 3v4M3 11h18" />
+        </symbol>
+        <symbol id="i-bench" viewBox="0 0 24 24">
+          <rect x="2" y="4" width="20" height="16" rx="2" />
+          <path d="m7 10 2.5 2.5L7 15M13 15h4" />
+        </symbol>
+        <symbol id="i-memory" viewBox="0 0 24 24">
+          <path d="M12 3a6 6 0 0 0-3.5 10.9V17h7v-3.1A6 6 0 0 0 12 3Z" />
+          <path d="M9.5 20h5" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="page">
+      <div class="eyebrow">verksted · design study</div>
+      <h1>Four inboxes</h1>
+      <p class="lede">
+        Four directions for <code>/runs</code>, drawn with the real contents of the inbox on Friday
+        4 September. Two things run through all four, because they are wrong in the screen as it
+        stands: <b>a source is identifiable at a glance</b>, and
+        <b>a row says enough to decide without opening it</b>.
+      </p>
+
+      <!-- ============================================================ legend -->
+      <h2 style="margin: 34px 0 6px">The two fixes underneath all four</h2>
+      <p class="idea-why" style="margin-bottom: 14px">
+        Today a row says only <code>mail</code> or <code>github</code> in 11&nbsp;px grey, then a
+        title. So "Google: Security alert" and "homelab#602" are the same shape, and a mail tells
+        you nothing about who sent it or what it says. Shape carries the source — colour is already
+        spoken for by the state chips and the agent marks, per <code>theme.css</code> — and each
+        source brings the two or three facts that actually decide it.
+      </p>
+
+      <div class="legend">
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-mail" /></svg> mail</span
+          >
+          <span class="leg-what"
+            ><b>Sender name and address</b>, subject, first line of the body.
+            <em>Plus: thread count, whether it is filed, which folder.</em></span
+          >
+        </div>
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-github" /></svg> github</span
+          >
+          <span class="leg-what"
+            ><b>repo#number</b>, title, who opened it.
+            <em
+              >Plus: checks passing or failing, diff size, whether review was requested of you.</em
+            ></span
+          >
+        </div>
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-schedule" /></svg> schedule</span
+          >
+          <span class="leg-what"
+            ><b>Outcome and the first sentence</b> of what it said.
+            <em
+              >Plus: how long it ran, what it cost, how many firings in a row ended this way.</em
+            ></span
+          >
+        </div>
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-bench" /></svg> bench</span
+          >
+          <span class="leg-what"
+            ><b>Project and session</b>, and what it is waiting on.
+            <em>Plus: agent, how long it has been idle.</em></span
+          >
+        </div>
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-memory" /></svg> memory</span
+          >
+          <span class="leg-what"
+            ><b>The proposed sentence itself</b>, not "a proposed memory".
+            <em>Plus: the session it was learned in.</em></span
+          >
+        </div>
+        <div class="leg-row">
+          <span class="leg-name"
+            ><svg class="ic"><use href="#i-calendar" /></svg> calendar</span
+          >
+          <span class="leg-what"
+            ><b>Time and title</b>.
+            <em>Plus: where, who else, whether there is a link to join.</em></span
+          >
+        </div>
+      </div>
+
+      <!-- ============================================================ 1 -->
+      <section class="idea">
+        <div class="idea-head">
+          <span class="idea-num">01</span>
+          <h2>Dense triage list</h2>
+        </div>
+        <p class="idea-why">
+          Two lines per item instead of a card: mark, who, subject, snippet — then the facts for
+          that source in mono underneath. Actions appear on the selected row rather than costing
+          every row a button bar, and the keyboard walks it.
+        </p>
+        <p class="tradeoff">
+          gains ~11 items per screen with more information each, from 6 with less ·
+          <b>costs</b> a busy row; the facts line has to be disciplined or it becomes noise
+        </p>
+
+        <div class="screen">
+          <div class="screen-bar"><span class="dot-live"></span> verksted / inbox</div>
+          <div class="screen-body">
+            <div class="filters">
+              <span class="f on">all <i>21</i></span>
+              <span class="f"
+                ><svg class="ic" style="width: 13px; height: 13px"><use href="#i-github" /></svg>
+                github <i>9</i></span
+              >
+              <span class="f"
+                ><svg class="ic" style="width: 13px; height: 13px"><use href="#i-mail" /></svg> mail
+                <i>4</i></span
+              >
+              <span class="f"
+                ><svg class="ic" style="width: 13px; height: 13px"><use href="#i-schedule" /></svg>
+                schedule <i>6</i></span
+              >
+              <span class="f"
+                ><svg class="ic" style="width: 13px; height: 13px"><use href="#i-memory" /></svg>
+                memory <i>2</i></span
+              >
+            </div>
+
+            <div class="daybar">Today</div>
+
+            <div class="row sel attn">
+              <svg class="ic"><use href="#i-mail" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">Google</span><span class="sep">·</span><b>Security alert</b
+                  ><span class="sep">·</span
+                  ><span class="snip">A new sign-in on Mac OS, from Norway, at 08:46</span></span
+                >
+                <span class="facts">
+                  <span>no-reply@accounts.google.com</span>
+                  <span>INBOX</span>
+                  <span>not filed</span>
+                </span>
+              </span>
+              <span class="acts">
+                <span class="btn">open</span><span class="btn">file to…</span
+                ><span class="btn">snooze</span><span class="btn solid">done</span>
+              </span>
+              <span class="ago">11 min</span>
+            </div>
+
+            <div class="row">
+              <svg class="ic"><use href="#i-mail" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">Ryanair</span><span class="sep">·</span
+                  ><b>X7ZQNQ — check in online</b><span class="sep">·</span
+                  ><span class="snip">Your flight to Oslo departs in 34 hours</span></span
+                >
+                <span class="facts">
+                  <span>service@ryanairemail.com</span>
+                  <span>INBOX</span>
+                </span>
+              </span>
+              <span class="ago">9 min</span>
+            </div>
+
+            <div class="row attn">
+              <svg class="ic"><use href="#i-github" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">homelab#602</span><span class="sep">·</span
+                  ><b>chore(deps): update cluster (talos / kubernetes)</b></span
+                >
+                <span class="facts">
+                  <span>renovate opened</span>
+                  <span class="ok">✓ 12 checks</span>
+                  <span><span class="plus">+248</span> <span class="minus">−31</span></span>
+                  <span>review requested of you</span>
+                </span>
+              </span>
+              <span class="ago">2 h</span>
+            </div>
+
+            <div class="row attn">
+              <svg class="ic"><use href="#i-schedule" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">morning briefing</span><span class="sep">·</span
+                  ><b>attention</b><span class="sep">·</span
+                  ><span class="snip">reelsmith ponytail render is stranded</span></span
+                >
+                <span class="facts">
+                  <span>ran 4 m 12 s</span>
+                  <span>38k tokens</span>
+                  <span>2 firings in a row</span>
+                </span>
+              </span>
+              <span class="ago">2 h</span>
+            </div>
+
+            <div class="row">
+              <svg class="ic"><use href="#i-memory" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><b
+                    >“In the nightly reelsmith workflow, chain <code>git pull --ff-only</code> and
+                    the snapshot”</b
+                  ></span
+                >
+                <span class="facts">
+                  <span>learned in vk-reelsmith-44</span>
+                  <span>keep or drop</span>
+                </span>
+              </span>
+              <span class="ago">4 h</span>
+            </div>
+
+            <div class="row">
+              <svg class="ic"><use href="#i-mail" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">Kitch'n</span><span class="sep">·</span
+                  ><b>Rabattkupongen din utløper i dag</b><span class="sep">·</span
+                  ><span class="snip">30% på alt kjøkkenutstyr ut fredag</span></span
+                >
+                <span class="facts"><span>nyhetsbrev@kitchn.no</span><span>bulk</span></span>
+              </span>
+              <span class="ago">1 h</span>
+            </div>
+
+            <div class="row">
+              <svg class="ic"><use href="#i-bench" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">logeverylift</span><span class="sep">·</span
+                  ><b>vk-logeverylift-6</b><span class="sep">·</span
+                  ><span class="snip">waiting at a resume prompt</span></span
+                >
+                <span class="facts"><span>claude</span><span>idle 22 h</span></span>
+              </span>
+              <span class="ago">22 h</span>
+            </div>
+
+            <div class="daybar">Yesterday</div>
+
+            <div class="row">
+              <svg class="ic"><use href="#i-github" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">homelab#670</span><span class="sep">·</span
+                  ><b>chore(deps): update terraform</b></span
+                >
+                <span class="facts">
+                  <span>dependabot opened</span>
+                  <span class="ok">✓ 12 checks</span>
+                  <span><span class="plus">+8</span> <span class="minus">−8</span></span>
+                </span>
+              </span>
+              <span class="ago">1 d</span>
+            </div>
+
+            <div class="row attn">
+              <svg class="ic"><use href="#i-schedule" /></svg>
+              <span class="main">
+                <span class="line1"
+                  ><span class="who">sch-0610d0f7</span><span class="sep">·</span><b>failed</b
+                  ><span class="sep">·</span
+                  ><span class="snip">OAuth session expired, re-authenticate</span></span
+                >
+                <span class="facts"
+                  ><span>ran 8 s</span><span class="bad">3 firings in a row</span></span
+                >
+              </span>
+              <span class="ago">1 d</span>
+            </div>
+
+            <div class="keys">
+              <span><kbd>j</kbd> <kbd>k</kbd> move</span>
+              <span><kbd>e</kbd> done</span>
+              <span><kbd>s</kbd> snooze</span>
+              <span><kbd>f</kbd> file</span>
+              <span><kbd>o</kbd> open</span>
+              <span><kbd>⏎</kbd> expand</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ 2 -->
+      <section class="idea">
+        <div class="idea-head">
+          <span class="idea-num">02</span>
+          <h2>Two-pane reader</h2>
+        </div>
+        <p class="idea-why">
+          The list keeps the mark and the sender; the detail gets the width that is currently empty
+          margin, and shows the whole thing — the mail body, the PR's checks, the session waiting on
+          you — without leaving the list or losing your place in it. On a phone this is the same
+          list, and tapping pushes the detail as its own screen.
+        </p>
+        <p class="tradeoff">
+          gains the most information of the four, and a real reading surface ·
+          <b>costs</b> a second layout to maintain
+        </p>
+
+        <div class="screen">
+          <div class="screen-bar"><span class="dot-live"></span> verksted / inbox</div>
+          <div class="pane">
+            <div class="pane-list">
+              <div class="pane-item sel attn">
+                <svg class="ic"><use href="#i-mail" /></svg>
+                <span class="pm">
+                  <span class="from"><span>Google</span><span class="ago">11 min</span></span>
+                  <span class="t">Security alert</span>
+                  <span class="s">A new sign-in on Mac OS…</span>
+                </span>
+              </div>
+              <div class="pane-item">
+                <svg class="ic"><use href="#i-mail" /></svg>
+                <span class="pm">
+                  <span class="from"><span>Ryanair</span><span class="ago">9 min</span></span>
+                  <span class="t">X7ZQNQ — check in online</span>
+                  <span class="s">Your flight to Oslo departs…</span>
+                </span>
+              </div>
+              <div class="pane-item attn">
+                <svg class="ic"><use href="#i-github" /></svg>
+                <span class="pm">
+                  <span class="from"><span>homelab#602</span><span class="ago">2 h</span></span>
+                  <span class="t">update cluster (talos / k8s)</span>
+                  <span class="s">✓ 12 checks · +248 −31</span>
+                </span>
+              </div>
+              <div class="pane-item attn">
+                <svg class="ic"><use href="#i-schedule" /></svg>
+                <span class="pm">
+                  <span class="from"
+                    ><span>morning briefing</span><span class="ago">2 h</span></span
+                  >
+                  <span class="t">attention</span>
+                  <span class="s">reelsmith render is stranded</span>
+                </span>
+              </div>
+              <div class="pane-item">
+                <svg class="ic"><use href="#i-memory" /></svg>
+                <span class="pm">
+                  <span class="from"><span>proposed</span><span class="ago">4 h</span></span>
+                  <span class="t">chain git pull --ff-only…</span>
+                  <span class="s">from vk-reelsmith-44</span>
+                </span>
+              </div>
+              <div class="pane-item">
+                <svg class="ic"><use href="#i-mail" /></svg>
+                <span class="pm">
+                  <span class="from"><span>Kitch'n</span><span class="ago">1 h</span></span>
+                  <span class="t">Rabattkupongen din utløper</span>
+                  <span class="s">30% på alt kjøkkenutstyr…</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="pane-detail">
+              <div class="idline">
+                <svg class="ic lg attn"><use href="#i-mail" /></svg>
+                <span class="chip wait">needs you</span>
+                <span class="meta">mail</span>
+              </div>
+              <h3>Security alert</h3>
+              <div class="meta">Google &lt;no-reply@accounts.google.com&gt; · 11 min ago</div>
+              <p class="body">
+                A new sign-in on Mac OS, from Norway, at 08:46. You're receiving this because a
+                device signed in to your account for the first time. If this was you, nothing needs
+                doing. If it wasn't, secure your account now.
+              </p>
+              <div class="kv">
+                <span>folder</span><span><b>INBOX</b> · not filed</span>
+              </div>
+              <div class="kv"><span>thread</span><span>1 of 3 from this sender today</span></div>
+              <div class="kv"><span>loop</span><span>—</span></div>
+              <div class="kv"><span>uid</span><span>2135</span></div>
+              <div class="acts-bar">
+                <span class="btn">open ↗</span>
+                <span class="btn">file to…</span>
+                <span class="btn">draft a reply</span>
+                <span class="btn">snooze</span>
+                <span class="btn solid">done</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ 3 -->
+      <section class="idea">
+        <div class="idea-head">
+          <span class="idea-num">03</span>
+          <h2>Grouped by what it wants from you</h2>
+        </div>
+        <p class="idea-why">
+          Stop sorting by arrival. Sort by the kind of attention required, because that is the
+          decision you are actually making: something to answer, something to review, something to
+          read, something merely blocked. The mark still says which source, so a group stays legible
+          as a mix. Open Loops folds into the group it belongs to instead of sitting above
+          everything.
+        </p>
+        <p class="tradeoff">
+          gains a screen that says what it is asking of you ·
+          <b>costs</b> the newest-first reading everyone knows, and needs triage to classify well
+        </p>
+
+        <div class="screen">
+          <div class="screen-bar"><span class="dot-live"></span> verksted / inbox</div>
+          <div class="screen-body">
+            <div class="group">
+              <div class="group-head">
+                <h4>Decide</h4>
+                <span class="n">5</span>
+                <span class="say">a yes or a no, and it is gone</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic attn"><use href="#i-memory" /></svg>
+                <span class="gm">
+                  <span class="gt"
+                    >“In the nightly reelsmith workflow, chain <code>git pull --ff-only</code> and
+                    the snapshot”</span
+                  >
+                  <span class="facts"
+                    ><span>learned in vk-reelsmith-44</span><span>3 more proposed</span></span
+                  >
+                </span>
+                <span class="ago">4 h</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic attn"><use href="#i-github" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>homelab#602</b> — update cluster (talos / kubernetes)</span>
+                  <span class="facts"
+                    ><span>renovate</span><span class="ok">✓ 12 checks</span
+                    ><span><span class="plus">+248</span> <span class="minus">−31</span></span
+                    ><span>triage flagged: worth care</span></span
+                  >
+                </span>
+                <span class="ago">2 h</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-head">
+                <h4>Review</h4>
+                <span class="n">6</span>
+                <span class="say">code waiting on you</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-github" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>homelab#670</b> — chore(deps): update terraform</span>
+                  <span class="facts"
+                    ><span>dependabot</span><span class="ok">✓ 12 checks</span
+                    ><span><span class="plus">+8</span> <span class="minus">−8</span></span></span
+                  >
+                </span>
+                <span class="ago">1 d</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-github" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>homelab#847</b> — fix(deps): update npm portfolio</span>
+                  <span class="facts"
+                    ><span>dependabot</span><span class="bad">✗ 1 check failing</span
+                    ><span><span class="plus">+31</span> <span class="minus">−31</span></span></span
+                  >
+                </span>
+                <span class="ago">1 d</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-github" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>homelab#583</b> — chore(deps): update helm releases</span>
+                  <span class="facts"
+                    ><span>renovate</span><span class="ok">✓ 12 checks</span
+                    ><span><span class="plus">+96</span> <span class="minus">−96</span></span></span
+                  >
+                </span>
+                <span class="ago">2 d</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-head">
+                <h4>Read</h4>
+                <span class="n q">7</span>
+                <span class="say">nothing to do but look</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic attn"><use href="#i-mail" /></svg>
+                <span class="gm">
+                  <span class="gt"
+                    ><b>Google</b> — Security alert
+                    <span style="color: var(--faint)">×2</span></span
+                  >
+                  <span class="facts"><span>new sign-in on Mac OS, from Norway, 08:46</span></span>
+                </span>
+                <span class="ago">11 min</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-mail" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>Ryanair</b> — X7ZQNQ, check in online</span>
+                  <span class="facts"><span>flight to Oslo, departs in 34 h</span></span>
+                </span>
+                <span class="ago">9 min</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-schedule" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>morning briefing</b> — reelsmith render is stranded</span>
+                  <span class="facts"><span>ran 4 m 12 s</span><span>38k tokens</span></span>
+                </span>
+                <span class="ago">2 h</span>
+              </div>
+            </div>
+
+            <div class="group">
+              <div class="group-head">
+                <h4>Waiting on something else</h4>
+                <span class="n q">3</span>
+                <span class="say">not yours to move yet</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-schedule" /></svg>
+                <span class="gm">
+                  <span class="gt"
+                    ><span class="chip fail" style="margin-right: 6px">failed</span
+                    ><b>sch-0610d0f7</b> — OAuth session expired</span
+                  >
+                  <span class="facts"
+                    ><span class="bad">3 firings in a row</span><span>ran 8 s</span></span
+                  >
+                </span>
+                <span class="ago">1 d</span>
+              </div>
+              <div class="g-row">
+                <svg class="ic"><use href="#i-bench" /></svg>
+                <span class="gm">
+                  <span class="gt"><b>vk-logeverylift-6</b> — waiting at a resume prompt</span>
+                  <span class="facts"
+                    ><span>claude</span><span>logeverylift</span><span>idle 22 h</span></span
+                  >
+                </span>
+                <span class="ago">22 h</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================ 4 -->
+      <section class="idea">
+        <div class="idea-head">
+          <span class="idea-num">04</span>
+          <h2>Bundled digest</h2>
+        </div>
+        <p class="idea-why">
+          The list is long because the same thing arrives repeatedly. Fold repeats and bulk sources
+          into one row carrying its mark, a count and a bulk action; spend the saved room on the
+          items that are genuinely singular, which get the full sender-and-snippet treatment.
+          Twenty-one items becomes eight lines, and the four dependabot PRs clear with one press
+          rather than eight.
+        </p>
+        <p class="tradeoff">
+          gains the shortest list, bulk actions, and room for real detail on what is left ·
+          <b>costs</b> a bundling rule that will occasionally fold away something you wanted
+        </p>
+
+        <div class="screen">
+          <div class="screen-bar"><span class="dot-live"></span> verksted / inbox</div>
+          <div class="screen-body">
+            <div class="filters">
+              <span class="f on">all <i>21</i></span>
+              <span class="f">bundled <i>13</i></span>
+              <span class="f">singular <i>8</i></span>
+            </div>
+
+            <div class="daybar">Today</div>
+
+            <div class="bundle">
+              <span class="caret">▸</span>
+              <svg class="ic"><use href="#i-github" /></svg>
+              <span class="what"
+                >4 dependency PRs on homelab <em>— all checks green, all routine</em></span
+              >
+              <span class="btn">done all</span>
+            </div>
+
+            <div class="single attn">
+              <svg class="ic"><use href="#i-mail" /></svg>
+              <span class="sm">
+                <span class="top">
+                  <span class="chip wait">needs you</span>
+                  <span class="meta">Google &lt;no-reply@accounts.google.com&gt;</span>
+                  <span class="meta">×2</span>
+                  <span class="ago">11 min</span>
+                </span>
+                <span class="t">Security alert</span>
+                <span class="d"
+                  >A new sign-in on Mac OS, from Norway, at 08:46 — check it's you.</span
+                >
+                <span class="facts"><span>INBOX</span><span>not filed</span></span>
+              </span>
+            </div>
+
+            <div class="bundle">
+              <span class="caret">▾</span>
+              <svg class="ic"><use href="#i-mail" /></svg>
+              <span class="what">3 newsletters and offers <em>— nothing asked of you</em></span>
+              <span class="btn">done all</span>
+            </div>
+            <div class="expanded">
+              <div class="row">
+                <span class="main">
+                  <span class="line1"
+                    ><span class="who">Kitch'n</span><span class="sep">·</span
+                    ><b>Rabattkupongen din utløper i dag</b></span
+                  >
+                  <span class="facts"><span>nyhetsbrev@kitchn.no</span></span>
+                </span>
+                <span class="ago">1 h</span>
+              </div>
+              <div class="row">
+                <span class="main">
+                  <span class="line1"
+                    ><span class="who">Ryanair</span><span class="sep">·</span
+                    ><b>X7ZQNQ — check in online</b></span
+                  >
+                  <span class="facts"><span>service@ryanairemail.com</span></span>
+                </span>
+                <span class="ago">9 min</span>
+              </div>
+              <div class="row">
+                <span class="main">
+                  <span class="line1"
+                    ><span class="who">NorskRikstoto</span><span class="sep">·</span
+                    ><b>Ukens oppsummering</b></span
+                  >
+                  <span class="facts"><span>ikke-svar@rikstoto.no</span></span>
+                </span>
+                <span class="ago">5 h</span>
+              </div>
+            </div>
+
+            <div class="single attn">
+              <svg class="ic"><use href="#i-github" /></svg>
+              <span class="sm">
+                <span class="top">
+                  <span class="chip wait">needs you</span>
+                  <span class="meta">homelab#602 · renovate</span>
+                  <span class="ago">2 h</span>
+                </span>
+                <span class="t">chore(deps): update cluster (talos / kubernetes)</span>
+                <span class="d">Triage flagged this one: worth care, not routine.</span>
+                <span class="facts"
+                  ><span class="ok">✓ 12 checks</span
+                  ><span><span class="plus">+248</span> <span class="minus">−31</span></span
+                  ><span>review requested of you</span></span
+                >
+              </span>
+            </div>
+
+            <div class="single">
+              <svg class="ic"><use href="#i-schedule" /></svg>
+              <span class="sm">
+                <span class="top">
+                  <span class="chip wait">needs you</span>
+                  <span class="meta">morning briefing</span>
+                  <span class="ago">2 h</span>
+                </span>
+                <span class="t">attention</span>
+                <span class="d">
+                  reelsmith ponytail render is stranded — done but blocked from queue, repo on
+                  cooldown elsewhere.
+                </span>
+                <span class="facts"><span>ran 4 m 12 s</span><span>38k tokens</span></span>
+              </span>
+            </div>
+
+            <div class="daybar">Yesterday</div>
+
+            <div class="bundle">
+              <span class="caret">▸</span>
+              <svg class="ic"><use href="#i-schedule" /></svg>
+              <span class="what">6 schedules that signed off ok <em>— nothing said</em></span>
+              <span class="btn">done all</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <p class="foot">
+        The marks and the facts lines are the same work in all four — a source-aware row component
+        and a few more fields on <code>FeedItem</code> — so that part is worth doing whichever
+        layout wins. After that: <b>01</b> and <b>04</b> are mostly that row plus a grouping pass.
+        <b>02</b> adds a layout. <b>03</b> asks triage to classify intent, which is a backend change
+        as much as a screen one. They also combine — 01's row is the list in 02, and 04's bundling
+        would work inside 03's groups.
+      </p>
+    </div>
+  </body>
+</html>

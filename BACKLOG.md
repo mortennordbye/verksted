@@ -3,6 +3,27 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## A member seeded before a tool existed never gains it
+
+- **What:** Uriel on the pod holds `status, recall, list_memories, remember,
+forget, propose_memory` and none of the mail, calendar or document tools it
+  was written for. It was seeded when the council first shipped, and seeding
+  leaves an existing member exactly as it found it, so every tool added to
+  `SEEDS` since has reached a new bench and no old one. The mail tools this
+  branch adds land the same way: on the pod, the advisor that reads the mail
+  still cannot, until its tool list is set by hand on the settings page.
+- **Why deferred:** The rule that seeding never overwrites is the right one. A
+  member is a file a person edits from a phone, and a release that quietly put
+  tools back on one somebody had deliberately narrowed would be worse than this
+  is. Telling the two cases apart means recording what a member was seeded with,
+  which is a store change for a problem that has bitten once.
+- **Unblocked by:** Wanting a second advisor to gain a capability without
+  someone opening settings. Then keep the seeded tool list beside the member and
+  add only tools that are new to `SEEDS` since, leaving anything removed by hand
+  removed.
+- **Where:** `backend/src/council-store.ts` (`SEEDS`, `seedCouncil`, the
+  `.seeded` file), and the tools list on the settings page.
+
 ## A blocked owner's maintainer queue is not blocked
 
 - **What:** The owner list on the settings page keeps GitHub notifications from
@@ -910,3 +931,26 @@ what unblocks it / where the code lives.
   (then `vk-guard` reads its no-go list and denies edits there mechanically).
 - **Where:** `Dockerfile`, `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
   `runtime/vk-guard`, `backend/src/maintainer.ts` (`readContract`)
+
+## The facts a feed row can show stop at what a poller already had
+
+- **What:** `FeedItem` now carries `from` and `facts`, and the mail and github
+  pollers fill them from what they were already holding — a sender and address,
+  a repository, a notification's kind and reason. `mock-inbox.html` promises
+  more than that: a pull request's check status and diff size, a mail's first
+  body line, a run's duration and token cost. None of those are filled, so a
+  row drawn from the mock will have two facts where the mock shows four.
+- **Why deferred:** Each of the missing ones costs a network call the poller
+  does not currently make. Checks and diff size are a `gh` call per pull
+  request, on a list that is routinely a dozen long; a body line is an IMAP
+  FETCH per message rather than the envelope-only SEARCH the poller does now.
+  Both turn a cheap five-minute poll into a chatty one, and the github half
+  spends rate limit that the notification poll shares.
+- **Unblocked by:** Deciding the poll may cost more, or fetching lazily — the
+  facts for one item when a row is opened rather than for every item on every
+  poll. The lazy shape is probably right and is a route plus a cache, not a
+  poller change.
+- **Where:** `backend/src/pollers.ts` (`mailItems`, `notificationItems`,
+  `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
+  `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
+  `mock-inbox.html` in the repo root.

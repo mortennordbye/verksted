@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import type { FeedItem } from "../../shared/api.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -206,7 +207,9 @@ describe("the pollers", () => {
       [thread("NorskRikstoto"), thread("mortennordbye")],
       ["norskrikstoto"],
     );
-    expect(items.map((i) => i.title)).toEqual(["mortennordbye/infrastructure: a client's branch"]);
+    expect(items.map((i) => `${i.from}: ${i.title}`)).toEqual([
+      "infrastructure: a client's branch",
+    ]);
   });
 
   it("deletes what a newly blocked owner left behind, and leaves the rest", async () => {
@@ -307,6 +310,48 @@ describe("the pollers", () => {
     // One call for the repository, not one per item.
     const asked = fake.argvFor("gh").filter((a) => a[1]?.startsWith("repos/"));
     expect(asked).toEqual([["api", "repos/o/r/issues?state=open&per_page=100"]]);
+  });
+
+  it("ends a mail item once the message has been filed, and only inside the window", () => {
+    const at = (min: number) => new Date(Date.parse("2026-09-03T09:00:00Z") - min * 60_000);
+    const item = (uid: number, min: number) =>
+      ({
+        id: `mail:${uid}`,
+        source: "mail",
+        at: at(min).toISOString(),
+        state: "new",
+      }) as FeedItem;
+    const seen = pollers.mailItems([
+      {
+        uid: 5,
+        subject: "Hei",
+        from: "Kari",
+        address: "k@e.no",
+        at: at(1).toISOString(),
+        unread: true,
+      },
+      {
+        uid: 3,
+        subject: "Ordre",
+        from: "Butikk",
+        address: "b@e.no",
+        at: at(30).toISOString(),
+        unread: false,
+      },
+    ]);
+    const over = pollers.filedAway(seen, [
+      item(5, 1),
+      // Inside the window and no longer in the inbox: filed.
+      item(4, 10),
+      // Older than the oldest message read, so its absence says nothing.
+      item(1, 90),
+      { ...item(2, 5), state: "done" },
+      // The poller's own error row is not a message.
+      { ...item(0, 5), id: "mail:poller" },
+    ]);
+    expect(over).toEqual(["mail:4"]);
+    // Nothing to compare against is nothing filed, not everything filed.
+    expect(pollers.filedAway([], [item(5, 1)])).toEqual([]);
   });
 
   it("ends anything a week unread, whatever it points at", async () => {

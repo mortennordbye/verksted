@@ -68,10 +68,18 @@ export function isTabRoute(pathname: string): boolean {
  * Its own component because the phone session screen shows no top bar, so the
  * same pill has to ride on the ⋯ that took the bar's place.
  */
-export function Badge({ count }: { count: number }) {
+export function Badge({ count, inline = false }: { count: number; inline?: boolean }) {
   if (!count) return null;
   return (
-    <span className="absolute -top-1 -right-1 min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent">
+    <span
+      className={`min-w-[15px] rounded-full bg-accent px-1 text-center font-mono text-[10px] leading-[15px] font-semibold text-on-accent ${
+        // Over an icon there is nowhere else for it to go, and the corner it
+        // covers is empty. Over a word it covers the word: "Inbox" is five
+        // letters and the lozenge is two, so the corner it sat in was the top
+        // of the b. Beside the word instead, where a row of words has room.
+        inline ? "" : "absolute -top-1 -right-1"
+      }`}
+    >
       {count > 9 ? "9+" : count}
     </span>
   );
@@ -128,11 +136,11 @@ export function TabLinks({ badge = 0 }: { badge?: number }) {
           to={t.to}
           end={t.to === "/"}
           className={({ isActive }) =>
-            `relative text-[13px] font-medium ${isActive ? "text-text" : "text-faint hover:text-text"}`
+            `flex items-center gap-1.5 text-[13px] font-medium ${isActive ? "text-text" : "text-faint hover:text-text"}`
           }
         >
           {t.label}
-          {t.to === "/runs" && <Badge count={badge} />}
+          {t.to === "/runs" && <Badge count={badge} inline />}
         </NavLink>
       ))}
     </nav>

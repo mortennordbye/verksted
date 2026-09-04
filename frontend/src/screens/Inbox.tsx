@@ -174,11 +174,22 @@ function Row({
         onClick={() => setOpen((o) => !o)}
         className="mt-1.5 block w-full text-left text-[13.5px] font-medium hover:text-accent"
       >
+        {/* Who it is from, ahead of the subject and in a lighter weight: six
+            rows of "review PR" are six different repositories, and a mail
+            without its sender is a subject line from nobody. */}
+        {item.from && <span className="font-normal text-muted">{item.from} · </span>}
         {item.title}
       </button>
       {item.detail && item.source !== "proposal" && (
         <div className={`mt-0.5 text-[12.5px] text-muted ${open ? "" : "line-clamp-2"}`}>
           {item.detail}
+        </div>
+      )}
+      {item.facts.length > 0 && (
+        <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
+          {item.facts.map((f) => (
+            <span key={f}>{f}</span>
+          ))}
         </div>
       )}
       {/* A proposal is shown whole, with the tap; done and snooze do not apply. */}

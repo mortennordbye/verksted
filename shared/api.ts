@@ -1215,7 +1215,26 @@ export interface FeedItem {
   source: FeedSource;
   /** When it happened, or was first seen. */
   at: string;
+  /**
+   * The subject alone. Who it came from is `from`, and was concatenated into
+   * this until it had somewhere to go: a row could not show a sender apart
+   * from a subject, so a mail read "Google: Security alert" and a screen full
+   * of them read as one field of grey.
+   */
   title: string;
+  /**
+   * Who or what it is from — a sender, a repository, a schedule — as the
+   * source names them. Null on an item filed before this existed, and on the
+   * sources that have no sender to speak of.
+   */
+  from: string | null;
+  /**
+   * The two or three facts that decide this one, already worded, in the order
+   * they should be read: an address and a folder for mail, the reason and the
+   * kind for github. Worded by the poller because only the poller knows what a
+   * folder or a review request is; the screen sets them in mono and no more.
+   */
+  facts: string[];
   /** Two lines at most: the poller's, until triage rewrites it. */
   detail: string;
   urgency: FeedUrgency;
@@ -1272,6 +1291,16 @@ export interface MailMessage extends MailSummary {
   /** Plain text, HTML reduced, cut at a size a model should read. */
   text: string;
   attachments: string[];
+}
+
+/** A mailbox on the server. `role` is its special-use flag, or "". */
+export interface MailFolder {
+  /** What IMAP calls it, and the only thing a move accepts: `[Gmail]/Spam`. */
+  path: string;
+  /** The leaf, for a person to read: `Spam`. */
+  name: string;
+  /** "junk", "trash", "sent", "drafts", "archive", "all", "inbox", or "". */
+  role: string;
 }
 
 export interface CalendarEvent {
