@@ -6,7 +6,7 @@ import Sheet from "../components/Sheet";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
-import { canListen, canSpeak, unlockAudio, useSpeech } from "../useSpeech";
+import { canListen, canSpeak, useSpeech } from "../useSpeech";
 
 /**
  * The composer's icons, drawn rather than typed.
@@ -333,10 +333,9 @@ export default function Chat() {
     if (next) {
       // Whatever is already on screen has been read, or was never meant to be.
       for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);
-      // This tap is the user gesture iOS wants before any audio may play
-      // without one — for the pod's voice as much as the browser's, since a
-      // reply arrives long after any tap.
-      unlockAudio();
+      // Said out loud here rather than left for the first reply: this tap is
+      // the user gesture iOS wants before any audio may play without one, and
+      // speak takes it — for the pod's voice as much as the browser's.
       speech.speak("ok");
     } else if (!voiceMode) {
       speech.cancelSpeech();

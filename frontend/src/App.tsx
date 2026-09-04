@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router";
 import CommandPalette from "./components/CommandPalette";
 import ConnectionBanner from "./components/ConnectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
+import HashScroll from "./components/HashScroll";
 import UpdateBanner from "./components/UpdateBanner";
 import Chat from "./screens/Chat";
 import Docs from "./screens/Docs";
@@ -39,6 +40,7 @@ export default function App() {
       <ConnectionBanner />
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
       <ErrorBoundary>
+        <HashScroll />
         <Routes>
           {/* Today is the front door; the bench is where the work is. The
               installed app's start_url stays "/", so this is what opens. */}

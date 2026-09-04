@@ -207,7 +207,9 @@ describe("the pollers", () => {
       [thread("NorskRikstoto"), thread("mortennordbye")],
       ["norskrikstoto"],
     );
-    expect(items.map((i) => i.title)).toEqual(["mortennordbye/infrastructure: a client's branch"]);
+    expect(items.map((i) => `${i.from}: ${i.title}`)).toEqual([
+      "infrastructure: a client's branch",
+    ]);
   });
 
   it("deletes what a newly blocked owner left behind, and leaves the rest", async () => {

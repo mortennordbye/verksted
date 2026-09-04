@@ -114,9 +114,13 @@ describe("mail", () => {
     expect(
       mail.htmlToText("<style>p{}</style><p>Hei&nbsp;Morten,</p><p>Frist er <b>15. sept</b>.</p>"),
     ).toBe("Hei Morten,\nFrist er 15. sept.");
+    // Sender and subject stay apart, so a row can draw them differently and
+    // the address is there to say whether the sender is who it claims to be.
     expect(pollers.mailItems([s])[0]).toMatchObject({
       id: "mail:42",
-      title: "Skatteetaten: Faktura 1234",
+      title: "Faktura 1234",
+      from: "Skatteetaten",
+      facts: ["noreply@skatteetaten.no", "unread"],
       version: "42",
     });
   });

@@ -62,13 +62,18 @@ describe("voiceLabel", () => {
   });
 });
 
+/** The silent clip speak() primes the player with; see unlockAudio. */
+const PRIMING = /^data:audio\/wav/;
+
 describe("useSpeech.speak", () => {
   let played: string[];
   let spoken: string[];
+  let calls: string[];
 
   beforeEach(() => {
     played = [];
     spoken = [];
+    calls = [];
     // jsdom has neither, and both are the two ways this can make a sound.
     vi.stubGlobal(
       "Audio",
@@ -76,9 +81,12 @@ describe("useSpeech.speak", () => {
         src = "";
         onended: (() => void) | null = null;
         onerror: (() => void) | null = null;
-        pause() {}
+        pause() {
+          calls.push("pause");
+        }
         play() {
           played.push(this.src);
+          calls.push("play");
           setTimeout(() => this.onended?.(), 0);
           return Promise.resolve();
         }
@@ -122,9 +130,34 @@ describe("useSpeech.speak", () => {
       "/api/assistant/speak",
       "/api/assistant/speak",
     ]);
-    expect(played).toEqual(["blob:clip", "blob:clip"]);
+    // The silent clip first: that is the play() inside the tap which unlocks
+    // the element. The chunks arrive from the pod long after the tap is over,
+    // and without it iOS refuses to play them.
+    expect(played[0]).toMatch(PRIMING);
+    expect(played.slice(1)).toEqual(["blob:clip", "blob:clip"]);
     // The browser voice was never reached.
     expect(spoken).toEqual([]);
+  });
+
+  // The bug this guards: speak() paused the player it had just primed, which
+  // aborts the unlocking play() and leaves the element locked. On the phone
+  // that was the read-aloud button making no sound at all.
+  it("never pauses the player it has just primed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(new Response(new Blob([new Uint8Array([1])])))),
+    );
+    const { result } = renderHook(() => useSpeech(() => {}));
+
+    const done = vi.fn();
+    await act(async () => {
+      result.current.speak("Nothing needs you.", done);
+    });
+
+    await waitFor(() => expect(done).toHaveBeenCalled());
+    expect(calls).toEqual(["play", "play"]);
   });
 
   // A pod without the model answers 503, and voice mode has to keep working —
@@ -146,7 +179,9 @@ describe("useSpeech.speak", () => {
     });
 
     await waitFor(() => expect(spoken).toEqual(["Nothing needs you."]));
-    expect(played).toEqual([]);
+    // Only the priming clip: the pod had nothing to send, so nothing was played.
+    expect(played).toHaveLength(1);
+    expect(played[0]).toMatch(PRIMING);
     expect(done).toHaveBeenCalled();
   });
 

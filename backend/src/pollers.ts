@@ -173,7 +173,11 @@ export function notificationItems(threads: Notification[], blocked: string[] = [
       id: `github:${n.id}`,
       source: "github",
       at: n.updated_at,
-      title: `${n.repository.full_name}: ${n.subject.title}`,
+      title: n.subject.title,
+      // The repo, not the owner and the repo: six rows of "mortennordbye/" is
+      // six times the same word in the column the eye reads down.
+      from: n.repository.full_name.split("/").pop() ?? n.repository.full_name,
+      facts: [n.subject.type, REASON[n.reason] ?? n.reason],
       detail: `${n.subject.type}, ${REASON[n.reason] ?? n.reason}`,
       link: htmlUrl(n),
       version: n.updated_at,
@@ -186,7 +190,12 @@ export function mailItems(messages: MailSummary[]): Seen[] {
     id: `mail:${m.uid}`,
     source: "mail",
     at: m.at,
-    title: `${m.from}: ${m.subject}`,
+    // Sender and subject apart, not "Google: Security alert" in one string:
+    // the row draws them differently, and the address is the half that says
+    // whether a security alert is really Google's.
+    title: m.subject,
+    from: m.from,
+    facts: [m.address, ...(m.unread ? ["unread"] : [])],
     detail: m.address,
     link: null,
     version: String(m.uid),

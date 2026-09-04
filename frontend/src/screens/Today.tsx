@@ -14,7 +14,7 @@ import type {
   SourceStatus,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import { cite } from "../components/chat/cite";
+import { cite, citeUrl } from "../components/chat/cite";
 import { MD } from "../components/chat/markdown";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
@@ -22,7 +22,7 @@ import { AgentMark, StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
-import { canSpeak, unlockAudio, useSpeech } from "../useSpeech";
+import { canSpeak, useSpeech } from "../useSpeech";
 
 /**
  * The home screen: what the assistant would tell you if you asked, before you
@@ -257,7 +257,9 @@ function Composer({ name }: { name: string }) {
           {error && <div className="font-mono text-[12px] text-fail">{error}</div>}
           {reply && (
             <div className="text-[14px]">
-              <Markdown components={MD}>{cite(reply)}</Markdown>
+              <Markdown components={MD} urlTransform={citeUrl}>
+                {cite(reply)}
+              </Markdown>
             </div>
           )}
           <div className="mt-4 flex justify-end">
@@ -354,7 +356,7 @@ export default function Today() {
     <div className="flex min-h-full flex-col">
       <TopBar crumb={[{ label: "today" }]} />
       <main className="mx-auto w-full max-w-[1100px] flex-1 px-[18px] pt-[22px] pb-[calc(96px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
-        <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_312px] min-[1000px]:gap-10">
           <section className="flex min-w-0 flex-col gap-7">
             <div>
               <h1 className="text-[22px] font-bold tracking-[-.03em]">{dateLine()}</h1>
@@ -503,8 +505,19 @@ export default function Today() {
               </div>
             )}
 
-            <div>
-              <Label>{brief ? `From ${name}` : "Brief"}</Label>
+            {/* The one piece of prose on a screen of lists, and it read as a
+                fourth list: the same micro-label, the same card, four sections
+                down. A rule and a heading of its own say where the lists stop
+                and the morning's reading starts. */}
+            <div className="border-t border-line pt-6">
+              <h2 className="mb-3 flex items-baseline gap-2 text-[16px] font-semibold tracking-[-.02em]">
+                The brief
+                {brief && (
+                  <span className="font-mono text-[11px] font-normal tracking-normal text-faint">
+                    from {name}
+                  </span>
+                )}
+              </h2>
               {brief ? (
                 <div className="rounded-xl border border-accent/30 bg-accent-tint px-4 py-3">
                   <div className="mb-2 flex items-center gap-2 font-mono text-[11px] text-faint">
@@ -518,7 +531,6 @@ export default function Today() {
                               speech.cancelSpeech();
                               return;
                             }
-                            unlockAudio();
                             speech.speak(brief.report ?? "");
                           }}
                           className="tap rounded-md border border-line px-2 py-0.5 text-muted hover:border-line-strong hover:text-text"
@@ -531,7 +543,9 @@ export default function Today() {
                     </span>
                   </div>
                   <div className="text-[14px]">
-                    <Markdown components={MD}>{cite(brief.report ?? "")}</Markdown>
+                    <Markdown components={MD} urlTransform={citeUrl}>
+                      {cite(brief.report ?? "")}
+                    </Markdown>
                   </div>
                 </div>
               ) : (
@@ -573,8 +587,11 @@ export default function Today() {
             </div>
           </section>
 
-          <aside className="hidden min-[1000px]:flex min-[1000px]:flex-col min-[1000px]:gap-7">
-            <Running sessions={running} />
+          {/* A rule down the side, because the two columns were the same
+              cards at the same weight and nothing said which was the screen
+              and which was the index beside it. */}
+          <aside className="hidden min-[1000px]:flex min-[1000px]:flex-col min-[1000px]:gap-7 min-[1000px]:border-l min-[1000px]:border-line min-[1000px]:pl-8">
+            <Running sessions={running} plain />
             <div>
               <Label>Inbox</Label>
               {newest.length ? (
@@ -583,7 +600,7 @@ export default function Today() {
                     <Link
                       key={i.id}
                       to={`/runs#${i.id}`}
-                      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 hover:border-line-strong"
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface"
                     >
                       <span
                         className={`h-1.5 w-1.5 flex-none rounded-full ${
@@ -594,7 +611,10 @@ export default function Today() {
                               : "bg-idle"
                         }`}
                       />
-                      <span className="min-w-0 flex-1 truncate text-[12.5px]">{i.title}</span>
+                      <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                        {i.from && <span className="text-faint">{i.from} · </span>}
+                        {i.title}
+                      </span>
                       <span className="flex-none font-mono text-[11px] text-faint">{i.source}</span>
                     </Link>
                   ))}
@@ -648,7 +668,7 @@ export default function Today() {
                     <Link
                       key={`${r.scheduleId}-${r.at}`}
                       to={r.sessionId ? `/s/${r.sessionId}` : "/runs"}
-                      className="flex items-center gap-2 rounded-lg border border-line bg-surface px-3 py-2 hover:border-line-strong"
+                      className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface"
                     >
                       <StatusChip kind={OUTCOME[r.outcome] ?? "idle"} label={r.outcome} />
                       <span className="min-w-0 flex-1 truncate text-[12.5px]">{r.schedule}</span>
@@ -670,17 +690,26 @@ export default function Today() {
   );
 }
 
-function Running({ sessions }: { sessions: Session[] }) {
+/**
+ * What is live. `plain` is the side column's version: a row rather than a card,
+ * because beside the inbox and the recent runs it was the one thing still
+ * wearing a border, and the odd card out reads as the important one.
+ */
+function Running({ sessions, plain = false }: { sessions: Session[]; plain?: boolean }) {
   return (
     <div>
       <Label>Running</Label>
       {sessions.length ? (
-        <div className="flex flex-col gap-1.5">
+        <div className={`flex flex-col ${plain ? "gap-0.5" : "gap-1.5"}`}>
           {sessions.map((s) => (
             <Link
               key={s.id}
               to={`/s/${s.id}`}
-              className="tap flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 hover:border-accent-pastel"
+              className={`tap flex items-center gap-2.5 ${
+                plain
+                  ? "rounded-md px-2 py-1.5 hover:bg-surface"
+                  : "rounded-lg border border-line bg-surface px-3 py-2 hover:border-accent-pastel"
+              }`}
             >
               <AgentMark agent={s.agent} />
               <span className="max-w-[7.5rem] flex-none truncate text-[11px] font-semibold tracking-[.06em] text-faint uppercase">
