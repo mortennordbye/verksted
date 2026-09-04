@@ -1057,7 +1057,12 @@ describe("a tick the pod was down for", () => {
     firedAt(s.id, "2020-01-01T00:00:00Z");
 
     await scheduler.reloadSchedules(log);
-    await eventually(async () => (await store.getSchedule(s.id))!.lastError !== null);
+    // The stamp is written strictly after the record (see catchUp), so waiting
+    // on the error and then asserting the stamp is a race — and one a loaded
+    // runner loses. Wait for the later of the two writes; it implies the first.
+    await eventually(
+      async () => (await store.getSchedule(s.id))!.lastFiredAt !== "2020-01-01T00:00:00Z",
+    );
 
     const after = (await store.getSchedule(s.id))!;
     expect(after.lastError).toContain("missed while the pod was down");
