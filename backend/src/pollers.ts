@@ -6,6 +6,7 @@ import type {
   Memory,
   ScheduleRun,
   Session,
+  SessionUsage,
 } from "../../shared/api.js";
 import * as calendar from "./calendar.js";
 import * as mail from "./mail.js";
@@ -52,7 +53,9 @@ export function sessionItems(sessions: Session[]): { seen: Seen[]; over: string[
         id,
         source: "bench",
         at: new Date().toISOString(),
-        title: `${s.project}: ${s.title}`,
+        title: s.title,
+        from: s.project,
+        facts: [s.agent, s.id],
         detail: s.report ?? "waiting for an answer",
         link: `/s/${s.id}`,
         version: "waiting",
@@ -81,6 +84,17 @@ export function sessionItems(sessions: Session[]): { seen: Seen[]; over: string[
 const CANNOT_AUTHENTICATE =
   /failed to authenticate|oauth session expired|not authenticated|invalid api key|please run `?\/login/i;
 
+/**
+ * What a run cost, in the one number a person reads. Cache reads are most of a
+ * long session and are the cheap half, but leaving them out reports a fraction
+ * of what was actually sent; they are counted, and the figure is rounded to a
+ * thousand because nobody wants six digits on a feed row.
+ */
+function tokenCount(u: SessionUsage): string {
+  const total = u.input + u.output + u.cacheRead + u.cacheWrite;
+  return total >= 1000 ? `${Math.round(total / 1000)}k` : String(total);
+}
+
 /** Every firing, so the brief can count the quiet ones; only the bad ones shout. */
 export function runItems(runs: ScheduleRun[]): Seen[] {
   return runs.map((r) => {
@@ -92,6 +106,14 @@ export function runItems(runs: ScheduleRun[]): Seen[] {
       source: "schedule" as const,
       at: r.at,
       title: r.schedule,
+      // What the run was and what it cost, which is the difference between a
+      // sign-off worth reading and one of six that said nothing. The repo only
+      // when there is one: an assistant run belongs to none.
+      facts: [
+        r.outcome,
+        ...(r.project ? [r.project] : []),
+        ...(r.usage ? [`${tokenCount(r.usage)} tokens`] : []),
+      ],
       detail: said || "no sign-off",
       link: r.sessionId ? `/s/${r.sessionId}` : "/runs",
       version: `${r.outcome}:${said.length}`,
@@ -106,8 +128,12 @@ export function proposalItems(proposals: Memory[]): Seen[] {
     id: `memory:${p.slug}`,
     source: "memory",
     at: p.createdAt ?? new Date().toISOString(),
-    title: `proposed: ${p.text.length > 80 ? `${p.text.slice(0, 79)}…` : p.text}`,
-    detail: p.source ?? "",
+    // The sentence itself is the title. "proposed" is who is asking, and it
+    // was six characters of every row saying the same word.
+    from: "proposed",
+    title: p.text.length > 80 ? `${p.text.slice(0, 79)}…` : p.text,
+    facts: p.source ? [`learned in ${p.source}`] : [],
+    detail: "",
     link: "/runs",
     version: p.slug,
     urgency: "new",
@@ -120,8 +146,10 @@ export function queueItems(issues: MaintainerIssue[]): Seen[] {
     id: `github:queue:${i.project}#${i.number}`,
     source: "github",
     at: i.updatedAt,
-    title: `${i.project} #${i.number}: ${i.title}`,
-    detail: `${i.state}${i.tier ? `, tier:${i.tier}` : ""} on the maintainer's queue`,
+    title: i.title,
+    from: `${i.project}#${i.number}`,
+    facts: [i.state, ...(i.tier ? [`tier:${i.tier}`] : []), "maintainer's queue"],
+    detail: "",
     link: i.url,
     version: `${i.state}:${i.updatedAt}`,
     urgency: "quiet",
@@ -178,7 +206,10 @@ export function notificationItems(threads: Notification[], blocked: string[] = [
       // six times the same word in the column the eye reads down.
       from: n.repository.full_name.split("/").pop() ?? n.repository.full_name,
       facts: [n.subject.type, REASON[n.reason] ?? n.reason],
-      detail: `${n.subject.type}, ${REASON[n.reason] ?? n.reason}`,
+      // Empty, not the same words the facts line already carries — the row
+      // draws both, and it read "PullRequest, on something you watch" twice.
+      // Triage writes what this one is actually about.
+      detail: "",
       link: htmlUrl(n),
       version: n.updated_at,
     }));
@@ -196,7 +227,10 @@ export function mailItems(messages: MailSummary[]): Seen[] {
     title: m.subject,
     from: m.from,
     facts: [m.address, ...(m.unread ? ["unread"] : [])],
-    detail: m.address,
+    // Not the address: that is a fact now, and a row drawing it as the detail
+    // line too said the same thing twice. Left empty until triage writes what
+    // the mail is about, which is what a detail line is for.
+    detail: "",
     link: null,
     version: String(m.uid),
   }));
