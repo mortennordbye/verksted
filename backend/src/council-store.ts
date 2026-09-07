@@ -56,7 +56,7 @@ export const CHAIR_ID = "chair";
  * turn ever reads. An advisor that cannot keep anything has to be told the same
  * thing every morning, which is the problem this whole store exists to solve.
  */
-export const TOOL_INVENTORY: { name: string; chairOnly: boolean; memberOnly?: boolean }[] = [
+export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   { name: "status", chairOnly: false },
   { name: "read_session_output", chairOnly: false },
   { name: "repo_status", chairOnly: false },
@@ -86,17 +86,27 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean; memberOnly?: bo
   { name: "loops", chairOnly: false },
   { name: "open_loop", chairOnly: true },
   { name: "close_loop", chairOnly: true },
-  // Mail is text written by strangers, which is the shape a prompt injection
-  // takes, so the chair never reads a body: one advisor with no way out does.
-  { name: "mail_recent", chairOnly: false, memberOnly: true },
-  { name: "mail_search", chairOnly: false, memberOnly: true },
-  { name: "mail_read", chairOnly: false, memberOnly: true },
-  { name: "mail_folders", chairOnly: false, memberOnly: true },
-  { name: "mail_move", chairOnly: false, memberOnly: true },
-  { name: "docs_catalogue", chairOnly: false, memberOnly: true },
-  { name: "docs_search", chairOnly: false, memberOnly: true },
-  { name: "docs_list", chairOnly: false, memberOnly: true },
-  { name: "docs_read", chairOnly: false, memberOnly: true },
+  // Mail and documents are text written by strangers, which is the shape a
+  // prompt injection takes. The chair reads them anyway, because routing every
+  // lookup through an advisor cost a model call and a turn to say "I will ask
+  // Uriel" and left the chair unable to answer the follow-up, having never seen
+  // the thing itself.
+  //
+  // What made that unsafe was never the reading: it was that the chair could
+  // start a session, which is an agent with a shell on the pod holding gh,
+  // kubectl and git. That is now a card the person taps, so the worst a
+  // poisoned document can reach is a card. The other half of the old rule still
+  // holds by itself — the chair has no web tools at all, so there is nothing
+  // for anything it reads to leave through.
+  { name: "mail_recent", chairOnly: false },
+  { name: "mail_search", chairOnly: false },
+  { name: "mail_read", chairOnly: false },
+  { name: "mail_folders", chairOnly: false },
+  { name: "mail_move", chairOnly: false },
+  { name: "docs_catalogue", chairOnly: false },
+  { name: "docs_search", chairOnly: false },
+  { name: "docs_list", chairOnly: false },
+  { name: "docs_read", chairOnly: false },
   { name: "calendar_today", chairOnly: false },
   { name: "calendar_upcoming", chairOnly: false },
   { name: "calendar_search", chairOnly: false },
@@ -385,7 +395,7 @@ export async function chair(): Promise<CouncilMember> {
     persona: "",
     model: config.model,
     effort: config.effort,
-    tools: TOOL_INVENTORY.filter((t) => !t.memberOnly).map((t) => t.name),
+    tools: TOOL_INVENTORY.map((t) => t.name),
     // The web is a specialist's: the chair reads the bench, the calendar and
     // the feed, and a page it could fetch would be the way any of that leaves.
     web: false,

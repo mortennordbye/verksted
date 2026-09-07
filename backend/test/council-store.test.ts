@@ -112,9 +112,7 @@ describe("the roster", () => {
 
     // Every tool but the ones that are a member's alone: the chair never
     // reads a stranger's mail.
-    expect(chair.tools).toEqual(
-      store.TOOL_INVENTORY.filter((t) => !t.memberOnly).map((t) => t.name),
-    );
+    expect(chair.tools).toEqual(store.TOOL_INVENTORY.map((t) => t.name));
     expect(advisor.tools).toEqual(["status", "cluster_status"]);
   });
 
@@ -169,11 +167,19 @@ describe("the roster", () => {
     ).toEqual(["mail_read"]);
   });
 
-  it("never hands the chair the mail", async () => {
+  /**
+   * The chair reads the mail and the documents itself now, so the old rule that
+   * kept them off it is gone. What has to hold in its place is the pair that
+   * made that safe: it has no web tools, so nothing it reads has a way out, and
+   * a session is a card rather than a thing it starts.
+   */
+  it("hands the chair the mail and the documents, and no way out for either", async () => {
     const chair = await store.chair();
-    expect(chair.web).toBe(false);
-    for (const t of chair.tools) expect(t).not.toMatch(/^mail_/);
+
+    expect(chair.tools).toContain("mail_read");
+    expect(chair.tools).toContain("docs_search");
     expect(chair.tools).toContain("calendar_today");
+    expect(chair.web).toBe(false);
   });
 
   it("seeds nobody who can change anything outside their own head", async () => {

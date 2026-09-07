@@ -109,6 +109,45 @@ describe("a proposal", () => {
     );
   });
 
+  /**
+   * The card that pays for the chair reading the documents and the mail. A
+   * session is an agent with a shell on the pod holding gh, kubectl and git, so
+   * it is the one thing a poisoned document could usefully ask for — and the
+   * tap is what stands between the two.
+   */
+  it("shows a session whole before it runs, and refuses one that could not", async () => {
+    expect(
+      (await propose({ kind: "start_session", project: "demo", agent: "not-an-agent" })).statusCode,
+    ).toBe(400);
+    expect((await propose({ kind: "start_session", agent: "claude" })).statusCode).toBe(400);
+
+    const ok = await propose(
+      {
+        kind: "start_session",
+        project: "demo",
+        agent: "claude",
+        title: "bump the deps",
+        prompt: "Update the lockfile and open a PR.",
+      },
+      "three patch bumps are green",
+    );
+    expect(ok.statusCode).toBe(201);
+    const item = ok.json();
+    expect(item.title).toBe("Start claude in demo: bump the deps");
+    // The prompt is shown whole: this card is the only place a session started
+    // off something the assistant read can be seen before it runs.
+    expect(item.detail).toContain("Update the lockfile and open a PR.");
+    expect(item.action).toMatchObject({ kind: "start_session", project: "demo", agent: "claude" });
+  });
+
+  it("says what a desk session would be asked, before anyone taps", async () => {
+    const ok = await propose({ kind: "desk_session", title: "three offers", ask: "Compare them." });
+
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().title).toBe("Start a desk session: three offers");
+    expect(ok.json().detail).toContain("Compare them.");
+  });
+
   it("says sending is not set up rather than failing, and leaves the card", async () => {
     const { id } = (await propose({ kind: "send", to: "a@b.no", subject: "s", body: "b" })).json();
     const res = await app.inject({ method: "POST", url: `/api/proposals/${id}/do` });

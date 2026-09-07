@@ -1207,7 +1207,21 @@ export type ProposalAction =
     }
   | { kind: "merge_pr"; project: string; number: number }
   | { kind: "end_session"; id: string }
-  | { kind: "delete_schedule"; id: string };
+  | { kind: "delete_schedule"; id: string }
+  /**
+   * Starting an agent is a card because the chair reads the documents and the
+   * mail now, and a session is the one thing it can do that a poisoned document
+   * could want: an agent with a shell on the pod, holding gh, kubectl and git.
+   * The tap is what stands between text nobody here wrote and that shell.
+   */
+  | {
+      kind: "start_session";
+      project: string;
+      agent: "claude" | "antigravity" | "codex";
+      title?: string;
+      prompt?: string;
+    }
+  | { kind: "desk_session"; title: string; ask: string };
 
 export interface FeedItem {
   /** `<source>:<the source's own id>`. */
