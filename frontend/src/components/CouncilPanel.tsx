@@ -101,10 +101,9 @@ const blank = (id: string): CouncilMember => ({
 
 export default function CouncilPanel() {
   const { data, refresh } = usePoll<CouncilMember[]>("/api/council", 60_000);
-  const { data: inventory } = usePoll<{ tools: { name: string; chairOnly: boolean }[] }>(
-    "/api/council/tools",
-    600_000,
-  );
+  const { data: inventory } = usePoll<{
+    tools: { name: string; chairOnly: boolean; memberOnly?: boolean }[];
+  }>("/api/council/tools", 600_000);
   const [editing, setEditing] = useState<CouncilMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<string[]>([]);
@@ -122,6 +121,24 @@ export default function CouncilPanel() {
   // Only what an advisor may hold: the rest are the chair's and would be
   // refused on save, so offering them would be offering a mistake.
   const offerable = (inventory?.tools ?? []).filter((t) => !t.chairOnly).map((t) => t.name);
+  /**
+   * Tools this pod ships that nobody can call.
+   *
+   * Only the member-only ones can end up here: the chair is given every other
+   * tool by definition, so those are always reachable. These are the mail and
+   * the documents, which the chair is deliberately never offered — if the one
+   * advisor that held them is edited, or was seeded before they existed, the
+   * feature goes dark with nothing anywhere saying so. That is not
+   * hypothetical: the documents were unreachable on this bench from the day
+   * they shipped, and the way it showed was an advisor answering that it could
+   * not read the share, which was true and told you nothing.
+   *
+   * A paused advisor is not asked anything, so what it holds does not count.
+   */
+  const held = new Set(members.filter((m) => m.enabled).flatMap((m) => m.tools));
+  const unheld = (inventory?.tools ?? [])
+    .filter((t) => t.memberOnly && !held.has(t.name))
+    .map((t) => t.name);
 
   async function save() {
     if (!editing) return;
@@ -176,6 +193,15 @@ export default function CouncilPanel() {
       {error && (
         <div className="mb-2 rounded-[9px] border border-fail/40 bg-fail/10 px-3 py-2 text-[13px]">
           {error}
+        </div>
+      )}
+
+      {/* Said here rather than on the advisor that ought to hold them, because
+          the whole problem is that there is no such advisor to look at. */}
+      {unheld.length > 0 && (
+        <div className="mb-2 rounded-[9px] border border-wait/30 bg-wait/10 px-3 py-2 text-[13px] text-wait">
+          Nobody holds {unheld.join(", ")}. The assistant is never offered these, so until an
+          advisor below is given them the answer to anything they read is that it cannot be reached.
         </div>
       )}
 
