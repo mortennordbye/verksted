@@ -428,11 +428,20 @@ export default function Chat() {
     <div className="flex h-full flex-col">
       <TopBar crumb={[{ label: "assistant" }]} />
 
-      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pt-4 pb-3">
+      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pb-3">
         {/* The count reads left, the controls sit together on the right. The
             switch is a plain word; the two that change which thread you are in
-            are the lifted ones. */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2.5 text-[12px] text-faint">
+            are the lifted ones.
+
+            Stuck to the top of the thread rather than scrolling away with it:
+            these two are what you reach for when the subject has moved on, and
+            that is exactly when the thread is long enough to have carried them
+            off the screen. Wanting a fresh thread should not cost a scroll to
+            the top of the one you are done with. The row owns the padding main
+            used to have, so there is no strip of thread showing above it, and
+            it takes the bar's own background so what passes underneath does
+            not read through. */}
+        <div className="sticky top-0 z-10 -mx-[18px] flex flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
           {turns > 0 && (
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
