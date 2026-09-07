@@ -119,6 +119,54 @@ describe("a question the chair keeps", () => {
   });
 });
 
+describe("a convene line the chair announced first", () => {
+  /**
+   * What the bench actually did on 2026-09-07: asked for a contract on the
+   * share, the chair replied "I'll need Uriel for that" and then the convene
+   * line, and because the line was not the whole reply it convened nobody and
+   * `convene: uriel` landed in the conversation as prose. The question went
+   * unanswered and the machinery was the only thing on screen.
+   */
+  it("convenes on a trailing line and keeps the sentence before it", async () => {
+    fake.reply("claude", "-p", {
+      stdout: run("That one is in your documents, which is Uriel's.\n\nconvene: uriel"),
+    });
+    whenAsked("Uriel", "It is documents/Kontrakt/nimtech.pdf.");
+    fake.reply("claude", "-p The council answered.", { stdout: run("Uriel found it.") });
+
+    const got = entries(await say("can you find my nimtech contract?"));
+
+    expect(got[1].text).toBe("That one is in your documents, which is Uriel's.");
+    expect(got[1].tools).toEqual([{ name: "convene", detail: "Uriel" }]);
+    expect(got.filter((e) => e.member).map((e) => [e.member, e.text])).toEqual([
+      ["uriel", "It is documents/Kontrakt/nimtech.pdf."],
+    ]);
+    expect(got.at(-1)!.text).toBe("Uriel found it.");
+  });
+
+  it("convenes on a leading line and keeps what followed it", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: uriel\n\nAsking Uriel.") });
+    whenAsked("Uriel", "Nothing on file.");
+    fake.reply("claude", "-p The council answered.", { stdout: run("Nothing on file.") });
+
+    const got = entries(await say("anything from the landlord?"));
+
+    expect(got[1].text).toBe("Asking Uriel.");
+    expect(got[1].tools).toEqual([{ name: "convene", detail: "Uriel" }]);
+  });
+
+  it("leaves a line in the middle alone, which is a reply about convening", async () => {
+    fake.reply("claude", "-p", {
+      stdout: run("You can write\nconvene: uriel\nas the first line."),
+    });
+
+    const got = entries(await say("how do I reach uriel directly?"));
+
+    expect(got[1].text).toBe("You can write\nconvene: uriel\nas the first line.");
+    expect(fake.argvFor("claude")).toHaveLength(1);
+  });
+});
+
 describe("a meeting", () => {
   beforeEach(() => {
     fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });

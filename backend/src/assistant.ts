@@ -1178,7 +1178,7 @@ async function speak(o: {
           id: randomUUID(),
           at: new Date().toISOString(),
         };
-        if (o.interceptConvene && !held && full.role === "assistant" && isConveneLine(full.text)) {
+        if (o.interceptConvene && !held && full.role === "assistant" && conveneRequest(full.text)) {
           held = full;
           return full;
         }
@@ -1205,10 +1205,32 @@ async function speak(o: {
   }
 }
 
-/** Whether a reply is nothing but a request for advisors. */
-function isConveneLine(text: string): boolean {
-  const trimmed = text.trim();
-  return trimmed.split("\n").length === 1 && CONVENE_RE.test(trimmed);
+/**
+ * The advisors a reply asked for, and whatever else it said.
+ *
+ * The contract asks for the line alone, and a reply that is only the line is
+ * still the common case. What this also reads is the line last, after a
+ * sentence saying whose the question is, because that is what the chair
+ * actually writes often enough to matter and the cost of not reading it is the
+ * worst failure this has: `convene: uriel` lands in the conversation as prose,
+ * nobody is convened, the question goes unanswered, and the person is left
+ * looking at the machinery. A line first with prose after it is read the same
+ * way, for the same reason.
+ *
+ * A line in the middle is not read. That is a reply about convening rather than
+ * one asking for it, and guessing between the two would put the chair's own
+ * words on a meeting it did not call.
+ */
+function conveneRequest(text: string): { line: string; rest: string } | null {
+  const lines = text.trim().split("\n");
+  const at = (i: number) => lines[i]?.trim() ?? "";
+  if (CONVENE_RE.test(at(0))) {
+    return { line: at(0), rest: lines.slice(1).join("\n").trim() };
+  }
+  if (lines.length > 1 && CONVENE_RE.test(at(lines.length - 1))) {
+    return { line: at(lines.length - 1), rest: lines.slice(0, -1).join("\n").trim() };
+  }
+  return null;
 }
 
 /**
@@ -1404,12 +1426,13 @@ async function runChair(
 
   if (cancelled.has(threadId)) return;
 
+  const request = conveneRequest(held.text);
   const {
     members: called,
     round,
     everyone: everyoneCalled,
     dropped,
-  } = await convened(held.text, roundTable);
+  } = await convened(request?.line ?? held.text, roundTable);
   if (!called.length) {
     // It opened with something shaped like a convene line but named nobody who
     // exists. That is an answer, however odd, and swallowing it would leave the
@@ -1423,9 +1446,13 @@ async function runChair(
   // conversation; that three advisors were asked is the thing worth seeing, and
   // it is what makes a wrong routing call visible rather than silent. Whatever
   // tools the chair used to decide stay on the entry: they were the work.
+  //
+  // Anything it said beside the line is kept: "that one is Uriel's" is the
+  // chair doing its job out loud, and it is the half of the reply written for
+  // the person rather than for this code.
   await appendEntry(threadId, {
     ...held,
-    text: "",
+    text: request?.rest ?? "",
     tools: [
       ...held.tools,
       {
@@ -1650,7 +1677,7 @@ export async function runUnattended(
           roster.length &&
           !heldBox.entry &&
           full.role === "assistant" &&
-          isConveneLine(full.text)
+          conveneRequest(full.text)
         ) {
           heldBox.entry = full;
           return full;
@@ -1662,16 +1689,17 @@ export async function runUnattended(
     });
 
     const held = heldBox.entry;
+    const request = held ? conveneRequest(held.text) : null;
     // Parallel whatever it asked for: a round table is for a question someone
     // is waiting on an answer to, and nobody is reading this one.
-    const called = held ? (await convened(held.text)).members : [];
+    const called = held ? (await convened(request?.line ?? held.text)).members : [];
     if (held && !called.length) await appendEntry(conversationId, held, true);
     if (held && called.length) {
       await appendEntry(
         conversationId,
         {
           ...held,
-          text: "",
+          text: request?.rest ?? "",
           tools: [...held.tools, { name: "convene", detail: called.map((m) => m.name).join(", ") }],
         },
         true,
