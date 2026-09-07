@@ -356,9 +356,29 @@ export default function Chat() {
     void speech.listen();
   }
 
+  /**
+   * A message that is only an address and no question.
+   *
+   * `@uriel` with nothing after it is what the seat chips write into the field,
+   * so sending one is a slip rather than a thing anyone means. The backend
+   * reads it as unaddressed and hands the chair a message with no question in
+   * it, which cost two model calls to be told it was empty. A bare `@` is the
+   * same slip one character earlier.
+   */
+  const addressOnly = (value: string) => /^@[a-z0-9-]*$/i.test(value);
+
   async function send(spoken?: string) {
     const value = (spoken ?? text).trim();
     if ((!value && !pending.length) || thinking) return;
+    // Typed, not tapped: the two words every other agent surface answers to,
+    // which went to the chair as a question about nothing and came back saying
+    // the turn had produced nothing.
+    if (!spoken && (value === "/clear" || value === "/new")) {
+      setText("");
+      await newThread();
+      return;
+    }
+    if (!pending.length && addressOnly(value)) return;
     if (!spoken) setText("");
     setError(null);
     try {
@@ -706,7 +726,7 @@ export default function Chat() {
               // something.
               <button
                 onClick={() => void send()}
-                disabled={!text.trim() && !pending.length}
+                disabled={(!text.trim() || addressOnly(text.trim())) && !pending.length}
                 aria-label="send"
                 className="tap-sq order-4 flex h-10 w-10 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition hover:brightness-110 disabled:bg-surface disabled:text-faint"
               >
