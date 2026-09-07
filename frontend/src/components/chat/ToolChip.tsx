@@ -3,7 +3,7 @@ import Markdown from "react-markdown";
 import type { ChatDetail, ChatToolCall } from "../../../../shared/api";
 import { api } from "../../api";
 import { diffLineClass } from "../../diff";
-import { MD } from "./markdown";
+import { MD, REMARK } from "./markdown";
 
 /**
  * One thing the agent did, and — when you ask — what it actually did.
@@ -108,7 +108,9 @@ export default function ToolChip({
                         m.role === "user" ? "text-muted italic" : "text-text"
                       }`}
                     >
-                      <Markdown components={MD}>{m.text}</Markdown>
+                      <Markdown components={MD} remarkPlugins={REMARK}>
+                        {m.text}
+                      </Markdown>
                     </div>
                   )}
                 </div>
@@ -117,7 +119,9 @@ export default function ToolChip({
           )}
           {detail?.kind === "plan" && (
             <div className="px-2.5 py-2 text-[13px]">
-              <Markdown components={MD}>{detail.markdown}</Markdown>
+              <Markdown components={MD} remarkPlugins={REMARK}>
+                {detail.markdown}
+              </Markdown>
             </div>
           )}
           {detail?.kind === "tool" && (

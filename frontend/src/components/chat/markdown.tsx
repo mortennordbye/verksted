@@ -1,5 +1,15 @@
 import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Cite } from "./cite";
+
+/**
+ * The dialect. Plain markdown has no tables, and an agent asked to compare
+ * three offers or four PRs writes one every time: a grid of pipes and dashes
+ * down the middle of an answer read on a phone. This is passed at every call
+ * site rather than being the renderer's default, because react-markdown has
+ * no default to set.
+ */
+export const REMARK = [remarkGfm];
 
 /**
  * How an agent writes: headings, bold, bullets, and a great deal of `code`.
@@ -45,4 +55,21 @@ export const MD: Components = {
       {children}
     </blockquote>
   ),
+  // A table is the one block that will not fit: four columns of PR names on a
+  // phone are wider than the screen whatever is done to them, so it scrolls in
+  // its own box rather than pushing the whole conversation sideways.
+  table: ({ children }) => (
+    <div className="mb-2 overflow-x-auto last:mb-0">
+      <table className="w-full border-collapse text-[12.5px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => (
+    <th className="border-b border-line px-2 py-1 text-left font-semibold whitespace-nowrap">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-b border-line/60 px-2 py-1 align-top text-muted">{children}</td>
+  ),
+  del: ({ children }) => <del className="text-faint line-through">{children}</del>,
 };

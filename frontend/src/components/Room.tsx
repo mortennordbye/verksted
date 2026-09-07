@@ -2,7 +2,7 @@ import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { agoLabel } from "../api";
 import { cite, citeUrl } from "./chat/cite";
-import { MD } from "./chat/markdown";
+import { MD, REMARK } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 
 /**
@@ -68,7 +68,7 @@ function Reply({
       )}
       {entry?.text && (
         <div className="text-[15px] leading-[1.55]">
-          <Markdown components={MD} urlTransform={citeUrl}>
+          <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
             {cite(entry.text)}
           </Markdown>
         </div>
