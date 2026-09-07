@@ -119,6 +119,40 @@ describe("a question the chair keeps", () => {
   });
 });
 
+describe("a meeting of one", () => {
+  /**
+   * The closing turn is told not to repeat what the advisor said, which on a
+   * lookup leaves it nothing to say and charges a third call to say it.
+   * Addressing that advisor as `@uriel` has always ended at its answer; a chair
+   * that routed to the same advisor now reaches the same place.
+   */
+  it("ends at the advisor and costs two calls, not three", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: michael") });
+    whenAsked("Michael", "The cluster is green.");
+
+    const got = entries(await say("is anything down?"));
+
+    expect(got.at(-1)!.member).toBe("michael");
+    expect(got.at(-1)!.text).toBe("The cluster is green.");
+    expect(fake.argvFor("claude")).toHaveLength(2);
+    // Nothing was asked to close, so no turn carried the briefing prompt.
+    expect(fake.argvFor("claude").some((argv) => argv[1].startsWith("The council"))).toBe(false);
+  });
+
+  it("still closes a meeting of two, which is where synthesis happens", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });
+    whenAsked("Michael", "The cluster is green.");
+    whenAsked("Raphael", "Four bumps, all passing.");
+    fake.reply("claude", "-p The council answered.", { stdout: run("Safe to merge.") });
+
+    const got = entries(await say("safe to merge?"));
+
+    expect(got.at(-1)!.member).toBeUndefined();
+    expect(got.at(-1)!.text).toBe("Safe to merge.");
+    expect(fake.argvFor("claude")).toHaveLength(4);
+  });
+});
+
 describe("a convene line the chair announced first", () => {
   /**
    * What the bench actually did on 2026-09-07: asked for a contract on the
@@ -132,22 +166,20 @@ describe("a convene line the chair announced first", () => {
       stdout: run("That one is in your documents, which is Uriel's.\n\nconvene: uriel"),
     });
     whenAsked("Uriel", "It is documents/Kontrakt/nimtech.pdf.");
-    fake.reply("claude", "-p The council answered.", { stdout: run("Uriel found it.") });
 
     const got = entries(await say("can you find my nimtech contract?"));
 
     expect(got[1].text).toBe("That one is in your documents, which is Uriel's.");
     expect(got[1].tools).toEqual([{ name: "convene", detail: "Uriel" }]);
-    expect(got.filter((e) => e.member).map((e) => [e.member, e.text])).toEqual([
-      ["uriel", "It is documents/Kontrakt/nimtech.pdf."],
-    ]);
-    expect(got.at(-1)!.text).toBe("Uriel found it.");
+    // One advisor, so its answer is the last word and there is no closing turn.
+    expect(got.at(-1)!.member).toBe("uriel");
+    expect(got.at(-1)!.text).toBe("It is documents/Kontrakt/nimtech.pdf.");
+    expect(fake.argvFor("claude")).toHaveLength(2);
   });
 
   it("convenes on a leading line and keeps what followed it", async () => {
     fake.reply("claude", "-p", { stdout: run("convene: uriel\n\nAsking Uriel.") });
     whenAsked("Uriel", "Nothing on file.");
-    fake.reply("claude", "-p The council answered.", { stdout: run("Nothing on file.") });
 
     const got = entries(await say("anything from the landlord?"));
 
@@ -675,5 +707,29 @@ describe("the advisor that reads headroom", () => {
     // advisor that also reads the web.
     expect(denied).toContain("mcp__headroom__get_raw_data");
     expect(denied).not.toContain("mcp__headroom__get_budget_summary");
+  });
+});
+
+describe("the roster the chair routes from", () => {
+  /**
+   * Routing on a name alone is how the documents stayed unreachable: an advisor
+   * whose remit said documents but which held no docs tool was convened,
+   * answered that it could not reach the share, and the question died there
+   * having cost two calls. The chair is shown the reach, not just the remit.
+   */
+  it("says what each advisor can reach, including what is in no tool list", async () => {
+    fake.reply("claude", "-p", { stdout: run("Nothing needs you.") });
+
+    await say("what needs me?");
+    const chairPrompt = fake.argvFor("claude")[0].join(" ");
+
+    expect(chairPrompt).toContain("- uriel (Uriel): the mail, the calendar and the documents");
+    expect(chairPrompt).toContain("docs_search");
+    // The web is reach, and it is in no tool list.
+    expect(chairPrompt).toMatch(/- sophia \(Sophia\).*\n?.*can reach the web/);
+    // So is headroom, which is a whole MCP server given to one id.
+    expect(chairPrompt).toContain("headroom: budgets, balances, what is due");
+    // The memory tools every advisor holds are not worth naming once per advisor.
+    expect(chairPrompt).not.toContain("list_memories");
   });
 });

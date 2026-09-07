@@ -306,13 +306,47 @@ function memberJob(tools: string[]): string[] {
  * answer, so the failure mode is "nobody was convened", which is visible and
  * cheap, rather than a broken turn.
  */
-function councilBlock(roster: { id: string; name: string; remit: string }[]): string[] {
+/** One advisor as the chair is shown it: who it is, and what it can reach. */
+export interface RosterEntry {
+  id: string;
+  name: string;
+  remit: string;
+  /**
+   * What this one can actually reach, in the caller's words.
+   *
+   * Not the tool list off the member file: an advisor's reach is also the web
+   * and, for one of them, headroom, and neither of those is a tool in that
+   * list. The caller is the only place that knows all three, so it says.
+   */
+  can?: string[];
+}
+
+/**
+ * What an advisor can reach, for the roster the chair routes from.
+ *
+ * The chair was given ids and remits and nothing else, so it routed on what an
+ * advisor was *called*. That reads fine until a remit and a reach disagree,
+ * which they do the moment one is edited: an advisor whose remit said documents
+ * but which held no docs tool was convened, answered that it could not reach
+ * the share, and the question died there having cost two model calls.
+ *
+ * An advisor that can reach nothing is the case worth spelling out, because it
+ * is the one that looks like a working advisor right up until it is asked.
+ */
+function rosterLine(m: RosterEntry): string {
+  const can = m.can?.length
+    ? `can reach ${m.can.join(", ")}`
+    : "can reach nothing, and answers from memory alone";
+  return `- ${m.id} (${m.name}): ${m.remit}\n  ${can}`;
+}
+
+function councilBlock(roster: RosterEntry[]): string[] {
   if (!roster.length) return [];
   return [
     "",
     "You chair a council. These advisors sit on it, and you can put the question",
     "to any of them:",
-    ...roster.map((m) => `- ${m.id} (${m.name}): ${m.remit}`),
+    ...roster.map(rosterLine),
     "",
     "To convene them, make the FIRST line of your reply exactly:",
     "",
@@ -364,12 +398,12 @@ function councilBlock(roster: { id: string; name: string; remit: string }[]): st
  * what it hears, and the sign-off it owes the inbox is the only output. What it
  * still needs is the roster and the exact line.
  */
-function unattendedCouncilBlock(roster: { id: string; name: string; remit: string }[]): string[] {
+function unattendedCouncilBlock(roster: RosterEntry[]): string[] {
   if (!roster.length) return [];
   return [
     "",
     "You chair a council, and on this run you may ask them. They are:",
-    ...roster.map((m) => `- ${m.id} (${m.name}): ${m.remit}`),
+    ...roster.map(rosterLine),
     "",
     "To ask them, make the FIRST line of your reply exactly:",
     "",
@@ -391,7 +425,7 @@ function unattendedCouncilBlock(roster: { id: string; name: string; remit: strin
 export function systemPrompt(
   name: string,
   instructions: string,
-  roster: { id: string; name: string; remit: string }[] = [],
+  roster: RosterEntry[] = [],
   ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [
@@ -457,7 +491,7 @@ export function memberPrompt(
 export function unattendedPrompt(
   name: string,
   instructions: string,
-  roster: { id: string; name: string; remit: string }[] = [],
+  roster: RosterEntry[] = [],
   ctx: PromptContext = { profile: "", journal: "" },
 ): string {
   return [

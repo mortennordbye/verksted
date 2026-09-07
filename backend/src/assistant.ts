@@ -993,6 +993,30 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
 }
 
 /**
+ * Everything one advisor can reach, said in the roster the chair routes from.
+ *
+ * Three sources, and only this file knows all three: the tools on the member,
+ * the web flag, and headroom, which is a whole MCP server given to one id and
+ * appears in no tool list anywhere. The memory tools are left out because every
+ * advisor has them, so naming them once per advisor says nothing and costs the
+ * same as saying it once.
+ */
+const EVERYONE_HAS = new Set(["recall", "list_memories", "remember", "forget", "propose_memory"]);
+
+async function headroomConfigured(): Promise<boolean> {
+  const vars = await agentEnv();
+  return !!(vars.HEADROOM_URL && vars.HEADROOM_PASSWORD);
+}
+
+function reachOf(m: CouncilMember, headroom: boolean): string[] {
+  return [
+    ...m.tools.filter((t) => !EVERYONE_HAS.has(t)),
+    ...(m.web ? ["the web"] : []),
+    ...(m.id === HEADROOM_MEMBER && headroom ? ["headroom: budgets, balances, what is due"] : []),
+  ];
+}
+
+/**
  * The chair, ready to speak, with the roster it may put a question to.
  *
  * The roster is in its prompt whether or not anyone is on it: with nobody, the
@@ -1000,15 +1024,16 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
  * before there was a council.
  */
 async function chairSpeaker(): Promise<Speaker> {
-  const [config, me, members, ctx] = await Promise.all([
+  const [config, me, members, ctx, headroom] = await Promise.all([
     readAssistantConfig(),
     chair(),
     listMembers(),
     promptContext(),
+    headroomConfigured(),
   ]);
   const roster = members
     .filter((m) => m.enabled)
-    .map(({ id, name, remit }) => ({ id, name, remit }));
+    .map((m) => ({ id: m.id, name: m.name, remit: m.remit, can: reachOf(m, headroom) }));
   return speakerFor(me, systemPrompt(config.name, config.instructions, roster, ctx));
 }
 
@@ -1470,6 +1495,15 @@ async function runChair(
   // one thing still avoidable.
   if (cancelled.has(threadId)) return;
 
+  // One advisor is not a meeting, and there is nothing to synthesise: the
+  // closing turn is told not to repeat the answer, which on a lookup leaves it
+  // nothing to say and charges a third call to say it. Addressing that same
+  // advisor as @uriel has always ended at its answer, so this is the routing
+  // the chair chose reaching the same place the person could have reached
+  // themselves. Two or more still close, because that is where the synthesis
+  // the closing turn exists for actually happens.
+  if (called.length === 1) return;
+
   await closeMeeting(threadId, prompt, answers, round, speakerPrompt);
 }
 
@@ -1613,6 +1647,10 @@ export async function runUnattended(
   const ctx = own ? { profile: "", journal: "" } : await promptContext();
   const roster =
     mayConvene && !memberId && !own ? (await listMembers()).filter((m) => m.enabled) : [];
+  // Headroom is offered on an unattended run too — the finance watch is a
+  // schedule Ariel answers — so the roster must say so, or the chair reads its
+  // one money advisor as having nothing and asks nobody.
+  const headroomHere = roster.length ? await headroomConfigured() : false;
   // A named advisor answers in its own voice, on its own subject, with its own
   // tools narrowed further by the unattended filter. One of them, never a
   // meeting: the daily ceiling counts turns, and a briefing that convened three
@@ -1644,7 +1682,12 @@ export async function runUnattended(
             unattendedPrompt(
               config.name,
               config.instructions,
-              roster.map(({ id, name, remit }) => ({ id, name, remit })),
+              roster.map((m) => ({
+                id: m.id,
+                name: m.name,
+                remit: m.remit,
+                can: reachOf(m, headroomHere),
+              })),
               ctx,
             ),
           builtins: UNATTENDED_BUILTIN_TOOLS,
