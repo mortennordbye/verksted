@@ -973,3 +973,30 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   the buttons already call — the actions are already functions on the row.
 - **Where:** `frontend/src/screens/Inbox.tsx` (`Row`, and the list that maps
   it), `frontend/src/components/SourceMark.tsx` for the mark.
+
+## A tool nobody holds is a feature nobody can reach
+
+- **What:** `seedCouncil()` writes an advisor's file only when there is none,
+  and the `.seeded` marker records the id forever, so a member seeded before a
+  tool existed never gains it. Uriel was seeded in #64; `docs_catalogue`,
+  `docs_search`, `docs_list` and `docs_read` arrived in #103 and #113. On the
+  bench this runs on, that left the whole documents feature dark: the share was
+  mounted and catalogued, `/api/docs/search` answered, and no member on the
+  roster could call it — so both the chair and Uriel truthfully answered that
+  they could not reach the NFS share. `mail_*` was in the same state. Nothing
+  anywhere says a shipped tool is held by nobody.
+- **Why deferred:** The roster is deliberately hand-owned — "a member edited or
+  deleted by hand stays edited or deleted" — so backfilling a seed's tools into
+  a member somebody has since edited is exactly the thing seeding refuses to
+  do. The fix is a signal, not a write, and where that signal belongs (the
+  settings page, `vk doctor`, a line in `status`) is a design question.
+- **Unblocked by:** Deciding where an operator would see it. Then it is a set
+  difference: every non-`chairOnly` name in `TOOL_INVENTORY` against the union
+  of the roster's `tools`, shown on the council settings page beside the
+  members. The `memberOnly` ones matter most, since the chair can never hold
+  them, and a `PRIVATE_TOOLS` name is unreachable for a second reason when the
+  only member who could hold it has `web` on.
+- **Where:** `backend/src/council-store.ts` (`seedCouncil`, `SEEDS`,
+  `TOOL_INVENTORY`, `PRIVATE_TOOLS`), `backend/src/routes/council.ts`
+  (`/api/council/tools`), `frontend/src/screens/Settings.tsx` for the council
+  section.
