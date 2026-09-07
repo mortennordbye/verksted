@@ -15,7 +15,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { cite, citeUrl } from "../components/chat/cite";
-import { MD } from "../components/chat/markdown";
+import { MD, REMARK } from "../components/chat/markdown";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
@@ -118,6 +118,22 @@ function sourceLabel(loop: Loop, items: Map<string, FeedItem>): string | null {
   const pr = /github\.com\/[^/]+\/([^/]+)\/(?:pull|issues)\/(\d+)/.exec(item.link ?? "");
   if (pr) return `${pr[1]}#${pr[2]}`;
   return item.title.split(":")[0].split("/").pop() || null;
+}
+
+/**
+ * Where a loop's row goes.
+ *
+ * A loop opened off the catalogue carries `doc:<path>` rather than a feed item
+ * id, and there is no feed item with that id: the row pointed at an anchor on
+ * the inbox that nothing answers to, so the one kind of loop whose source is a
+ * document was the one kind that went nowhere. It goes to the folder the
+ * document is in, which is the screen that can show it.
+ */
+export function loopLink(from: string | null): string {
+  if (!from) return "/runs";
+  if (!from.startsWith("doc:")) return `/runs#${from}`;
+  const dir = from.slice(4).split("/").slice(0, -1).join("/");
+  return dir ? `/docs?path=${encodeURIComponent(dir)}` : "/docs";
 }
 
 /**
@@ -257,7 +273,7 @@ function Composer({ name }: { name: string }) {
           {error && <div className="font-mono text-[12px] text-fail">{error}</div>}
           {reply && (
             <div className="text-[14px]">
-              <Markdown components={MD} urlTransform={citeUrl}>
+              <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
                 {cite(reply)}
               </Markdown>
             </div>
@@ -470,7 +486,7 @@ export default function Today() {
                         className="flex items-center rounded-lg border border-line bg-surface text-[13.5px] hover:border-line-strong"
                       >
                         <Link
-                          to={l.from ? `/runs#${l.from}` : "/runs"}
+                          to={loopLink(l.from)}
                           className="tap flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2"
                         >
                           <span className="min-w-0 truncate">{l.what}</span>
@@ -543,7 +559,7 @@ export default function Today() {
                     </span>
                   </div>
                   <div className="text-[14px]">
-                    <Markdown components={MD} urlTransform={citeUrl}>
+                    <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
                       {cite(brief.report ?? "")}
                     </Markdown>
                   </div>

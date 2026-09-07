@@ -17,7 +17,7 @@ import Images from "./chat/Images";
 import LivePrompt from "./chat/LivePrompt";
 import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
-import { MD } from "./chat/markdown";
+import { MD, REMARK } from "./chat/markdown";
 
 /**
  * A session read as a conversation.
@@ -190,7 +190,9 @@ function Turn({
       {message.text && (
         <div className="flex">
           <div className="max-w-[82%] min-w-0 rounded-[14px] rounded-bl-[5px] border border-line bg-surface px-3 py-2 text-[14px]">
-            <Markdown components={MD}>{message.text}</Markdown>
+            <Markdown components={MD} remarkPlugins={REMARK}>
+              {message.text}
+            </Markdown>
           </div>
         </div>
       )}

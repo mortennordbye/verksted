@@ -2,7 +2,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatDetail, ChatPlan } from "../../../../shared/api";
 import { api } from "../../api";
-import { MD } from "./markdown";
+import { MD, REMARK } from "./markdown";
 
 /**
  * A plan put up for approval.
@@ -87,7 +87,11 @@ export default function PlanCard({
               that plan is older than the part of the conversation loaded — load earlier to reach it
             </p>
           )}
-          {markdown && <Markdown components={MD}>{markdown}</Markdown>}
+          {markdown && (
+            <Markdown components={MD} remarkPlugins={REMARK}>
+              {markdown}
+            </Markdown>
+          )}
         </div>
       )}
     </div>

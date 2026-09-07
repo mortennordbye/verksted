@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { uncite } from "./components/chat/cite";
 
 /**
  * Talking to the assistant, and being talked back to.
@@ -92,7 +93,7 @@ export function useVoices(): SpeechSynthesisVoice[] {
 export const VOICE_KEY = "vk.assistant.voice";
 
 export function speakable(text: string): string {
-  return text
+  return uncite(text)
     .replace(/```[\s\S]*?```/g, " code block ")
     .replace(/[`*_#>]/g, "")
     .replace(/\s+/g, " ")
