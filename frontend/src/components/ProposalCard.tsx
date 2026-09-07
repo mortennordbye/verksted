@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { FeedItem } from "../../../shared/api";
+import type { FeedItem, ProposalAction } from "../../../shared/api";
 import { api } from "../api";
 
 /**
@@ -38,16 +38,16 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
     }
   }
 
-  const label =
-    a.kind === "send"
-      ? "send"
-      : a.kind === "calendar_put"
-        ? "put on the calendar"
-        : a.kind === "merge_pr"
-          ? "merge"
-          : a.kind === "end_session"
-            ? "end it"
-            : "delete it";
+  const LABELS: Record<ProposalAction["kind"], string> = {
+    send: "send",
+    calendar_put: "put on the calendar",
+    merge_pr: "merge",
+    end_session: "end it",
+    delete_schedule: "delete it",
+    start_session: "start it",
+    desk_session: "start it",
+  };
+  const label = LABELS[a.kind];
   const why = item.detail.includes("\n\n") ? item.detail.split("\n\n")[0] : null;
 
   return (
@@ -88,6 +88,26 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
       )}
       {a.kind === "delete_schedule" && (
         <div className="font-mono text-[12.5px]">delete schedule {a.id} and its run history</div>
+      )}
+      {/* The prompt is the whole of what the agent will be told, so it is shown
+          whole: this card is the one place a session started off something the
+          assistant read can be seen before it runs. */}
+      {a.kind === "start_session" && (
+        <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">
+          <div className="font-mono text-[12.5px]">
+            {a.agent} in {a.project}
+            {a.title ? ` — ${a.title}` : ""}
+          </div>
+          {a.prompt && (
+            <div className="mt-1.5 text-[12.5px] whitespace-pre-wrap text-muted">{a.prompt}</div>
+          )}
+        </div>
+      )}
+      {a.kind === "desk_session" && (
+        <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">
+          <div className="font-medium">{a.title}</div>
+          <div className="mt-1 text-[12.5px] whitespace-pre-wrap text-muted">{a.ask}</div>
+        </div>
       )}
       {error && <div className="mt-2 font-mono text-[12px] text-fail">{error}</div>}
       {!done ? (

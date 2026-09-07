@@ -13,14 +13,30 @@ import { announce } from "../notifier.js";
  * item that shows the whole thing, and executed here when the person taps it.
  * The card is the authorisation; nothing a model says reaches `do` without
  * one. Sending a mail, putting an event on the calendar, merging, ending a
- * running session and deleting a schedule are the five, and they go through
+ * running session and deleting a schedule were the five, and they go through
  * the app's own routes so every validation those routes make holds here too.
+ *
+ * Starting a session joined them, for a different reason than having no undo:
+ * the chair reads the documents and the mail now, and a session is the one
+ * thing it can do that text nobody here wrote could usefully ask for — an agent
+ * with a shell on the pod, holding gh, kubectl and git. The tap is what stands
+ * between the two.
  */
 const ACTION = {
   type: "object",
   required: ["kind"],
   properties: {
-    kind: { enum: ["send", "calendar_put", "merge_pr", "end_session", "delete_schedule"] },
+    kind: {
+      enum: [
+        "send",
+        "calendar_put",
+        "merge_pr",
+        "end_session",
+        "delete_schedule",
+        "start_session",
+        "desk_session",
+      ],
+    },
   },
 };
 
@@ -40,6 +56,13 @@ export function describe(a: ProposalAction): { title: string; detail: string } {
       return { title: `End session ${a.id}`, detail: "the agent stops; unwritten work goes" };
     case "delete_schedule":
       return { title: `Delete schedule ${a.id}`, detail: "its run history goes with it" };
+    case "start_session":
+      return {
+        title: `Start ${a.agent} in ${a.project}${a.title ? `: ${a.title}` : ""}`,
+        detail: a.prompt || "no first prompt; it waits for you at the terminal",
+      };
+    case "desk_session":
+      return { title: `Start a desk session: ${a.title}`, detail: a.ask };
   }
 }
 
@@ -94,6 +117,25 @@ export function validateAction(a: Record<string, unknown>): ProposalAction {
       return { kind: "end_session", id: str("id", 100) };
     case "delete_schedule":
       return { kind: "delete_schedule", id: str("id", 100) };
+    case "start_session": {
+      const agent = str("agent", 20);
+      // The same three the session route takes. Checked here rather than left
+      // to the tap, so a card that could never run is refused as it is filed.
+      if (agent !== "claude" && agent !== "antigravity" && agent !== "codex") {
+        throw new Error("agent must be claude, antigravity or codex");
+      }
+      const title = typeof a.title === "string" ? a.title.slice(0, 200) : undefined;
+      const prompt = typeof a.prompt === "string" ? a.prompt.slice(0, 20_000) : undefined;
+      return {
+        kind: "start_session",
+        project: str("project", 100),
+        agent,
+        ...(title ? { title } : {}),
+        ...(prompt ? { prompt } : {}),
+      };
+    }
+    case "desk_session":
+      return { kind: "desk_session", title: str("title", 200), ask: str("ask", 20_000) };
     default:
       throw new Error("unknown kind");
   }
@@ -207,6 +249,32 @@ async function execute(app: FastifyInstance, a: ProposalAction): Promise<string>
       });
       if (res.statusCode >= 300) throw new Error(errorOf(res));
       return `deleted schedule ${a.id}`;
+    }
+    case "start_session": {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${encodeURIComponent(a.project)}/sessions`,
+        // Nobody is attached to a session started off a card either, so the
+        // same reasoning the tool had applies: routine calls are approved and
+        // the rest still stops, surfacing as a waiting session that pushes.
+        payload: {
+          agent: a.agent,
+          ...(a.title ? { title: a.title } : {}),
+          ...(a.prompt ? { prompt: a.prompt } : {}),
+          autoPermissions: true,
+        },
+      });
+      if (res.statusCode >= 300) throw new Error(errorOf(res));
+      return `started ${res.json<{ id: string }>().id}`;
+    }
+    case "desk_session": {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/desk/sessions",
+        payload: { title: a.title, ask: a.ask },
+      });
+      if (res.statusCode >= 300) throw new Error(errorOf(res));
+      return `started ${res.json<{ id: string }>().id} at the desk`;
     }
   }
 }

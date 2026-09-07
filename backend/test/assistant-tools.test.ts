@@ -107,6 +107,18 @@ describe("the tool set", () => {
         "close_loop",
         "cluster_status",
         "council_add",
+        // The mail and the documents, which the chair reads itself: a lookup is
+        // not a meeting, and routing one through an advisor cost a call and a
+        // turn to say it had been asked.
+        "docs_catalogue",
+        "docs_list",
+        "docs_read",
+        "docs_search",
+        "mail_folders",
+        "mail_move",
+        "mail_read",
+        "mail_recent",
+        "mail_search",
         "feed",
         "feed_done",
         "create_schedule",
@@ -140,18 +152,19 @@ describe("the tool set", () => {
     );
   });
 
-  it("offers the mail to an advisor and never to the chair", async () => {
-    // Mail is text written by strangers, which is the shape a prompt
-    // injection takes, and the chair holds every tool that acts. So the mail
-    // tools exist only in a process started for a member.
+  it("offers the mail and the documents to the chair, and narrows an advisor", async () => {
+    // Routing a lookup through an advisor cost a call and a turn to say it had
+    // been asked, so the chair reads these itself. What makes that safe is not
+    // here: it has no web tools, and a session is a card it files.
     const names = async (env: Record<string, string>) => {
       const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, env)) as {
         result: { tools: { name: string }[] };
       };
       return res.result.tools.map((t) => t.name);
     };
-    expect(await names({})).not.toContain("mail_read");
-    expect(await names({})).not.toContain("docs_read");
+    expect(await names({})).toContain("mail_read");
+    expect(await names({})).toContain("docs_read");
+    // VK_TOOLS still narrows a member to exactly what its file names.
     expect(await names({ VK_MEMBER: "uriel", VK_TOOLS: "mail_read,status" })).toEqual([
       "status",
       "mail_read",
@@ -196,6 +209,10 @@ describe("the tool set", () => {
         "list_prs",
         "list_schedules",
         "loops",
+        // Read-only, and the chair reads the mail itself now. mail_move is not
+        // here on purpose: it is the one mail tool that changes something, and
+        // nothing that changes anything is offered when nobody is reading.
+        "mail_folders",
         "notify",
         "pr_detail",
         // Writes to the review queue, never to memory — which is exactly why it
@@ -349,11 +366,7 @@ describe("one advisor's tools", () => {
     const all = (await list({ VK_MEMBER: "uriel" })).sort();
     expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual(all);
     // And the chair's view is the inventory minus what is a member's alone.
-    expect(
-      TOOL_INVENTORY.filter((t) => !t.memberOnly)
-        .map((t) => t.name)
-        .sort(),
-    ).toEqual((await list({})).sort());
+    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual((await list({})).sort());
   });
 });
 
@@ -412,17 +425,28 @@ describe("requests that carry a safety decision", () => {
     });
   });
 
-  it("starts delegated sessions in auto permission mode", async () => {
-    // Nobody is attached to a session the assistant started; without this it
-    // stalls on its first tool call and looks stuck.
+  it("proposes a session rather than starting one", async () => {
+    // The chair reads the documents and the mail, and a session is an agent
+    // with a shell on the pod. The tap is what stands between the two, so the
+    // tool files a card and starts nothing.
     seen = [];
 
     await callTool("start_session", { project: "demo", agent: "claude", prompt: "look around" });
 
+    expect(seen[0].url).toBe("/api/proposals");
     expect(JSON.parse(seen[0].body)).toMatchObject({
-      agent: "claude",
-      prompt: "look around",
-      autoPermissions: true,
+      action: { kind: "start_session", project: "demo", agent: "claude", prompt: "look around" },
+    });
+  });
+
+  it("proposes a desk session the same way", async () => {
+    seen = [];
+
+    await callTool("desk_session", { title: "three offers", ask: "compare them" });
+
+    expect(seen[0].url).toBe("/api/proposals");
+    expect(JSON.parse(seen[0].body)).toMatchObject({
+      action: { kind: "desk_session", title: "three offers", ask: "compare them" },
     });
   });
 
