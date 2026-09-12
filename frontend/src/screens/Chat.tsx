@@ -461,7 +461,7 @@ export default function Chat() {
             used to have, so there is no strip of thread showing above it, and
             it takes the bar's own background so what passes underneath does
             not read through. */}
-        <div className="sticky top-0 z-10 -mx-[18px] flex flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
+        <div className="sticky top-0 z-10 -mx-[18px] flex flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md transform-gpu">
           {turns > 0 && (
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
