@@ -247,6 +247,21 @@ export default function Chat() {
     return () => ws.close();
   }, []);
 
+  // This is the one door whose field is always on screen, and iOS leaves the
+  // fixed tab bar resting at the offset it had while the keyboard was up
+  // instead of the real one once it closes. The visual viewport returning to
+  // full height means the keyboard just went away; nudging scroll by nothing
+  // forces Safari to re-lay the fixed elements against the viewport it now has.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (innerHeight - vv.height < 40) window.scrollTo(0, window.scrollY);
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
   // Follow the conversation as it grows, the way a conversation is expected
   // to: an answer landing under the question is worth scrolling to.
   useEffect(() => {
@@ -458,8 +473,9 @@ export default function Chat() {
           these two are what you reach for when the subject has moved on, and
           that is exactly when the thread is long enough to have carried them
           off the screen. Stuck together with the bar, in one wrapper, so the
-          row does not have to know how tall the bar is. */}
-      <div className="sticky top-0 z-20">
+          row does not have to know how tall the bar is. transform-gpu for the
+          same iOS lag #136 fixed on the bar itself. */}
+      <div className="sticky top-0 z-20 transform-gpu">
         <TopBar crumb={[{ label: "assistant" }]} />
         <div className="mx-auto flex max-w-[800px] flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
           {turns > 0 && (
