@@ -67,7 +67,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 # --with-deps runs apt-get itself, so the lists it leaves behind are cleaned
 # here rather than in the apt layers above.
 RUN --mount=type=cache,target=/root/.npm \
-    npx --yes playwright@1.62.1 install --with-deps chromium \
+    npx --yes playwright@1.63.0 install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 
 # uv, for projects that pin a Python this image does not ship. trixie gives

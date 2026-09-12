@@ -1,9 +1,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { CDP_PORT_BASE, nextCdpPort, validNavUrl } from "../src/browser.js";
+import { CDP_PORT_BASE, ensureBrowser, nextCdpPort, validNavUrl } from "../src/browser.js";
+
+// Stands in for an image whose chromium is not where playwright-core looks for
+// it — what a playwright bump the Dockerfile did not follow leaves behind.
+vi.mock("playwright-core", () => ({
+  chromium: { executablePath: () => "/opt/ms-playwright/chromium-0/chrome-linux64/chrome" },
+}));
 
 describe("validNavUrl", () => {
   it("accepts http(s) and adds a scheme when missing", () => {
@@ -25,6 +31,16 @@ describe("nextCdpPort", () => {
     expect(nextCdpPort(new Set())).toBe(CDP_PORT_BASE);
     expect(nextCdpPort(new Set([CDP_PORT_BASE, CDP_PORT_BASE + 1]))).toBe(CDP_PORT_BASE + 2);
     expect(nextCdpPort(new Set([CDP_PORT_BASE + 1]))).toBe(CDP_PORT_BASE);
+  });
+});
+
+describe("ensureBrowser", () => {
+  it("rejects a missing chromium binary rather than taking the backend down", async () => {
+    // The spawn failure reaches the process as an 'error' event. Unhandled,
+    // node throws it, and the whole backend dies with one session's browser.
+    await expect(ensureBrowser("vk-demo-1", CDP_PORT_BASE)).rejects.toThrow(
+      /chromium failed to start/,
+    );
   });
 });
 

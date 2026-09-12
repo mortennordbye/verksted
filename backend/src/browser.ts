@@ -152,6 +152,16 @@ async function launch(sessionId: string, port: number): Promise<Entry> {
           resolve();
         }
       });
+      // A binary that is not there fails the spawn itself, and that arrives as
+      // an 'error' event rather than an 'exit'. Node throws an unhandled
+      // 'error' on a child process, so without this listener one session's
+      // browser takes the whole backend down with it. It stays attached for the
+      // life of the process — a reject once the launch resolved is a no-op —
+      // which also covers an 'error' raised later by kill().
+      proc.on("error", (e: Error) => {
+        clearTimeout(timer);
+        reject(new Error(`chromium failed to start: ${e.message}`));
+      });
       proc.on("exit", () => {
         clearTimeout(timer);
         reject(new Error(`chromium exited: ${err.slice(-500)}`));
