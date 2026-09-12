@@ -196,7 +196,6 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const [browsing, setBrowsing] = useState(false);
-  const endRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
@@ -251,7 +250,7 @@ export default function Chat() {
   // Follow the conversation as it grows, the way a conversation is expected
   // to: an answer landing under the question is worth scrolling to.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
   }, [thread?.entries.length, thread?.status, thread?.live]);
 
   const thinking = thread?.status === "thinking";
@@ -445,23 +444,24 @@ export default function Chat() {
   const named = addressed && addressed !== "all" ? byId.get(addressed) : undefined;
 
   return (
-    <div className="flex h-full flex-col">
-      <TopBar crumb={[{ label: "assistant" }]} />
+    // The document scrolls, as it does on the other three doors. This screen
+    // used to be a full-height box scrolling its own middle, and iOS treats a
+    // page that cannot scroll differently: its fixed tab bar was left standing
+    // above a toolbar that had already gone, and a drag at either end of the
+    // thread bounced the whole page out from under that bar.
+    <div className="flex min-h-full flex-col pb-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:pb-0">
+      {/* The count reads left, the controls sit together on the right. The
+          switch is a plain word; the two that change which thread you are in
+          are the lifted ones.
 
-      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 overflow-y-auto px-[18px] pb-3">
-        {/* The count reads left, the controls sit together on the right. The
-            switch is a plain word; the two that change which thread you are in
-            are the lifted ones.
-
-            Stuck to the top of the thread rather than scrolling away with it:
-            these two are what you reach for when the subject has moved on, and
-            that is exactly when the thread is long enough to have carried them
-            off the screen. Wanting a fresh thread should not cost a scroll to
-            the top of the one you are done with. The row owns the padding main
-            used to have, so there is no strip of thread showing above it, and
-            it takes the bar's own background so what passes underneath does
-            not read through. */}
-        <div className="sticky top-0 z-10 -mx-[18px] flex flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
+          Stuck under the top bar rather than scrolling away with the thread:
+          these two are what you reach for when the subject has moved on, and
+          that is exactly when the thread is long enough to have carried them
+          off the screen. Stuck together with the bar, in one wrapper, so the
+          row does not have to know how tall the bar is. */}
+      <div className="sticky top-0 z-20">
+        <TopBar crumb={[{ label: "assistant" }]} />
+        <div className="mx-auto flex max-w-[800px] flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
           {turns > 0 && (
             <span>
               {turns} turn{turns === 1 ? "" : "s"}
@@ -500,7 +500,9 @@ export default function Chat() {
             )}
           </span>
         </div>
+      </div>
 
+      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-4 pb-3">
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 
         {thread && <Room thread={thread} members={members} chair={chair} />}
@@ -526,15 +528,13 @@ export default function Chat() {
             </button>
           </div>
         )}
-
-        <div ref={endRef} />
       </main>
 
-      {/* Clear of the bottom bar on a phone, and back to its own inset where
-          there is none. The thread is one of the four doors and was the only
-          one without them: leaving it meant the back arrow, which is not what
-          a door is. */}
-      <div className="mx-auto w-full max-w-[800px] flex-none px-[18px] pb-[calc(58px+env(safe-area-inset-bottom))] min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))]">
+      {/* Stuck just clear of the bottom bar on a phone (55px is that bar's
+          height), and back to its own inset where there is none. Painted with
+          the page ground so the thread passing behind does not show around
+          its corners. */}
+      <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))]">
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
@@ -633,8 +633,11 @@ export default function Chat() {
             {/* Who hears it. The chair decides by default and hands the
                 question on itself; these are the shortcut for when you already
                 know whose it is, not a routing decision you have to make. */}
+            {/* overflow-y-hidden: overflow-x-auto makes the other axis a
+                scroller too, and each chip's 44px touch target overhangs the
+                row, so a vertical drag on it slid the chips up and left them. */}
             {advisors.length > 0 && (
-              <div className="order-1 flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto rounded-xl bg-surface p-0.5 min-[620px]:order-2 min-[620px]:basis-auto">
+              <div className="order-1 flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-xl bg-surface p-0.5 min-[620px]:order-2 min-[620px]:basis-auto">
                 {named ? (
                   <Chip
                     on

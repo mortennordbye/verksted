@@ -582,7 +582,9 @@ export default function Today() {
               <Running sessions={running} />
             </div>
 
-            <div className="sticky bottom-[calc(64px+env(safe-area-inset-bottom))] min-[800px]:bottom-4">
+            {/* 55px is the bottom bar's height. It sat at 64, which left a
+                strip between the two where the page scrolled through. */}
+            <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:bottom-4">
               <Composer name={name} />
             </div>
           </section>
