@@ -92,7 +92,7 @@ export default function Tabs() {
   return (
     <nav
       aria-label="screens"
-      className="fixed inset-x-0 bottom-0 z-20 flex border-t border-line bg-bg/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[800px]:hidden"
+      className="fixed inset-x-0 bottom-0 z-20 flex transform-gpu border-t border-line bg-bg/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[800px]:hidden"
     >
       {TABS.map((t) => (
         <NavLink

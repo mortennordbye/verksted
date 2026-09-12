@@ -112,7 +112,7 @@ export default function TopBar({
   const onTab = isTabRoute(useLocation().pathname);
   return (
     <header
-      className={`sticky top-0 z-20 flex flex-none items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
+      className={`sticky top-0 z-20 flex flex-none transform-gpu items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
     >
       {back !== undefined && !onTab && <BackButton to={back} />}
       {/* The mark is a dot with a halo, carried over from the northlight header,
