@@ -248,6 +248,22 @@ export default function Chat() {
     return () => ws.close();
   }, []);
 
+  // This is the one door with both a field that raises the keyboard and its
+  // own scrolling shell rather than the page itself scrolling, and iOS leaves
+  // the fixed tab bar resting at the offset it had while the keyboard was up
+  // instead of the real one once it closes. The visual viewport returning to
+  // full height means the keyboard just went away; nudging scroll by nothing
+  // forces Safari to re-lay the fixed elements against the viewport it now has.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => {
+      if (innerHeight - vv.height < 40) window.scrollTo(0, window.scrollY);
+    };
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, []);
+
   // Follow the conversation as it grows, the way a conversation is expected
   // to: an answer landing under the question is worth scrolling to.
   useEffect(() => {
