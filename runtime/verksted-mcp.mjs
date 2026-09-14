@@ -327,6 +327,13 @@ const TOOLS = [
       const out = [
         `#${p.number}  ${p.title}  [${p.headRefName} -> ${p.baseRefName}]  checks:${p.checks}`,
         `by ${p.author}, updated ${local(p.updatedAt)}  ${p.url}`,
+        ...(p.attribution?.length
+          ? [
+              "",
+              "AGENT ATTRIBUTION — the house rules forbid this; raise it before recommending a merge:",
+              ...p.attribution,
+            ]
+          : []),
         "",
         p.body?.trim() ? p.body.trim().slice(0, 2_000) : "(no description)",
         "",

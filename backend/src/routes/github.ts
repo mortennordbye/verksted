@@ -74,6 +74,19 @@ const toPr = (p: GhPr): PullRequest => ({
   changedFiles: p.changedFiles,
 });
 
+/**
+ * A line that credits an agent, the same shape the attribution job in ci.yml
+ * rejects, widened to the other agents the house rules name. Anchored to the
+ * start of a line so a PR that merely talks about claude is not flagged, and
+ * dependabot's own co-author trailer does not match.
+ */
+const AGENT_ATTRIBUTION =
+  /^\s*(claude-session:.*|co-authored-by:.*\b(claude|codex|copilot|gemini|antigravity|anthropic|openai)\b.*|.*generated with.*\b(claude|codex|copilot|gemini|antigravity)\b.*|https:\/\/claude\.ai\/code\/session_\S*)$/gim;
+
+const attributionIn = (texts: string[]): string[] => [
+  ...new Set(texts.flatMap((t) => (t.match(AGENT_ATTRIBUTION) ?? []).map((l) => l.trim()))),
+];
+
 const toRun = (r: GhRun): WorkflowRun => ({
   id: r.databaseId,
   title: r.displayTitle,
@@ -218,13 +231,14 @@ export default async function githubRoutes(app: FastifyInstance) {
               state: string;
             }[];
             files: { path: string; additions: number; deletions: number }[];
+            commits: { messageHeadline: string; messageBody: string }[];
           }
         >(repoDir, [
           "pr",
           "view",
           req.params.number,
           "--json",
-          `${PR_LIST_FIELDS},body,comments,reviews,files`,
+          `${PR_LIST_FIELDS},body,comments,reviews,files,commits`,
         ]);
         // Comments and reviews are two GitHub concepts but one conversation.
         // A review with no body is a bare approval — the verdict is the content.
@@ -242,7 +256,13 @@ export default async function githubRoutes(app: FastifyInstance) {
             state: r.state,
           })),
         ].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-        return { ...toPr(p), body: p.body ?? "", comments, files: p.files ?? [] };
+        // Commits as well as the body: a squash merge carries their trailers
+        // into history, which is the part that cannot be quietly fixed later.
+        const attribution = attributionIn([
+          p.body ?? "",
+          ...(p.commits ?? []).map((c) => c.messageBody ?? ""),
+        ]);
+        return { ...toPr(p), body: p.body ?? "", comments, files: p.files ?? [], attribution };
       } catch (err) {
         return ghReply(req, reply, err);
       }

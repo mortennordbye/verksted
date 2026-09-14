@@ -614,7 +614,10 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   irreversible" reach every agent through the global memory file, which is the
   strongest instruction channel available and still only an instruction. A model
   that ignores it leaves a `Co-Authored-By` trailer in history, and history is
-  the thing you cannot quietly fix later. Nothing checks after the fact.
+  the thing you cannot quietly fix later. The one check after the fact is
+  `pr_detail`, which flags attribution in a PR's body and commits so the chair
+  raises it before recommending a merge — but only when someone asks it about
+  that PR, and nothing stops the commit being made.
 - **Why deferred:** The mechanical version is a `commit-msg` hook installed into
   every repo verksted touches, which strips agent trailers and footers. That
   writes into the user's own repos and their `.git` directories, which is a
@@ -622,11 +625,10 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   surprises anyone else who clones the repo.
 - **Unblocked by:** Deciding whether verksted may write into `.git/hooks` (or
   set `core.hooksPath` to a directory it owns), then a hook that drops any
-  trailer matching Claude/agent/AI and any "Generated with" footer. A cheaper
-  first step: have the assistant's `list_prs`/`pr_detail` flag a PR body that
-  carries one, so at least it is noticed.
+  trailer matching Claude/agent/AI and any "Generated with" footer.
 - **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`),
-  `backend/src/sessions-store.ts` (where a hook would be installed)
+  `backend/src/sessions-store.ts` (where a hook would be installed),
+  `backend/src/routes/github.ts` (`AGENT_ATTRIBUTION`, the pattern a hook would reuse)
 
 ## The harvest has only read scheduled-run transcripts, and nothing guards the shape
 

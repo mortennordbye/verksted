@@ -58,7 +58,8 @@ const PR = {
 beforeAll(async () => {
   fake = FakeBin.install(["gh"]);
   reposDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-ghfake-"));
-  for (const n of ["prs", "fail", "junk", "diff", "merge", "recover", "runs", "cache"]) repo(n);
+  for (const n of ["prs", "fail", "junk", "diff", "merge", "recover", "runs", "cache", "detail"])
+    repo(n);
 
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
@@ -127,6 +128,55 @@ describe("GET /api/projects/:name/prs", () => {
     await app.inject({ url: "/api/projects/cache/prs" });
 
     expect(fake.subcommand("gh", "pr")).toHaveLength(1);
+  });
+});
+
+describe("GET /api/projects/:name/prs/:number", () => {
+  const detail = (body: string, commits: string[]) => ({
+    ...PR,
+    body,
+    comments: [],
+    reviews: [],
+    files: [],
+    commits: commits.map((messageBody) => ({ messageHeadline: "x", messageBody })),
+  });
+
+  it("flags an agent credited in the body or a commit, and only once per line", async () => {
+    fake.reply("gh", "pr view", {
+      stdout: JSON.stringify(
+        detail(
+          "Adds the thing.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+          [
+            "Co-Authored-By: Claude <noreply@anthropic.com>",
+            "second commit\n\nCo-Authored-By: Claude <noreply@anthropic.com>",
+          ],
+        ),
+      ),
+    });
+
+    const res = await app.inject({ url: "/api/projects/detail/prs/7" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().attribution).toEqual([
+      "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+      "Co-Authored-By: Claude <noreply@anthropic.com>",
+    ]);
+    const argv = fake.subcommand("gh", "pr")[0];
+    expect(argv[argv.indexOf("--json") + 1]).toContain("commits");
+  });
+
+  it("leaves a PR that only talks about claude, or a bot co-author, unflagged", async () => {
+    fake.reply("gh", "pr view", {
+      stdout: JSON.stringify(
+        detail("Teach the claude hooks to write the state file.", [
+          "Signed-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+        ]),
+      ),
+    });
+
+    const res = await app.inject({ url: "/api/projects/detail/prs/7" });
+
+    expect(res.json().attribution).toEqual([]);
   });
 });
 
