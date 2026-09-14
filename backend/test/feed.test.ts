@@ -302,10 +302,10 @@ describe("the pollers", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("ends a routine run once a later one has replaced it, and keeps the loud ones", async () => {
-    const fired = (at: string, urgency: "quiet" | "attention") =>
+  it("ends every run a later one of the same schedule has replaced, loud ones too", async () => {
+    const fired = (schedule: string, at: string, urgency: "quiet" | "attention") =>
       feed.upsert({
-        id: `schedule:sch-a:${at}`,
+        id: `schedule:${schedule}:${at}`,
         source: "schedule" as const,
         at,
         title: "nightly render",
@@ -314,22 +314,125 @@ describe("the pollers", () => {
         version: "1",
         urgency,
       });
-    await fired("2026-08-30T00:00:00.000Z", "quiet");
-    await fired("2026-08-31T00:00:00.000Z", "attention");
-    await fired("2026-09-01T00:00:00.000Z", "quiet");
-    await fired("2026-09-02T00:00:00.000Z", "quiet");
+    await fired("sch-a", "2026-08-30T00:00:00.000Z", "quiet");
+    await fired("sch-a", "2026-08-31T00:00:00.000Z", "attention");
+    await fired("sch-a", "2026-09-01T00:00:00.000Z", "attention");
+    await fired("sch-a", "2026-09-02T00:00:00.000Z", "quiet");
+    // Another schedule's loud run is that schedule's newest word, untouched.
+    await fired("sch-b", "2026-08-31T00:00:00.000Z", "attention");
 
     await pollers.pollBench();
 
-    const state = async (at: string) => (await feed.get(`schedule:sch-a:${at}`))!.state;
-    // The two routine ones a later run replaced are history.
-    expect(await state("2026-08-30T00:00:00.000Z")).toBe("done");
-    expect(await state("2026-09-01T00:00:00.000Z")).toBe("done");
-    // The one that needed someone stays until someone deals with it, and the
-    // newest is the row the screen is for.
-    expect(await state("2026-08-31T00:00:00.000Z")).toBe("new");
-    expect(await state("2026-09-02T00:00:00.000Z")).toBe("new");
-    expect((await feed.get("schedule:sch-a:2026-08-30T00:00:00.000Z"))!.did).toBe("a later run");
+    const item = async (schedule: string, at: string) =>
+      (await feed.get(`schedule:${schedule}:${at}`))!;
+    // A later run came back, so the week of "it is broken" is history.
+    for (const at of ["2026-08-30", "2026-08-31", "2026-09-01"]) {
+      const old = await item("sch-a", `${at}T00:00:00.000Z`);
+      expect([old.state, old.did]).toEqual(["done", "a later run"]);
+    }
+    expect((await item("sch-a", "2026-09-02T00:00:00.000Z")).state).toBe("new");
+    expect((await item("sch-b", "2026-08-31T00:00:00.000Z")).state).toBe("new");
+  });
+
+  it("does not hand 'newest' back to an older run when the newest was finished by hand", async () => {
+    for (const [at, urgency] of [
+      ["2026-09-01T00:00:00.000Z", "attention"],
+      ["2026-09-02T00:00:00.000Z", "attention"],
+    ] as const) {
+      await feed.upsert({
+        id: `schedule:sch-c:${at}`,
+        source: "schedule",
+        at,
+        title: "gate",
+        detail: "attention",
+        link: "/runs",
+        version: "1",
+        urgency,
+      });
+    }
+    await feed.setState("schedule:sch-c:2026-09-02T00:00:00.000Z", "done");
+
+    await pollers.pollBench();
+
+    expect((await feed.get("schedule:sch-c:2026-09-01T00:00:00.000Z"))!.state).toBe("done");
+  });
+
+  it("ends a waiting row once its session is gone, not only once it answers", async () => {
+    await feed.upsert({
+      id: "bench:wait:vk-deleted-56",
+      source: "bench",
+      at: "2026-09-04T13:24:00.000Z",
+      title: "claude-56",
+      detail: "waiting for an answer",
+      link: "/s/vk-deleted-56",
+      version: "waiting",
+      urgency: "attention",
+    });
+
+    await pollers.pollBench();
+
+    const item = (await feed.get("bench:wait:vk-deleted-56"))!;
+    expect([item.state, item.did]).toEqual(["done", "session gone"]);
+  });
+
+  it("keeps the newest of a GitHub notification sent twice, and ends the repeat", async () => {
+    const failed = (id: string, at: string, title = "o/r: auto-merge failed for kargo/prod.1") =>
+      feed.upsert({
+        id,
+        source: "github",
+        at,
+        title,
+        detail: "",
+        link: "https://github.com/o/r",
+        version: "1",
+      });
+    await failed("github:1", "2026-09-13T08:53:00.000Z");
+    await failed("github:2", "2026-09-13T08:55:00.000Z");
+    await failed("github:3", "2026-09-13T08:54:00.000Z", "o/r: auto-merge failed for kargo/prod.2");
+
+    await pollers.pollBench();
+
+    const item = async (id: string) => (await feed.get(id))!;
+    expect([(await item("github:1")).state, (await item("github:1")).did]).toEqual([
+      "done",
+      "sent again",
+    ]);
+    expect((await item("github:2")).state).toBe("new");
+    // A different branch is a different failure.
+    expect((await item("github:3")).state).toBe("new");
+  });
+
+  it("stops a mail shouting after three days unless a loop is open on it", async () => {
+    const days = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    const urgent = async (uid: number, at: string, loop: string | null = null) => {
+      await feed.upsert({
+        id: `mail:${uid}`,
+        source: "mail",
+        at,
+        title: "Security alert",
+        from: "Google",
+        detail: "",
+        link: null,
+        version: String(uid),
+      });
+      await feed.judge(`mail:${uid}`, { urgency: "attention", loop });
+    };
+    await urgent(1, days(4));
+    await urgent(2, days(1));
+    await urgent(3, days(10), "renew-the-passport");
+
+    await pollers.pollBench();
+
+    const item = async (uid: number) => (await feed.get(`mail:${uid}`))!;
+    const old = await item(1);
+    // Still in the inbox as new, just not on "needs you", and the row says why.
+    expect([old.urgency, old.state, old.did]).toEqual([
+      "new",
+      "new",
+      "no longer urgent after 3 days",
+    ]);
+    expect((await item(2)).urgency).toBe("attention");
+    expect((await item(3)).urgency).toBe("attention");
   });
 
   it("closes a loop once the item it came from is done, and leaves the rest", async () => {

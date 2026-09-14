@@ -46,6 +46,54 @@ session.
 `SPEC.md` has the full picture, `CLAUDE.md` the working rules for changes, and
 `BACKLOG.md` what is knowingly left undone.
 
+## Connecting a calendar
+
+The assistant reads the calendar, and adds, moves or removes an event when you
+tell it to. Over CalDAV, so any provider that speaks it works, but Google only
+lets a client in with OAuth: its CalDAV answers a password with a 401.
+
+**Google (Workspace or personal).** Once, in the Google Cloud console, signed in
+as the account whose calendar it is:
+
+1. Create a project and enable the **CalDAV API**.
+2. Under **Google Auth Platform**, fill in the app name and support email. Pick
+   **Internal** as the audience on a Workspace account: only your organisation
+   can sign in, Google does not review the app, and the sign-in does not lapse
+   after seven days the way an unreviewed external app's does.
+3. Create an OAuth client of type **Web application** whose authorised redirect
+   URI is `https://<your host>/api/calendar/google/callback`. Settings, Sources
+   shows the exact string the server will send; it has to match character for
+   character.
+4. In verksted, **Settings → Sources**: paste the client ID and secret, save,
+   press **Sign in with Google** and allow calendar access.
+
+The page then says who is signed in. The client, the refresh token and the
+address are kept with the other settings on the volume (`GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN`, `GOOGLE_CALENDAR_USER`) and are
+never handed to an agent session. **Disconnect** revokes the token at Google and
+forgets it; the client stays, so signing in again is one tap. A Google sign-in
+wins over any `CALDAV_*` values.
+
+**Anything else** (iCloud, Fastmail): set `CALDAV_URL`, `CALDAV_USER` and an app
+password in `CALDAV_PASSWORD` under Settings, Agents, Environment.
+
+**What the assistant does with it.** `calendar_add`, `calendar_update` and
+`calendar_delete` are the chair's alone and are never offered to a scheduled
+run. They are for when you asked; an event it thinks of by itself is still a
+card to tap. New events go on the primary calendar. A recurring event is
+refused rather than guessed at (see `BACKLOG.md`). The chat's **calendar**
+button shows the month beside the thread, refreshed as it talks.
+
+**When it does not work.**
+
+- _redirect_uri_mismatch_ on Google's page: the URI on the OAuth client differs
+  from the one Settings shows.
+- The Google section is missing from Settings after an update: the tab is on a
+  cached build. Reload; if it persists, unregister the service worker.
+- The calendar panel says it is not set up after signing in: check
+  `GET /api/calendar/google`. `account: null` means the sign-in did not finish,
+  and the banner on Settings, Sources says why.
+
 ## Backing it up
 
 Everything verksted knows is a file under `/data`, and none of it is in git or

@@ -1,6 +1,9 @@
 import { useState } from "react";
+import Markdown from "react-markdown";
 import type { FeedItem, ProposalAction } from "../../../shared/api";
 import { api } from "../api";
+import { cite, citeUrl } from "./chat/cite";
+import { MD, REMARK } from "./chat/markdown";
 
 /**
  * A proposal, whole, with the two buttons.
@@ -52,7 +55,15 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
 
   return (
     <div className="mt-2 rounded-[11px] border border-accent/40 bg-accent-tint px-3.5 py-3">
-      {why && <div className="mb-2 text-[12.5px] text-muted">{why}</div>}
+      {/* Why they are being asked, in the assistant's own words: prose like the
+          rest of its prose, citations included. */}
+      {why && (
+        <div className="mb-2 text-[12.5px] text-muted">
+          <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
+            {cite(why)}
+          </Markdown>
+        </div>
+      )}
       {a.kind === "send" && (
         <div className="rounded-md border border-line bg-surface px-3 py-2 font-mono text-[12px]">
           <div className="text-faint">

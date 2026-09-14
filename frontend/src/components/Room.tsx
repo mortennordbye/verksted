@@ -2,7 +2,7 @@ import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { agoLabel } from "../api";
 import { cite, citeUrl } from "./chat/cite";
-import { MD } from "./chat/markdown";
+import { MD, REMARK } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 
 /**
@@ -70,7 +70,7 @@ function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
           <div
             className={`min-w-0 flex-1 text-[15px] leading-[1.55] ${entry.failed ? "text-fail" : ""}`}
           >
-            <Markdown components={MD} urlTransform={citeUrl}>
+            <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
               {cite(entry.text)}
             </Markdown>
           </div>

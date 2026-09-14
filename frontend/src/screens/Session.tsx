@@ -29,6 +29,7 @@ import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
+import Icon from "../components/Icon";
 import { useConfirm } from "../useConfirm";
 import { useOverlayDismiss } from "../useDismissOnBack";
 
@@ -179,12 +180,20 @@ const ICONS: Record<string, ReactNode> = {
   ),
 };
 
-function PaneIcon({ name, className }: { name: string; className?: string }) {
+function PaneIcon({
+  name,
+  size = 17,
+  className,
+}: {
+  name: string;
+  size?: number;
+  className?: string;
+}) {
   return (
     <svg
       viewBox="0 0 24 24"
-      width="17"
-      height="17"
+      width={size}
+      height={size}
       fill="none"
       stroke="currentColor"
       strokeWidth="1.8"
@@ -779,12 +788,13 @@ export default function Session() {
                     key={t}
                     aria-pressed={side === t}
                     onClick={() => setSide(t)}
-                    className={`tap-hit rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+                    className={`tap-hit flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[11px] ${
                       side === t
                         ? "border-accent bg-surface-2 text-text"
                         : "border-line bg-surface text-muted"
                     }`}
                   >
+                    <PaneIcon name={t} size={13} className={side === t ? "text-accent" : ""} />
                     {t}
                     {t === "git" && (git?.files.length ?? 0) > 0 && (
                       <span className="ml-1 text-wait">{git!.files.length}</span>
@@ -881,12 +891,13 @@ export default function Session() {
                       key={v}
                       aria-pressed={viewOn(v)}
                       onClick={() => pickView(v)}
-                      className={`rounded-[5px] border px-2 py-0.5 ${
+                      className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 ${
                         viewOn(v)
                           ? "border-accent bg-surface-2 text-text"
                           : "border-line text-muted"
                       }`}
                     >
+                      <PaneIcon name={v} size={13} />
                       {viewLabel(v)}
                     </button>
                   ))}
@@ -905,12 +916,13 @@ export default function Session() {
                           key={v}
                           aria-pressed={chatView === (v === "chat")}
                           onClick={() => setMain(v)}
-                          className={`rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${
+                          className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${
                             chatView === (v === "chat")
                               ? "border-accent bg-surface-2 text-text"
                               : "border-line text-muted"
                           }`}
                         >
+                          <PaneIcon name={v} size={13} />
                           {v === "chat" ? "chat" : "terminal"}
                         </button>
                       ))}
@@ -920,23 +932,34 @@ export default function Session() {
                     <span className="hidden gap-2 desk:flex">
                       <button
                         onClick={() => setShell((s) => !s)}
-                        className={`rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${shell ? "border-accent text-text" : "border-line"}`}
+                        className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${shell ? "border-accent text-text" : "border-line"}`}
                       >
-                        {shell ? "✕ shell" : "▚ shell"}
+                        {shell ? (
+                          <Icon name="close" size={12} />
+                        ) : (
+                          <PaneIcon name="shell" size={13} />
+                        )}
+                        shell
                       </button>
                       <button
                         onClick={() => setBrowser((b) => !b)}
-                        className={`rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${browser ? "border-accent text-text" : "border-line"}`}
+                        className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${browser ? "border-accent text-text" : "border-line"}`}
                       >
-                        {browser ? "✕ browser" : "◫ browser"}
+                        {browser ? (
+                          <Icon name="close" size={12} />
+                        ) : (
+                          <PaneIcon name="browser" size={13} />
+                        )}
+                        browser
                       </button>
                     </span>
                   )}
                   <button
                     onClick={() => setFull((f) => !f)}
-                    className="rounded-[5px] border border-line px-2 py-0.5 hover:border-faint hover:text-text"
+                    className="flex items-center gap-1.5 rounded-[5px] border border-line px-2 py-0.5 hover:border-faint hover:text-text"
                   >
-                    {full ? "✕ full" : "⛶ full"}
+                    <Icon name={full ? "shrink" : "expand"} size={12} />
+                    full
                   </button>
                   <span className="hidden desk:inline">{session?.agent}</span>
                 </span>
