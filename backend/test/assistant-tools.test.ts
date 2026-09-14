@@ -98,8 +98,11 @@ describe("the tool set", () => {
     expect(res.result.tools.map((t) => t.name).sort()).toEqual(
       [
         "brief_material",
+        "calendar_add",
+        "calendar_delete",
         "calendar_search",
         "calendar_today",
+        "calendar_update",
         "calendar_upcoming",
         "ci_log",
         "ci_rerun",

@@ -66,6 +66,27 @@ function Reply({
           ))}
         </div>
       )}
+      {/* What a tool showed it, a browser screenshot most of all: the thing it
+          is asking you to confirm, so it is shown rather than described. */}
+      {entry?.images?.length ? (
+        <div className="flex flex-wrap gap-2">
+          {entry.images.map((name) => (
+            <a
+              key={name}
+              href={`/api/assistant/uploads/${name}`}
+              target="_blank"
+              rel="noreferrer"
+              className="block max-w-full"
+            >
+              <img
+                src={`/api/assistant/uploads/${name}`}
+                alt="screenshot"
+                className="max-h-96 max-w-full rounded-lg ring-1 ring-line"
+              />
+            </a>
+          ))}
+        </div>
+      ) : null}
       {entry?.text && (
         <div className="text-[15px] leading-[1.55]">
           <Markdown components={MD} urlTransform={citeUrl}>

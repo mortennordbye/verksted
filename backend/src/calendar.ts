@@ -1,44 +1,90 @@
 import { createDAVClient } from "tsdav";
 import type { CalendarEvent } from "../../shared/api.js";
+import { GOOGLE_CALDAV_URL, TOKEN_URL } from "./google-auth.js";
 import { sourceEnv } from "./settings-store.js";
 
 /**
- * The calendar, read over CalDAV.
+ * The calendar, over CalDAV.
  *
- * Google, iCloud and Fastmail all expose it; the credential is the same shape
- * as mail's and lives in the same place. Read-only: the two verbs used are
- * PROPFIND and REPORT, and the server is asked to expand recurrences inside
- * the window so a weekly meeting is a row per week rather than a rule to
- * interpret here. Writes come later, as proposals.
+ * Google, iCloud and Fastmail all expose it. Google is signed in to with OAuth
+ * (google-auth.ts), since its CalDAV refuses passwords; the others take a user
+ * and an app password, like mail. Both live beside the mail credentials. Reads ask the server to expand
+ * recurrences inside the window, so a weekly meeting is a row per week rather
+ * than a rule to interpret here. Writes add, edit or remove one event, when
+ * the person asked for it or tapped a card; a recurring series is refused,
+ * since "move it" could mean one Tuesday or every one of them.
  */
-export interface CalendarConfig {
-  url: string;
-  user: string;
-  password: string;
-}
+export type CalendarConfig =
+  | { kind: "basic"; url: string; user: string; password: string }
+  | { kind: "google"; user: string; clientId: string; clientSecret: string; refreshToken: string };
 
 export async function calendarConfig(): Promise<CalendarConfig | null> {
   const vars = await sourceEnv();
+  // Google first: signing in is the deliberate choice, and made later than
+  // any CALDAV_* left over from trying a password.
+  if (
+    vars.GOOGLE_CLIENT_ID &&
+    vars.GOOGLE_CLIENT_SECRET &&
+    vars.GOOGLE_REFRESH_TOKEN &&
+    vars.GOOGLE_CALENDAR_USER
+  ) {
+    return {
+      kind: "google",
+      user: vars.GOOGLE_CALENDAR_USER,
+      clientId: vars.GOOGLE_CLIENT_ID,
+      clientSecret: vars.GOOGLE_CLIENT_SECRET,
+      refreshToken: vars.GOOGLE_REFRESH_TOKEN,
+    };
+  }
   if (!vars.CALDAV_URL || !vars.CALDAV_USER || !vars.CALDAV_PASSWORD) return null;
-  return { url: vars.CALDAV_URL, user: vars.CALDAV_USER, password: vars.CALDAV_PASSWORD };
+  return {
+    kind: "basic",
+    url: vars.CALDAV_URL,
+    user: vars.CALDAV_USER,
+    password: vars.CALDAV_PASSWORD,
+  };
 }
 
 export class CalendarUnavailable extends Error {}
+/** No event with that uid in the window anybody asks to change. */
+export class CalendarNotFound extends Error {}
+/** A change this will not make: a recurring series, or an end before its start. */
+export class CalendarRefused extends Error {}
 
-/** Events in a window, across every calendar the account has. */
-export async function events(start: Date, end: Date): Promise<CalendarEvent[]> {
+async function connect() {
   const config = await calendarConfig();
   if (!config) {
     throw new CalendarUnavailable(
-      "the calendar is not set up: CALDAV_URL, CALDAV_USER, CALDAV_PASSWORD",
+      "the calendar is not set up: sign in with Google under settings, sources, or set CALDAV_URL, CALDAV_USER, CALDAV_PASSWORD",
     );
   }
-  const client = await createDAVClient({
+  if (config.kind === "google") {
+    // tsdav trades the refresh token for an access token on every connect,
+    // which at a handful of calendar reads an hour is simpler than caching one.
+    return createDAVClient({
+      serverUrl: GOOGLE_CALDAV_URL,
+      credentials: {
+        tokenUrl: TOKEN_URL,
+        username: config.user,
+        refreshToken: config.refreshToken,
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+      },
+      authMethod: "Oauth",
+      defaultAccountType: "caldav",
+    });
+  }
+  return createDAVClient({
     serverUrl: config.url,
     credentials: { username: config.user, password: config.password },
     authMethod: "Basic",
     defaultAccountType: "caldav",
   });
+}
+
+/** Events in a window, across every calendar the account has. */
+export async function events(start: Date, end: Date): Promise<CalendarEvent[]> {
+  const client = await connect();
   const calendars = await client.fetchCalendars();
   const out: CalendarEvent[] = [];
   for (const calendar of calendars) {
@@ -88,31 +134,23 @@ export async function search(query: string): Promise<CalendarEvent[]> {
   });
 }
 
-/**
- * The one write, which only a tapped proposal reaches: a new event on the
- * account's first calendar, as a file of its own. Nothing here edits or
- * deletes what is there.
- */
-export async function put(event: {
+export interface EventFields {
   summary: string;
   start: string;
   end: string;
   location?: string;
   description?: string;
-}): Promise<{ uid: string }> {
-  const config = await calendarConfig();
-  if (!config) {
-    throw new CalendarUnavailable(
-      "the calendar is not set up: CALDAV_URL, CALDAV_USER, CALDAV_PASSWORD",
-    );
-  }
-  const client = await createDAVClient({
-    serverUrl: config.url,
-    credentials: { username: config.user, password: config.password },
-    authMethod: "Basic",
-    defaultAccountType: "caldav",
-  });
-  const [calendar] = await client.fetchCalendars();
+}
+
+/** A new event on the account's first calendar, as a file of its own. */
+export async function put(event: EventFields): Promise<{ uid: string }> {
+  const client = await connect();
+  const calendars = await client.fetchCalendars();
+  // Google lists the primary calendar under the account's own address, and
+  // not necessarily first; a shared or holiday calendar is no place for this.
+  const user = (await calendarConfig())?.user;
+  const calendar =
+    calendars.find((c) => user && c.url.includes(encodeURIComponent(user))) ?? calendars[0];
   if (!calendar) throw new CalendarUnavailable("the account has no calendar to write to");
   const uid = `vk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   await client.createCalendarObject({
@@ -121,6 +159,105 @@ export async function put(event: {
     iCalString: ics({ ...event, uid }),
   });
   return { uid };
+}
+
+const DAY = 86_400_000;
+
+/**
+ * The stored file an event lives in, by its UID.
+ *
+ * Searched over a year back and two ahead rather than everything the account
+ * has ever held, which is every event anybody asks to move.
+ */
+async function find(uid: string) {
+  const client = await connect();
+  const now = Date.now();
+  const timeRange = {
+    start: new Date(now - 365 * DAY).toISOString(),
+    end: new Date(now + 730 * DAY).toISOString(),
+  };
+  for (const calendar of await client.fetchCalendars()) {
+    for (const object of await client.fetchCalendarObjects({ calendar, timeRange })) {
+      if (typeof object.data !== "string") continue;
+      if (!parseIcs(object.data).some((e) => e.uid === uid)) continue;
+      // One VEVENT and no rule: a series, or a series with one occurrence
+      // moved, is not a single thing to change.
+      if (/^RRULE[:;]/m.test(object.data) || object.data.split("BEGIN:VEVENT").length > 2) {
+        throw new CalendarRefused(
+          "that is a recurring event; change it in the calendar app, where one occurrence and the series are told apart",
+        );
+      }
+      return { client, object, data: object.data };
+    }
+  }
+  throw new CalendarNotFound(`no event with uid ${uid}`);
+}
+
+/**
+ * Change some of one event's fields. Moving only the start keeps the length it
+ * had, which is what "move it to three" means; an empty location or
+ * description clears it.
+ */
+export async function update(uid: string, change: Partial<EventFields>): Promise<CalendarEvent> {
+  const { client, object, data } = await find(uid);
+  const [current] = parseIcs(data);
+  const start = change.start ?? current.start;
+  const end =
+    change.end ??
+    (change.start
+      ? new Date(Date.parse(start) + Date.parse(current.end) - Date.parse(current.start)).toISOString()
+      : current.end);
+  if (Date.parse(end) <= Date.parse(start)) throw new CalendarRefused("end must be after start");
+
+  const props: Record<string, string> = { DTSTAMP: stamp(new Date().toISOString()) };
+  if (change.summary !== undefined) props.SUMMARY = esc(change.summary);
+  if (change.location !== undefined) props.LOCATION = esc(change.location);
+  if (change.description !== undefined) props.DESCRIPTION = esc(change.description);
+  if (change.start !== undefined || change.end !== undefined) {
+    Object.assign(props, { DTSTART: stamp(start), DTEND: stamp(end), DURATION: "" });
+  }
+  const next = edit(data, props);
+  const res = await client.updateCalendarObject({ calendarObject: { ...object, data: next } });
+  if (!res.ok) throw new Error(`the calendar server refused the change: ${res.status}`);
+  return parseIcs(next)[0];
+}
+
+/** Take one event off the calendar. Returns what it was, so it can be said. */
+export async function remove(uid: string): Promise<CalendarEvent> {
+  const { client, object, data } = await find(uid);
+  const res = await client.deleteCalendarObject({ calendarObject: object });
+  if (!res.ok) throw new Error(`the calendar server refused the delete: ${res.status}`);
+  return parseIcs(data)[0];
+}
+
+/**
+ * An event's file with some properties replaced, and the rest (alarms,
+ * attendees, whatever the app that made it keeps) left as they were. Only the
+ * event's own lines are touched: a VALARM inside it has a DESCRIPTION too. An
+ * empty value removes the property.
+ */
+export function edit(ics: string, props: Record<string, string>): string {
+  const lines = ics
+    .replace(/\r\n/g, "\n")
+    .replace(/\n[ \t]/g, "")
+    .split("\n");
+  const out: string[] = [];
+  // 1 is directly inside the VEVENT; deeper is a component nested in it.
+  let depth = 0;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") depth = 1;
+    else if (depth === 1 && line === "END:VEVENT") {
+      for (const [name, value] of Object.entries(props)) if (value) out.push(`${name}:${value}`);
+      depth = 0;
+    } else if (depth >= 1 && line.startsWith("BEGIN:")) depth++;
+    else if (depth > 1 && line.startsWith("END:")) depth--;
+    else if (depth === 1) {
+      const cut = line.search(/[;:]/);
+      if (cut > 0 && line.slice(0, cut).toUpperCase() in props) continue;
+    }
+    out.push(line);
+  }
+  return out.join("\r\n");
 }
 
 const esc = (v: string) =>

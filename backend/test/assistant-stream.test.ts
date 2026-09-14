@@ -31,6 +31,71 @@ function result(extra: Record<string, unknown> = {}): string {
   });
 }
 
+function toolResult(id: string, content: unknown[]): string {
+  return JSON.stringify({
+    type: "user",
+    message: { content: [{ type: "tool_result", tool_use_id: id, content }] },
+  });
+}
+
+const PNG = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
+
+describe("screenshots", () => {
+  it("keeps a picture a tool returned, on the turn that talks about it", () => {
+    const out = parseStream(
+      [
+        INIT,
+        assistant([{ type: "tool_use", id: "t1", name: "mcp__browser__browser_take_screenshot" }]),
+        toolResult("t1", [{ type: "text", text: "Took a screenshot" }, PNG]),
+        assistant([{ type: "text", text: "Here is the form." }]),
+        result(),
+      ].join("\n"),
+    );
+
+    expect(out.entries).toEqual([
+      {
+        role: "assistant",
+        text: "Here is the form.",
+        tools: [{ name: "mcp__browser__browser_take_screenshot", detail: "" }],
+        shots: [{ mediaType: "image/png", data: "iVBORw0KGgo=" }],
+      },
+    ]);
+  });
+
+  it("leaves out what Read returned, and anything that is not a raster picture", () => {
+    // Read hands back the image you attached, which is already on screen.
+    const out = parseStream(
+      [
+        INIT,
+        assistant([
+          { type: "tool_use", id: "r1", name: "Read", input: { file_path: "/x.png" } },
+          { type: "tool_use", id: "s1", name: "mcp__browser__browser_take_screenshot" },
+        ]),
+        toolResult("r1", [PNG]),
+        toolResult("s1", [
+          { type: "image", source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zz4=" } },
+        ]),
+        assistant([{ type: "text", text: "Done." }]),
+        result(),
+      ].join("\n"),
+    );
+
+    expect(out.entries[0]).not.toHaveProperty("shots");
+  });
+
+  it("does not lose a screenshot the run died after", () => {
+    const out = parseStream(
+      [
+        INIT,
+        assistant([{ type: "tool_use", id: "t1", name: "mcp__browser__browser_take_screenshot" }]),
+        toolResult("t1", [PNG]),
+      ].join("\n"),
+    );
+
+    expect(out.entries.at(-1)?.shots).toHaveLength(1);
+  });
+});
+
 describe("parseStream", () => {
   it("reads the conversation id and one plain turn", () => {
     const out = parseStream(

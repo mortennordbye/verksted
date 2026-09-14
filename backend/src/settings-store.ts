@@ -29,6 +29,13 @@ export const KNOWN_AGENT_KEYS = [
   "CALDAV_URL",
   "CALDAV_USER",
   "CALDAV_PASSWORD",
+  // Google's calendar, which refuses a password. The client is typed here;
+  // the refresh token and the address are written by the sign-in callback
+  // (google-auth.ts), and a saved value on this page replaces them.
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REFRESH_TOKEN",
+  "GOOGLE_CALENDAR_USER",
   // Sending, for a proposal you tapped. SMTP_USER and SMTP_PASSWORD fall back
   // to the IMAP ones, which is what most providers want.
   "SMTP_HOST",
@@ -53,6 +60,10 @@ export const SOURCE_KEYS = [
   "CALDAV_URL",
   "CALDAV_USER",
   "CALDAV_PASSWORD",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_REFRESH_TOKEN",
+  "GOOGLE_CALENDAR_USER",
   "SMTP_HOST",
   "SMTP_PORT",
   "SMTP_USER",

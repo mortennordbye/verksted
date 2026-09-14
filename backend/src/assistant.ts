@@ -16,7 +16,13 @@ import {
   unattendedPrompt,
   type PromptContext,
 } from "./assistant-persona.js";
-import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
+import {
+  consumeChunk,
+  finishStream,
+  newStreamState,
+  type Entry as StreamEntry,
+  type Shot,
+} from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { ASSISTANT_CDP_PORT } from "./browser.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
@@ -240,6 +246,23 @@ function currentPath(): string {
 /** Where attached images land, outside any repo and readable by the agent. */
 export function uploadsDir(): string {
   return path.join(env.ASSISTANT_DIR, "uploads");
+}
+
+/**
+ * Pictures a tool returned, written beside the uploads so the chat can show
+ * them. Named by the server the way an upload is, so one route serves both and
+ * no base64 ever lands in the thread file or on the socket.
+ */
+async function saveShots(shots: Shot[]): Promise<string[]> {
+  await fs.mkdir(uploadsDir(), { recursive: true });
+  const names: string[] = [];
+  for (const shot of shots) {
+    const type = shot.mediaType.split("/")[1];
+    const name = `${randomUUID()}.${type === "jpeg" ? "jpg" : type}`;
+    await fs.writeFile(path.join(uploadsDir(), name), Buffer.from(shot.data, "base64"));
+    names.push(name);
+  }
+  return names;
 }
 
 /**
@@ -913,10 +936,10 @@ async function turn(o: {
   // writers: another advisor finishing would make this one think it spoke.
   let said = false;
   let last = "";
-  const record = async (entry: Omit<AssistantEntry, "id" | "at">) => {
+  const record = async ({ shots, ...entry }: StreamEntry) => {
     said = true;
     if (entry.role === "assistant" && entry.text.trim()) last = entry.text;
-    await o.sink(entry);
+    await o.sink(shots?.length ? { ...entry, images: await saveShots(shots) } : entry);
   };
 
   const raw = await new Promise<{ err: string; timedOut: boolean }>((resolve) => {

@@ -24,6 +24,7 @@ import memoryRoutes from "./routes/memory.js";
 import profileRoutes from "./routes/profile.js";
 import feedRoutes from "./routes/feed.js";
 import sourceRoutes from "./routes/sources.js";
+import googleRoutes from "./routes/google.js";
 import proposalRoutes from "./routes/proposals.js";
 import intakeRoutes from "./routes/intake.js";
 import docsRoutes from "./routes/docs.js";
@@ -115,6 +116,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(profileRoutes);
   await app.register(feedRoutes);
   await app.register(sourceRoutes);
+  await app.register(googleRoutes);
   await app.register(proposalRoutes);
   await app.register(intakeRoutes);
   await app.register(docsRoutes);

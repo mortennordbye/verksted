@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { AssistantThread, AssistantThreadSummary, CouncilMember } from "../../../shared/api";
+import type {
+  AssistantThread,
+  AssistantThreadSummary,
+  CalendarEvent,
+  CouncilMember,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BrowserPane from "../components/BrowserPane";
 import Room from "../components/Room";
@@ -190,18 +195,266 @@ function Chip({
   );
 }
 
+const dockBtn =
+  "tap-hit flex-none rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text";
+
+/**
+ * A panel beside the conversation rather than over it: the chair's browser, or
+ * the calendar it writes to.
+ *
+ * Both are for watching what it does while reading what it says, so on a
+ * desktop the panel takes the right half and the thread moves into the left.
+ * A phone has no second half to give, so there it is the whole screen.
+ * Fullscreen on a desktop is for when the panel is what is being read.
+ *
+ * No Escape to close: the browser relays keys into the remote page, and an
+ * Escape meant for a dialog over there would take the whole panel away here.
+ */
+function Dock({
+  title,
+  sub,
+  onClose,
+  children,
+}: {
+  title: string;
+  sub: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const [full, setFull] = useState(false);
+  return (
+    <aside
+      aria-label={title}
+      className={`fixed inset-0 z-50 flex flex-col bg-bg ${
+        full ? "" : "desk:left-1/2 desk:z-30 desk:border-l desk:border-line"
+      }`}
+    >
+      <div className="flex flex-none items-center gap-2 border-b border-line px-3 pt-[max(8px,env(safe-area-inset-top))] pb-2 text-[12px]">
+        <span className="flex-none font-semibold">{title}</span>
+        <span className="min-w-0 flex-1 truncate text-faint">{sub}</span>
+        <button onClick={() => setFull((f) => !f)} className={`${dockBtn} hidden desk:block`}>
+          {full ? "exit fullscreen" : "fullscreen"}
+        </button>
+        <button onClick={onClose} className={dockBtn}>
+          close
+        </button>
+      </div>
+      {children}
+    </aside>
+  );
+}
+
+function BrowserView() {
+  const ref = useRef<HTMLDivElement | null>(null);
+  // The document is what scrolls on this screen, so a wheel over the remote
+  // page scrolled the thread behind it as well. The canvas still gets the
+  // event; only the page's own default is cancelled. Native and non-passive,
+  // since React's wheel listener is passive and cannot cancel anything.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const hold = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener("wheel", hold, { passive: false });
+    return () => el.removeEventListener("wheel", hold);
+  }, []);
+  return (
+    <div ref={ref} className="flex min-h-0 flex-1 flex-col">
+      <BrowserPane wsPath="/api/assistant/browser" />
+    </div>
+  );
+}
+
+/** Local midnight of a date: the grid's days are the bench's days. */
+function midnight(d: Date, plusDays = 0): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + plusDays);
+}
+
+const clock = (iso: string) =>
+  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * The calendar as a month, so what the chair just added, moved or removed can
+ * be seen landing. Read again whenever the thread grows, since that is the
+ * moment it may have changed.
+ */
+function Month({ refresh }: { refresh: number }) {
+  const [month, setMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [picked, setPicked] = useState(() => midnight(new Date()).getTime());
+  const [events, setEvents] = useState<CalendarEvent[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Monday first, always six rows: every month fits, and the grid keeps its
+  // height from one month to the next.
+  const first = midnight(month, -((month.getDay() + 6) % 7));
+  const days = Array.from({ length: 42 }, (_, i) => midnight(first, i));
+  const from = first.toISOString();
+  const to = midnight(first, 42).toISOString();
+
+  useEffect(() => {
+    let live = true;
+    api<CalendarEvent[]>(
+      `/api/calendar/range?start=${encodeURIComponent(from)}&end=${encodeURIComponent(to)}`,
+    )
+      .then((e) => {
+        if (!live) return;
+        setEvents(e);
+        setError(null);
+      })
+      .catch((e: Error) => live && setError(e.message));
+    return () => {
+      live = false;
+    };
+  }, [from, to, refresh]);
+
+  /** Everything that touches a day, so an all-day or overnight event shows on each. */
+  const on = (day: Date) => {
+    const start = day.getTime();
+    const end = midnight(day, 1).getTime();
+    return (events ?? []).filter((e) => Date.parse(e.start) < end && Date.parse(e.end) > start);
+  };
+  const today = midnight(new Date()).getTime();
+  const pickedDay = new Date(picked);
+  const pickedEvents = on(pickedDay);
+  const go = (months: number) =>
+    setMonth((m) => new Date(m.getFullYear(), m.getMonth() + months, 1));
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      <div className="mb-2.5 flex items-center gap-1.5">
+        <span className="text-[15px] font-semibold capitalize">
+          {month.toLocaleDateString([], { month: "long", year: "numeric" })}
+        </span>
+        <span className="flex-1" />
+        <button onClick={() => go(-1)} aria-label="previous month" className={dockBtn}>
+          ‹
+        </button>
+        <button
+          onClick={() => {
+            const now = new Date();
+            setMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+            setPicked(midnight(now).getTime());
+          }}
+          className={dockBtn}
+        >
+          today
+        </button>
+        <button onClick={() => go(1)} aria-label="next month" className={dockBtn}>
+          ›
+        </button>
+      </div>
+      {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
+
+      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
+        {days.slice(0, 7).map((d) => (
+          <div
+            key={`h${d.getDay()}`}
+            className="bg-surface py-1 text-center font-mono text-[10.5px] text-faint"
+          >
+            {d.toLocaleDateString([], { weekday: "short" })}
+          </div>
+        ))}
+        {days.map((d) => {
+          const list = on(d);
+          const key = d.getTime();
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setPicked(key)}
+              aria-pressed={key === picked}
+              className={`flex min-h-[4.75rem] min-w-0 flex-col items-stretch gap-0.5 p-1 text-left hover:bg-surface-2 ${
+                key === picked ? "bg-surface-2 ring-2 ring-accent ring-inset" : "bg-surface"
+              } ${d.getMonth() === month.getMonth() ? "" : "opacity-45"}`}
+            >
+              <span
+                className={`self-start rounded-full px-1.5 font-mono text-[11px] ${
+                  key === today ? "bg-accent text-on-accent" : "text-muted"
+                }`}
+              >
+                {d.getDate()}
+              </span>
+              {list.slice(0, 3).map((e) => (
+                <span
+                  key={`${e.uid}-${e.start}`}
+                  className="truncate rounded bg-accent-tint px-1 text-[10.5px] leading-[1.45]"
+                >
+                  {!e.allDay && <span className="text-muted">{clock(e.start)} </span>}
+                  {e.summary}
+                </span>
+              ))}
+              {list.length > 3 && (
+                <span className="px-1 text-[10px] text-faint">+{list.length - 3} more</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-1.5">
+        <div className="font-mono text-[11px] text-faint capitalize">
+          {pickedDay.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
+        </div>
+        {events === null && !error && <div className="text-[13px] text-faint">reading…</div>}
+        {events !== null && pickedEvents.length === 0 && (
+          <div className="text-[13px] text-faint">nothing on the calendar</div>
+        )}
+        {pickedEvents.map((e) => (
+          <div
+            key={`${e.uid}-${e.start}`}
+            className="flex flex-col gap-0.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13.5px]"
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-[5.5rem] flex-none font-mono text-[12px] text-muted">
+                {e.allDay ? "all day" : `${clock(e.start)}–${clock(e.end)}`}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{e.summary}</span>
+              {e.url && (
+                <a
+                  href={e.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-none font-mono text-[11px] text-accent hover:underline"
+                >
+                  open ↗
+                </a>
+              )}
+            </div>
+            {e.location && (
+              <span className="truncate pl-[6.25rem] text-[12px] text-faint">{e.location}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Chat() {
   const [thread, setThread] = useState<AssistantThread | null>(null);
   const [text, setText] = useState("");
   const grow = useGrow(text);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
+  /**
+   * What was sent while a turn was running, oldest first. The server takes one
+   * turn at a time and answers a second with a 409, so the rest wait here and
+   * go out one by one as each turn ends. Stop is the way to reach them sooner:
+   * a turn going the wrong way is stopped, and the correction is already queued.
+   */
+  const [queued, setQueued] = useState<{ text: string; images: string[] }[]>([]);
+  // A POST is out but the socket may not have said "thinking" yet. Without
+  // this, the queue would fire its next message into that gap and get the 409.
+  const posting = useRef(false);
   const [browsing, setBrowsing] = useState(false);
   // Gabriel's own browser (chair-only, see assistant.ts's mcpConfig). Not
   // remembered across reloads, the way the session screen's toggle isn't
   // either: a hidden pane still streaming frames is the thing that switch
   // exists to avoid.
-  const [showBrowser, setShowBrowser] = useState(false);
+  // The calendar shares its half of the screen, one panel at a time.
+  const [panel, setPanel] = useState<"browser" | "calendar" | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
@@ -299,6 +552,82 @@ export default function Chat() {
     }
   }
 
+  /**
+   * A message that is only an address and no question.
+   *
+   * `@uriel` with nothing after it is what the seat chips write into the field,
+   * so sending one is a slip rather than a thing anyone means. The backend
+   * reads it as unaddressed and hands the chair a message with no question in
+   * it, which cost two model calls to be told it was empty. A bare `@` is the
+   * same slip one character earlier.
+   */
+  const addressOnly = (value: string) => /^@[a-z0-9-]*$/i.test(value);
+
+  async function send(spoken?: string) {
+    const value = (spoken ?? text).trim();
+    if (!value && !pending.length) return;
+    // Typed, not tapped: the two words every other agent surface answers to,
+    // which went to the chair as a question about nothing and came back saying
+    // the turn had produced nothing. Not mid-turn, like the new thread button.
+    if (!spoken && (value === "/clear" || value === "/new")) {
+      if (thinking) return;
+      setText("");
+      await newThread();
+      return;
+    }
+    if (!pending.length && addressOnly(value)) return;
+    const images = pending;
+    if (!spoken) setText("");
+    setPending([]);
+    if (thinking || posting.current) {
+      setQueued((q) => [...q, { text: value, images }]);
+      return;
+    }
+    await post(value, images, !spoken);
+  }
+
+  /** One turn to the server. A failure puts what was sent back to be sent again. */
+  async function post(value: string, images: string[], restore: boolean) {
+    setError(null);
+    posting.current = true;
+    try {
+      setThread(
+        await api<AssistantThread>("/api/assistant/messages", {
+          method: "POST",
+          body: JSON.stringify({
+            text: value || "(see image)",
+            images,
+            roundTable,
+          }),
+          // A turn does real work; the default 15s would abandon every one of
+          // them while the socket kept showing it running.
+          timeoutMs: 11 * 60_000,
+        }),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      // Only into an empty field: a queued message failing must not overwrite
+      // whatever is being typed by then.
+      if (restore) setText((t) => (t.trim() ? t : value));
+      setPending((p) => [...images, ...p]);
+    } finally {
+      posting.current = false;
+    }
+  }
+
+  // The queue drains one message per idle moment. The next arrives with the
+  // thread that ends this turn, whether from the POST or from the socket.
+  useEffect(() => {
+    if (!thread || thinking || posting.current || !queued.length) return;
+    const [next, ...rest] = queued;
+    setQueued(rest);
+    void post(next.text, next.images, true);
+    // post reads roundTable at the moment it sends, which is the intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread, thinking, queued]);
+
+  // Below send, which it calls: the lint's compiler check will not have a
+  // callback reach a function declared further down.
   const speech = useSpeech((said) => void send(said));
   const { listening, speaking, transcribing } = speech;
 
@@ -376,52 +705,6 @@ export default function Chat() {
     void speech.listen();
   }
 
-  /**
-   * A message that is only an address and no question.
-   *
-   * `@uriel` with nothing after it is what the seat chips write into the field,
-   * so sending one is a slip rather than a thing anyone means. The backend
-   * reads it as unaddressed and hands the chair a message with no question in
-   * it, which cost two model calls to be told it was empty. A bare `@` is the
-   * same slip one character earlier.
-   */
-  const addressOnly = (value: string) => /^@[a-z0-9-]*$/i.test(value);
-
-  async function send(spoken?: string) {
-    const value = (spoken ?? text).trim();
-    if ((!value && !pending.length) || thinking) return;
-    // Typed, not tapped: the two words every other agent surface answers to,
-    // which went to the chair as a question about nothing and came back saying
-    // the turn had produced nothing.
-    if (!spoken && (value === "/clear" || value === "/new")) {
-      setText("");
-      await newThread();
-      return;
-    }
-    if (!pending.length && addressOnly(value)) return;
-    if (!spoken) setText("");
-    setError(null);
-    try {
-      setThread(
-        await api<AssistantThread>("/api/assistant/messages", {
-          method: "POST",
-          body: JSON.stringify({
-            text: value || "(see image)",
-            images: pending,
-            roundTable,
-          }),
-          // A turn does real work; the default 15s would abandon every one of
-          // them while the socket kept showing it running.
-          timeoutMs: 11 * 60_000,
-        }),
-      );
-      setPending([]);
-    } catch (e) {
-      setError((e as Error).message);
-      if (!spoken) setText(value);
-    }
-  }
-
   async function stop() {
     await api("/api/assistant/stop", { method: "POST" }).catch(() => {});
   }
@@ -470,7 +753,14 @@ export default function Chat() {
     // page that cannot scroll differently: its fixed tab bar was left standing
     // above a toolbar that had already gone, and a drag at either end of the
     // thread bounced the whole page out from under that bar.
-    <div className="flex min-h-full flex-col pb-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:pb-0">
+    //
+    // With a panel open on a desktop, the whole screen gives up its right half
+    // to it, top bar included, so the two read as one split view.
+    <div
+      className={`flex min-h-full flex-col pb-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:pb-0 ${
+        panel ? "desk:pr-[50%]" : ""
+      }`}
+    >
       {/* The count reads left, the controls sit together on the right. The
           switch is a plain word; the two that change which thread you are in
           are the lifted ones.
@@ -504,13 +794,17 @@ export default function Chat() {
                 read aloud
               </Toggle>
             )}
-            <button
-              onClick={() => setShowBrowser((v) => !v)}
-              title="Gabriel's own browser"
-              className={`tap-hit ml-1 rounded-lg px-2.5 py-1 font-medium hover:bg-surface-2 hover:text-text ${showBrowser ? "bg-surface-2 text-text" : "bg-surface text-muted"}`}
-            >
-              {showBrowser ? "✕ browser" : "◫ browser"}
-            </button>
+            {(["browser", "calendar"] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPanel((v) => (v === p ? null : p))}
+                title={p === "browser" ? `${chair.name}'s own browser` : "the calendar, as a month"}
+                aria-pressed={panel === p}
+                className={`tap-hit ml-1 rounded-lg px-2.5 py-1 font-medium hover:bg-surface-2 hover:text-text ${panel === p ? "bg-surface-2 text-text" : "bg-surface text-muted"}`}
+              >
+                {panel === p ? `✕ ${p}` : `◫ ${p}`}
+              </button>
+            ))}
             <button
               onClick={() => setBrowsing(true)}
               disabled={thinking}
@@ -600,6 +894,30 @@ export default function Chat() {
             ))}
           </div>
         )}
+        {queued.length > 0 && (
+          <div className="mb-2 flex flex-col gap-1.5">
+            {queued.map((q, i) => (
+              <div
+                key={`${i}-${q.text}`}
+                className="flex items-center gap-2.5 rounded-xl bg-surface px-3 py-2 text-[13px]"
+              >
+                <span className="flex-none font-mono text-[11px] text-faint">queued</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {q.text || "(image)"}
+                  {q.images.length > 0 &&
+                    ` · ${q.images.length} image${q.images.length === 1 ? "" : "s"}`}
+                </span>
+                <button
+                  onClick={() => setQueued((qs) => qs.filter((_, j) => j !== i))}
+                  aria-label="remove from queue"
+                  className="flex-none font-mono text-faint hover:text-fail"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -640,7 +958,11 @@ export default function Chat() {
             }}
             rows={1}
             placeholder={
-              listening ? "listening…" : thinking ? "working…" : "Ask, or tell me something…"
+              listening
+                ? "listening…"
+                : thinking
+                  ? "working… anything sent now waits its turn"
+                  : "Ask, or tell me something…"
             }
             aria-label="message the assistant"
             className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none placeholder:text-faint"
@@ -650,7 +972,6 @@ export default function Chat() {
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => fileRef.current?.click()}
-              disabled={thinking}
               aria-label="attach an image"
               className="tap-sq order-2 flex h-9 w-9 flex-none items-center justify-center rounded-xl text-muted hover:bg-line-strong/40 hover:text-text disabled:opacity-40 min-[620px]:order-1"
             >
@@ -743,7 +1064,7 @@ export default function Chat() {
                 </Ico>
               </button>
             )}
-            {thinking ? (
+            {thinking && (
               <button
                 onClick={() => void stop()}
                 className="tap-sq order-4 flex h-9 flex-none items-center gap-1.5 rounded-xl bg-surface px-3 text-[13px] font-semibold text-muted hover:text-text"
@@ -753,13 +1074,16 @@ export default function Chat() {
                 </Ico>
                 Stop
               </button>
-            ) : (
+            )}
+            {/* Beside Stop mid-turn once there is something to queue, so a
+                phone, where Enter is a newline, can queue too. */}
+            {(!thinking || text.trim() || pending.length > 0) && (
               // A filled circle: it is the one action in this row that commits
               // something.
               <button
                 onClick={() => void send()}
                 disabled={(!text.trim() || addressOnly(text.trim())) && !pending.length}
-                aria-label="send"
+                aria-label={thinking ? "queue for after this turn" : "send"}
                 className="tap-sq order-4 flex h-10 w-10 flex-none items-center justify-center rounded-full bg-accent text-on-accent transition hover:brightness-110 disabled:bg-surface disabled:text-faint"
               >
                 <Ico>
@@ -781,16 +1105,23 @@ export default function Chat() {
         />
       )}
 
-      {showBrowser && (
-        <Sheet
-          title="Gabriel's browser"
-          sub="Live — whatever it navigates to or clicks shows up here."
-          onClose={() => setShowBrowser(false)}
+      {panel === "browser" && (
+        <Dock
+          title={`${chair.name}'s browser`}
+          sub="live: what it opens and clicks shows up here"
+          onClose={() => setPanel(null)}
         >
-          <div className="flex h-[60vh] min-h-[320px] flex-col overflow-hidden rounded-lg border border-line">
-            <BrowserPane wsPath="/api/assistant/browser" />
-          </div>
-        </Sheet>
+          <BrowserView />
+        </Dock>
+      )}
+      {panel === "calendar" && (
+        <Dock
+          title="Calendar"
+          sub="what it adds, moves or removes lands here"
+          onClose={() => setPanel(null)}
+        >
+          <Month refresh={thread?.entries.length ?? 0} />
+        </Dock>
       )}
     </div>
   );

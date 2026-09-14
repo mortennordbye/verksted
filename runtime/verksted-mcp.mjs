@@ -108,9 +108,25 @@ const propose = (action, why) =>
       `proposed: ${item.title}. It is on their inbox and phone; nothing happens until they tap it.`,
   );
 
-/** One event, on one line: when, what, where. */
+/** One event, on one line: when, what, where, and the uid a change names it by. */
 const eventLine = (e) =>
-  `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""}`;
+  `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""} [${e.uid}]`;
+
+/** Only the fields the calendar routes take: they refuse anything else. */
+const eventBody = (a) =>
+  Object.fromEntries(
+    ["summary", "start", "end", "location", "description"]
+      .filter((k) => typeof a[k] === "string")
+      .map((k) => [k, a[k]]),
+  );
+
+const EVENT_FIELDS = {
+  summary: { type: "string" },
+  start: { type: "string", description: "ISO, in the bench's own time: 2026-09-18T15:50" },
+  end: { type: "string", description: "ISO, in the bench's own time" },
+  location: { type: "string" },
+  description: { type: "string" },
+};
 
 const TOOLS = [
   {
@@ -789,6 +805,36 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
     run: async (a) =>
       rows(await call("GET", `/api/calendar/search?q=${encodeURIComponent(a.query)}`), eventLine),
+  },
+  {
+    name: "calendar_add",
+    description:
+      "Put an event on the calendar because they told you to: a booking you just made for them, 'put it in the calendar'. Do it, then say in one line what is there. An event they did not ask for (one you found in a mail, say) is still a propose card.",
+    inputSchema: { type: "object", properties: EVENT_FIELDS, required: ["summary", "start", "end"] },
+    run: async (a) => {
+      const { uid } = await call("POST", "/api/calendar/events", eventBody(a));
+      return `added: ${local(a.start)} ${a.summary} [${uid}]`;
+    },
+  },
+  {
+    name: "calendar_update",
+    description:
+      "Change one event they told you to change, named by the uid in brackets that calendar_today, calendar_upcoming and calendar_search print. Only the fields given change; a new start alone keeps its length; an empty location or description clears it. A recurring event is refused: tell them to change that one in their calendar app.",
+    inputSchema: {
+      type: "object",
+      properties: { uid: { type: "string" }, ...EVENT_FIELDS },
+      required: ["uid"],
+    },
+    run: async (a) =>
+      `now: ${eventLine(await call("PATCH", `/api/calendar/events/${encodeURIComponent(a.uid)}`, eventBody(a)))}`,
+  },
+  {
+    name: "calendar_delete",
+    description:
+      "Take one event off the calendar because they told you to, by its uid in brackets from the calendar tools. Say what was removed. A recurring event is refused.",
+    inputSchema: { type: "object", properties: { uid: { type: "string" } }, required: ["uid"] },
+    run: async (a) =>
+      `removed: ${eventLine(await call("DELETE", `/api/calendar/events/${encodeURIComponent(a.uid)}`))}`,
   },
   {
     name: "propose",
