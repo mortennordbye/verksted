@@ -53,20 +53,45 @@ let log: Logger = { warn: () => {} };
 
 const TOPICS = Object.keys(INTERVALS) as Topic[];
 
+/** Topics being computed right now, and those asked for again meanwhile. */
+const running = new Set<Topic>();
+const again = new Set<Topic>();
+
+/**
+ * One computation per topic at a time. Two overlapping ones could finish out of
+ * order, and the older answer, broadcast last, would put a repo that had just
+ * gone clean back to "dirty" on every screen.
+ */
 async function tick(topic: Topic): Promise<void> {
-  let json: string;
+  if (running.has(topic)) {
+    again.add(topic);
+    return;
+  }
+  running.add(topic);
   try {
-    json = JSON.stringify(await SOURCES[topic]());
+    const json = JSON.stringify(await SOURCES[topic]());
+    if (latest.get(topic) !== json) {
+      latest.set(topic, json);
+      for (const send of clients) send(topic, json);
+    }
   } catch (err) {
     // A repo deleted mid-scan, or tmux briefly unavailable. Say nothing and try
     // again next interval: clients keep the last good answer, which beats
     // pushing an error into a status badge.
     log.warn(err, `event source failed: ${topic}`);
-    return;
+  } finally {
+    running.delete(topic);
   }
-  if (latest.get(topic) === json) return;
-  latest.set(topic, json);
-  for (const send of clients) send(topic, json);
+  if (again.delete(topic) && timers.has(topic)) await tick(topic);
+}
+
+/**
+ * Recompute a topic now rather than at its next interval: after a pull, reset
+ * or commit, so "dirty" follows the repo instead of lagging it. Nothing runs
+ * while nobody is listening.
+ */
+export function refreshTopic(topic: Topic): void {
+  if (timers.has(topic)) void tick(topic);
 }
 
 function startTimers(): void {
