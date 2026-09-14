@@ -696,24 +696,23 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 
 ## React Compiler lint rules from react-hooks 7 warn instead of erroring
 
-- **What:** `eslint-plugin-react-hooks` 7 folds in the React Compiler rules, and
-  two of them fire on the existing frontend: `react-hooks/refs` (5 sites) and
-  `react-hooks/set-state-in-effect` (5 sites). Both are set to `warn` so CI is
-  not blocked, matching how the jsx-a11y findings above them are already
-  handled.
-- **Why deferred:** Every site is a deliberate, commented idiom — the latest-ref
-  pattern (a ref assigned during render so an effect reads a fresh callback
-  without re-subscribing) and effects that seed state on mount. Fixing them is a
-  behavioural refactor of hooks that currently work, which is well outside a
-  dependency upgrade.
+- **What:** `eslint-plugin-react-hooks` 7 folds in the React Compiler rules.
+  `react-hooks/refs` no longer fires: its five latest-ref sites now assign in a
+  `useLayoutEffect`. `react-hooks/set-state-in-effect` still does, on 7 sites,
+  and stays at `warn` so CI is not blocked, matching how the jsx-a11y findings
+  above it are handled.
+- **Why deferred:** Every remaining site is an effect that seeds or resets state
+  when something outside React changes, and each is commented as such. Unlike
+  the refs sites these have no mechanical fix: each effect has to be restructured
+  (derive during render, or move the set into the event that causes it), which
+  is a behavioural refactor of hooks that currently work.
 - **Unblocked by:** Wanting the React Compiler to be able to optimise these
-  components, which is when the rules stop being advisory. Take the `refs` sites
-  first: those have a mechanical fix (assign in an effect) where the
-  `set-state-in-effect` ones need the effect restructured.
-- **Where:** `frontend/src/useDismissOnBack.ts`, `frontend/src/useSpeech.ts`,
-  `frontend/src/components/Terminal.tsx`, `frontend/src/components/ChatPane.tsx`,
-  `frontend/src/components/AssistantPanel.tsx`,
-  `frontend/src/components/CommandPalette.tsx`, `frontend/src/api.ts`
+  components, which is when the rule stops being advisory. Then take them one
+  at a time, each with the screen it drives open in a browser.
+- **Where:** `frontend/src/api.ts`, `frontend/src/components/AssistantPanel.tsx`,
+  `frontend/src/components/ChangesPanel.tsx`, `frontend/src/components/ChatPane.tsx`
+  (two), `frontend/src/components/CommandPalette.tsx`,
+  `frontend/src/components/Terminal.tsx`
 
 ## Node major bumps are a manual LTS decision
 

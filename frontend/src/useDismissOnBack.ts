@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 /**
  * How many overlays are open. The history entry is shared between them: the
@@ -57,7 +57,9 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
   // Kept in a ref so a caller passing an inline arrow does not re-run the
   // effect on every render, which would push a new entry each time.
   const close = useRef(onClose);
-  close.current = onClose;
+  useLayoutEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -111,7 +113,9 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
  */
 export function useOverlayDismiss(open: boolean, onClose: () => void): void {
   const close = useRef(onClose);
-  close.current = onClose;
+  useLayoutEffect(() => {
+    close.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;

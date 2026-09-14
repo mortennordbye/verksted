@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uncite } from "./components/chat/cite";
 
 /**
@@ -228,7 +228,9 @@ export function useSpeech(onFinal: (said: string) => void) {
   // Held in a ref so restarting the microphone after a reply does not depend on
   // the callback identity being stable across renders.
   const onFinalRef = useRef(onFinal);
-  onFinalRef.current = onFinal;
+  useLayoutEffect(() => {
+    onFinalRef.current = onFinal;
+  });
 
   const stopListening = useCallback(() => {
     stopRef.current?.();
