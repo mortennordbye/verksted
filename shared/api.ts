@@ -677,6 +677,12 @@ export interface PullRequestDetail extends PullRequest {
   /** Comments and reviews merged, oldest first. */
   comments: PrComment[];
   files: { path: string; additions: number; deletions: number }[];
+  /**
+   * Lines in the body or a commit message that say an agent wrote this: a
+   * Co-Authored-By naming one, a "Generated with" footer, a session link. Empty
+   * when clean. The house rules forbid them; this is how a breach gets noticed.
+   */
+  attribution: string[];
 }
 
 /** Unified diff of a pull request; truncated when it was cut to fit. */
