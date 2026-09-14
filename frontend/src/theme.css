@@ -196,6 +196,12 @@ html {
   /* Native form controls, checkboxes and scrollbars render light-themed
      otherwise, against a deliberately dark palette. */
   color-scheme: dark;
+  /* Never shorter than the screen. An installed iOS app lays a fixed element
+     out against the wrong viewport while the document fits without scrolling,
+     so the tab bar stood a status bar's height up on every short page: the
+     inbox while it loads, an empty thread. #140 fixed that on the thread by
+     making it scroll the page; a page with little on it did not. */
+  min-height: calc(100% + env(safe-area-inset-top));
 }
 
 body {

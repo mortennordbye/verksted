@@ -435,6 +435,10 @@ export default function Today() {
         />
         <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_312px] min-[1000px]:gap-10">
           <section className="flex min-w-0 flex-col gap-7">
+            {/* At the top and in place. Stuck to the bottom it followed the
+                scroll and sat over whatever list was passing under it. */}
+            <Composer name={name} />
+
             {loaded && needs > 0 && (
               <div>
                 <Label>Needs you</Label>
@@ -653,12 +657,6 @@ export default function Today() {
 
             <div className="min-[1000px]:hidden">
               <Running sessions={running} />
-            </div>
-
-            {/* 55px is the bottom bar's height. It sat at 64, which left a
-                strip between the two where the page scrolled through. */}
-            <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:bottom-4">
-              <Composer name={name} />
             </div>
           </section>
 
