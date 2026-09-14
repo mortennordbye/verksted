@@ -12,8 +12,17 @@ import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import TopBar from "../components/TopBar";
-import Icon from "../components/Icon";
+import Icon, { type IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import SectionLabel from "../components/SectionLabel";
+
+/** Each view of a project wears the drawing of what it lists. */
+const TAB_ICON: Record<"sessions" | "prs" | "actions" | "schedules", IconName> = {
+  sessions: "terminal",
+  prs: "pr",
+  actions: "play",
+  schedules: "history",
+};
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import { useConfirm } from "../useConfirm";
@@ -72,9 +81,9 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
         onClick={onDelete}
         title="delete session"
         aria-label={`delete session ${session.title}`}
-        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1 font-mono text-[12px] text-faint hover:border-wait hover:text-wait"
+        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1.5 text-faint hover:border-wait hover:text-wait"
       >
-        ✕
+        <Icon name="trash" size={14} />
       </button>
     </div>
   );
@@ -270,12 +279,13 @@ export default function Project() {
               key={t}
               aria-pressed={tab === t}
               onClick={() => setTab(t)}
-              className={`rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
                 tab === t
                   ? "border-accent bg-surface-2 text-text"
-                  : "border-line bg-surface text-muted"
+                  : "border-line bg-surface text-muted hover:text-text"
               }`}
             >
+              <Icon name={TAB_ICON[t]} size={14} />
               {t}
               {t === "sessions" && active.length > 0 && (
                 <span className="ml-1 text-run">{active.length}</span>
@@ -286,9 +296,9 @@ export default function Project() {
 
         {tab === "sessions" && (
           <>
-            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+            <SectionLabel icon="running" sub>
               Active
-            </div>
+            </SectionLabel>
             <div className="flex flex-col gap-2.5">
               {active.map((s) => (
                 <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
@@ -302,9 +312,9 @@ export default function Project() {
 
             {recent.length > 0 && (
               <>
-                <div className="mt-6 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+                <SectionLabel icon="history" sub className="mt-6">
                   Recent
-                </div>
+                </SectionLabel>
                 <div className="flex flex-col gap-2.5">
                   {recent.map((s) => (
                     <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
@@ -322,8 +332,9 @@ export default function Project() {
         <div className="mt-10 border-t border-line pt-4">
           <button
             onClick={() => setConfirmingDelete(true)}
-            className="font-mono text-[12px] text-faint hover:text-wait"
+            className="flex items-center gap-1.5 font-mono text-[12px] text-faint hover:text-wait"
           >
+            <Icon name="trash" size={13} />
             delete project…
           </button>
         </div>

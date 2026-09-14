@@ -146,6 +146,23 @@ const PATHS = {
     </>
   ),
   close: <path d="M18 6 6 18M6 6l12 12" />,
+  pull: <path d="M12 3v12M6 11l6 6 6-6M5 21h14" />,
+  push: <path d="M12 21V9M6 13l6-6 6 6M5 3h14" />,
+  reset: <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
+  terminal: <path d="m4 17 6-6-6-6M12 19h8" />,
+  pr: (
+    <>
+      <circle cx="18" cy="18" r="3" />
+      <circle cx="6" cy="6" r="3" />
+      <path d="M13 6h3a2 2 0 0 1 2 2v7M6 9v12" />
+    </>
+  ),
+  play: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m10 8 6 4-6 4z" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />
