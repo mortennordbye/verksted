@@ -60,10 +60,7 @@ export default function Sheet({
         <h2 className="mb-0.5 text-[15px] font-semibold">{title}</h2>
         <div className="mb-4 text-sm text-muted">{sub}</div>
         {children}
-        <button
-          onClick={onClose}
-          className="tap mt-3 w-full p-[11px] font-mono text-[13px] text-muted"
-        >
+        <button onClick={onClose} className="tap mt-3 w-full p-[11px] text-[13.5px] text-muted">
           cancel
         </button>
       </div>

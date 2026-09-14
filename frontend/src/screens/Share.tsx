@@ -45,7 +45,7 @@ export default function Share() {
           title={error ? "Could not take it in" : "Taking it in…"}
           sub={
             error ? (
-              <span className="font-mono text-[12px] text-fail">{error}</span>
+              <span className="text-[12.5px] text-fail">{error}</span>
             ) : (
               "Sending it to the inbox, where it lands as an item."
             )

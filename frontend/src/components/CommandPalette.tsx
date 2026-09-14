@@ -136,7 +136,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
           }}
           placeholder="jump to a project or session…"
           aria-label="jump to a project or session"
-          className="flex-none border-b border-line bg-transparent px-4 py-3.5 font-mono text-[14px] outline-none placeholder:text-faint"
+          className="flex-none border-b border-line bg-transparent px-4 py-3.5 text-[14px] outline-none placeholder:text-faint"
         />
         <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
           {shown.map((entry, i) => (
@@ -154,7 +154,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
             </li>
           ))}
           {entries !== null && shown.length === 0 && (
-            <li className="px-4 py-3 font-mono text-[12.5px] text-faint">nothing matches</li>
+            <li className="px-4 py-3 text-[13px] text-faint">nothing matches</li>
           )}
           {entries === null &&
             ["w-2/5", "w-3/5", "w-1/2"].map((w) => (

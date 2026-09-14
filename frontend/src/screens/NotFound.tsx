@@ -21,7 +21,7 @@ export default function NotFound() {
         />
         <Link
           to="/"
-          className="inline-block rounded-[7px] bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+          className="inline-block rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
         >
           back to the hub
         </Link>

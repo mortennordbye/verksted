@@ -88,24 +88,22 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
         </div>
       )}
       {a.kind === "merge_pr" && (
-        <div className="font-mono text-[12.5px]">
+        <div className="text-[13px]">
           squash-merge {a.project} #{a.number} and delete its branch
         </div>
       )}
       {a.kind === "end_session" && (
-        <div className="font-mono text-[12.5px]">
-          end {a.id}; whatever it has not written is gone
-        </div>
+        <div className="text-[13px]">end {a.id}; whatever it has not written is gone</div>
       )}
       {a.kind === "delete_schedule" && (
-        <div className="font-mono text-[12.5px]">delete schedule {a.id} and its run history</div>
+        <div className="text-[13px]">delete schedule {a.id} and its run history</div>
       )}
       {/* The prompt is the whole of what the agent will be told, so it is shown
           whole: this card is the one place a session started off something the
           assistant read can be seen before it runs. */}
       {a.kind === "start_session" && (
         <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">
-          <div className="font-mono text-[12.5px]">
+          <div className="text-[13px]">
             {a.agent} in {a.project}
             {a.title ? ` — ${a.title}` : ""}
           </div>
@@ -120,20 +118,20 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
           <div className="mt-1 text-[12.5px] whitespace-pre-wrap text-muted">{a.ask}</div>
         </div>
       )}
-      {error && <div className="mt-2 font-mono text-[12px] text-fail">{error}</div>}
+      {error && <div className="mt-2 text-[12.5px] text-fail">{error}</div>}
       {!done ? (
         <div className="mt-3 flex items-center gap-2">
           <button
             onClick={() => void act("do")}
             disabled={busy !== null}
-            className="tap rounded-[7px] bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy === "do" ? "doing…" : label}
           </button>
           <button
             onClick={() => void act("drop")}
             disabled={busy !== null}
-            className="tap rounded-[7px] border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+            className="tap rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
           >
             drop
           </button>

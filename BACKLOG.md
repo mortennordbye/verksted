@@ -775,22 +775,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   nordbye.it's own light column: `--bg` `#f9fbf9`, `--surface` `#f0f5f1`,
   `--fg` `#1a201b`, `--accent` `#378144`, `--accent-ink` `#fff`
 
-## Mono labels still carry the terminal look on the screens outside the hub
-
-- **What:** The shared pieces are done — `StatusChip` and `AgentTag` changed
-  once and every screen picked it up — but Project, Session, Inbox, Settings and
-  the panels still set `font-mono` on prose: headings, counts, button labels and
-  empty states. Mono is meant to be left for terminal output, paths, session ids
-  and key hints.
-- **Why deferred:** The brief was the hub. Sweeping five more screens in the
-  same pass would have made the diff impossible to review against the one screen
-  the design was actually decided on.
-- **Unblocked by:** Nothing external. Grep `font-mono` under
-  `frontend/src/screens` and `frontend/src/components` and judge each one
-  against that rule; roughly 40 sites.
-- **Where:** `frontend/src/screens/{Project,Session,Inbox,Settings}.tsx`,
-  `frontend/src/components/*Panel.tsx`
-
 ## The chair's convening has never been watched against a real model
 
 - **What:** A meeting is triggered by the chair opening its reply with
