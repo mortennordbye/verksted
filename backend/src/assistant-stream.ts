@@ -166,7 +166,12 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       for (const c of b.content as ContentBlock[]) {
         const mediaType = c.source?.media_type;
         const data = c.source?.data;
-        if (c.type === "image" && mediaType && SHOT_TYPES.has(mediaType) && typeof data === "string") {
+        if (
+          c.type === "image" &&
+          mediaType &&
+          SHOT_TYPES.has(mediaType) &&
+          typeof data === "string"
+        ) {
           state.pendingShots.push({ mediaType, data });
         }
       }

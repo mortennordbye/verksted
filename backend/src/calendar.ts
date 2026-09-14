@@ -205,7 +205,9 @@ export async function update(uid: string, change: Partial<EventFields>): Promise
   const end =
     change.end ??
     (change.start
-      ? new Date(Date.parse(start) + Date.parse(current.end) - Date.parse(current.start)).toISOString()
+      ? new Date(
+          Date.parse(start) + Date.parse(current.end) - Date.parse(current.start),
+        ).toISOString()
       : current.end);
   if (Date.parse(end) <= Date.parse(start)) throw new CalendarRefused("end must be after start");
 

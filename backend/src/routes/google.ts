@@ -23,9 +23,8 @@ function cookie(value: string, maxAge: number, secure: boolean): string {
 }
 
 export default async function googleRoutes(app: FastifyInstance) {
-  app.get(
-    "/api/calendar/google",
-    (req): Promise<GoogleCalendarStatus> => google.status(req.headers.host),
+  app.get("/api/calendar/google", (req): Promise<GoogleCalendarStatus> =>
+    google.status(req.headers.host),
   );
 
   app.get("/api/calendar/google/start", async (req, reply) => {
@@ -81,11 +80,8 @@ export default async function googleRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post(
-    "/api/calendar/google/disconnect",
-    async (req): Promise<GoogleCalendarStatus> => {
-      await google.disconnect();
-      return google.status(req.headers.host);
-    },
-  );
+  app.post("/api/calendar/google/disconnect", async (req): Promise<GoogleCalendarStatus> => {
+    await google.disconnect();
+    return google.status(req.headers.host);
+  });
 }

@@ -38,7 +38,10 @@ function toolResult(id: string, content: unknown[]): string {
   });
 }
 
-const PNG = { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } };
+const PNG = {
+  type: "image",
+  source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" },
+};
 
 describe("screenshots", () => {
   it("keeps a picture a tool returned, on the turn that talks about it", () => {
@@ -73,7 +76,10 @@ describe("screenshots", () => {
         ]),
         toolResult("r1", [PNG]),
         toolResult("s1", [
-          { type: "image", source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zz4=" } },
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/svg+xml", data: "PHN2Zz4=" },
+          },
         ]),
         assistant([{ type: "text", text: "Done." }]),
         result(),

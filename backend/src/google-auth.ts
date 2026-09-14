@@ -140,7 +140,8 @@ export async function connect(code: string, redirect: string): Promise<string> {
     signal: AbortSignal.timeout(15_000),
   });
   const info = (await who.json().catch(() => ({}))) as { email?: string };
-  if (!who.ok || !info.email) throw new GoogleAuthError("Google did not say which account signed in");
+  if (!who.ok || !info.email)
+    throw new GoogleAuthError("Google did not say which account signed in");
 
   // Read again right before writing: the exchange took a round trip, and a
   // var saved on the settings page meanwhile must not be written over.

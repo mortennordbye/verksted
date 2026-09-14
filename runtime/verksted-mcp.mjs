@@ -810,7 +810,11 @@ const TOOLS = [
     name: "calendar_add",
     description:
       "Put an event on the calendar because they told you to: a booking you just made for them, 'put it in the calendar'. Do it, then say in one line what is there. An event they did not ask for (one you found in a mail, say) is still a propose card.",
-    inputSchema: { type: "object", properties: EVENT_FIELDS, required: ["summary", "start", "end"] },
+    inputSchema: {
+      type: "object",
+      properties: EVENT_FIELDS,
+      required: ["summary", "start", "end"],
+    },
     run: async (a) => {
       const { uid } = await call("POST", "/api/calendar/events", eventBody(a));
       return `added: ${local(a.start)} ${a.summary} [${uid}]`;

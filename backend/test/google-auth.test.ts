@@ -141,8 +141,14 @@ describe("the routes", () => {
       clientSecret: "secret-1",
       refreshToken: "rt",
     });
-    const status = (await app.inject({ url: "/api/calendar/google", headers: { host: HOST } })).json();
-    expect(status).toEqual({ clientSet: true, account: "morten@nordbye.it", redirectUri: CALLBACK });
+    const status = (
+      await app.inject({ url: "/api/calendar/google", headers: { host: HOST } })
+    ).json();
+    expect(status).toEqual({
+      clientSet: true,
+      account: "morten@nordbye.it",
+      redirectUri: CALLBACK,
+    });
     // A source credential: the backend reads it, no session is ever handed it.
     expect(await settings.agentEnv()).not.toHaveProperty("GOOGLE_REFRESH_TOKEN");
   });
@@ -153,7 +159,9 @@ describe("the routes", () => {
     const state = new URL(String(start.headers.location)).searchParams.get("state")!;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ access_token: "at", refresh_token: "rt", scope: "openid email" })),
+      vi.fn(async () =>
+        Response.json({ access_token: "at", refresh_token: "rt", scope: "openid email" }),
+      ),
     );
 
     const res = await app.inject({

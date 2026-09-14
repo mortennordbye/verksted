@@ -237,8 +237,7 @@ export default async function sourceRoutes(app: FastifyInstance) {
       const bad = badDates(req.body.start, req.body.end);
       if (bad) return reply.code(400).send({ error: bad });
       return guard<{ uid: string }>(
-        () =>
-          calendar.put({ ...req.body, start: iso(req.body.start)!, end: iso(req.body.end)! }),
+        () => calendar.put({ ...req.body, start: iso(req.body.start)!, end: iso(req.body.end)! }),
         reply,
         "calendar add",
       );

@@ -349,10 +349,16 @@ function GoogleCalendar() {
         <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
           <StatusChip kind="run" label="connected" />
           <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{data.account}</span>
-          <a href="/api/calendar/google/start" className="tap font-mono text-[12px] text-muted hover:text-text">
+          <a
+            href="/api/calendar/google/start"
+            className="tap font-mono text-[12px] text-muted hover:text-text"
+          >
             sign in again
           </a>
-          <button onClick={disconnect} className="tap font-mono text-[12px] text-muted hover:text-wait">
+          <button
+            onClick={disconnect}
+            className="tap font-mono text-[12px] text-muted hover:text-wait"
+          >
             disconnect
           </button>
         </div>
@@ -360,14 +366,13 @@ function GoogleCalendar() {
         <div className="flex flex-col gap-3 rounded-[11px] border border-dashed border-line px-[15px] py-3 text-[13px]">
           <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-muted">
             <li>
-              In the Google Cloud console, signed in with your Workspace account: create a
-              project, enable the <span className="text-text">CalDAV API</span>, and set the OAuth
-              consent screen's user type to <span className="text-text">Internal</span>.
+              In the Google Cloud console, signed in with your Workspace account: create a project,
+              enable the <span className="text-text">CalDAV API</span>, and set the OAuth consent
+              screen's user type to <span className="text-text">Internal</span>.
             </li>
             <li>
-              Create an OAuth client ID of type{" "}
-              <span className="text-text">Web application</span>, with this as its authorised
-              redirect URI:
+              Create an OAuth client ID of type <span className="text-text">Web application</span>,
+              with this as its authorised redirect URI:
               <span className="mt-1 flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded-md bg-surface-2 px-2 py-1 font-mono text-[12px] text-text">
                   {data?.redirectUri ?? "…"}
@@ -412,7 +417,11 @@ function GoogleCalendar() {
                 autoComplete="off"
                 className={field}
               />
-              <button onClick={saveClient} disabled={!clientId.trim() || !secret.trim()} className={button}>
+              <button
+                onClick={saveClient}
+                disabled={!clientId.trim() || !secret.trim()}
+                className={button}
+              >
                 save
               </button>
             </div>
