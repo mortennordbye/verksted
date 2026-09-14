@@ -13,6 +13,9 @@ import { agoLabel, api, usePoll } from "../api";
 import { copyText } from "../clipboard";
 import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
+import PageHeader from "../components/PageHeader";
+import Icon from "../components/Icon";
+import SectionLabel from "../components/SectionLabel";
 import AssistantPanel from "../components/AssistantPanel";
 import ProfilePanel from "../components/ProfilePanel";
 import CouncilPanel from "../components/CouncilPanel";
@@ -39,11 +42,11 @@ function sourceChip(source: SettingVar["source"]) {
  * whichever group happens to be first.
  */
 const GROUPS = [
-  { key: "assistant", label: "Assistant", hash: ["profile", "council", "memory"] },
-  { key: "runs", label: "Runs", hash: ["schedules", "notifications"] },
-  { key: "sources", label: "Sources", hash: [] },
-  { key: "agents", label: "Agents", hash: ["env", "ssh"] },
-  { key: "bench", label: "Bench", hash: ["backups"] },
+  { key: "assistant", label: "Assistant", icon: "chat", hash: ["profile", "council", "memory"] },
+  { key: "runs", label: "Runs", icon: "history", hash: ["schedules", "notifications"] },
+  { key: "sources", label: "Sources", icon: "sources", hash: [] },
+  { key: "agents", label: "Agents", icon: "key", hash: ["env", "ssh"] },
+  { key: "bench", label: "Bench", icon: "disk", hash: ["backups"] },
 ] as const;
 
 type GroupKey = (typeof GROUPS)[number]["key"];
@@ -89,10 +92,12 @@ export default function Settings() {
     <>
       <TopBar back="/" crumb={[{ label: "settings" }]} />
       <main className="mx-auto max-w-[760px] px-[18px] pt-[22px] pb-[60px]">
-        <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Settings</h1>
-        <div className="mb-6 text-sm text-muted">
-          What the pod runs on your behalf, how it reaches you, and what the agents are given.
-        </div>
+        <PageHeader
+          icon="settings"
+          label="Settings"
+          title="Your bench"
+          sub="What the pod runs on your behalf, how it reaches you, and what the agents are given."
+        />
         {/* Scrolls sideways rather than wrapping: five labels do not fit a
             phone, and a strip that wraps to two lines pushes the content down
             by exactly the height it was meant to save. */}
@@ -105,12 +110,13 @@ export default function Settings() {
               key={g.key}
               aria-pressed={tab === g.key}
               onClick={() => setParams({ tab: g.key }, { replace: true })}
-              className={`tap flex-none rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
+              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
                 tab === g.key
                   ? "border-accent bg-surface-2 text-text"
                   : "border-line bg-surface text-muted hover:text-text"
               }`}
             >
+              <Icon name={g.icon} size={14} />
               {g.label}
             </button>
           ))}
@@ -126,9 +132,9 @@ export default function Settings() {
         {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
         {show("agents") && (
           <>
-            <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+            <SectionLabel icon="key" className="mt-10">
               Environment
-            </div>
+            </SectionLabel>
             <div className="mb-6 text-sm text-muted">
               Variables reach the agent CLIs inside new tmux sessions. Each shows where it is
               defined and enough of its value to recognise it; copy hands you the whole thing
@@ -137,9 +143,9 @@ export default function Settings() {
 
             {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
-            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+            <SectionLabel icon="chip" sub>
               Server · from the deployment (read-only)
-            </div>
+            </SectionLabel>
             <div className="mb-7 overflow-hidden rounded-xl border border-line">
               {Object.entries(data?.server ?? {}).map(([key, value]) => (
                 <div
@@ -152,9 +158,9 @@ export default function Settings() {
               ))}
             </div>
 
-            <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+            <SectionLabel icon="key" sub>
               Agent environment
-            </div>
+            </SectionLabel>
             <div className="flex flex-col gap-2">
               {(data?.vars ?? []).map((v) => (
                 <div
@@ -325,9 +331,9 @@ function GoogleCalendar() {
 
   return (
     <>
-      <div className="mt-2 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="calendar" className="mt-2">
         Google Calendar
-      </div>
+      </SectionLabel>
       <div className="mb-3 text-sm text-muted">
         What the assistant reads and writes when you ask about or change your calendar. Google only
         lets it in through a sign-in, with an OAuth client of your own.
@@ -463,9 +469,9 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="hide" className="mt-10">
         Not mine to read
-      </div>
+      </SectionLabel>
       <div className="mb-3 text-sm text-muted">
         GitHub owners the inbox skips entirely. Nothing from them is filed, triaged, pushed or
         shown, and saving removes what was filed before.
@@ -626,9 +632,9 @@ function Notifications() {
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="bell" className="mt-10">
         Notifications
-      </div>
+      </SectionLabel>
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
         <span className="font-mono text-[12.5px]">this device</span>
         {state === "on" && <StatusChip kind="run" label="subscribed" />}
@@ -730,9 +736,9 @@ function Backups() {
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="disk" className="mt-10">
         Backups
-      </div>
+      </SectionLabel>
       <div className="mb-3 text-sm text-muted">
         One archive of the whole volume — settings, credentials, sessions, memory and every repo
         including its <code className="font-mono text-[12px]">.git</code>. Caches and build output
@@ -848,9 +854,9 @@ function AppReset() {
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="bench" className="mt-10">
         App
-      </div>
+      </SectionLabel>
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
         <span className="font-mono text-[12.5px]">hard reset</span>
         <button
@@ -954,9 +960,9 @@ function SshKeys() {
 
   return (
     <>
-      <div className="mt-10 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      <SectionLabel icon="key" className="mt-10">
         SSH keys · ~/.ssh on the data volume
-      </div>
+      </SectionLabel>
       {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
       <div className="flex flex-col gap-2">
         {(keys ?? []).map((k) => (

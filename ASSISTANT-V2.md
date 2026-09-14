@@ -126,8 +126,10 @@ changes:
 - `theirs: michael` goes. The chair no longer points next door because there is
   no next door; it convenes when a question belongs to a specialist, and the
   cost ceilings already in `assistant.ts` (`MAX_CONVENED`, `MAX_EVERYONE`) are
-  what stop that being expensive. `@michael` in the composer still works as the
-  cheap override and `@all` still asks everybody.
+  what stop that being expensive. `@michael` typed at the start of a message
+  still works as the cheap override and `@all` still asks everybody. Nothing on
+  the composer offers them: the chips that did ("decides / everyone / talk it
+  over") were removed on 2026-09-14, since the chair is the one who decides.
 - The roster, remits, models, tools and faces move entirely to the settings
   page, under "specialists". Nothing on the chat screen lists them. A person who
   never opens settings never learns they exist, and loses nothing by that.
@@ -639,7 +641,8 @@ the detail; an item attached to a loop shows the loop's name. Long-press (or
 the row's menu on PC) offers the four things you say to an assistant about a
 piece of mail: reply, remind me, not important, why is this here. The third is
 the learning signal; the fourth opens the triage turn that decided it. **Bench** is the hub as it
-is today, unchanged, with projects and sessions. **Chat** is the thread.
+is today, unchanged, with projects and sessions. **Chat** is the thread (the
+tab has been called **Assistant** since 2026-09-14).
 
 The composer is docked on Today and on Chat. Asking from Today posts to the same
 thread and shows the reply in a sheet over Today, with "open thread" in its
@@ -713,6 +716,9 @@ browser's own voice until that is decided.
   maintainer issue is a github item, a scheduled run is a schedule item carrying
   its sign-off and cost line. The badge on the tab counts attention items.
 - Every persona line that tells the user about the council.
+- The audience chips under the composer ("decides", "everyone", "talk it
+  over"), removed 2026-09-14. Typing `@name` or `@all` does what the first two
+  did; the round-table switch has no replacement in the screen.
 
 ## Security and privacy
 

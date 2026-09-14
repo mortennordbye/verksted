@@ -290,6 +290,57 @@ describe("the thread", () => {
     expect(ids).toContain(met);
   });
 
+  it("deletes a thread, and starts fresh when it was the open one", async () => {
+    await say("keep me");
+    const kept = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+    await say("delete me");
+    const open = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+
+    const gone = await app.inject({ method: "DELETE", url: `/api/assistant/threads/${open}` });
+
+    expect(gone.statusCode).toBe(200);
+    expect(fs.existsSync(path.join(assistantDir, `${open}.jsonl`))).toBe(false);
+    // The screen is never left pointing at a thread that is not there.
+    const now = (await app.inject({ url: "/api/assistant" })).json();
+    expect(now.conversationId).not.toBe(open);
+    expect(now.entries).toEqual([]);
+
+    expect(
+      (await app.inject({ method: "DELETE", url: `/api/assistant/threads/${kept}` })).statusCode,
+    ).toBe(200);
+    expect((await app.inject({ url: "/api/assistant/threads" })).json()).toEqual([]);
+    expect(
+      (await app.inject({ method: "DELETE", url: `/api/assistant/threads/${kept}` })).statusCode,
+    ).toBe(404);
+  });
+
+  it("clears every thread but the open one, or only the old ones", async () => {
+    const written = (id: string, at: string) =>
+      fs.writeFileSync(
+        path.join(assistantDir, `${id}.jsonl`),
+        `${JSON.stringify({ id: "x", at, role: "user", text: `said ${at}`, tools: [] })}\n`,
+      );
+    const old = "44444444-4444-4444-8444-444444444444";
+    const recent = "55555555-5555-4555-8555-555555555555";
+    written(old, "2026-01-01T00:00:00.000Z");
+    written(recent, new Date().toISOString());
+    await say("the open one");
+    const open = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    const clear = (payload: object) =>
+      app.inject({ method: "POST", url: "/api/assistant/threads/clear", payload });
+
+    expect((await clear({ olderThanDays: 30 })).json()).toEqual({ deleted: 1 });
+    expect(fs.existsSync(path.join(assistantDir, `${old}.jsonl`))).toBe(false);
+    expect(fs.existsSync(path.join(assistantDir, `${recent}.jsonl`))).toBe(true);
+
+    expect((await clear({})).json()).toEqual({ deleted: 1 });
+    const ids = (await app.inject({ url: "/api/assistant/threads" }))
+      .json()
+      .map((t: { conversationId: string }) => t.conversationId);
+    expect(ids).toEqual([open]);
+  });
+
   it("refuses to open a thread that is not there", async () => {
     const res = await app.inject({
       method: "POST",

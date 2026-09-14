@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
+import { ackToday, ackedToday } from "../todayAck";
 import type {
   AssistantConfig,
   AssistantThread,
@@ -16,6 +17,8 @@ import type {
 import { agoLabel, api, usePoll } from "../api";
 import { cite, citeUrl } from "../components/chat/cite";
 import { MD } from "../components/chat/markdown";
+import Icon, { type IconName } from "../components/Icon";
+import PageHeader from "../components/PageHeader";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
@@ -37,13 +40,26 @@ import { canSpeak, useSpeech } from "../useSpeech";
  * computed for this screen. The brief is the newest reply of an assistant
  * schedule, which is what a briefing is.
  */
-function Label({ children }: { children: string }) {
+function Label({ children, icon }: { children: string; icon?: IconName }) {
   return (
-    <div className="mb-2 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
+    <div className="mb-2 flex items-center gap-1.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
+      {icon && <Icon name={icon} size={13} />}
       {children}
     </div>
   );
 }
+
+/** Which icon a feed row's source wears, in place of its name in mono. */
+const SOURCE_ICON: Record<string, IconName> = {
+  github: "github",
+  mail: "inbox",
+  calendar: "calendar",
+  schedule: "history",
+  bench: "bench",
+  memory: "memory",
+  proposal: "proposal",
+  docs: "document",
+};
 
 /**
  * How long a flagged run is today's business. A day, because that is what this
@@ -350,26 +366,59 @@ export default function Today() {
       !stale(r.at),
   );
   const loaded = sessions !== null && runs !== null;
+  const navigate = useNavigate();
+  // Once acknowledged, "/" goes to the bench for the rest of the day; the
+  // button becomes a quiet mark so Today opened from its tab says it was seen.
+  const [acked, setAcked] = useState(ackedToday);
   const needs = waiting.length + flagged.length + (proposals ? 1 : 0);
 
   return (
     <div className="flex min-h-full flex-col">
       <TopBar crumb={[{ label: "today" }]} />
       <main className="mx-auto w-full max-w-[1100px] flex-1 px-[18px] pt-[22px] pb-[calc(96px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
+        {/* Above both columns, as every page's header is: the date is the
+            page's headline, and "Got it" is its one button. */}
+        <PageHeader
+          icon="today"
+          label="Today"
+          title={dateLine()}
+          sub={
+            <>
+              {!loaded
+                ? "…"
+                : needs
+                  ? `${needs} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`
+                  : "Nothing needs you."}
+              {error && <div className="mt-1 font-mono text-[12px] text-fail">{error}</div>}
+            </>
+          }
+          actions={
+            acked ? (
+              <span
+                title="acknowledged today: opening verksted goes to the bench until tomorrow"
+                className="flex flex-none items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-mono text-[12px] text-faint"
+              >
+                <Icon name="check" size={14} />
+                seen today
+              </span>
+            ) : (
+              <button
+                onClick={() => {
+                  ackToday();
+                  setAcked(true);
+                  void navigate("/bench");
+                }}
+                title="done with today: opening verksted goes to the bench until tomorrow"
+                className="tap flex flex-none items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110"
+              >
+                <Icon name="check" size={15} />
+                Got it
+              </button>
+            )
+          }
+        />
         <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_312px] min-[1000px]:gap-10">
           <section className="flex min-w-0 flex-col gap-7">
-            <div>
-              <h1 className="text-[22px] font-bold tracking-[-.03em]">{dateLine()}</h1>
-              <div className="mt-1 text-sm text-muted">
-                {!loaded
-                  ? "…"
-                  : needs
-                    ? `${needs} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`
-                    : "Nothing needs you."}
-              </div>
-              {error && <div className="mt-1 font-mono text-[12px] text-fail">{error}</div>}
-            </div>
-
             {loaded && needs > 0 && (
               <div>
                 <Label>Needs you</Label>
@@ -509,7 +558,15 @@ export default function Today() {
                 fourth list: the same micro-label, the same card, four sections
                 down. A rule and a heading of its own say where the lists stop
                 and the morning's reading starts. */}
-            <div className="border-t border-line pt-6">
+            {/* Only when a list sits above it: with nothing above, the page
+                header's own rule is the line, and a second one doubled it. */}
+            <div
+              className={
+                (loaded && needs > 0) || cards.length > 0 || sources?.calendar || open.length > 0
+                  ? "border-t border-line pt-6"
+                  : ""
+              }
+            >
               <h2 className="mb-3 flex items-baseline gap-2 text-[16px] font-semibold tracking-[-.02em]">
                 The brief
                 {brief && (
@@ -595,7 +652,7 @@ export default function Today() {
           <aside className="hidden min-[1000px]:flex min-[1000px]:flex-col min-[1000px]:gap-7 min-[1000px]:border-l min-[1000px]:border-line min-[1000px]:pl-8">
             <Running sessions={running} plain />
             <div>
-              <Label>Inbox</Label>
+              <Label icon="inbox">Inbox</Label>
               {newest.length ? (
                 <div className="flex flex-col gap-1.5">
                   {newest.map((i) => (
@@ -617,7 +674,9 @@ export default function Today() {
                         {i.from && <span className="text-faint">{i.from} · </span>}
                         {i.title}
                       </span>
-                      <span className="flex-none font-mono text-[11px] text-faint">{i.source}</span>
+                      <span title={i.source} className="flex-none text-faint">
+                        <Icon name={SOURCE_ICON[i.source] ?? "inbox"} size={14} />
+                      </span>
                     </Link>
                   ))}
                 </div>
@@ -626,44 +685,81 @@ export default function Today() {
               )}
             </div>
             <div>
-              <Label>Sources</Label>
+              <Label icon="sources">Sources</Label>
               <div className="flex flex-col gap-1">
                 {(
                   [
                     // The poller files one item when it cannot read github and
                     // resolves it when it can again; that is the only truth
                     // about this source the screen has, and it is the right one.
-                    ["github", !ghDown],
-                    ["mail", sources?.mail ?? false],
-                    ["calendar", sources?.calendar ?? false],
-                    ["documents", sources?.docs ?? false],
-                  ] as [string, boolean][]
-                ).map(([name, on]) => (
-                  <Link
-                    key={name}
-                    // The documents are the one source with somewhere of their
-                    // own to go: the share, browsable. The rest are a light and
-                    // a link to where the credential is typed.
-                    to={name === "documents" && on ? "/docs" : "/settings"}
-                    className="flex items-center gap-2 px-1 py-0.5 font-mono text-[12px] text-muted hover:text-text"
-                    title={
-                      name === "documents" && on
+                    ["github", !ghDown, "github", sources?.links.github, "/settings?tab=agents"],
+                    [
+                      "mail",
+                      sources?.mail ?? false,
+                      "inbox",
+                      sources?.links.mail,
+                      "/settings?tab=agents",
+                    ],
+                    [
+                      "calendar",
+                      sources?.calendar ?? false,
+                      "calendar",
+                      sources?.links.calendar,
+                      "/settings?tab=sources",
+                    ],
+                    [
+                      "documents",
+                      sources?.docs ?? false,
+                      "document",
+                      "/docs",
+                      "/settings?tab=agents",
+                    ],
+                  ] as [string, boolean, IconName, string | undefined, string][]
+                ).map(([name, on, icon, home, setup]) => {
+                  // A source that is set up opens where it lives: the share in
+                  // the app, the rest on their own site in a new tab. One that
+                  // is not, or whose site the server cannot name, goes to where
+                  // its credential is typed, which is the one useful place.
+                  const to = on && home ? home : setup;
+                  const outside = to.startsWith("https://");
+                  const row = (
+                    <>
+                      {/* The icon says which source, its colour whether it is set up. */}
+                      <Icon name={icon} size={14} className={on ? "text-run" : "text-idle"} />
+                      {name}
+                      {outside && <span className="text-faint">↗</span>}
+                    </>
+                  );
+                  const className =
+                    "flex items-center gap-2 px-1 py-0.5 font-mono text-[12px] text-muted hover:text-text";
+                  const title = !on
+                    ? "not set up: tap to add it"
+                    : outside
+                      ? `open ${name}`
+                      : name === "documents"
                         ? "browse the share"
-                        : on
-                          ? "set up"
-                          : "not set up: tap to add the credential"
-                    }
-                  >
-                    <span
-                      className={`h-1.5 w-1.5 flex-none rounded-full ${on ? "bg-run" : "bg-idle"}`}
-                    />
-                    {name}
-                  </Link>
-                ))}
+                        : "set up";
+                  return outside ? (
+                    <a
+                      key={name}
+                      href={to}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={className}
+                      title={title}
+                    >
+                      {row}
+                    </a>
+                  ) : (
+                    <Link key={name} to={to} className={className} title={title}>
+                      {row}
+                    </Link>
+                  );
+                })}
               </div>
             </div>
             <div>
-              <Label>Recent runs</Label>
+              <Label icon="history">Recent runs</Label>
               {runs?.length ? (
                 <div className="flex flex-col gap-1.5">
                   {runs.slice(0, 6).map((r) => (
@@ -700,7 +796,7 @@ export default function Today() {
 function Running({ sessions, plain = false }: { sessions: Session[]; plain?: boolean }) {
   return (
     <div>
-      <Label>Running</Label>
+      <Label icon="running">Running</Label>
       {sessions.length ? (
         <div className={`flex flex-col ${plain ? "gap-0.5" : "gap-1.5"}`}>
           {sessions.map((s) => (

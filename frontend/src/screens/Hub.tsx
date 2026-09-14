@@ -1,15 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type {
-  AssistantThread,
-  CouncilMember,
-  PodFacts,
-  Project,
-  Session,
-  UsageSummary,
-} from "../../../shared/api";
+import type { PodFacts, Project, Session, UsageSummary } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
-import Portrait from "../components/Face";
+import BandHeading from "../components/BandHeading";
+import Icon, { type IconName } from "../components/Icon";
+import PageHeader from "../components/PageHeader";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -122,10 +117,12 @@ function SessionCard({
  * a bar that is always the same colour never says so.
  */
 function Stat({
+  icon,
   label,
   value,
   fraction,
 }: {
+  icon: IconName;
   label: string;
   value: string;
   fraction?: number | null;
@@ -133,7 +130,8 @@ function Stat({
   const pct = fraction == null ? null : Math.min(100, Math.max(0, fraction * 100));
   return (
     <div className="min-w-0">
-      <div className="mb-1 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
+        <Icon name={icon} size={13} />
         {label}
       </div>
       <div className="truncate text-[15px] font-semibold tabular-nums">{value}</div>
@@ -175,24 +173,20 @@ function initialCompact(): boolean {
 }
 
 function Band({
+  icon,
   title,
   count,
   children,
 }: {
+  icon: IconName;
   title: string;
   count: number;
   children: React.ReactNode;
 }) {
   if (count === 0) return null;
   return (
-    <section className="mb-6">
-      <div className="mb-2.5 flex items-center gap-2.5">
-        <h2 className="text-[15px] font-semibold tracking-[-.02em]">{title}</h2>
-        <span className="rounded-full bg-surface-2 px-2 text-[12px] font-semibold text-faint">
-          {count}
-        </span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
+    <section className="mb-9">
+      <BandHeading icon={icon} title={title} count={count} />
       {children}
     </section>
   );
@@ -226,31 +220,6 @@ export default function Hub() {
   const running = live.length;
   const waiting = needsYou.length;
 
-  // Polled rather than socketed: the strip only needs to be roughly current,
-  // and the hub already polls two other things. Only the status is read now —
-  // the strip explains what the assistant is instead of quoting it.
-  const { data: assistant } = usePoll<AssistantThread>("/api/assistant", 10_000);
-  // Only for the chair's face: who else is on the council is settings' business.
-  const { data: council } = usePoll<CouncilMember[]>("/api/council", 120_000);
-  const chair = (council ?? []).find((m) => m.chair);
-
-  /**
-   * One live fact on the door, instead of a paragraph explaining what is behind
-   * it. The last thing asked and when it was answered is what tells you
-   * whether to go back in; the explanation is on the empty screen inside.
-   */
-  function lastWord(t: AssistantThread | null | undefined): string | null {
-    if (!t?.entries.length) return null;
-    const asked = t.entries.find((e) => e.role === "user" && e.text.trim())?.text ?? "";
-    const line = asked.split("\n")[0];
-    const title = line.length > 60 ? `${line.slice(0, 59)}…` : line;
-    const replies = t.entries.filter((e) => e.role === "assistant" && e.text.trim()).length;
-    return `${agoLabel(t.entries[t.entries.length - 1].at)} · ${title || "(image)"}${
-      replies > 1 ? ` · ${replies} replies` : ""
-    }`;
-  }
-  const assistantLast = lastWord(assistant);
-
   async function addProject() {
     const value = input.trim();
     if (!value || busy) return;
@@ -279,152 +248,69 @@ export default function Hub() {
     <>
       <TopBar crumb={[{ label: "bench" }]} />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[calc(80px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
-        {/* Above the projects, because it is not one. One door: whoever ends
-            up answering, this is where you ask. */}
-        <div className="mb-5">
-          <Link
-            to="/ai"
-            // Flat tint rather than the gradient that was here: northlight rules
-            // gradients out, and the tint is the same treatment its featured card
-            // gets, which is what this strip is.
-            className="flex items-start gap-3 rounded-xl border border-accent/40 bg-accent-tint px-[15px] py-3.5 hover:border-accent/70"
-          >
-            {/* The chair's own face: this is who answers. */}
-            <Portrait
-              face={chair?.face ?? "raccoon"}
-              colour={chair?.colour ?? "amber"}
-              mood={assistant?.status === "thinking" ? "speaking" : "idle"}
-              size={36}
-            />
-            <span className="min-w-0 flex-1">
-              <span className="mb-0.5 flex items-center gap-2">
-                <span className="text-[14.5px] font-semibold tracking-[-.02em]">Assistant</span>
-                {assistant?.status === "thinking" && (
-                  <span className="flex items-center gap-1.5 text-[12px] text-accent">
-                    <i className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-                    {/* Who is working, when it is not the one you asked. A meeting
-                      takes longer than a turn, and "working" alone reads as
-                      stuck when it is three advisors thinking at once. */}
-                    {assistant.speaking?.length
-                      ? `${assistant.speaking.length} answering`
-                      : "working"}
-                  </span>
-                )}
-              </span>
-              <span className="block truncate text-[12.5px] text-faint">
-                {assistantLast ?? "Ask what needs you, or tell it something to remember."}
-              </span>
-            </span>
-            <span className="flex-none pt-1 text-[13px] text-faint">→</span>
-          </Link>
-        </div>
-
-        {/* Stacked on a phone: the headline is a sentence that wraps to two
-            lines there, and a button held at its right edge ends up floating
-            beside the wrap. */}
-        <div className="mb-5 flex flex-col items-start gap-3 min-[480px]:flex-row min-[480px]:items-end min-[480px]:justify-between min-[480px]:gap-4">
-          <div>
-            {/* "All quiet" is a claim, and until the feed lands it is one this
-                screen cannot make — it read as an answer on every open, a beat
-                before the waiting sessions appeared underneath it. Same reason
-                the projects grid below gets skeletons rather than an empty
-                grid. */}
-            <h1 className="mb-1 text-[22px] font-bold tracking-[-.03em]">
-              {sessions === null
-                ? "…"
-                : waiting > 0
-                  ? `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
-                  : running > 0
-                    ? `${running} session${running === 1 ? "" : "s"} running`
-                    : "All quiet"}
-            </h1>
-            <div className="text-sm text-muted">
-              {waiting > 0 && running > 0
-                ? `${running} other${running === 1 ? "" : "s"} still working`
-                : `${projects?.length ?? 0} repo${projects?.length === 1 ? "" : "s"}`}
-            </div>
-          </div>
-          <div className="flex flex-none items-center gap-2">
-            <button
-              onClick={() => {
-                const next = !compact;
-                setCompact(next);
-                localStorage.setItem(DENSITY_KEY, next ? "1" : "0");
-              }}
-              aria-pressed={compact}
-              title={compact ? "roomier session rows" : "one line per session"}
-              className={`tap flex-none rounded-lg border px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong ${
-                compact ? "border-accent/50 text-accent" : "border-line bg-surface text-muted"
-              }`}
-            >
-              compact
-            </button>
-            <button
-              onClick={() => setAdding(true)}
-              className="tap flex-none rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong"
-            >
-              + add project
-            </button>
-          </div>
-        </div>
-
-        {sessions === null && (
-          <div aria-hidden className="mb-6 grid gap-2">
-            {[0, 1].map((i) => (
-              <div
-                key={i}
-                className={`animate-pulse rounded-xl border border-line bg-surface ${
-                  compact ? "h-[38px]" : "h-[86px]"
+        {/* No assistant strip here any more: the Assistant tab is one tap away
+            in every bar, and a second door to it above the projects was the
+            first thing on the bench without being about the bench. */}
+        {/* "All quiet" is a claim, and until the feed lands it is one this
+            screen cannot make — it read as an answer on every open, a beat
+            before the waiting sessions appeared underneath it. Same reason the
+            projects grid below gets skeletons rather than an empty grid. */}
+        <PageHeader
+          icon="bench"
+          label="Bench"
+          title={
+            sessions === null
+              ? "…"
+              : waiting > 0
+                ? `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
+                : running > 0
+                  ? `${running} session${running === 1 ? "" : "s"} running`
+                  : "All quiet"
+          }
+          sub={
+            waiting > 0 && running > 0
+              ? `${running} other${running === 1 ? "" : "s"} still working`
+              : `${projects?.length ?? 0} repo${projects?.length === 1 ? "" : "s"}`
+          }
+          actions={
+            <>
+              <button
+                onClick={() => {
+                  const next = !compact;
+                  setCompact(next);
+                  localStorage.setItem(DENSITY_KEY, next ? "1" : "0");
+                }}
+                aria-pressed={compact}
+                title={compact ? "roomier session rows" : "one line per session"}
+                className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong ${
+                  compact ? "border-accent/50 text-accent" : "border-line bg-surface text-muted"
                 }`}
-              />
-            ))}
-          </div>
-        )}
+              >
+                <Icon name="rows" size={15} />
+                compact
+              </button>
+              <button
+                onClick={() => setAdding(true)}
+                className="tap flex flex-none items-center gap-1.5 rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold hover:border-line-strong"
+              >
+                <Icon name="plus" size={15} />
+                add project
+              </button>
+            </>
+          }
+        />
 
-        {/* Full width and single column: this is the band you came for, and a
-            grid would let it share a row with something that can wait. */}
-        <Band title="Needs a decision" count={needsYou.length}>
-          <div className="grid gap-2">
-            {needsYou.map((s) => (
-              <SessionCard key={s.id} session={s} urgent compact={compact} />
-            ))}
-          </div>
-        </Band>
-
-        {/* The quiet bands go multi-column instead, so a wide screen stops being
-            one very long column of things that need nothing. A compact row is
-            four things on one line, so it needs a wider column than a card
-            whose fields are stacked. */}
-        <Band title="Running" count={live.length}>
-          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
-            {live.map((s) => (
-              <SessionCard key={s.id} session={s} compact={compact} />
-            ))}
-          </div>
-        </Band>
-
-        <Band title="Recently finished" count={finished.length}>
-          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
-            {finished.map((s) => (
-              <SessionCard key={s.id} session={s} compact={compact} />
-            ))}
-          </div>
-        </Band>
-
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <h2 className="text-[15px] font-semibold tracking-[-.02em]">Projects</h2>
-          <span className="rounded-full bg-surface-2 px-2 text-[12px] font-semibold text-faint">
-            {projects?.length ?? 0}
-          </span>
-          <span className="h-px flex-1 bg-line" />
-        </div>
+        {/* The projects first, under the button that adds one: they are the
+            bench's standing contents and the way into any of them, and below
+            three bands of sessions they sat a long scroll down on a busy day. */}
+        <BandHeading icon="folder" title="Projects" count={projects?.length ?? 0} />
 
         {/* Skeletons rather than an empty grid: "nothing here" and "not loaded
             yet" looked identical, so the hub flashed empty on every open. */}
         {loading && projects === null && (
           <div
             aria-hidden
-            className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3"
+            className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3"
           >
             {[0, 1, 2].map((i) => (
               <div
@@ -436,12 +322,12 @@ export default function Hub() {
         )}
 
         {projects?.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line px-4 py-6 text-center font-mono text-[12.5px] text-faint">
+          <div className="mb-6 rounded-xl border border-dashed border-line px-4 py-6 text-center font-mono text-[12.5px] text-faint">
             no projects yet — clone or init one above
           </div>
         )}
 
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
+        <div className="mb-9 grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
           {(projects ?? []).map((p) => (
             // A real link, not a button + navigate(): cmd-click, middle-click
             // and "open in new tab" all worked nowhere before this.
@@ -456,7 +342,11 @@ export default function Hub() {
                   {p.worktreeOf ? (
                     <>
                       <span className="text-muted">{p.worktreeOf}</span>
-                      <span className="text-faint"> ⎇ </span>
+                      <Icon
+                        name="branch"
+                        size={13}
+                        className="mx-1 inline align-[-1px] text-faint"
+                      />
                       {p.name.slice(p.worktreeOf.length + 2)}
                     </>
                   ) : (
@@ -474,9 +364,12 @@ export default function Hub() {
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1 font-mono text-[11px] text-faint">
-                <span className="min-w-0 truncate">
-                  ⎇ {p.branch}
-                  {p.dirty ? "*" : ""}
+                <span className="flex min-w-0 items-center gap-1">
+                  <Icon name="branch" size={12} />
+                  <span className="truncate">
+                    {p.branch}
+                    {p.dirty ? "*" : ""}
+                  </span>
                 </span>
                 {p.agents.map((a) => (
                   <AgentTag key={a} agent={a} />
@@ -489,16 +382,60 @@ export default function Hub() {
           ))}
         </div>
 
+        {sessions === null && (
+          <div aria-hidden className="mb-6 grid gap-2">
+            {[0, 1].map((i) => (
+              <div
+                key={i}
+                className={`animate-pulse rounded-xl border border-line bg-surface ${
+                  compact ? "h-[38px]" : "h-[86px]"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Full width and single column: this is the band you came for, and a
+            grid would let it share a row with something that can wait. */}
+        <Band icon="alert" title="Needs a decision" count={needsYou.length}>
+          <div className="grid gap-2">
+            {needsYou.map((s) => (
+              <SessionCard key={s.id} session={s} urgent compact={compact} />
+            ))}
+          </div>
+        </Band>
+
+        {/* The quiet bands go multi-column instead, so a wide screen stops being
+            one very long column of things that need nothing. A compact row is
+            four things on one line, so it needs a wider column than a card
+            whose fields are stacked. */}
+        <Band icon="running" title="Running" count={live.length}>
+          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
+            {live.map((s) => (
+              <SessionCard key={s.id} session={s} compact={compact} />
+            ))}
+          </div>
+        </Band>
+
+        <Band icon="check" title="Recently finished" count={finished.length}>
+          <div className={`grid gap-2 ${compact ? COLS_COMPACT : COLS_ROOMY}`}>
+            {finished.map((s) => (
+              <SessionCard key={s.id} session={s} compact={compact} />
+            ))}
+          </div>
+        </Band>
+
         {/* Was one wrapping run of mono text, which on a narrow window broke
             into five ragged lines and read as terminal output that happened to
             be pinned to the page. Disk and memory are ratios, so they get a
             meter and say so; the rest are counts. */}
         <div className="mt-10 rounded-xl border border-line bg-surface p-4">
           <div className="grid grid-cols-2 gap-x-6 gap-y-4 min-[560px]:grid-cols-4">
-            <Stat label="Projects" value={String(projects?.length ?? 0)} />
-            <Stat label="Running" value={String(running)} />
+            <Stat icon="folder" label="Projects" value={String(projects?.length ?? 0)} />
+            <Stat icon="running" label="Running" value={String(running)} />
             {facts && (
               <Stat
+                icon="disk"
                 label="Data"
                 value={`${gb(facts.diskTotal - facts.diskFree)} / ${gb(facts.diskTotal)}`}
                 fraction={
@@ -508,6 +445,7 @@ export default function Hub() {
             )}
             {facts && (
               <Stat
+                icon="chip"
                 label="Memory"
                 value={
                   facts.memTotal > 0

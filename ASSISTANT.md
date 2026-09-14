@@ -777,13 +777,13 @@ same question written by two people who cannot hear each other; a round table is
 a conversation, and the difference shows up exactly where it matters — when one
 advisor's finding changes what another's means.
 
-It is asked for in two ways, because the two are asking different things. The
-chair calls one itself when a question straddles two remits or when it expects
-them to disagree. The `round table` switch in the composer says so from outside:
-it travels with that one turn, nudges the chair to put the question to the room,
-and upgrades a `convene:` line into a discussion if the chair convenes anyway. A
-switch rather than a setting, and not remembered across a reload, because it is
-the one control in that row that costs money every time it is on.
+The chair calls one itself when a question straddles two remits or when it
+expects them to disagree. There used to be a second way in, a "talk it over"
+switch in the composer that nudged the chair toward one for a single turn; it
+was removed on 2026-09-14 with the audience chips beside it, because the chair
+already decides who answers and the switch was a second decision you had to
+make first. The API still takes `roundTable` on a message, so a caller that
+wants to force one can.
 
 Sequential, so it is slower than a convening of the same size and costs the same
 number of calls; a stop lands between speakers rather than after all of them.

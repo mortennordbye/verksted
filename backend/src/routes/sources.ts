@@ -21,12 +21,56 @@ import * as mail from "../mail.js";
  * back. A destination the server did not list is a 400 rather than a mailbox
  * created on the way past.
  */
+/**
+ * Where a source lives on the web, told from the settings it already has.
+ *
+ * Only the providers whose web app is a fixed address: a host we do not
+ * recognise gets no link rather than a guess, and the screen sends that one
+ * to settings instead. The account goes along where the provider takes it, so
+ * a browser signed in to two Google accounts opens the right one.
+ */
+export function sourceLinks(
+  mailbox: { host: string; user: string } | null,
+  cal: calendar.CalendarConfig | null,
+): SourceStatus["links"] {
+  const links: SourceStatus["links"] = { github: "https://github.com/notifications" };
+  const host = mailbox?.host.toLowerCase() ?? "";
+  if (mailbox && /(^|\.)(gmail|googlemail)\.com$/.test(host)) {
+    links.mail = `https://mail.google.com/mail/?authuser=${encodeURIComponent(mailbox.user)}`;
+  } else if (/(^|\.)(outlook\.office365|office365|outlook)\.com$/.test(host)) {
+    links.mail = "https://outlook.office.com/mail/";
+  } else if (/(^|\.)mail\.me\.com$/.test(host)) {
+    links.mail = "https://www.icloud.com/mail";
+  } else if (/(^|\.)fastmail\.com$/.test(host)) {
+    links.mail = "https://app.fastmail.com/mail/";
+  }
+  if (cal?.kind === "google") {
+    links.calendar = `https://calendar.google.com/calendar/?authuser=${encodeURIComponent(cal.user)}`;
+  } else if (cal?.kind === "basic") {
+    let calHost = "";
+    try {
+      calHost = new URL(cal.url).hostname.toLowerCase();
+    } catch {
+      // A CALDAV_URL that is not a URL names no page.
+    }
+    if (/(^|\.)icloud\.com$/.test(calHost)) links.calendar = "https://www.icloud.com/calendar";
+    else if (/(^|\.)fastmail\.com$/.test(calHost)) {
+      links.calendar = "https://app.fastmail.com/calendar/";
+    }
+  }
+  return links;
+}
+
 export default async function sourceRoutes(app: FastifyInstance) {
-  app.get("/api/sources", async (): Promise<SourceStatus> => ({
-    mail: (await mail.mailConfig()) !== null,
-    calendar: (await calendar.calendarConfig()) !== null,
-    docs: await docs.configured(),
-  }));
+  app.get("/api/sources", async (): Promise<SourceStatus> => {
+    const [mailbox, cal] = await Promise.all([mail.mailConfig(), calendar.calendarConfig()]);
+    return {
+      mail: mailbox !== null,
+      calendar: cal !== null,
+      docs: await docs.configured(),
+      links: sourceLinks(mailbox, cal),
+    };
+  });
 
   const guard = async <T>(
     fn: () => Promise<T>,

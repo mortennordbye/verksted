@@ -15,6 +15,7 @@ import Session from "./screens/Session";
 import Settings from "./screens/Settings";
 import Share from "./screens/Share";
 import Today from "./screens/Today";
+import { ackedToday } from "./todayAck";
 
 export default function App() {
   const [palette, setPalette] = useState(false);
@@ -42,9 +43,12 @@ export default function App() {
       <ErrorBoundary>
         <HashScroll />
         <Routes>
-          {/* Today is the front door; the bench is where the work is. The
-              installed app's start_url stays "/", so this is what opens. */}
-          <Route path="/" element={<Today />} />
+          {/* Today is the front door once a day; the bench is where the work
+              is. The installed app's start_url stays "/", so this is what
+              opens: Today until it has been acknowledged, the bench after
+              that, and Today again tomorrow. /today is always Today. */}
+          <Route path="/" element={ackedToday() ? <Navigate to="/bench" replace /> : <Today />} />
+          <Route path="/today" element={<Today />} />
           <Route path="/bench" element={<Hub />} />
           <Route path="/p/:name" element={<Project />} />
           <Route path="/s/:id" element={<Session />} />

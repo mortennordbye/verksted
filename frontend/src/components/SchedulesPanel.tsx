@@ -9,6 +9,7 @@ import type {
   Settings as SettingsInfo,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import Icon from "./Icon";
 import { useConfirm } from "../useConfirm";
 import { ReportLine, StatusChip } from "./StatusChip";
 
@@ -291,8 +292,15 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   return (
     <>
-      <div className={`mb-2.5 flex flex-wrap items-center gap-2.5 ${project ? "" : "mt-10"}`}>
-        <span className="font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+      {/* The same rule above as every settings section; not on a project's
+          page, where this list sits under the project's own tabs. */}
+      <div
+        className={`mb-2.5 flex flex-wrap items-center gap-2.5 ${
+          project ? "" : "mt-10 border-t border-line-strong pt-6"
+        }`}
+      >
+        <span className="flex items-center gap-1.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+          <Icon name="history" size={13} />
           {project ? "Recurring prompts" : "Schedules · recurring prompts"}
         </span>
         {/* Worth showing here too: a globally paused scheduler is why this

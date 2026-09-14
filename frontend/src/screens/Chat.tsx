@@ -7,10 +7,14 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BrowserPane from "../components/BrowserPane";
+import { Link } from "react-router";
+import Portrait, { MEMBER_TEXT } from "../components/Face";
+import Icon, { type IconName } from "../components/Icon";
 import Room from "../components/Room";
 import Sheet from "../components/Sheet";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
+import { useConfirm } from "../useConfirm";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
 
@@ -48,9 +52,9 @@ function Ico({ children }: { children: ReactNode }) {
  * was a second screen with a thread of its own; that made the person route
  * every question before asking it, so it is gone, and what it was for happens
  * here without being asked for. Addressing one of them by name is still
- * possible — the chips under the field write the `@id` the server reads — but
- * it is a shortcut past a decision that is made for you, not one you have to
- * make.
+ * possible — typing `@id` first, or "ask" in the specialists panel, writes the
+ * `@id` the server reads — but it is a shortcut past a decision that is made
+ * for you, not one you have to make.
  *
  * The thread arrives whole over a websocket rather than being polled or
  * diffed: it is a few kilobytes, and a diff protocol would be the only
@@ -77,27 +81,36 @@ const NO_CHAIR: CouncilMember = {
 };
 
 /**
- * Every conversation this room has had, and the way back into one.
+ * Every conversation this room has had: switch to one, start one, delete one,
+ * or clear out the old ones.
  *
- * Fetched when opened rather than polled: the list changes when a thread is
- * started, which is something you did a moment ago on this same screen.
+ * Fetched when opened and again after each change rather than polled: the
+ * list only changes by something done on this sheet. Deleting asks first,
+ * since a thread cannot be brought back; deleting the open one starts a fresh
+ * thread in its place, which the socket brings to the screen.
  */
 function Threads({
   current,
   onOpen,
+  onNew,
   onClose,
 }: {
   current: string | undefined;
   onOpen: (thread: AssistantThread) => void;
+  onNew: () => void;
   onClose: () => void;
 }) {
   const [threads, setThreads] = useState<AssistantThreadSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  const [confirm, dialog] = useConfirm();
   useEffect(() => {
     api<AssistantThreadSummary[]>("/api/assistant/threads")
       .then(setThreads)
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [version]);
+
+  const others = (threads ?? []).filter((t) => t.conversationId !== current);
 
   async function open(id: string) {
     try {
@@ -112,85 +125,154 @@ function Threads({
     }
   }
 
+  async function remove(t: AssistantThreadSummary) {
+    const here = t.conversationId === current;
+    const ok = await confirm({
+      title: "Delete this thread?",
+      body: `"${t.title}" and everything said in it.${
+        here ? " It is the one open now, so a new thread starts." : ""
+      } This cannot be undone.`,
+      action: "delete",
+      danger: true,
+    });
+    if (!ok) return;
+    setError(null);
+    try {
+      await api(`/api/assistant/threads/${t.conversationId}`, { method: "DELETE" });
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function clearOld() {
+    const n = others.length;
+    const ok = await confirm({
+      title: `Delete ${n} old thread${n === 1 ? "" : "s"}?`,
+      body: "Every thread except the one open now, and everything said in them. This cannot be undone.",
+      action: `delete ${n}`,
+      danger: true,
+    });
+    if (!ok) return;
+    setError(null);
+    try {
+      await api("/api/assistant/threads/clear", { method: "POST", body: JSON.stringify({}) });
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   return (
-    <Sheet title="Threads" sub="Pick one up where it was left." onClose={onClose}>
-      {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
-      {threads === null && !error && <div className="text-sm text-muted">reading…</div>}
-      {threads?.length === 0 && <div className="text-sm text-muted">nothing said in here yet</div>}
-      <div className="flex flex-col gap-1.5">
-        {threads?.map((t) => {
-          const here = t.conversationId === current;
-          return (
-            <button
-              key={t.conversationId}
-              type="button"
-              onClick={() => void open(t.conversationId)}
-              disabled={here}
-              className={`tap flex flex-col items-start gap-0.5 rounded-xl px-3 py-2 text-left hover:bg-surface-2 disabled:cursor-default ${
-                here ? "bg-accent-tint ring-1 ring-accent/30" : "bg-surface-2/60"
-              }`}
-            >
-              <span className="w-full truncate text-[13.5px]">{t.title}</span>
-              <span className="font-mono text-[11px] text-faint">
-                {here ? "open now" : agoLabel(t.at)} · {t.turns} turn{t.turns === 1 ? "" : "s"}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </Sheet>
+    <>
+      <Sheet
+        title="Threads"
+        sub="Switch, start fresh, or clear out the old ones."
+        onClose={onClose}
+      >
+        <button
+          type="button"
+          onClick={() => {
+            onNew();
+            onClose();
+          }}
+          className="tap mb-3 flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-3 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110"
+        >
+          <Icon name="compose" size={15} />
+          new thread
+        </button>
+        {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
+        {threads === null && !error && <div className="text-sm text-muted">reading…</div>}
+        {threads?.length === 0 && (
+          <div className="text-sm text-muted">nothing said in here yet</div>
+        )}
+        <div className="flex flex-col gap-1.5">
+          {threads?.map((t) => {
+            const here = t.conversationId === current;
+            return (
+              <div
+                key={t.conversationId}
+                className={`flex items-center rounded-xl ${
+                  here
+                    ? "bg-accent-tint ring-1 ring-accent/30"
+                    : "bg-surface-2/60 hover:bg-surface-2"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => void open(t.conversationId)}
+                  disabled={here}
+                  title={here ? "the thread open now" : "open this thread"}
+                  className="tap flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2 text-left disabled:cursor-default"
+                >
+                  <span className="w-full truncate text-[13.5px]">{t.title}</span>
+                  <span className="font-mono text-[11px] text-faint">
+                    {here ? "open now" : agoLabel(t.at)} · {t.turns} turn
+                    {t.turns === 1 ? "" : "s"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void remove(t)}
+                  title="delete this thread"
+                  aria-label={`delete the thread "${t.title}"`}
+                  className="tap-sq mr-1 flex h-9 w-9 flex-none items-center justify-center rounded-lg text-faint hover:bg-fail/10 hover:text-fail"
+                >
+                  <Icon name="trash" size={15} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {others.length > 0 && (
+          <button
+            type="button"
+            onClick={() => void clearOld()}
+            className="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 font-mono text-[12.5px] text-muted hover:border-fail/50 hover:text-fail"
+          >
+            <Icon name="trash" size={14} />
+            clear old threads ({others.length})
+          </button>
+        )}
+      </Sheet>
+      {dialog}
+    </>
   );
 }
 
-/** A toolbar toggle: two states, remembered or not, and never the main event. */
-function Toggle({
-  on,
+/**
+ * One of the header's controls, as an icon with its words in the tooltip.
+ *
+ * Icons alone because the row also carries who you are talking to, and five
+ * worded buttons beside a name did not share a line. `on` is only for the
+ * ones that stay on (reading aloud, an open panel), which light up; the rest
+ * are actions and carry no pressed state at all.
+ */
+function ToolButton({
+  icon,
   title,
   onClick,
-  children,
+  on,
+  disabled,
 }: {
-  on: boolean;
+  icon: IconName;
   title: string;
   onClick: () => void;
-  children: ReactNode;
+  on?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       title={title}
+      aria-label={title}
       aria-pressed={on}
-      className={`tap-hit rounded-md px-1.5 py-1 font-medium hover:text-text ${
-        on ? "text-accent" : "text-faint"
+      className={`tap-sq flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-40 ${
+        on ? "bg-accent-tint text-accent" : "text-muted hover:bg-surface-2 hover:text-text"
       }`}
     >
-      {children}
-    </button>
-  );
-}
-
-/** One of the composer's audience chips: who hears the next question. */
-function Chip({
-  on,
-  title,
-  onClick,
-  children,
-}: {
-  on: boolean;
-  title: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      aria-pressed={on}
-      className={`tap-hit rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold whitespace-nowrap transition-colors ${
-        on ? "bg-line-strong text-text" : "text-muted hover:text-text"
-      }`}
-    >
-      {children}
+      <Icon name={icon} size={17} />
     </button>
   );
 }
@@ -232,10 +314,15 @@ function Dock({
       <div className="flex flex-none items-center gap-2 border-b border-line px-3 pt-[max(8px,env(safe-area-inset-top))] pb-2 text-[12px]">
         <span className="flex-none font-semibold">{title}</span>
         <span className="min-w-0 flex-1 truncate text-faint">{sub}</span>
-        <button onClick={() => setFull((f) => !f)} className={`${dockBtn} hidden desk:block`}>
+        <button
+          onClick={() => setFull((f) => !f)}
+          className={`${dockBtn} hidden items-center gap-1.5 desk:flex`}
+        >
+          <Icon name={full ? "shrink" : "expand"} size={14} />
           {full ? "exit fullscreen" : "fullscreen"}
         </button>
-        <button onClick={onClose} className={dockBtn}>
+        <button onClick={onClose} className={`${dockBtn} flex items-center gap-1.5`}>
+          <Icon name="close" size={14} />
           close
         </button>
       </div>
@@ -432,6 +519,62 @@ function Month({ refresh }: { refresh: number }) {
   );
 }
 
+/**
+ * Who sits on the bench beside the chair, as people rather than a settings
+ * form: what each is for, and a way to ask one directly.
+ *
+ * Read-only here. The chair still decides who answers; "ask" only writes the
+ * `@id` the server reads, the same as typing the name. Editing stays on the
+ * settings page, one link away.
+ */
+function People({ members, onAsk }: { members: CouncilMember[]; onAsk: (id: string) => void }) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
+      {members.length === 0 && <div className="text-[13px] text-faint">reading…</div>}
+      {members.map((m) => (
+        <div
+          key={m.id}
+          className={`flex items-start gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 ${
+            m.enabled ? "" : "opacity-55"
+          }`}
+        >
+          <Portrait face={m.face} colour={m.colour} size={36} tone mood="idle" />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <div className="flex items-center gap-2">
+              <span className={`text-[14px] font-semibold ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
+              <span className="font-mono text-[11px] text-faint">
+                {m.chair ? "chair" : `@${m.id}`}
+              </span>
+              {!m.enabled && <span className="font-mono text-[11px] text-faint">off</span>}
+            </div>
+            <span className="text-[13px] leading-snug text-muted">{m.remit}</span>
+            <span className="font-mono text-[11px] text-faint">
+              {m.model} · {m.effort}
+            </span>
+          </div>
+          {!m.chair && m.enabled && (
+            <button
+              onClick={() => onAsk(m.id)}
+              title={`ask ${m.name} directly`}
+              className="tap-hit flex flex-none items-center gap-1.5 self-center rounded-lg bg-surface-2 px-2.5 py-1 text-[12px] font-medium text-muted hover:text-text"
+            >
+              <Icon name="chat" size={13} />
+              ask
+            </button>
+          )}
+        </div>
+      ))}
+      <Link
+        to="/settings#council"
+        className="mt-1 flex items-center gap-1.5 px-1 font-mono text-[12px] text-faint hover:text-text"
+      >
+        <Icon name="users" size={13} />
+        edit specialists in settings
+      </Link>
+    </div>
+  );
+}
+
 export default function Chat() {
   const [thread, setThread] = useState<AssistantThread | null>(null);
   const [text, setText] = useState("");
@@ -454,7 +597,7 @@ export default function Chat() {
   // either: a hidden pane still streaming frames is the thing that switch
   // exists to avoid.
   // The calendar shares its half of the screen, one panel at a time.
-  const [panel, setPanel] = useState<"browser" | "calendar" | null>(null);
+  const [panel, setPanel] = useState<"browser" | "calendar" | "people" | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
@@ -468,27 +611,17 @@ export default function Chat() {
     () => localStorage.getItem("vk.assistant.speak") === "1",
   );
   /**
-   * Ask the council to talk this one over instead of answering in parallel.
-   *
-   * Not remembered across reloads, unlike the two above: it is the one switch
-   * here that costs real money every time it is on — the advisors answer one
-   * after another, each carrying what the others said — so it should not
-   * survive a session you have forgotten you started.
-   */
-  const [roundTable, setRoundTable] = useState(false);
-  /**
    * Entries already read out. A set rather than one id, because a meeting lands
    * several at once and "the last one" would silently drop the rest.
    */
   const spokenRef = useRef<Set<string>>(new Set());
   // The roster changes when somebody edits it in settings, which is rarely, so
-  // it is polled slowly rather than pushed: the seat at the top is the chair's,
-  // and a specialist's card is drawn in its own colour when one answers.
+  // it is polled slowly rather than pushed: the header shows the chair, and a
+  // specialist's card is drawn in its own colour when one answers.
   const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
   const chair = members.find((m) => m.chair) ?? NO_CHAIR;
-  const advisors = members.filter((m) => !m.chair);
 
   // One socket for the life of the screen. It only ever carries whole threads,
   // so a dropped frame costs nothing: the next one is complete.
@@ -555,8 +688,8 @@ export default function Chat() {
   /**
    * A message that is only an address and no question.
    *
-   * `@uriel` with nothing after it is what the seat chips write into the field,
-   * so sending one is a slip rather than a thing anyone means. The backend
+   * `@uriel` with nothing after it is a name typed and a question not yet, so
+   * sending one is a slip rather than a thing anyone means. The backend
    * reads it as unaddressed and hands the chair a message with no question in
    * it, which cost two model calls to be told it was empty. A bare `@` is the
    * same slip one character earlier.
@@ -597,7 +730,6 @@ export default function Chat() {
           body: JSON.stringify({
             text: value || "(see image)",
             images,
-            roundTable,
           }),
           // A turn does real work; the default 15s would abandon every one of
           // them while the socket kept showing it running.
@@ -622,8 +754,6 @@ export default function Chat() {
     const [next, ...rest] = queued;
     setQueued(rest);
     void post(next.text, next.images, true);
-    // post reads roundTable at the moment it sends, which is the intent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [thread, thinking, queued]);
 
   // Below send, which it calls: the lint's compiler check will not have a
@@ -734,18 +864,18 @@ export default function Chat() {
   const calls = thread?.entries.filter((e) => e.role === "assistant").length ?? 0;
   const long = calls >= 15;
 
-  /**
-   * Who the next question goes to, read off the front of the field: `@id`
-   * names one advisor, `@all` the room, nothing the chair. The seats and the
-   * chips below both write it there, so the field is the one source of truth
-   * and what is sent is exactly what is shown.
-   */
-  const addressed = /^@([a-z][a-z0-9-]*)/.exec(text.trim())?.[1] ?? null;
-  function address(id: string | null) {
-    const stripped = text.replace(/^@[a-z][a-z0-9-]*\s*/, "");
-    setText(id === null || id === "chair" ? stripped : `@${id} ${stripped}`);
-  }
-  const named = addressed && addressed !== "all" ? byId.get(addressed) : undefined;
+  /** The header's second line: what it is doing, or how far the thread has come. */
+  const lastEntry = thread?.entries.at(-1);
+  const status =
+    thread === null
+      ? "connecting…"
+      : thinking
+        ? thread.live
+          ? "writing…"
+          : "reading…"
+        : lastEntry
+          ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""} · last spoke ${agoLabel(lastEntry.at)}`
+          : "here";
 
   return (
     // The document scrolls, as it does on the other three doors. This screen
@@ -761,71 +891,92 @@ export default function Chat() {
         panel ? "desk:pr-[50%]" : ""
       }`}
     >
-      {/* The count reads left, the controls sit together on the right. The
-          switch is a plain word; the two that change which thread you are in
-          are the lifted ones.
-
-          Stuck under the top bar rather than scrolling away with the thread:
-          these two are what you reach for when the subject has moved on, and
-          that is exactly when the thread is long enough to have carried them
-          off the screen. Stuck together with the bar, in one wrapper, so the
-          row does not have to know how tall the bar is. transform-gpu for the
-          same iOS lag #136 fixed on the bar itself. */}
+      {/* Stuck under the top bar rather than scrolling away with the thread:
+          threads and new thread are what you reach for when the subject has
+          moved on, which is exactly when the thread is long enough to have
+          carried them off the screen. Stuck together with the bar, in one
+          wrapper, so the row does not have to know how tall the bar is.
+          transform-gpu for the same iOS lag #136 fixed on the bar itself. */}
       <div className="sticky top-0 z-20 transform-gpu">
         <TopBar crumb={[{ label: "assistant" }]} />
-        <div className="mx-auto flex max-w-[800px] flex-wrap items-center gap-x-3 gap-y-2.5 bg-bg/90 px-[18px] pt-4 pb-2 text-[12px] text-faint backdrop-blur-md">
-          {turns > 0 && (
-            <span>
-              {turns} turn{turns === 1 ? "" : "s"}
-              {calls > turns && ` · ${calls} replies`}
-            </span>
-          )}
-          <span className="ml-auto flex flex-wrap items-center gap-1.5">
-            {canSpeak() && (
-              <Toggle
-                on={speakReplies}
-                title={
-                  speakReplies
-                    ? "stop reading replies aloud"
-                    : "read every reply aloud, including ones you typed"
-                }
-                onClick={toggleSpeakReplies}
-              >
-                read aloud
-              </Toggle>
-            )}
-            {(["browser", "calendar"] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPanel((v) => (v === p ? null : p))}
-                title={p === "browser" ? `${chair.name}'s own browser` : "the calendar, as a month"}
-                aria-pressed={panel === p}
-                className={`tap-hit ml-1 rounded-lg px-2.5 py-1 font-medium hover:bg-surface-2 hover:text-text ${panel === p ? "bg-surface-2 text-text" : "bg-surface text-muted"}`}
-              >
-                {panel === p ? `✕ ${p}` : `◫ ${p}`}
-              </button>
-            ))}
-            <button
-              onClick={() => setBrowsing(true)}
-              disabled={thinking}
-              className="tap-hit ml-1 rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
-            >
-              threads
-            </button>
-            {turns > 0 && (
-              <button
-                onClick={() => void newThread()}
+        {/* One row: who you are talking to and whether it is doing anything,
+            then the controls. It replaces a row of worded buttons and a seat
+            card the size of a reply, which between them took a sixth of a
+            laptop screen before anything had been said. */}
+        <div className="border-b border-line-strong bg-bg/90 backdrop-blur-md">
+          <div className="mx-auto flex max-w-[800px] items-center gap-2.5 px-[18px] py-2">
+            <Portrait
+              face={chair.face}
+              colour={chair.colour}
+              size={30}
+              tone
+              mood={thinking ? "speaking" : "idle"}
+            />
+            <div className="flex min-w-0 flex-1 flex-col leading-tight">
+              <span title={chair.remit} className="truncate text-[14px] font-semibold">
+                {chair.name}
+              </span>
+              <span className={`truncate text-[11.5px] ${thinking ? "text-accent" : "text-faint"}`}>
+                {status}
+              </span>
+            </div>
+            <div className="flex flex-none items-center gap-0.5">
+              {canSpeak() && (
+                <ToolButton
+                  icon="volume"
+                  on={speakReplies}
+                  title={
+                    speakReplies
+                      ? "stop reading replies aloud"
+                      : "read every reply aloud, including ones you typed"
+                  }
+                  onClick={toggleSpeakReplies}
+                />
+              )}
+              {(["browser", "calendar"] as const).map((p) => (
+                <ToolButton
+                  key={p}
+                  icon={p === "browser" ? "globe" : "calendar"}
+                  on={panel === p}
+                  title={
+                    panel === p
+                      ? `close the ${p}`
+                      : p === "browser"
+                        ? `${chair.name}'s own browser`
+                        : "the calendar, as a month"
+                  }
+                  onClick={() => setPanel((v) => (v === p ? null : p))}
+                />
+              ))}
+              <ToolButton
+                icon="users"
+                on={panel === "people"}
+                title={panel === "people" ? "close the specialists" : "who is on the bench"}
+                onClick={() => setPanel((v) => (v === "people" ? null : "people"))}
+              />
+              {/* What changes the thread you are in, set apart from what only
+                  changes how you see it. */}
+              <span aria-hidden className="mx-1 h-5 w-px bg-line-strong" />
+              <ToolButton
+                icon="threads"
+                title="threads: pick one up where it was left"
+                onClick={() => setBrowsing(true)}
                 disabled={thinking}
-                className="tap-hit rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
-              >
-                new thread
-              </button>
-            )}
-          </span>
+              />
+              {turns > 0 && (
+                <ToolButton
+                  icon="compose"
+                  title="start a new thread"
+                  onClick={() => void newThread()}
+                  disabled={thinking}
+                />
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-4 pb-3">
+      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-5 pb-4">
         {thread === null && <div className="text-sm text-muted">connecting…</div>}
 
         {thread && <Room thread={thread} members={members} chair={chair} />}
@@ -856,7 +1007,8 @@ export default function Chat() {
       {/* Stuck just clear of the bottom bar on a phone (55px is that bar's
           height), and back to its own inset where there is none. Painted with
           the page ground so the thread passing behind does not show around
-          its corners. */}
+          its corners. No rule above it: the field is a lifted card already,
+          and a line across the page on top of that read as a second border. */}
       <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))]">
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
@@ -868,8 +1020,9 @@ export default function Chat() {
             </span>
             <button
               onClick={() => void newThread()}
-              className="flex-none rounded-lg bg-wait/15 px-2.5 py-1 font-semibold hover:brightness-110"
+              className="flex flex-none items-center gap-1.5 rounded-lg bg-wait/15 px-2.5 py-1 font-semibold hover:brightness-110"
             >
+              <Icon name="compose" size={14} />
               new thread
             </button>
           </div>
@@ -967,70 +1120,19 @@ export default function Chat() {
             aria-label="message the assistant"
             className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none placeholder:text-faint"
           />
-          {/* On a phone the audience takes a row of its own above the buttons,
-              since four buttons and three chips do not share 350px. */}
+          {/* Attach on the left, voice and send on the right. The audience
+              chips that sat between them are gone: the chair decides who
+              answers, and `@name` or `@all` typed first still asks directly. */}
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             <button
               onClick={() => fileRef.current?.click()}
               aria-label="attach an image"
-              className="tap-sq order-2 flex h-9 w-9 flex-none items-center justify-center rounded-xl text-muted hover:bg-line-strong/40 hover:text-text disabled:opacity-40 min-[620px]:order-1"
+              className="tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-xl text-muted hover:bg-line-strong/40 hover:text-text disabled:opacity-40"
             >
               <Ico>
                 <path d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </Ico>
             </button>
-
-            {/* Who hears it. The chair decides by default and hands the
-                question on itself; these are the shortcut for when you already
-                know whose it is, not a routing decision you have to make. */}
-            {/* overflow-y-hidden: overflow-x-auto makes the other axis a
-                scroller too, and each chip's 44px touch target overhangs the
-                row, so a vertical drag on it slid the chips up and left them. */}
-            {advisors.length > 0 && (
-              <div className="order-1 flex min-w-0 basis-full items-center gap-0.5 overflow-x-auto overflow-y-hidden rounded-xl bg-surface p-0.5 min-[620px]:order-2 min-[620px]:basis-auto">
-                {named ? (
-                  <Chip
-                    on
-                    title="asking this one alone; tap to ask the chair instead"
-                    onClick={() => address(null)}
-                  >
-                    to {named.name} ×
-                  </Chip>
-                ) : (
-                  <>
-                    <Chip
-                      on={!addressed}
-                      title="the chair answers, or hands it to whoever it belongs to"
-                      onClick={() => address(null)}
-                    >
-                      {chair.name} decides
-                    </Chip>
-                    {advisors.length > 1 && (
-                      <Chip
-                        on={addressed === "all"}
-                        title="put it to the whole room: everybody answers"
-                        onClick={() => address(addressed === "all" ? null : "all")}
-                      >
-                        everyone
-                      </Chip>
-                    )}
-                  </>
-                )}
-                {advisors.length > 1 && (
-                  <Chip
-                    on={roundTable}
-                    title={
-                      roundTable
-                        ? "back to one answer each, in parallel"
-                        : "have them talk it over: each one answers having read the others"
-                    }
-                    onClick={() => setRoundTable((r) => !r)}
-                  >
-                    talk it over
-                  </Chip>
-                )}
-              </div>
-            )}
 
             <span className="order-3 flex-1" />
             {canSpeak() && canListen() && !thinking && (
@@ -1101,6 +1203,7 @@ export default function Chat() {
         <Threads
           current={thread?.conversationId}
           onOpen={openThread}
+          onNew={() => void newThread()}
           onClose={() => setBrowsing(false)}
         />
       )}
@@ -1121,6 +1224,25 @@ export default function Chat() {
           onClose={() => setPanel(null)}
         >
           <Month refresh={thread?.entries.length ?? 0} />
+        </Dock>
+      )}
+      {panel === "people" && (
+        <Dock
+          title="Specialists"
+          sub={`who ${chair.name} brings in; ask one directly`}
+          onClose={() => setPanel(null)}
+        >
+          <People
+            members={members}
+            onAsk={(id) => {
+              setText((t) => `@${id} ${t.replace(/^@[a-z][a-z0-9-]*\s*/i, "")}`);
+              // On a phone the panel is the whole screen, and the field the
+              // name just went into is under it.
+              if (!matchMedia("(min-width: 800px) and (min-height: 540px)").matches) {
+                setPanel(null);
+              }
+            }}
+          />
         </Dock>
       )}
     </div>

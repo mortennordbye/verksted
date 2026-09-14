@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CouncilMember, Memory, MemoryList, MemoryType, Schedule } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import SectionLabel from "./SectionLabel";
 import { focusIfPointerFine } from "./Sheet";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
@@ -268,9 +269,7 @@ export default function MemoryPanel() {
 
   return (
     <section className="mt-8">
-      <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-        Memory
-      </div>
+      <SectionLabel icon="memory">Memory</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
         {data ? `${data.memories.length} fact${data.memories.length === 1 ? "" : "s"}` : "…"}
       </h2>

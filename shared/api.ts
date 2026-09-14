@@ -1339,6 +1339,12 @@ export interface SourceStatus {
   mail: boolean;
   calendar: boolean;
   docs: boolean;
+  /**
+   * Where each source lives on the web, when the server can tell from its
+   * settings: Gmail for an imap.gmail.com account, Google Calendar for a Google
+   * sign-in. Absent means no known page, not that the source is off.
+   */
+  links: { github: string; mail?: string; calendar?: string };
 }
 
 /** Google sign-in for the calendar, as the settings page shows it. */

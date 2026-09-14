@@ -285,6 +285,43 @@ export default async function assistantRoutes(app: FastifyInstance) {
     },
   );
 
+  const threadId = {
+    type: "object",
+    required: ["id"],
+    properties: { id: { type: "string", pattern: "^[0-9a-f-]{36}$" } },
+  };
+
+  // Deleting is for good, so the screen asks first; the server only refuses
+  // what would pull a thread out from under a turn still running in it.
+  app.delete<{ Params: { id: string } }>(
+    "/api/assistant/threads/:id",
+    { schema: { params: threadId } },
+    async (req, reply) => {
+      try {
+        await assistant.deleteConversation(req.params.id);
+        return { deleted: true };
+      } catch (err) {
+        const message = (err as Error).message;
+        return reply.code(message === "no such thread" ? 404 : 409).send({ error: message });
+      }
+    },
+  );
+
+  /** Clear out the history: every thread but the open one, or only the old ones. */
+  app.post<{ Body: { olderThanDays?: number } }>(
+    "/api/assistant/threads/clear",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: { olderThanDays: { type: "integer", minimum: 0, maximum: 3650 } },
+        },
+      },
+    },
+    async (req) => ({ deleted: await assistant.clearThreads(req.body.olderThanDays) }),
+  );
+
   app.get("/api/assistant/stream", { websocket: true }, (socket, req) => {
     // Without this a socket error (a phone dropping off mid-frame) reaches the
     // server's error event and takes the process down.

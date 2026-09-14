@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Profile } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import SectionLabel from "./SectionLabel";
 
 /**
  * The profile: who the assistant works for, in your own words.
@@ -50,9 +51,7 @@ export default function ProfilePanel() {
 
   return (
     <section id="profile" className="mt-8 scroll-mt-20">
-      <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-        Profile
-      </div>
+      <SectionLabel icon="user">Profile</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">Who it works for</h2>
       <div className="mb-3 text-sm text-muted">
         What a new assistant would be told on its first day. Read in full at the start of every

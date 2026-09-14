@@ -12,6 +12,8 @@ import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import TopBar from "../components/TopBar";
+import Icon from "../components/Icon";
+import PageHeader from "../components/PageHeader";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import { useConfirm } from "../useConfirm";
@@ -189,11 +191,17 @@ export default function Project() {
       <>
         <TopBar back="/bench" crumb={name ? [{ label: name }] : []} />
         <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
-          <h1 className="mb-2 text-[21px] font-semibold tracking-tight">no such project</h1>
-          <p className="text-sm text-muted">
-            <code className="font-mono text-[12.5px]">{name}</code> is not a repo under the pod's
-            repos directory.
-          </p>
+          <PageHeader
+            icon="alert"
+            label="Project"
+            title="No such project"
+            sub={
+              <>
+                <code className="font-mono text-[12.5px]">{name}</code> is not a repo under the
+                pod's repos directory.
+              </>
+            }
+          />
         </main>
       </>
     );
@@ -203,13 +211,12 @@ export default function Project() {
     <>
       <TopBar back="/bench" crumb={name ? [{ label: name }] : []} />
       <main className="mx-auto max-w-[1140px] px-[18px] pt-[22px] pb-[60px]">
-        <div className="mb-[18px] flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-              Project
-            </div>
-            <h1 className="mb-1 font-mono text-[21px] font-semibold tracking-tight">~/{name}</h1>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        <PageHeader
+          icon="folder"
+          label="Project"
+          title={<span className="font-mono">~/{name}</span>}
+          sub={
+            <span className="flex flex-wrap items-center gap-2">
               {info ? (
                 <>
                   <BranchControl
@@ -226,25 +233,29 @@ export default function Project() {
               ) : (
                 "…"
               )}
-            </div>
-          </div>
-          <div className="flex flex-none gap-2">
-            {info && !info.worktreeOf && (
+            </span>
+          }
+          actions={
+            <>
+              {info && !info.worktreeOf && (
+                <button
+                  onClick={() => setBranching(true)}
+                  className="tap flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold text-muted hover:border-faint hover:text-text"
+                >
+                  <Icon name="branch" size={15} />
+                  new worktree
+                </button>
+              )}
               <button
-                onClick={() => setBranching(true)}
-                className="rounded-lg border border-line bg-surface px-3.5 py-2 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+                onClick={() => setPicking(true)}
+                className="tap flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110"
               >
-                ⎇ new worktree
+                <Icon name="plus" size={15} />
+                new session
               </button>
-            )}
-            <button
-              onClick={() => setPicking(true)}
-              className="rounded-lg bg-accent px-3.5 py-2 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110"
-            >
-              ▸ new session
-            </button>
-          </div>
-        </div>
+            </>
+          }
+        />
 
         {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
