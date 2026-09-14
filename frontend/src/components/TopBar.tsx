@@ -1,4 +1,4 @@
-import { Link, useLocation, useNavigate } from "react-router";
+import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
 import { Badge, isTabRoute, TabLinks } from "./Tabs";
@@ -34,37 +34,49 @@ export function BackButton({ to }: { to: string }) {
 function IconLink({
   to,
   title,
+  label,
   badge,
   children,
 }: {
   to: string;
   title: string;
+  /**
+   * A word beside the icon on a wide screen, drawn like the four screens'
+   * links so the bar reads as one row rather than words and a boxed button.
+   */
+  label?: string;
   /** A count worth interrupting for; nothing is drawn at zero. */
   badge?: number;
   children: React.ReactNode;
 }) {
   return (
-    <Link
+    <NavLink
       to={to}
       title={badge ? `${title} · ${badge} waiting` : title}
       aria-label={badge ? `${title}, ${badge} waiting` : title}
-      className="tap-sq relative flex flex-none items-center justify-center rounded-[7px] border border-line bg-surface px-2.5 py-1.5 text-muted hover:border-faint hover:text-text"
+      className={({ isActive }) =>
+        `tap-sq relative flex flex-none items-center gap-1.5 text-[14.5px] font-medium ${
+          isActive ? "text-text" : "text-faint hover:text-text"
+        }`
+      }
     >
       <svg
         viewBox="0 0 24 24"
-        width="15"
-        height="15"
+        width="17"
+        height="17"
         fill="none"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
+        className="flex-none"
       >
         {children}
       </svg>
+      {label && <span className="hidden min-[1000px]:inline">{label}</span>}
       <Badge count={badge ?? 0} />
-    </Link>
+    </NavLink>
   );
 }
 
@@ -78,8 +90,8 @@ export interface Crumb {
 function CrumbLabel({ crumb, first }: { crumb: Crumb; first: boolean }) {
   const className = `overflow-hidden text-ellipsis whitespace-nowrap ${
     first
-      ? "text-[15px] font-semibold tracking-[-.02em] text-text"
-      : "font-mono text-[13px] font-normal text-muted"
+      ? "text-[16.5px] font-semibold tracking-[-.02em] text-text"
+      : "font-mono text-[14px] font-normal text-muted"
   }`;
   if (!crumb.to) return <b className={className}>{crumb.label}</b>;
   return (
@@ -104,17 +116,29 @@ export default function TopBar({
   // run to announce it. Polled slowly on purpose — it changes once a night.
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
   // One rule for the whole app, read off the route rather than passed in by
-  // each screen: the four doors carry the four as words and no back arrow,
-  // since every one of them is one tap away; anything you drilled into carries
-  // the arrow and its trail. Screens used to decide this for themselves and
-  // drifted — the inbox kept a trail and lost the nav, the thread kept a back
-  // arrow the bottom bar made redundant.
+  // each screen. On a wide screen every bar is the same: the four doors as
+  // words and settings, whatever screen you are on. On a phone, where there is
+  // no room for words, the four doors are the bottom bar, and a screen you
+  // drilled into carries a back arrow and the envelope instead. Screens used to
+  // decide this for themselves and drifted — the inbox kept a trail and lost
+  // the nav, and settings wore an arrow and an envelope Today did not.
   const onTab = isTabRoute(useLocation().pathname);
   return (
+    // A tone of its own, a firmer rule and a shadow falling onto the page: on
+    // the page's own ground with a hairline, the bar and whatever scrolled
+    // under it read as one surface.
     <header
-      className={`sticky top-0 z-20 flex flex-none transform-gpu items-center gap-3 border-b border-line bg-bg/90 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
+      className={`sticky top-0 z-20 flex flex-none transform-gpu items-center gap-3 border-b border-line-strong bg-surface/95 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] shadow-[0_6px_20px_rgba(0,0,0,.35)] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
     >
-      {back !== undefined && !onTab && <BackButton to={back} />}
+      {/* A phone's way up, where the bar has no room for the screens. On a wide
+          screen every screen carries the same row of doors and the trail's own
+          links, so an arrow there was the one thing that made settings or a
+          session look like a different bar. */}
+      {back !== undefined && !onTab && (
+        <span className="flex-none min-[800px]:hidden">
+          <BackButton to={back} />
+        </span>
+      )}
       {/* The mark is a dot with a halo, carried over from the northlight header,
           rather than the mono lockup and blinking block it replaces — that read
           as a CLI that happens to have a web page. The dot is the accent, so it
@@ -130,7 +154,7 @@ export default function TopBar({
         aria-label="verksted — home"
         // `tap`, not `tap-sq`: the word carries its own width, and this needs
         // to be a 44px-high target on a phone rather than a 9px dot.
-        className="tap flex flex-none items-center gap-2 text-[16px] font-bold tracking-[-0.03em] hover:text-accent"
+        className="tap flex flex-none items-center gap-2 text-[18px] font-bold tracking-[-0.03em] hover:text-accent"
       >
         <span className="relative h-[9px] w-[9px] flex-none rounded-full bg-accent">
           <span className="absolute -inset-[5px] rounded-full bg-accent/15" />
@@ -162,24 +186,26 @@ export default function TopBar({
           ))}
         </div>
       )}
-      <div className="ml-auto flex flex-none items-center gap-4">
-        {/* The four screens, as words, where there is room for words. */}
-        {onTab && <TabLinks badge={proposed?.proposals.length} />}
-        {/* The envelope is the way to the inbox from a screen that carries no
-            tabs. On a tab route it was a second door beside the word Inbox,
-            four items along the same bar and pointing at the same place, and
-            it was the door wearing the count. The word wears it now. */}
+      <div className="ml-auto flex flex-none items-center gap-5">
+        {/* The four screens, as words, on every screen wide enough for words:
+            the bar on settings or a session is the same bar as on Today. */}
+        <TabLinks badge={proposed?.proposals.length} />
+        {/* The envelope is the phone's way to the inbox from a screen with no
+            bottom bar. On a wide screen the word Inbox is right beside it, so
+            there it would be a second door to the same place. */}
         {!onTab && (
-          <IconLink
-            to="/runs"
-            title="inbox — what the schedules did"
-            badge={proposed?.proposals.length}
-          >
-            <rect x="2" y="4" width="20" height="16" rx="2" />
-            <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-          </IconLink>
+          <span className="flex-none min-[800px]:hidden">
+            <IconLink
+              to="/runs"
+              title="inbox — what the schedules did"
+              badge={proposed?.proposals.length}
+            >
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+            </IconLink>
+          </span>
         )}
-        <IconLink to="/settings" title="settings">
+        <IconLink to="/settings" title="settings" label="Settings">
           <circle cx="12" cy="12" r="3" />
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </IconLink>

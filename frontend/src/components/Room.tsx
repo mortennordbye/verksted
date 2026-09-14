@@ -8,12 +8,12 @@ import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 /**
  * The room: one person to talk to, and everything said in it.
  *
- * A tonal seat at the top and answers as cards in the speaker's colour. There
- * is one seat because there is one thing you talk to; when it brings a
- * specialist in, that answer lands as a card in the specialist's own colour,
- * which is how a consultation shows without being a place you went to. What
- * it keeps from a chat is the order: it is a conversation, and a conversation
- * reads top to bottom.
+ * The chair is named once, in the header the chat screen draws, so what it
+ * says reads as the conversation itself: one bubble for a run of replies, the
+ * time once at the end. When it brings a specialist in, that answer lands as a
+ * card with the specialist's own face, name and colour, since who is speaking
+ * is the news there. What it keeps from a chat is the order: it is a
+ * conversation, and a conversation reads top to bottom.
  */
 
 function ToolChip({ name, detail }: { name: string; detail: string }) {
@@ -28,37 +28,13 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   );
 }
 
-function Reply({
-  who,
-  entry,
-  live,
-}: {
-  who: CouncilMember;
-  entry?: AssistantEntry;
-  live?: string;
-}) {
+/** What one reply carries: the tools it used, what they showed it, and its words. */
+function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
   // "handoff" is a mark old threads carry from when the council was a screen
   // of its own; it pointed next door, and there is no next door.
-  const tools = entry?.tools.filter((t) => t.name !== "handoff") ?? [];
+  const tools = entry.tools.filter((t) => t.name !== "handoff");
   return (
-    <div
-      className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
-        entry?.failed ? "bg-fail/[.07] ring-fail/30" : MEMBER_CARD[who.colour]
-      }`}
-    >
-      <div className="flex items-center gap-2.5">
-        <Portrait
-          face={who.face}
-          colour={who.colour}
-          size={28}
-          tone
-          mood={live !== undefined ? "speaking" : "idle"}
-        />
-        <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
-        <span className="ml-auto font-mono text-[11px] text-faint">
-          {entry ? agoLabel(entry.at) : <span className="text-accent">writing…</span>}
-        </span>
-      </div>
+    <>
       {tools.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tools.map((t, i) => (
@@ -68,7 +44,7 @@ function Reply({
       )}
       {/* What a tool showed it, a browser screenshot most of all: the thing it
           is asking you to confirm, so it is shown rather than described. */}
-      {entry?.images?.length ? (
+      {entry.images?.length ? (
         <div className="flex flex-wrap gap-2">
           {entry.images.map((name) => (
             <a
@@ -87,21 +63,130 @@ function Reply({
           ))}
         </div>
       ) : null}
-      {entry?.text && (
-        <div className="text-[15px] leading-[1.55]">
-          <Markdown components={MD} urlTransform={citeUrl}>
-            {cite(entry.text)}
-          </Markdown>
+      {entry.text && (
+        // The count sits beside the words as a badge: after a paragraph it
+        // landed on a line of its own, which read as a stray mark.
+        <div className="flex items-start gap-2">
+          <div
+            className={`min-w-0 flex-1 text-[15px] leading-[1.55] ${entry.failed ? "text-fail" : ""}`}
+          >
+            <Markdown components={MD} urlTransform={citeUrl}>
+              {cite(entry.text)}
+            </Markdown>
+          </div>
+          {times > 1 && (
+            <span
+              title={`said ${times} times in a row`}
+              className="mt-[3px] flex-none rounded-full bg-surface-2 px-1.5 font-mono text-[10.5px] text-faint"
+            >
+              ×{times}
+            </span>
+          )}
         </div>
       )}
-      {live !== undefined && (
-        <div className="text-[15px] leading-[1.55] whitespace-pre-wrap">
-          {live}
-          <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
+    </>
+  );
+}
+
+function Writing({ live }: { live: string }) {
+  return (
+    <div className="text-[15px] leading-[1.55] whitespace-pre-wrap">
+      {live}
+      <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
+    </div>
+  );
+}
+
+/**
+ * A run of the chair's replies as one bubble, the way a messaging app merges a
+ * burst from one sender: the parts stacked with a hairline between them and the
+ * time once, at the end. The same words said twice in a row (a failure the CLI
+ * reported on two turns) show once, marked with how many times.
+ */
+function Bubble({ entries, live }: { entries: AssistantEntry[]; live?: string }) {
+  const parts: { entry: AssistantEntry; times: number }[] = [];
+  for (const entry of entries) {
+    const prev = parts.at(-1);
+    const bare = !entry.tools.length && !entry.images?.length;
+    if (prev && bare && entry.text && entry.text === prev.entry.text) prev.times++;
+    else parts.push({ entry, times: 1 });
+  }
+  const last = entries.at(-1);
+  return (
+    <div className="animate-rise flex w-fit max-w-[640px] flex-col gap-1 self-start rounded-[18px] rounded-bl-[6px] bg-surface px-3.5 py-2">
+      {parts.map(({ entry, times }, i) => (
+        <div
+          key={entry.id}
+          className={`flex flex-col gap-2 ${i > 0 ? "mt-1 border-t border-line pt-1.5" : ""}`}
+        >
+          <Said entry={entry} times={times} />
         </div>
+      ))}
+      {live !== undefined && (
+        <div className={parts.length ? "mt-1 border-t border-line pt-1.5" : ""}>
+          <Writing live={live} />
+        </div>
+      )}
+      {last && live === undefined && (
+        <span className="-mt-0.5 self-end font-mono text-[10px] leading-none text-faint">
+          {agoLabel(last.at)}
+        </span>
       )}
     </div>
   );
+}
+
+/** A specialist's answer: its own face, name and colour, and the time beside them. */
+function Card({ who, entry }: { who: CouncilMember; entry: AssistantEntry }) {
+  return (
+    <div
+      className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
+        entry.failed ? "bg-fail/[.07] ring-fail/30" : MEMBER_CARD[who.colour]
+      }`}
+    >
+      <div className="flex items-center gap-2.5">
+        <Portrait face={who.face} colour={who.colour} size={28} tone mood="idle" />
+        <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
+        <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(entry.at)}</span>
+      </div>
+      <Said entry={entry} />
+    </div>
+  );
+}
+
+/** How close together two of the chair's replies have to be to share a bubble. */
+const RUN_MS = 5 * 60_000;
+
+type Block =
+  | { kind: "user"; entry: AssistantEntry }
+  | { kind: "card"; entry: AssistantEntry }
+  | { kind: "run"; entries: AssistantEntry[] };
+
+/**
+ * The thread as what the screen draws: your messages, specialists' cards, and
+ * the chair's replies gathered into runs. A run ends at anything of yours or a
+ * specialist's, or at a pause longer than RUN_MS.
+ */
+function blocks(entries: AssistantEntry[]): Block[] {
+  const out: Block[] = [];
+  for (const entry of entries) {
+    if (entry.role === "user") {
+      out.push({ kind: "user", entry });
+      continue;
+    }
+    if (entry.member) {
+      out.push({ kind: "card", entry });
+      continue;
+    }
+    const prev = out.at(-1);
+    const lastAt = prev?.kind === "run" ? prev.entries.at(-1)?.at : undefined;
+    if (prev?.kind === "run" && lastAt && Date.parse(entry.at) - Date.parse(lastAt) <= RUN_MS) {
+      prev.entries.push(entry);
+    } else {
+      out.push({ kind: "run", entries: [entry] });
+    }
+  }
+  return out;
 }
 
 export default function Room({
@@ -114,37 +199,14 @@ export default function Room({
   chair: CouncilMember;
 }) {
   const thinking = thread.status === "thinking";
-  const last = thread.entries.at(-1);
-  const status = thinking
-    ? thread.live
-      ? "writing…"
-      : "reading…"
-    : last
-      ? `last spoke ${agoLabel(last.at)}`
-      : "here";
+  const drawn = blocks(thread.entries);
+  // The answer being written joins the chair's last bubble when that is the
+  // last thing on screen, and starts one of its own otherwise.
+  const writing = thinking && thread.live ? thread.live : undefined;
+  const joinsLast = writing !== undefined && drawn.at(-1)?.kind === "run";
 
   return (
-    <div className="flex flex-col gap-5">
-      {/* The seat: who this is, and whether it is doing anything. */}
-      <div className="flex items-center gap-4 rounded-3xl bg-surface px-5 py-4 shadow-[0_20px_60px_rgba(0,0,0,.45)]">
-        <Portrait
-          face={chair.face}
-          colour={chair.colour}
-          size={52}
-          tone
-          mood={thinking ? "speaking" : "idle"}
-        />
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="text-[16px] font-bold">{chair.name}</span>
-          <span className={`text-[12.5px] ${thinking ? "text-accent" : "text-muted"}`}>
-            {status}
-          </span>
-        </div>
-        <span className="ml-auto hidden max-w-[32ch] text-right text-[12px] leading-snug text-faint min-[620px]:block">
-          {chair.remit}
-        </span>
-      </div>
-
+    <div className="flex flex-col gap-3">
       {thread.entries.length === 0 && (
         <div className="mt-8 text-center">
           <div className="font-mono text-[13px] text-muted">nothing said yet</div>
@@ -155,29 +217,42 @@ export default function Room({
         </div>
       )}
 
-      {thread.entries.map((e) =>
-        e.role === "user" ? (
-          <div key={e.id} className="animate-rise flex flex-col items-end gap-1.5">
-            {e.images?.map((name) => (
-              <img
-                key={name}
-                src={`/api/assistant/uploads/${name}`}
-                alt="attached"
-                className="max-h-52 max-w-[82%] rounded-xl"
-              />
-            ))}
-            {e.text && (
-              <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
-                {e.text}
-              </div>
-            )}
-          </div>
-        ) : (
-          <Reply key={e.id} who={members.find((m) => m.id === e.member) ?? chair} entry={e} />
-        ),
-      )}
+      {drawn.map((b, i) => {
+        if (b.kind === "user") {
+          const e = b.entry;
+          return (
+            <div key={e.id} className="animate-rise flex flex-col items-end gap-1.5">
+              {e.images?.map((name) => (
+                <img
+                  key={name}
+                  src={`/api/assistant/uploads/${name}`}
+                  alt="attached"
+                  className="max-h-52 max-w-[82%] rounded-xl"
+                />
+              ))}
+              {e.text && (
+                <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
+                  {e.text}
+                </div>
+              )}
+            </div>
+          );
+        }
+        if (b.kind === "card") {
+          const who = members.find((m) => m.id === b.entry.member) ?? chair;
+          return <Card key={b.entry.id} who={who} entry={b.entry} />;
+        }
+        const isLast = i === drawn.length - 1;
+        return (
+          <Bubble
+            key={b.entries[0].id}
+            entries={b.entries}
+            live={isLast && joinsLast ? writing : undefined}
+          />
+        );
+      })}
 
-      {thinking && thread.live && <Reply who={chair} live={thread.live} />}
+      {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
       {thinking && !thread.live && (
         <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />

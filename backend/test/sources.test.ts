@@ -60,6 +60,52 @@ const ICS = [
   "END:VCALENDAR",
 ].join("\r\n");
 
+describe("where a source lives", () => {
+  it("names the web app for the providers it knows, with the account", async () => {
+    const { sourceLinks } = await import("../src/routes/sources.js");
+    const links = sourceLinks(
+      { host: "imap.gmail.com", user: "morten@nordbye.it" },
+      {
+        kind: "google",
+        user: "morten@nordbye.it",
+        clientId: "c",
+        clientSecret: "s",
+        refreshToken: "r",
+      },
+    );
+    expect(links).toEqual({
+      github: "https://github.com/notifications",
+      mail: "https://mail.google.com/mail/?authuser=morten%40nordbye.it",
+      calendar: "https://calendar.google.com/calendar/?authuser=morten%40nordbye.it",
+    });
+    expect(
+      sourceLinks(null, {
+        kind: "basic",
+        url: "https://caldav.icloud.com",
+        user: "u",
+        password: "p",
+      }).calendar,
+    ).toBe("https://www.icloud.com/calendar");
+  });
+
+  it("guesses nothing for a host it does not know, or a lookalike", async () => {
+    const { sourceLinks } = await import("../src/routes/sources.js");
+    expect(sourceLinks({ host: "mail.example.no", user: "u" }, null)).toEqual({
+      github: "https://github.com/notifications",
+    });
+    // Ends in gmail.com only as a longer name, so not Google's.
+    expect(sourceLinks({ host: "imap.notgmail.com", user: "u" }, null).mail).toBeUndefined();
+    expect(
+      sourceLinks(null, { kind: "basic", url: "not a url", user: "u", password: "p" }).calendar,
+    ).toBeUndefined();
+  });
+
+  it("says where each source lives on the status route", async () => {
+    const res = (await app.inject({ url: "/api/sources" })).json();
+    expect(res.links.github).toBe("https://github.com/notifications");
+  });
+});
+
 describe("editing an event", () => {
   const SRC = [
     "BEGIN:VCALENDAR",

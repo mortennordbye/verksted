@@ -708,6 +708,53 @@ export async function openConversation(id: string): Promise<void> {
   announce();
 }
 
+/**
+ * Delete a thread for good: verksted's copy of it and who spoke in it.
+ *
+ * Claude's own transcript under $HOME is left, the way `newConversation`
+ * leaves a thread behind: this is the list you see and the set recall searches,
+ * and a transcript nothing points at is inert. Deleting the thread you are in
+ * starts a fresh one in its place, so the screen never points at nothing.
+ */
+export async function deleteConversation(id: string): Promise<void> {
+  if (!CONV_RE.test(id)) throw new Error("not a thread id");
+  const current = await currentConversation();
+  // The open thread is busy whenever the chair is; another one only while an
+  // advisor is still answering in it.
+  if (id === current ? busy(current) : speakingIn(id).length > 0) {
+    throw new Error("a turn is still running");
+  }
+  try {
+    await fs.access(threadPath(id));
+  } catch {
+    throw new Error("no such thread");
+  }
+  await fs.rm(threadPath(id), { force: true });
+  await fs.rm(participantsPath(id), { force: true });
+  if (id === current) await writeTextAtomic(currentPath(), randomUUID());
+  announce();
+}
+
+/**
+ * Delete every thread but the one open now, or only those whose last word is
+ * more than `olderThanDays` old. Returns how many went. A thread an advisor is
+ * still answering in is left for next time rather than pulled out from under it.
+ */
+export async function clearThreads(olderThanDays?: number, now = Date.now()): Promise<number> {
+  const current = await currentConversation();
+  let deleted = 0;
+  for (const t of await listThreads()) {
+    if (t.conversationId === current || speakingIn(t.conversationId).length) continue;
+    if (olderThanDays !== undefined && now - Date.parse(t.at) < olderThanDays * 86_400_000) {
+      continue;
+    }
+    await fs.rm(threadPath(t.conversationId), { force: true });
+    await fs.rm(participantsPath(t.conversationId), { force: true });
+    deleted++;
+  }
+  return deleted;
+}
+
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
   try {
     const raw = await fs.readFile(threadPath(conversationId, unattended), "utf8");

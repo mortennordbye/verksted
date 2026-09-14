@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AssistantConfig, AssistantTool, AssistantVoices } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import SectionLabel from "./SectionLabel";
 import {
   POD_VOICE_KEY,
   VOICE_KEY,
@@ -178,9 +179,7 @@ export default function AssistantPanel() {
 
   return (
     <section className="mt-8">
-      <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-        Assistant
-      </div>
+      <SectionLabel icon="chat">Assistant</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
         {draft?.name?.trim() || "Unnamed"}
       </h2>

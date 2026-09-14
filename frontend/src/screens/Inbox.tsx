@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import BandHeading from "../components/BandHeading";
+import type { IconName } from "../components/Icon";
+import PageHeader from "../components/PageHeader";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import SourceMark from "../components/SourceMark";
@@ -345,6 +348,9 @@ export default function Inbox() {
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
   const [source, setSource] = useState<FeedSource | "all">("all");
   const [showDone, setShowDone] = useState(false);
+  // Quiet items are the routine: shown on asking, so the ones that matter are
+  // not a scroll down past thirty of them.
+  const [showQuiet, setShowQuiet] = useState(false);
   const [judging, setJudging] = useState(false);
   const [clearing, setClearing] = useState(false);
   // What the last action did, and the way back out of it. An inbox where
@@ -376,6 +382,31 @@ export default function Inbox() {
   const unjudged = live.filter((i) => !i.triaged).length;
   const open = (loops ?? []).filter((l) => l.state === "open");
   const byId = new Map((sessions ?? []).map((s) => [s.id, s]));
+
+  /**
+   * The list in sections by what it asks of you, each still cut into days.
+   *
+   * One run of rows ordered by time put a failed deploy between two newsletters,
+   * and the only mark telling them apart was a small chip on each. Sections by
+   * urgency answer "what do I have to look at" before "when did it arrive".
+   */
+  const pending = shown.filter((i) => i.state !== "done");
+  const sections: { key: string; icon: IconName; title: string; items: FeedItem[] }[] = [
+    {
+      key: "attention",
+      icon: "alert",
+      title: "Needs you",
+      items: pending.filter((i) => i.urgency === "attention"),
+    },
+    { key: "new", icon: "inbox", title: "New", items: pending.filter((i) => i.urgency === "new") },
+    {
+      key: "quiet",
+      icon: "history",
+      title: "Quiet",
+      items: pending.filter((i) => i.urgency === "quiet"),
+    },
+    { key: "done", icon: "check", title: "Done", items: shown.filter((i) => i.state === "done") },
+  ];
 
   /**
    * Every item on the list as it is filtered, in one go.
@@ -437,27 +468,22 @@ export default function Inbox() {
     <>
       <TopBar crumb={[{ label: "inbox" }]} />
       <main className="mx-auto max-w-[900px] px-[18px] pt-[22px] pb-[calc(80px+env(safe-area-inset-bottom))] min-[800px]:pb-[60px]">
-        <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-          Inbox
-        </div>
-        <h1 className="mb-1 text-[21px] font-semibold tracking-tight">
-          {items === null
-            ? "…"
-            : attention
-              ? `${attention} need${attention === 1 ? "s" : ""} you`
-              : "nothing needs you"}
-        </h1>
-        <div className="mb-5 text-sm text-muted">
-          Everything that arrived, newest first: what the schedules did, what GitHub wants, what the
-          agents are waiting on, what was proposed to remember. Done keeps thirty days, and undo is
-          on the next screen; snooze asks when to bring it back.
-        </div>
+        <PageHeader
+          icon="inbox"
+          label="Inbox"
+          title={
+            items === null
+              ? "…"
+              : attention
+                ? `${attention} need${attention === 1 ? "s" : ""} you`
+                : "Nothing needs you"
+          }
+          sub="Everything that arrived, sorted by what it asks of you. Done keeps thirty days, undo is on the next screen, and snooze asks when to bring it back."
+        />
 
         {open.length > 0 && (
-          <div className="mb-6">
-            <div className="mb-2 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-              Open loops
-            </div>
+          <section className="mb-8">
+            <BandHeading icon="proposal" title="Open loops" count={open.length} />
             <div className="flex flex-col gap-1.5">
               {open.map((l) => (
                 <div
@@ -479,10 +505,12 @@ export default function Inbox() {
                 </div>
               ))}
             </div>
-          </div>
+          </section>
         )}
 
-        <div className="mb-3 flex flex-wrap items-center gap-1.5">
+        {/* The filters and the list's own actions in one bar of their own, so
+            they read as controls rather than as the first row of the list. */}
+        <div className="mb-7 flex flex-wrap items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 py-2">
           {(["all", ...present] as (FeedSource | "all")[]).map((s) => (
             <button
               key={s}
@@ -551,31 +579,59 @@ export default function Inbox() {
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
-          {/* Cut into days: the feed is one long run of rows, and "when did
-              this arrive" is most of what tells the overnight ones apart. */}
-          {byDay(shown).map((day) => (
-            <div key={day.label} className="flex flex-col gap-2">
-              <div className="mt-2 font-mono text-[11px] tracking-[.12em] text-faint uppercase first:mt-0">
-                {day.label}
-              </div>
-              {day.items.map((i) => (
-                <Row
-                  key={i.id}
-                  item={i}
-                  session={i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined}
-                  onChange={refresh}
-                  onActed={(ids, label) => setUndo({ ids, label })}
-                />
-              ))}
-            </div>
-          ))}
-          {items !== null && shown.length === 0 && (
-            <div className="font-mono text-[12.5px] text-faint">
-              nothing here — schedules, GitHub and the agents all land in this list
-            </div>
-          )}
-        </div>
+        {sections.map((s) => {
+          if (!s.items.length) return null;
+          const folded = s.key === "quiet" && !showQuiet;
+          return (
+            <section key={s.key} className="mb-8">
+              <BandHeading
+                icon={s.icon}
+                title={s.title}
+                count={s.items.length}
+                action={
+                  s.key === "quiet" ? (
+                    <button
+                      onClick={() => setShowQuiet((q) => !q)}
+                      aria-expanded={showQuiet}
+                      className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+                    >
+                      {showQuiet ? "hide" : "show"}
+                    </button>
+                  ) : undefined
+                }
+              />
+              {!folded && (
+                <div className="flex flex-col gap-2">
+                  {/* Still cut into days inside a section: "when did this
+                      arrive" is most of what tells the overnight ones apart. */}
+                  {byDay(s.items).map((day) => (
+                    <div key={day.label} className="flex flex-col gap-2">
+                      <div className="mt-2 font-mono text-[11px] tracking-[.12em] text-faint uppercase first:mt-0">
+                        {day.label}
+                      </div>
+                      {day.items.map((i) => (
+                        <Row
+                          key={i.id}
+                          item={i}
+                          session={
+                            i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined
+                          }
+                          onChange={refresh}
+                          onActed={(ids, label) => setUndo({ ids, label })}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          );
+        })}
+        {items !== null && shown.length === 0 && (
+          <div className="font-mono text-[12.5px] text-faint">
+            nothing here — schedules, GitHub and the agents all land in this list
+          </div>
+        )}
       </main>
       <Tabs />
       {confirmDialog}

@@ -1,7 +1,7 @@
-import { NavLink } from "react-router";
-import type { ReactNode } from "react";
+import { NavLink, useLocation } from "react-router";
 import type { Memory } from "../../../shared/api";
 import { usePoll } from "../api";
+import Icon, { type IconName } from "./Icon";
 
 /**
  * The four places a phone goes: Today, the inbox, the bench and the thread.
@@ -11,42 +11,15 @@ import { usePoll } from "../api";
  * top-level screens only: a session or a project has a back arrow, and a
  * second set of doors under a terminal is noise.
  */
-const TABS: { to: string; label: string; icon: ReactNode }[] = [
-  {
-    to: "/",
-    label: "Today",
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="4" />
-        <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-      </>
-    ),
-  },
-  {
-    to: "/runs",
-    label: "Inbox",
-    icon: (
-      <>
-        <rect x="2" y="4" width="20" height="16" rx="2" />
-        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-      </>
-    ),
-  },
-  {
-    to: "/bench",
-    label: "Bench",
-    icon: (
-      <>
-        <rect x="3" y="4" width="18" height="12" rx="2" />
-        <path d="M7 20h10M12 16v4" />
-      </>
-    ),
-  },
-  {
-    to: "/ai",
-    label: "Chat",
-    icon: <path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8z" />,
-  },
+const TABS: { to: string; label: string; icon: IconName }[] = [
+  // "/today", not "/": once Today is acknowledged "/" goes to the bench, and
+  // the tab has to open Today whenever it is tapped.
+  { to: "/today", label: "Today", icon: "today" },
+  { to: "/runs", label: "Inbox", icon: "inbox" },
+  { to: "/bench", label: "Bench", icon: "bench" },
+  // "Assistant", not "Chat": the screen is a someone you ask, and the top bar
+  // and the settings tab already called it that.
+  { to: "/ai", label: "Assistant", icon: "chat" },
 ];
 
 /**
@@ -58,7 +31,13 @@ const TABS: { to: string; label: string; icon: ReactNode }[] = [
  * the bar dropped its nav the moment a screen named itself.
  */
 export function isTabRoute(pathname: string): boolean {
-  return TABS.some((t) => (t.to === "/" ? pathname === "/" : pathname.startsWith(t.to)));
+  // "/" is Today too, until it is acknowledged.
+  return pathname === "/" || TABS.some((t) => pathname.startsWith(t.to));
+}
+
+/** A tab is lit on its own path, and Today also on "/", where it is drawn unacknowledged. */
+function lit(to: string, pathname: string, isActive: boolean): boolean {
+  return isActive || (to === "/today" && pathname === "/");
 }
 
 /**
@@ -89,6 +68,7 @@ export default function Tabs() {
   // The same count the top bar carries, read the same way: the phone shows the
   // bar's words nowhere, so the bottom tabs are where it has to appear.
   const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
+  const { pathname } = useLocation();
   return (
     <nav
       aria-label="screens"
@@ -98,26 +78,13 @@ export default function Tabs() {
         <NavLink
           key={t.to}
           to={t.to}
-          end={t.to === "/"}
           className={({ isActive }) =>
             `tap relative flex flex-1 flex-col items-center gap-0.5 py-2 text-[10.5px] font-medium tracking-[.04em] ${
-              isActive ? "text-accent" : "text-faint hover:text-text"
+              lit(t.to, pathname, isActive) ? "text-accent" : "text-faint hover:text-text"
             }`
           }
         >
-          <svg
-            viewBox="0 0 24 24"
-            width="20"
-            height="20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            {t.icon}
-          </svg>
+          <Icon name={t.icon} size={20} strokeWidth={1.8} />
           {t.label}
           {t.to === "/runs" && <Badge count={proposed?.proposals.length ?? 0} />}
         </NavLink>
@@ -126,20 +93,27 @@ export default function Tabs() {
   );
 }
 
-/** The same four, as words, for the top bar on a wide screen. */
+/**
+ * The same four for the top bar on a wide screen: the bottom bar's icons, at
+ * the size of the bar's own, with the word beside each so a glance finds the
+ * door and a read confirms it.
+ */
 export function TabLinks({ badge = 0 }: { badge?: number }) {
+  const { pathname } = useLocation();
   return (
-    <nav aria-label="screens" className="hidden items-center gap-4 min-[800px]:flex">
+    <nav aria-label="screens" className="hidden items-center gap-5 min-[800px]:flex">
       {TABS.map((t) => (
         <NavLink
           key={t.to}
           to={t.to}
-          end={t.to === "/"}
           className={({ isActive }) =>
-            `flex items-center gap-1.5 text-[13px] font-medium ${isActive ? "text-text" : "text-faint hover:text-text"}`
+            `flex items-center gap-1.5 text-[14.5px] font-medium ${lit(t.to, pathname, isActive) ? "text-text" : "text-faint hover:text-text"}`
           }
         >
-          {t.label}
+          <Icon name={t.icon} size={17} />
+          {/* Words from 1000px: between that and 800 the five doors and a long
+              trail did not fit, and the last door was cut off the edge. */}
+          <span className="hidden min-[1000px]:inline">{t.label}</span>
           {t.to === "/runs" && <Badge count={badge} inline />}
         </NavLink>
       ))}

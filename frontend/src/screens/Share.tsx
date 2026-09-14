@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../api";
 import TopBar from "../components/TopBar";
+import PageHeader from "../components/PageHeader";
 
 /**
  * Where the share sheet lands.
@@ -38,18 +39,22 @@ export default function Share() {
     <>
       <TopBar back="/" crumb={[{ label: "share" }]} />
       <main className="mx-auto max-w-[600px] px-[18px] pt-[22px]">
-        {error ? (
-          <div className="text-sm">
-            <div className="font-mono text-[12px] text-fail">{error}</div>
-            <Link to="/" className="mt-3 inline-block text-accent hover:underline">
-              back to today
-            </Link>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
-            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
-            taking it in…
-          </div>
+        <PageHeader
+          icon="inbox"
+          label="Share"
+          title={error ? "Could not take it in" : "Taking it in…"}
+          sub={
+            error ? (
+              <span className="font-mono text-[12px] text-fail">{error}</span>
+            ) : (
+              "Sending it to the inbox, where it lands as an item."
+            )
+          }
+        />
+        {error && (
+          <Link to="/" className="inline-block text-sm text-accent hover:underline">
+            back to today
+          </Link>
         )}
       </main>
     </>

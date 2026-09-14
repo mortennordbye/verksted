@@ -5,6 +5,7 @@ import type { DocEntry, DocHit } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { MD } from "../components/chat/markdown";
 import TopBar from "../components/TopBar";
+import PageHeader from "../components/PageHeader";
 import { parseCsv } from "../csv";
 import { marks, rehypeMark } from "../find";
 import { useOverlayDismiss } from "../useDismissOnBack";
@@ -94,10 +95,12 @@ export default function Docs() {
     <>
       <TopBar back="/" crumb={[{ label: "documents" }]} />
       <main className="mx-auto max-w-[860px] px-[18px] pt-[22px] pb-[60px]">
-        <h1 className="mb-1 text-[21px] font-semibold tracking-tight">Documents</h1>
-        <div className="mb-5 text-sm text-muted">
-          The share on the NAS, mounted read-only. Nothing here can change it.
-        </div>
+        <PageHeader
+          icon="document"
+          label="Documents"
+          title="The share"
+          sub="The share on the NAS, mounted read-only. Nothing here can change it."
+        />
 
         <input
           value={query}

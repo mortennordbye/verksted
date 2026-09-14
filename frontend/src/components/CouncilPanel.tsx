@@ -6,6 +6,7 @@ import type {
   CouncilMember,
 } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import SectionLabel from "./SectionLabel";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { audioPlayer, voiceLabel } from "../useSpeech";
 
@@ -158,9 +159,7 @@ export default function CouncilPanel() {
 
   return (
     <section className="mt-8">
-      <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-        Specialists
-      </div>
+      <SectionLabel icon="users">Specialists</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
         {members.length} on the bench
       </h2>
