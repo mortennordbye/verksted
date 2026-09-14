@@ -233,23 +233,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Unblocked by:** Milestone-1 deployment.
 - **Where:** `backend/src/routes/facts.ts` (extend)
 
-## A scheduled run has never been watched end to end in the pod
-
-- **What:** The launch decision is now covered
-  (`backend/test/scheduler-run.test.ts`): a tick starts a claude session in the
-  right repo, the prompt travels as `VK_PROMPT`, the run gets
-  `--permission-mode auto`, and a tick is skipped while the previous run is
-  open. What a fake tmux cannot answer is what the agent then does: whether the
-  prompt arrives _submitted_ rather than sitting in the input box, and whether
-  auto mode really carries an unattended run through `gh pr` calls without
-  stopping.
-- **Why deferred:** Both need a real authenticated claude in a real pane.
-- **Unblocked by:** One real scheduled run in the pod: point a schedule at a
-  repo, hit "run now", confirm a session appears and the agent is already
-  working rather than waiting on an unsent prompt.
-- **Where:** `backend/src/scheduler.ts`, `backend/src/sessions-store.ts`
-  (`launchAgent`), `backend/test/scheduler-run.test.ts`
-
 ## A catch-up has never run after a real pod restart
 
 - **What:** The rule is covered (`backend/test/scheduler-run.test.ts`, the
@@ -319,25 +302,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   glob all work (`frontend/vitest.config.ts`), so a component test is now a file
   rather than a project.
 - **Where:** `frontend/test/`, `frontend/vitest.config.ts`
-
-## One scheduler test is racy, and fails about one run in three under load
-
-- **What:** `scheduler-run.test.ts`, "records one it is too late for rather than
-  letting it vanish", waits for `lastError` to be written and then asserts that
-  `lastFiredAt` was stamped as well. Those are two writes, so a read that lands
-  between them sees the error without the stamp and the assertion fails. It
-  reproduces on `main` with nothing else changed — three full backend runs, one
-  red — and only when the whole suite is running, which is why single-file runs
-  look clean.
-- **Why deferred:** Noticed while verifying an unrelated change, and fixing
-  somebody else's test inside a feature branch hides it. It is a test race, not
-  a product bug: the scheduler does record both.
-- **Unblocked by:** Deciding which end to fix — have `eventually` wait for the
-  stamp rather than the error, or have `missedTick` write both in one update so
-  there is no in-between state to observe. The second is the better answer if
-  the same pattern shows up elsewhere.
-- **Where:** `backend/test/scheduler-run.test.ts` (the `eventually` call in that
-  test), `backend/src/scheduler.ts` (`missedTick`)
 
 ## The pod's voice is English-first, and never speaks Norwegian
 
@@ -492,27 +456,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   writing the same state file (`VK_STATE_FILE` is already the contract).
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
-
-## Upgrade react-router past the RSC-mode CSRF advisory
-
-- **What:** react-router is pinned at `^7.0.0` and resolves to 7.18.1, which is
-  inside the range of GHSA-qwww-vcr4-c8h2 ("RSC Mode CSRF Bypass Allows Action
-  Execution Before 400 Response"). The other five advisories found alongside it
-  were patched in place; this one is left open deliberately.
-- **Why deferred:** The advisory is specific to RSC mode. This app is a
-  client-side SPA that uses only `Routes`, `Route`, `BrowserRouter`, `Link`,
-  `useNavigate`, `useParams` and `useLocation` — no RSC, no server actions, no
-  data-router loaders — so the vulnerable code path is never reached. The fixed
-  version is >8.2.0, so clearing the advisory means a react-router 8 major bump
-  across the whole routing layer, which is a deliberate upgrade rather than a
-  security patch.
-- **Unblocked by:** Reading the react-router 8 migration notes and doing the
-  bump on its own branch. Until then `npm audit` will keep reporting one high
-  finding, so any dependency scanning added in CI needs to either allow this
-  advisory explicitly or be read with it in mind.
-- **Where:** `frontend/package.json` (`react-router`), and the import sites
-  listed above (`frontend/src/App.tsx`, `main.tsx`, `components/TopBar.tsx`,
-  `screens/Hub.tsx`, `Project.tsx`, `Session.tsx`, `Settings.tsx`, `Inbox.tsx`)
 
 ## Pick a window-size policy for two clients on one session
 
@@ -694,26 +637,23 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   runtime the backend is using).
 - **Where:** `runtime/verksted-mcp.mjs`, `backend/src/assistant.ts` (`MCP_CONFIG`)
 
-## An unattended turn has never fired from a cron tick, or pushed a phone
+## An unattended turn's notify has never reached a phone
 
-- **What:** The turn itself is now proven on the real pod. Both assistant
-  schedules were run on 2026-08-08 against a real authenticated CLI: the
-  briefing answered in 13.6s off `status` alone, the harvest in 7.3s, both
-  signed off `ok:` and both landed in the inbox beside the session runs. What
-  that did _not_ exercise is the two paths a person cannot trigger by hand —
-  a **cron tick** firing them unattended (both were "run now"), and **notify**
-  actually reaching the phone, since an `ok` briefing is meant to stay silent
-  and correctly did. Suppression of a repeated push is likewise untested against
+- **What:** The cron half is answered. On 2026-09-14 the pod's schedules had all
+  stamped `lastFiredAt` on their cron minute to the millisecond, and the run
+  list holds a briefing, a harvest and the session runs every night with nobody
+  pressing anything. What is still unexercised is **notify** actually reaching
+  the phone from an unattended turn, since an `ok` briefing is meant to stay
+  silent and does. Suppression of a repeated push is likewise untested against
   a real device, and is in-memory, so a pod restarting between two firings will
   push a duplicate.
-- **Why deferred:** Needs a morning to pass, and needs something genuinely
-  worth interrupting for so that `notify` is reached on its own judgement.
-- **Unblocked by:** Reading the inbox after 07:00 and 03:00 and confirming two
-  runs appeared without anyone pressing anything. For the push half, the
-  quickest honest test is a schedule whose prompt says to notify unconditionally,
-  run twice inside six hours — the second should report itself suppressed.
-- **Where:** `backend/src/scheduler.ts` (`briefing`, the cron callback),
-  `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`)
+- **Why deferred:** Needs something genuinely worth interrupting for so that
+  `notify` is reached on its own judgement.
+- **Unblocked by:** A schedule whose prompt says to notify unconditionally, run
+  twice inside six hours — the first should arrive on the phone, the second
+  should report itself suppressed.
+- **Where:** `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`),
+  `backend/src/scheduler.ts` (`briefing`)
 
 ## The session chat view drops images and pasted attachments
 
