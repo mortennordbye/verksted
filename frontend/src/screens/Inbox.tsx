@@ -11,6 +11,7 @@ import Sheet from "../components/Sheet";
 import SourceMark from "../components/SourceMark";
 import { StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
+import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
 import WaitingSession from "../components/WaitingSession";
 import { useConfirm } from "../useConfirm";
@@ -479,11 +480,13 @@ export default function Inbox() {
           icon="inbox"
           label="Inbox"
           title={
-            items === null
-              ? "…"
-              : attention
-                ? `${attention} need${attention === 1 ? "s" : ""} you`
-                : "Nothing needs you"
+            items === null ? (
+              <Skeleton className="inline-block h-[22px] w-48 max-w-full rounded-md bg-surface-2 align-middle" />
+            ) : attention ? (
+              `${attention} need${attention === 1 ? "s" : ""} you`
+            ) : (
+              "Nothing needs you"
+            )
           }
           sub="Everything that arrived, sorted by what it asks of you. Done keeps thirty days, undo is on the next screen, and snooze asks when to bring it back."
         />
@@ -641,6 +644,16 @@ export default function Inbox() {
             </section>
           );
         })}
+        {items === null && (
+          <div className="flex flex-col gap-2">
+            {[0, 1, 2].map((i) => (
+              <Skeleton
+                key={i}
+                className="block h-[72px] rounded-xl border border-line bg-surface"
+              />
+            ))}
+          </div>
+        )}
         {items !== null && shown.length === 0 && (
           <div className="font-mono text-[12.5px] text-faint">
             nothing here — schedules, GitHub and the agents all land in this list

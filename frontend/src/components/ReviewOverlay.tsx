@@ -3,6 +3,7 @@ import type { ReviewVerdict, SessionPatch, SessionReview } from "../../../shared
 import { api } from "../api";
 import { diffLineClass, splitPatch } from "../diff";
 import { useOverlayDismiss } from "../useDismissOnBack";
+import { SkeletonLines } from "./Skeleton";
 
 /** Files start open until this many lines are already on screen; the rest wait
  *  to be asked for, so a big night does not cost a phone thousands of nodes. */
@@ -137,7 +138,7 @@ export default function ReviewOverlay({
         </header>
 
         <div className="min-h-0 flex-1 overflow-auto font-mono text-[12.5px]">
-          {!patch && !error && <div className="p-4 text-faint">…</div>}
+          {!patch && !error && <SkeletonLines count={10} className="p-4" />}
           {error && <div className="p-4 text-wait">{error}</div>}
           {patch && files.length === 0 && (
             <div className="p-4 text-faint">

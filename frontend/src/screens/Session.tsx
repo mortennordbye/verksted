@@ -29,6 +29,7 @@ import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
 import Icon from "../components/Icon";
+import Skeleton from "../components/Skeleton";
 import { useConfirm } from "../useConfirm";
 import { useOverlayDismiss } from "../useDismissOnBack";
 // The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
@@ -544,7 +545,11 @@ export default function Session() {
           <div className="mb-2 hidden flex-none items-center gap-2 desk:mb-3.5 desk:flex desk:flex-wrap desk:gap-3">
             <StatusDot running={live} />
             <h1 className="min-w-0 truncate font-mono text-[14px] font-semibold desk:text-[16px]">
-              {session?.title ?? "…"}
+              {session ? (
+                session.title
+              ) : (
+                <Skeleton className="inline-block h-4 w-48 rounded bg-surface-2 align-middle" />
+              )}
             </h1>
             {session && <AgentTag agent={session.agent} />}
             {session && (
@@ -651,7 +656,11 @@ export default function Session() {
                 than a claim on it: the pane label keeps its own width and this
                 takes whatever is left, down to nothing. */}
             <h1 className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted">
-              {session?.project ?? "…"}
+              {session ? (
+                session.project
+              ) : (
+                <Skeleton className="inline-block h-3.5 w-24 rounded bg-surface-2 align-middle" />
+              )}
             </h1>
             {session && (
               // Doubles as the actions trigger: two separate controls plus the
@@ -843,7 +852,12 @@ export default function Session() {
                 className={`${full ? "flex" : "hidden desk:flex"} flex-none items-center gap-2.5 border-b border-line bg-surface px-3.5 py-[9px] font-mono text-[11.5px] text-faint`}
               >
                 <span className="hidden text-muted desk:inline">
-                  {chatView ? "chat" : "tmux"} · {session?.id ?? "…"}
+                  {chatView ? "chat" : "tmux"} ·{" "}
+                  {session ? (
+                    session.id
+                  ) : (
+                    <Skeleton className="inline-block h-2.5 w-24 rounded bg-surface-2 align-middle" />
+                  )}
                 </span>
                 {/* Mobile: one pane at a time, these switch between them. Kept
                     for full screen, which hides the strip above the box. */}

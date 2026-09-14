@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClusterSnapshot } from "../../shared/api";
+import { resetPollCache } from "../src/api";
 import ClusterPanel from "../src/components/ClusterPanel";
 
 const NODES = "NAME     STATUS   ROLES\ntalos-1  Ready    control-plane\ntalos-2  Ready    <none>";
@@ -25,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetPollCache();
   vi.unstubAllGlobals();
 });
 

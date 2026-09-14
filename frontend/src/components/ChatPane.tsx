@@ -17,6 +17,7 @@ import Images from "./chat/Images";
 import LivePrompt from "./chat/LivePrompt";
 import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
+import Skeleton from "./Skeleton";
 import { MD, REMARK } from "./chat/markdown";
 
 /**
@@ -551,7 +552,15 @@ export default function ChatPane({ session }: { session: Session }) {
           </button>
         )}
 
-        {loading && <div className="font-mono text-[12px] text-faint">reading the transcript…</div>}
+        {/* The rough rhythm of a conversation: your short ask, a longer answer. */}
+        {loading && (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="block h-10 w-2/5 self-end rounded-2xl bg-surface-2" />
+            <Skeleton className="block h-24 w-4/5 rounded-2xl bg-surface-2" />
+            <Skeleton className="block h-10 w-1/3 self-end rounded-2xl bg-surface-2" />
+            <Skeleton className="block h-16 w-3/5 rounded-2xl bg-surface-2" />
+          </div>
+        )}
 
         {!loading && messages.length === 0 && (
           <div className="m-auto max-w-[36ch] text-center font-mono text-[12px] text-faint">

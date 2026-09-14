@@ -2,6 +2,7 @@ import { useState } from "react";
 import Markdown from "react-markdown";
 import type { ChatDetail, ChatPlan } from "../../../../shared/api";
 import { api } from "../../api";
+import { SkeletonLines } from "../Skeleton";
 import { MD, REMARK } from "./markdown";
 
 /**
@@ -76,9 +77,7 @@ export default function PlanCard({
 
       {open && (
         <div className="border-t border-line px-3 py-2.5 text-[13.5px]">
-          {markdown === null && !failedToLoad && (
-            <p className="font-mono text-[11px] text-faint">reading it back…</p>
-          )}
+          {markdown === null && !failedToLoad && <SkeletonLines count={4} />}
           {failedToLoad && (
             <p className="font-mono text-[11px] text-fail">could not read it back</p>
           )}

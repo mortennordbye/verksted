@@ -7,6 +7,7 @@ import type {
 } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
+import Skeleton from "./Skeleton";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { audioPlayer, voiceLabel } from "../useSpeech";
 
@@ -161,7 +162,11 @@ export default function CouncilPanel() {
     <section className="mt-8">
       <SectionLabel icon="users">Specialists</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
-        {members.length} on the bench
+        {data ? (
+          `${members.length} on the bench`
+        ) : (
+          <Skeleton className="inline-block h-[21px] w-32 rounded-md bg-surface-2 align-middle" />
+        )}
       </h2>
       <div className="mb-3 text-sm text-muted">
         The assistant answers every question itself and brings one of these in when a question is
@@ -178,6 +183,13 @@ export default function CouncilPanel() {
       )}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {data === null &&
+          [0, 1].map((i) => (
+            <Skeleton
+              key={i}
+              className="block h-[120px] rounded-[11px] border border-line bg-surface"
+            />
+          ))}
         {members.map((m) => (
           <div
             key={m.id}

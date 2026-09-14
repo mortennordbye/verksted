@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AssistantConfig, AssistantTool, AssistantVoices } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
+import { SkeletonLines } from "./Skeleton";
 import {
   POD_VOICE_KEY,
   VOICE_KEY,
@@ -54,7 +55,7 @@ function CanDo() {
       </button>
       {open && (
         <div className="mt-3 flex flex-col gap-2">
-          {tools === null && <div className="text-sm text-muted">asking…</div>}
+          {tools === null && <SkeletonLines count={4} />}
           {tools?.length === 0 && (
             <div className="text-sm text-muted">its tool server did not answer</div>
           )}
@@ -76,16 +77,17 @@ function CanDo() {
 }
 
 export default function AssistantPanel() {
-  const { data } = usePoll<AssistantConfig>("/api/assistant/config", 60_000);
+  const { data, fresh } = usePoll<AssistantConfig>("/api/assistant/config", 60_000);
   const [draft, setDraft] = useState<AssistantConfig | null>(null);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Adopt the server's answer once, then leave the fields alone: a poll landing
-  // mid-sentence must not overwrite what is being typed.
+  // mid-sentence must not overwrite what is being typed. A fresh answer only: a
+  // remembered one would put last visit's settings in the form, to be saved back.
   useEffect(() => {
-    setDraft((d) => d ?? data);
-  }, [data]);
+    if (fresh) setDraft((d) => d ?? data);
+  }, [data, fresh]);
 
   async function save() {
     if (!draft) return;

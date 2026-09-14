@@ -143,6 +143,11 @@
   --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   /* A seat whose occupant is talking. currentColor, so the halo is theirs. */
   --animate-glow: glow 2.2s ease-in-out infinite;
+  /* A skeleton is held back for a beat, so an answer that lands inside it
+     never flashes grey, then breathes slowly. The fade alone for reduced motion. */
+  --animate-skeleton-in: skeleton-in 0.2s ease-out 150ms both;
+  --animate-skeleton:
+    skeleton-in 0.2s ease-out 150ms both, skeleton-pulse 2s ease-in-out 350ms infinite;
 
   @keyframes blink {
     50% {
@@ -168,6 +173,17 @@
     }
     50% {
       box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 38%, transparent);
+    }
+  }
+
+  @keyframes skeleton-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes skeleton-pulse {
+    50% {
+      opacity: 0.5;
     }
   }
 

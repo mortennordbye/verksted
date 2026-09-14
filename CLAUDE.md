@@ -270,6 +270,11 @@ e2e/                  # `make e2e` only: the built app in a real chromium
   (`backend/src/events.ts`), and `usePoll` upgrades to it for the paths it serves,
   falling back to its own interval whenever the stream is not healthy. Call sites
   do not choose; add a streamed path in both `events.ts` files or not at all.
+- `usePoll` paints a path's last answer first (kept in memory and in
+  `localStorage`, keyed by build) and refetches behind it. Anything that copies
+  its `data` into local state once, like a form draft, waits for `fresh`, or it
+  adopts last visit's answer and never sees the new one. Loading states use
+  `components/Skeleton.tsx`, not "loading…" text.
 - UI styling comes from the mock's palette in `theme.css` (`bg-surface`, `text-muted`,
   `border-line`, agent colors `claude`/`antigravity`/`codex`); mono font for anything
   terminal-ish, sans for prose.

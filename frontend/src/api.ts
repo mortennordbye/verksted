@@ -58,6 +58,104 @@ export async function api<T>(
 const BACKSTOP_MS = 60_000;
 
 /**
+ * The last answer for each path. A screen opened again paints from it at once
+ * and refetches behind it, instead of showing its skeletons on every visit.
+ * Bounded because file trees and PR details are keyed per session and per PR.
+ */
+const cache = new Map<string, unknown>();
+const CACHE_MAX = 200;
+
+function remember(path: string, value: unknown): void {
+  cache.delete(path);
+  cache.set(path, value);
+  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
+  scheduleSave();
+}
+
+function forget(path: string): void {
+  if (cache.delete(path)) scheduleSave();
+}
+
+/**
+ * The cache outlives the page too, so the installed app opened from the home
+ * screen paints the screens it last saw instead of starting from skeletons.
+ *
+ * Keyed by build: a response shape from before a deploy is not one the new code
+ * promises to read. Written a beat after answers settle and when the page is
+ * put away rather than on every poll, and capped, since one file tree can be
+ * most of a megabyte.
+ */
+const STORE_KEY = "vk.poll-cache";
+const STORE_MAX_CHARS = 1_000_000;
+const SAVE_DELAY_MS = 2_000;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** The entry script's hashed filename, which every build changes. */
+function buildId(): string {
+  return document.querySelector<HTMLScriptElement>('script[type="module"][src]')?.src ?? "none";
+}
+
+function loadStored(): void {
+  try {
+    const stored = JSON.parse(localStorage.getItem(STORE_KEY) ?? "null") as {
+      build: string;
+      entries: [string, unknown][];
+    } | null;
+    if (stored?.build !== buildId()) return;
+    // Stored newest first; inserted oldest first, so eviction keeps its order.
+    for (const [path, value] of [...stored.entries].reverse()) cache.set(path, value);
+  } catch {
+    // Private mode, blocked storage or a corrupt entry: start empty, as before.
+  }
+}
+
+/** Write the cache out now. Exported as the test seam for a relaunch. */
+export function savePollCache(): void {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  const parts: string[] = [];
+  let size = 0;
+  for (const entry of [...cache].reverse()) {
+    const json = JSON.stringify(entry);
+    if (size + json.length > STORE_MAX_CHARS) continue;
+    parts.push(json);
+    size += json.length;
+  }
+  try {
+    localStorage.setItem(
+      STORE_KEY,
+      `{"build":${JSON.stringify(buildId())},"entries":[${parts.join(",")}]}`,
+    );
+  } catch {
+    // Over quota or blocked: the in-memory cache still serves this visit.
+  }
+}
+
+function scheduleSave(): void {
+  saveTimer ??= setTimeout(savePollCache, SAVE_DELAY_MS);
+}
+
+if (typeof document !== "undefined") {
+  loadStored();
+  // A phone put back in a pocket may be killed before the timer fires.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && saveTimer) savePollCache();
+  });
+}
+
+/** Test seam: module state, and a test file is one page. */
+export function resetPollCache(): void {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  cache.clear();
+  try {
+    localStorage.removeItem(STORE_KEY);
+  } catch {
+    // nothing was stored
+  }
+}
+
+/**
  * Poll a GET endpoint. Pass null to pause (e.g. while a param is unknown).
  *
  * `loading` exists because `data === null` used to mean three different things
@@ -70,10 +168,19 @@ const BACKSTOP_MS = 60_000;
  * healthy. Call sites do not choose — a path is streamed or it is not.
  */
 export function usePoll<T>(path: string | null, ms = 5000) {
-  const [data, setData] = useState<T | null>(null);
+  const [data, setData] = useState<T | null>(() =>
+    path !== null && cache.has(path) ? (cache.get(path) as T) : null,
+  );
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(path !== null);
+  const [loading, setLoading] = useState(path !== null && !cache.has(path));
   const [notFound, setNotFound] = useState(false);
+  /**
+   * Whether `data` is an answer from this visit rather than one remembered from
+   * an earlier one. Anything that copies data into local state once, like a
+   * form's draft, must wait for it: otherwise it adopts last visit's answer and
+   * never looks at the new one.
+   */
+  const [fresh, setFresh] = useState(false);
   const streamed = path !== null && streamTopic(path) !== null;
   const [streamOk, setStreamOk] = useState(streamHealthy);
   /**
@@ -91,7 +198,9 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     api<T>(path)
       .then((d) => {
         if (!current()) return;
+        remember(path, d);
         setData(d);
+        setFresh(true);
         setError(null);
         setNotFound(false);
       })
@@ -101,26 +210,35 @@ export function usePoll<T>(path: string | null, ms = 5000) {
         // A 404 is an answer, not a failure to reach anything: it means this
         // project or session does not exist, and the screen should say so
         // rather than poll a dead path forever.
-        if (e instanceof ApiError && e.status === 404) setNotFound(true);
+        if (e instanceof ApiError && e.status === 404) {
+          forget(path);
+          setNotFound(true);
+        }
       })
       .finally(() => current() && setLoading(false));
   }, [path]);
 
-  // What the path is worth: reset on a change of path, then take the first
-  // answer from whichever of the two can give it. Deliberately not keyed on
-  // stream health — a stream dropping must not blank the screen.
+  // What the path is worth: reset on a change of path (to what it last said, if
+  // anything), then take the first answer from whichever of the two can give
+  // it. Deliberately not keyed on stream health — a stream dropping must not
+  // blank the screen.
   useEffect(() => {
-    setData(null);
+    const cached = path !== null && cache.has(path);
+    setData(cached ? (cache.get(path) as T) : null);
     setNotFound(false);
-    setLoading(path !== null);
+    setFresh(false);
+    setLoading(path !== null && !cached);
     if (path === null) return;
 
     const fromStream = (): boolean => {
       const hit = streamValue<T>(path);
       if (!hit) return false;
+      if (hit.value === null) forget(path);
+      else remember(path, hit.value);
       // Newer than anything in flight, by definition: the server sent it.
       generation.current++;
       setData(hit.value);
+      setFresh(true);
       setNotFound(hit.value === null);
       setError(null);
       setLoading(false);
@@ -157,7 +275,7 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     };
   }, [refresh, ms, path, streamed, streamOk]);
 
-  return { data, error, loading, notFound, refresh };
+  return { data, error, loading, notFound, fresh, refresh };
 }
 
 /** Elapsed time as a duration: "just now", "5 min", "2 h", "3 d". */

@@ -12,6 +12,7 @@ import { agoLabel, api, usePoll } from "../api";
 import Icon from "./Icon";
 import { useConfirm } from "../useConfirm";
 import { ReportLine, StatusChip } from "./StatusChip";
+import { SkeletonList } from "./Skeleton";
 
 /** A cron pattern's next fire time, in this device's timezone. */
 function whenLabel(iso: string | null): string {
@@ -364,6 +365,12 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           </div>
         )}
       <div className="flex flex-col gap-2">
+        {schedules === null && (
+          <SkeletonList
+            count={2}
+            className="h-[62px] rounded-[11px] border border-line bg-surface"
+          />
+        )}
         {(schedules ?? []).map((s) => (
           <div key={s.id} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
             <div className="flex flex-wrap items-center gap-2.5">

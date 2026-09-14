@@ -3,6 +3,7 @@ import type { CouncilMember, Memory, MemoryList, MemoryType, Schedule } from "..
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import { focusIfPointerFine } from "./Sheet";
+import Skeleton, { SkeletonList } from "./Skeleton";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
 
@@ -271,7 +272,11 @@ export default function MemoryPanel() {
     <section className="mt-8">
       <SectionLabel icon="memory">Memory</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
-        {data ? `${data.memories.length} fact${data.memories.length === 1 ? "" : "s"}` : "…"}
+        {data ? (
+          `${data.memories.length} fact${data.memories.length === 1 ? "" : "s"}`
+        ) : (
+          <Skeleton className="inline-block h-[21px] w-28 rounded-md bg-surface-2 align-middle" />
+        )}
       </h2>
       <div className="mb-3 flex items-start justify-between gap-4">
         <div className="text-sm text-muted">
@@ -333,6 +338,12 @@ export default function MemoryPanel() {
               refresh();
             }}
             onCancel={() => setAdding(false)}
+          />
+        )}
+        {!data && (
+          <SkeletonList
+            count={3}
+            className="h-[58px] rounded-[11px] border border-line bg-surface"
           />
         )}
         {data?.memories.length === 0 && !adding && (

@@ -5,6 +5,7 @@ import { parseCsv } from "../csv";
 import { marks, rehypeMark } from "../find";
 import { useOverlayDismiss } from "../useDismissOnBack";
 import { MD, REMARK } from "./chat/markdown";
+import { SkeletonLines } from "./Skeleton";
 
 /** How a file is shown, decided by its extension, as /api/docs/raw decides. */
 const VIDEO = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
@@ -259,7 +260,7 @@ export default function DocViewer({
             <div className="p-4 font-mono text-[12.5px] text-wait">{failed}</div>
           )}
           {view === "text" && !failed && text === null && (
-            <div className="p-4 font-mono text-[12.5px] text-faint">…</div>
+            <SkeletonLines count={8} className="p-4" />
           )}
           {view === "text" && !failed && text !== null && flavour === "markdown" && (
             <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7]">

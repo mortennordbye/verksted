@@ -15,6 +15,7 @@ import Sheet from "../components/Sheet";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useConfirm } from "../useConfirm";
+import Skeleton, { SkeletonList } from "../components/Skeleton";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
 import { useVisualViewport } from "../useVisualViewport";
@@ -183,7 +184,13 @@ function Threads({
           new thread
         </button>
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
-        {threads === null && !error && <div className="text-sm text-muted">reading…</div>}
+        {threads === null && !error && (
+          <div className="flex flex-col gap-1.5">
+            {[0, 1, 2].map((i) => (
+              <Skeleton key={i} className="block h-[52px] rounded-xl bg-surface-2/60" />
+            ))}
+          </div>
+        )}
         {threads?.length === 0 && (
           <div className="text-sm text-muted">nothing said in here yet</div>
         )}
@@ -485,7 +492,13 @@ function Month({ refresh }: { refresh: number }) {
         <div className="font-mono text-[11px] text-faint capitalize">
           {pickedDay.toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" })}
         </div>
-        {events === null && !error && <div className="text-[13px] text-faint">reading…</div>}
+        {events === null && !error && (
+          <SkeletonList
+            count={2}
+            gap="gap-1.5"
+            className="h-[42px] rounded-lg border border-line bg-surface"
+          />
+        )}
         {events !== null && pickedEvents.length === 0 && (
           <div className="text-[13px] text-faint">nothing on the calendar</div>
         )}
@@ -531,7 +544,9 @@ function Month({ refresh }: { refresh: number }) {
 function People({ members, onAsk }: { members: CouncilMember[]; onAsk: (id: string) => void }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-      {members.length === 0 && <div className="text-[13px] text-faint">reading…</div>}
+      {members.length === 0 && (
+        <SkeletonList count={3} className="h-[64px] rounded-xl border border-line bg-surface" />
+      )}
       {members.map((m) => (
         <div
           key={m.id}
@@ -982,7 +997,12 @@ export default function Chat() {
       </div>
 
       <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-5 pb-4">
-        {thread === null && <div className="text-sm text-muted">connecting…</div>}
+        {thread === null && (
+          <div className="flex flex-col gap-3">
+            <Skeleton className="block h-10 w-2/5 self-end rounded-2xl bg-surface-2" />
+            <Skeleton className="block h-24 w-4/5 rounded-2xl bg-surface-2" />
+          </div>
+        )}
 
         {thread && <Room thread={thread} members={members} chair={chair} />}
 

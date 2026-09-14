@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, OfflineError, api, usePoll } from "../src/api";
+import { ApiError, OfflineError, api, resetPollCache, savePollCache, usePoll } from "../src/api";
 import { useOnline } from "../src/connection";
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -21,6 +21,7 @@ afterEach(() => {
   // globals enabled. Without it every hook from an earlier test stays mounted,
   // keeps its interval, and answers the visibilitychange event below too.
   cleanup();
+  resetPollCache();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -115,6 +116,81 @@ describe("usePoll", () => {
     });
     await waitFor(() => expect(result.current.error).toBe("can't reach the pod"));
     expect(result.current.data).toEqual([{ name: "demo" }]);
+  });
+
+  // Navigating back to a screen used to show its skeletons again every time.
+  it("paints a path it has answered before at once, and refetches behind it", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 1 }));
+    const first = renderHook(() => usePoll<{ v: number }>("/api/facts"));
+    await waitFor(() => expect(first.result.current.data).toEqual({ v: 1 }));
+    first.unmount();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 2 }));
+    const { result } = renderHook(() => usePoll<{ v: number }>("/api/facts"));
+    expect(result.current.data).toEqual({ v: 1 });
+    expect(result.current.loading).toBe(false);
+    await waitFor(() => expect(result.current.data).toEqual({ v: 2 }));
+  });
+
+  // A panel that adopted the first answer into state kept last visit's review
+  // marks after a reload, and never looked at the server's newer ones.
+  it("says whether its data is this visit's answer or a remembered one", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 1 }));
+    const first = renderHook(() => usePoll("/api/facts"));
+    await waitFor(() => expect(first.result.current.fresh).toBe(true));
+    first.unmount();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 2 }));
+    const { result } = renderHook(() => usePoll("/api/facts"));
+    expect(result.current.data).toEqual({ v: 1 });
+    expect(result.current.fresh).toBe(false);
+    await waitFor(() => expect(result.current.fresh).toBe(true));
+    expect(result.current.data).toEqual({ v: 2 });
+  });
+
+  // The installed app opened from the home screen used to start from skeletons.
+  it("paints what the last launch saw, on the same build", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 1 }));
+    const first = renderHook(() => usePoll("/api/facts"));
+    await waitFor(() => expect(first.result.current.data).toEqual({ v: 1 }));
+    first.unmount();
+    savePollCache();
+
+    vi.resetModules();
+    const relaunched = await import("../src/api");
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => relaunched.usePoll("/api/facts"));
+    expect(result.current.data).toEqual({ v: 1 });
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("ignores what an older build stored", async () => {
+    localStorage.setItem(
+      "vk.poll-cache",
+      JSON.stringify({ build: "an older build", entries: [["/api/facts", { v: 1 }]] }),
+    );
+    vi.resetModules();
+    const relaunched = await import("../src/api");
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => relaunched.usePoll("/api/facts"));
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+  });
+
+  it("forgets a path once it answers 404", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: 1 }));
+    const first = renderHook(() => usePoll("/api/facts"));
+    await waitFor(() => expect(first.result.current.data).toEqual({ v: 1 }));
+    fetchMock.mockResolvedValue(jsonResponse({ error: "not found" }, 404));
+    await act(async () => {
+      first.result.current.refresh();
+    });
+    await waitFor(() => expect(first.result.current.notFound).toBe(true));
+    first.unmount();
+
+    const { result } = renderHook(() => usePoll("/api/facts"));
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
   });
 
   it("does not fetch at all while the path is null", async () => {

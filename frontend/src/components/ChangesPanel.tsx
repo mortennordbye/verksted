@@ -4,6 +4,7 @@ import { usePoll } from "../api";
 import { fileIcon } from "../fileicons";
 import ReviewOverlay from "./ReviewOverlay";
 import { ReviewMark } from "./StatusChip";
+import { SkeletonLines } from "./Skeleton";
 
 /** A range's ends, short enough for a sidebar. */
 const short = (sha: string) => (sha === "HEAD" ? "HEAD" : sha.slice(0, 7));
@@ -31,17 +32,18 @@ export default function ChangesPanel({
 }) {
   // A finished session's range is pinned at both ends and never moves again, so
   // re-reading it costs two git calls to learn nothing. A live one still grows.
-  const { data, error, loading } = usePoll<SessionChanges>(
+  const { data, error, loading, fresh } = usePoll<SessionChanges>(
     `/api/sessions/${sessionId}/changes`,
     live ? 20_000 : 60 * 60_000,
   );
   const [reviewing, setReviewing] = useState(false);
   // Held here rather than re-read: the overlay is what changes it, and the poll
-  // behind this panel is an hour wide on the sessions worth reviewing.
+  // behind this panel is an hour wide on the sessions worth reviewing. Adopted
+  // from a fresh answer only, since a remembered one predates the last marks.
   const [review, setReview] = useState<SessionReview | null>(null);
   useEffect(() => {
-    if (data) setReview((prev) => prev ?? data.review);
-  }, [data]);
+    if (data && fresh) setReview((prev) => prev ?? data.review);
+  }, [data, fresh]);
 
   const files = data?.files ?? [];
   const read = new Set(review?.files ?? []);
@@ -66,7 +68,7 @@ export default function ChangesPanel({
         </div>
       )}
 
-      {loading && <div className="px-2.5 text-faint">…</div>}
+      {loading && <SkeletonLines count={3} className="px-2.5 py-1" />}
       {error && <div className="px-2.5 text-wait">{error}</div>}
       {data && data.from === null && (
         <div className="px-2.5 text-faint">

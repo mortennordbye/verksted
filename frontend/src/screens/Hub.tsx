@@ -11,6 +11,7 @@ import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/Status
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import ClusterPanel from "../components/ClusterPanel";
 import UsagePanel from "../components/UsagePanel";
+import Skeleton from "../components/Skeleton";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
@@ -259,18 +260,25 @@ export default function Hub() {
           icon="bench"
           label="Bench"
           title={
-            sessions === null
-              ? "…"
-              : waiting > 0
-                ? `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
-                : running > 0
-                  ? `${running} session${running === 1 ? "" : "s"} running`
-                  : "All quiet"
+            sessions === null ? (
+              <Skeleton className="inline-block h-[22px] w-56 max-w-full rounded-md bg-surface-2 align-middle" />
+            ) : waiting > 0 ? (
+              `${waiting} thing${waiting === 1 ? "" : "s"} waiting on you`
+            ) : running > 0 ? (
+              `${running} session${running === 1 ? "" : "s"} running`
+            ) : (
+              "All quiet"
+            )
           }
+          // The repo count is a claim too: "0 repos" flashed before the list landed.
           sub={
-            waiting > 0 && running > 0
-              ? `${running} other${running === 1 ? "" : "s"} still working`
-              : `${projects?.length ?? 0} repo${projects?.length === 1 ? "" : "s"}`
+            waiting > 0 && running > 0 ? (
+              `${running} other${running === 1 ? "" : "s"} still working`
+            ) : projects === null ? (
+              <Skeleton className="inline-block h-3.5 w-16 rounded bg-surface-2 align-middle" />
+            ) : (
+              `${projects.length} repo${projects.length === 1 ? "" : "s"}`
+            )
           }
           actions={
             <>
@@ -313,9 +321,9 @@ export default function Hub() {
             className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3"
           >
             {[0, 1, 2].map((i) => (
-              <div
+              <Skeleton
                 key={i}
-                className="h-[104px] animate-pulse rounded-xl border border-line bg-surface"
+                className="block h-[104px] rounded-xl border border-line bg-surface"
               />
             ))}
           </div>
@@ -385,9 +393,9 @@ export default function Hub() {
         {sessions === null && (
           <div aria-hidden className="mb-6 grid gap-2">
             {[0, 1].map((i) => (
-              <div
+              <Skeleton
                 key={i}
-                className={`animate-pulse rounded-xl border border-line bg-surface ${
+                className={`block rounded-xl border border-line bg-surface ${
                   compact ? "h-[38px]" : "h-[86px]"
                 }`}
               />

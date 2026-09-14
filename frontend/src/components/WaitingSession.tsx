@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import type { Session, SessionCapture } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { AgentTag, StatusChip } from "./StatusChip";
+import { SkeletonLines } from "./Skeleton";
 
 /**
  * One agent that wants a decision, answerable without opening its terminal.
@@ -94,7 +95,7 @@ export default function WaitingSession({ session }: { session: Session }) {
       {open && (
         <>
           <pre className="mt-2 max-h-[40dvh] overflow-auto rounded-md border border-line bg-term p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">
-            {capture?.text || "…"}
+            {capture ? capture.text || "…" : <SkeletonLines count={4} />}
           </pre>
           <Reply onSend={answer} sending={sending} />
         </>

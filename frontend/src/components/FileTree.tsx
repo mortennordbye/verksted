@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { TreeNode } from "../../../shared/api";
 import { fileIcon, folderIcon } from "../fileicons";
+import { SkeletonLines } from "./Skeleton";
 
 function Node({ node, onOpenFile }: { node: TreeNode; onOpenFile: (path: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -105,6 +106,11 @@ export default function FileTree({
         {(nodes ?? []).map((n) => (
           <Node key={n.path} node={n} onOpenFile={onOpenFile} />
         ))}
+        {nodes === null && (
+          <li>
+            <SkeletonLines count={6} className="px-2.5 py-1" />
+          </li>
+        )}
         {nodes?.length === 0 && <li className="px-2.5 text-faint">empty repo</li>}
         {truncated && (
           // Otherwise a missing file reads as "not there" rather than "the
