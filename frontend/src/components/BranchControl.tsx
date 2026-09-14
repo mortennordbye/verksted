@@ -215,7 +215,7 @@ export default function BranchControl({
           {working && (
             <div
               role="status"
-              className="mb-3 flex items-center gap-2.5 rounded-lg bg-accent-tint px-3 py-2 font-mono text-[12.5px] text-accent ring-1 ring-accent/30"
+              className="mb-3 flex items-center gap-2.5 rounded-lg bg-accent-tint px-3 py-2 text-[13px] text-accent ring-1 ring-accent/30"
             >
               <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-accent" />
               {DOING[working]}
@@ -228,7 +228,7 @@ export default function BranchControl({
           {!working && result && (
             <div
               role="status"
-              className="mb-3 flex items-center gap-2 rounded-lg bg-run/10 px-3 py-2 font-mono text-[12.5px] text-run ring-1 ring-run/30"
+              className="mb-3 flex items-center gap-2 rounded-lg bg-run/10 px-3 py-2 text-[13px] text-run ring-1 ring-run/30"
             >
               <Icon name="check" size={14} />
               {result}
@@ -237,7 +237,7 @@ export default function BranchControl({
           {!working && error && (
             <div
               role="alert"
-              className="mb-3 flex items-start gap-2 rounded-lg bg-fail/10 px-3 py-2 font-mono text-[12.5px] text-fail ring-1 ring-fail/30"
+              className="mb-3 flex items-start gap-2 rounded-lg bg-fail/10 px-3 py-2 text-[13px] text-fail ring-1 ring-fail/30"
             >
               <Icon name="alert" size={14} className="mt-[2px]" />
               <span className="min-w-0 break-words">{error}</span>
@@ -249,7 +249,7 @@ export default function BranchControl({
               onClick={pull}
               disabled={busy || !upstream}
               title={upstream ? `fast-forward from ${upstream}` : "no upstream to pull from"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               <Icon name="pull" size={15} />
               {working === "pull" ? "pulling…" : "pull"}
@@ -258,7 +258,7 @@ export default function BranchControl({
               onClick={push}
               disabled={busy || !canPush}
               title={upstream ? `push to ${upstream}` : "publish the branch on origin"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               <Icon name="push" size={15} />
               {working === "push" ? "pushing…" : upstream ? "push" : "publish"}
@@ -271,7 +271,7 @@ export default function BranchControl({
                   ? `overwrite ${upstream} with this branch`
                   : "nothing on this branch to force over the remote"
               }
-              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-fail hover:text-fail disabled:opacity-50"
+              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-fail hover:text-fail disabled:opacity-50"
             >
               <Icon name="push" size={15} />
               {working === "force" ? "forcing…" : "force push"}
@@ -281,7 +281,7 @@ export default function BranchControl({
               disabled={busy || !upstream}
               title="discard local commits and changes on this branch"
               aria-label="discard local commits and changes on this branch"
-              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               <Icon name="reset" size={15} />
               {working === "reset" ? "resetting…" : `reset to ${upstream ?? "upstream"}`}
@@ -314,7 +314,7 @@ export default function BranchControl({
               />
             ))}
             {data && local.length + remoteOnly.length === 0 && (
-              <div className="px-1 py-2 font-mono text-[12.5px] text-faint">no branches yet</div>
+              <div className="px-1 py-2 text-[13px] text-faint">no branches yet</div>
             )}
           </div>
         </Sheet>

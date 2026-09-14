@@ -47,12 +47,9 @@ export default function WaitingSession({ session }: { session: Session }) {
     <div className="rounded-[11px] border border-wait/40 bg-surface px-[15px] py-2.5">
       <div className="flex flex-wrap items-center gap-2.5">
         <StatusChip kind="wait" label="waiting" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{session.title}</span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">{session.title}</span>
         <AgentTag agent={session.agent} />
-        <Link
-          to={`/p/${session.project}`}
-          className="font-mono text-[11px] text-faint hover:text-accent"
-        >
+        <Link to={`/p/${session.project}`} className="text-[11.5px] text-faint hover:text-accent">
           {session.project}
         </Link>
         <span className="font-mono text-[11px] text-faint">{agoLabel(session.createdAt)}</span>
@@ -63,7 +60,7 @@ export default function WaitingSession({ session }: { session: Session }) {
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           onClick={() => setOpen((o) => !o)}
-          className="tap rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+          className="tap rounded-md border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-faint hover:text-text"
         >
           {open ? "hide output" : "show output"}
         </button>
@@ -71,26 +68,26 @@ export default function WaitingSession({ session }: { session: Session }) {
         <button
           onClick={() => answer("y")}
           disabled={sending}
-          className="tap rounded-md border border-run/50 px-2.5 py-1 font-mono text-[12px] text-run disabled:opacity-50"
+          className="tap rounded-md border border-run/50 px-2.5 py-1 text-[12.5px] text-run disabled:opacity-50"
         >
           yes
         </button>
         <button
           onClick={() => answer("n")}
           disabled={sending}
-          className="tap rounded-md border border-fail/50 px-2.5 py-1 font-mono text-[12px] text-fail disabled:opacity-50"
+          className="tap rounded-md border border-fail/50 px-2.5 py-1 text-[12.5px] text-fail disabled:opacity-50"
         >
           no
         </button>
         <Link
           to={`/s/${session.id}`}
-          className="tap ml-auto flex items-center rounded-md border border-line px-2.5 py-1 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+          className="tap ml-auto flex items-center rounded-md border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-faint hover:text-text"
         >
           open terminal →
         </Link>
       </div>
 
-      {error && <div className="mt-1.5 font-mono text-[12px] text-fail">{error}</div>}
+      {error && <div className="mt-1.5 text-[12.5px] text-fail">{error}</div>}
 
       {open && (
         <>
@@ -120,12 +117,12 @@ function Reply({ onSend, sending }: { onSend: (text: string) => void; sending: b
         onKeyDown={(e) => e.key === "Enter" && send()}
         placeholder="type a reply…"
         aria-label="reply to the agent"
-        className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+        className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
       />
       <button
         onClick={send}
         disabled={sending || !text.trim()}
-        className="tap flex-none rounded-md bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent disabled:opacity-50"
+        className="tap flex-none rounded-md bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-50"
       >
         send
       </button>

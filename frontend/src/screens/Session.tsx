@@ -544,7 +544,7 @@ export default function Session() {
               screen. The title lives in the top bar crumb there instead. */}
           <div className="mb-2 hidden flex-none items-center gap-2 desk:mb-3.5 desk:flex desk:flex-wrap desk:gap-3">
             <StatusDot running={live} />
-            <h1 className="min-w-0 truncate font-mono text-[14px] font-semibold desk:text-[16px]">
+            <h1 className="min-w-0 truncate text-[14px] font-semibold desk:text-[16px]">
               {session ? (
                 session.title
               ) : (
@@ -655,7 +655,7 @@ export default function Session() {
                 `flex-1` from a zero basis, so it is the slack in the row rather
                 than a claim on it: the pane label keeps its own width and this
                 takes whatever is left, down to nothing. */}
-            <h1 className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted">
+            <h1 className="min-w-0 flex-1 truncate text-[13.5px] text-muted">
               {session ? (
                 session.project
               ) : (
@@ -759,7 +759,7 @@ export default function Session() {
                     key={t}
                     aria-pressed={side === t}
                     onClick={() => setSide(t)}
-                    className={`tap-hit flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[11px] ${
+                    className={`tap-hit flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] ${
                       side === t
                         ? "border-accent bg-surface-2 text-text"
                         : "border-line bg-surface text-muted"
@@ -1102,26 +1102,26 @@ export default function Session() {
                 setMenu(false);
                 setFull(true);
               }}
-              className="tap w-full rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+              className="tap w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
             >
               ⛶ full screen
             </button>
             <Link
               to="/"
               aria-label="verksted — home"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
             >
               verksted — home
             </Link>
             <Link
               to="/runs"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
             >
               inbox{waiting ? ` · ${waiting} waiting` : ""}
             </Link>
             <Link
               to="/settings"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-line-strong hover:text-text"
+              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
             >
               settings
             </Link>
@@ -1133,7 +1133,7 @@ export default function Session() {
                   setMenu(false);
                   void kill();
                 }}
-                className="w-full rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait"
+                className="w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait"
               >
                 kill session
               </button>
@@ -1143,7 +1143,7 @@ export default function Session() {
                 setMenu(false);
                 void deleteSession();
               }}
-              className="w-full rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait"
+              className="w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait"
             >
               delete session
             </button>
@@ -1224,7 +1224,7 @@ export default function Session() {
               </button>
             </div>
             {saveError && (
-              <div className="border-b border-line px-3.5 py-2 font-mono text-[12px] text-wait">
+              <div className="border-b border-line px-3.5 py-2 text-[12.5px] text-wait">
                 {saveError}
               </div>
             )}
