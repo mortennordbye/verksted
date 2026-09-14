@@ -26,7 +26,7 @@ const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
 
 const field =
-  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
 
 /**
  * One line in this advisor's own voice, so the sample is a sample of them.
@@ -78,7 +78,7 @@ function Voice({ member, voices }: { member: CouncilMember; voices: string[] }) 
       type="button"
       onClick={() => void hear()}
       disabled={playing}
-      className="tap rounded-full border border-line px-2.5 py-1 font-mono text-[11px] text-faint hover:border-line-strong disabled:opacity-50"
+      className="tap rounded-full border border-line px-2.5 py-1 text-[11.5px] text-faint hover:border-line-strong disabled:opacity-50"
     >
       {playing ? "…" : "▸"} {member.voice ? voiceLabel(member.voice) : "the default voice"}
     </button>
@@ -199,16 +199,16 @@ export default function CouncilPanel() {
           >
             <div className="flex flex-wrap items-center gap-2">
               <Portrait face={m.face} colour={m.colour} size={32} title={m.remit} />
-              <span className={`font-mono text-[13px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
+              <span className={`text-[13.5px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
               <span className="font-mono text-[11px] text-faint">
                 {m.chair ? "chair" : `@${m.id}`}
               </span>
-              {!m.enabled && <span className="font-mono text-[11px] text-wait">paused</span>}
+              {!m.enabled && <span className="text-[11.5px] text-wait">paused</span>}
               {!m.chair && (
                 <button
                   type="button"
                   onClick={() => setEditing(m)}
-                  className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1 font-mono text-[12px] text-muted hover:border-line-strong"
+                  className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-line-strong"
                 >
                   edit
                 </button>
@@ -245,12 +245,12 @@ export default function CouncilPanel() {
                     </span>
                   ))
                 ) : (
-                  <span className="font-mono text-[11px] text-faint">
+                  <span className="text-[11.5px] text-faint">
                     no tools: answers from memory alone
                   </span>
                 )}
                 {m.web && (
-                  <span className="rounded-full border border-line px-2 py-0.5 font-mono text-[10.5px] text-faint">
+                  <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-faint">
                     the web
                   </span>
                 )}
@@ -263,7 +263,7 @@ export default function CouncilPanel() {
       <button
         type="button"
         onClick={add}
-        className="tap mt-2 rounded-[7px] border border-dashed border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-line-strong"
+        className="tap mt-2 rounded-[7px] border border-dashed border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-line-strong"
       >
         + add someone
       </button>
@@ -407,14 +407,14 @@ export default function CouncilPanel() {
             <button
               type="button"
               onClick={() => void save()}
-              className="tap rounded-[7px] bg-accent px-3 py-1.5 font-mono text-[12px] font-medium text-on-accent"
+              className="tap rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-medium text-on-accent"
             >
               save
             </button>
             <button
               type="button"
               onClick={() => setEditing(null)}
-              className="tap rounded-[7px] border border-line px-3 py-1.5 font-mono text-[12px] text-muted"
+              className="tap rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted"
             >
               cancel
             </button>
@@ -422,7 +422,7 @@ export default function CouncilPanel() {
               <button
                 type="button"
                 onClick={() => void remove(editing.id)}
-                className="tap ml-auto rounded-[7px] border border-fail/40 px-3 py-1.5 font-mono text-[12px] text-fail"
+                className="tap ml-auto rounded-[7px] border border-fail/40 px-3 py-1.5 text-[12.5px] text-fail"
               >
                 remove
               </button>

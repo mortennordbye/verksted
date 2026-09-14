@@ -78,11 +78,9 @@ export default function PlanCard({
       {open && (
         <div className="border-t border-line px-3 py-2.5 text-[13.5px]">
           {markdown === null && !failedToLoad && <SkeletonLines count={4} />}
-          {failedToLoad && (
-            <p className="font-mono text-[11px] text-fail">could not read it back</p>
-          )}
+          {failedToLoad && <p className="text-[11.5px] text-fail">could not read it back</p>}
           {markdown === "" && (
-            <p className="font-mono text-[11px] text-faint">
+            <p className="text-[11.5px] text-faint">
               that plan is older than the part of the conversation loaded — load earlier to reach it
             </p>
           )}

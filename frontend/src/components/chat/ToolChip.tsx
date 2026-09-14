@@ -69,10 +69,10 @@ export default function ToolChip({
         <div className="min-w-0 overflow-hidden rounded-md border border-line bg-term">
           {!detail && !failedToLoad && <SkeletonLines count={3} className="px-2.5 py-2" />}
           {failedToLoad && (
-            <p className="px-2.5 py-2 font-mono text-[11px] text-fail">could not read it back</p>
+            <p className="px-2.5 py-2 text-[11.5px] text-fail">could not read it back</p>
           )}
           {detail?.kind === "none" && (
-            <p className="px-2.5 py-2 font-mono text-[11px] text-faint">
+            <p className="px-2.5 py-2 text-[11.5px] text-faint">
               that call is older than the part of the conversation loaded — load earlier to reach it
             </p>
           )}
@@ -86,12 +86,10 @@ export default function ToolChip({
                 {detail.description && ` · ${detail.description}`}
               </p>
               {detail.truncated && (
-                <p className="font-mono text-[11px] text-faint">
-                  only the end of what it did is kept here
-                </p>
+                <p className="text-[11.5px] text-faint">only the end of what it did is kept here</p>
               )}
               {detail.messages.length === 0 && (
-                <p className="font-mono text-[11px] text-faint">it wrote nothing down</p>
+                <p className="text-[11.5px] text-faint">it wrote nothing down</p>
               )}
               {detail.messages.map((m) => (
                 <div key={m.id} className="flex flex-col gap-1">
@@ -150,12 +148,10 @@ export default function ToolChip({
                 </pre>
               )}
               {detail.patch.length === 0 && !detail.output && (
-                <p className="px-2.5 py-2 font-mono text-[11px] text-faint">
-                  it printed nothing back
-                </p>
+                <p className="px-2.5 py-2 text-[11.5px] text-faint">it printed nothing back</p>
               )}
               {detail.truncated && (
-                <p className="border-t border-line px-2.5 py-1.5 font-mono text-[11px] text-faint">
+                <p className="border-t border-line px-2.5 py-1.5 text-[11.5px] text-faint">
                   cut here — the rest is only readable in the terminal
                 </p>
               )}
