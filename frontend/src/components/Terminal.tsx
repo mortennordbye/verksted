@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
@@ -387,7 +387,9 @@ export default function Terminal({
   // the current body rather than of the Ctrl+Shift+V handler, and the next bit
   // of state added here would break it silently.
   const pasteRef = useRef(pasteFromClipboard);
-  pasteRef.current = pasteFromClipboard;
+  useLayoutEffect(() => {
+    pasteRef.current = pasteFromClipboard;
+  });
 
   // A phone has no clipboard route for screenshots, so the picker (photo
   // library / camera) stands in for pasting: upload the images, then type their
@@ -426,7 +428,9 @@ export default function Terminal({
   // up once per connection, and this one closes over `project` and the upload
   // state.
   const sendImagesRef = useRef(sendImages);
-  sendImagesRef.current = sendImages;
+  useLayoutEffect(() => {
+    sendImagesRef.current = sendImages;
+  });
 
   async function copyAuthUrl() {
     if (!authUrl) return;
