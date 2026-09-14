@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import type {
   BackupStatus,
+  GoogleCalendarStatus,
   PushStatus,
   PushTestResult,
   Settings as SettingsInfo,
@@ -121,6 +122,7 @@ export default function Settings() {
         {show("assistant") && <ProfilePanel />}
         {show("assistant") && <CouncilPanel />}
         {show("assistant") && <MemoryPanel />}
+        {show("sources") && <GoogleCalendar />}
         {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
         {show("agents") && (
           <>
@@ -266,6 +268,167 @@ function CopyVar({ keyName }: { keyName: string }) {
     >
       {said ?? "copy"}
     </button>
+  );
+}
+
+/**
+ * Google Calendar, signed in to rather than typed.
+ *
+ * Google's CalDAV refuses a password, so the calendar needs an OAuth client
+ * that belongs to the person: made once in their own Google Cloud project,
+ * pasted here, and then a normal Google sign-in. The redirect is shown exactly
+ * as the server will send it, because a mismatch is the one mistake Google's
+ * error page explains worst. The sign-in button is a plain link: it leaves
+ * the app for Google and comes back to this tab with the outcome in the query.
+ */
+function GoogleCalendar() {
+  const { data, refresh } = usePoll<GoogleCalendarStatus>("/api/calendar/google", 60_000);
+  const [params] = useSearchParams();
+  const [clientId, setClientId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const outcome = params.get("google");
+  const failed = params.get("google_error");
+
+  async function saveClient() {
+    setError(null);
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          vars: { GOOGLE_CLIENT_ID: clientId.trim(), GOOGLE_CLIENT_SECRET: secret.trim() },
+        }),
+      });
+      setClientId("");
+      setSecret("");
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function disconnect() {
+    setError(null);
+    try {
+      await api("/api/calendar/google/disconnect", { method: "POST" });
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  const field =
+    "min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+  const button =
+    "tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50";
+
+  return (
+    <>
+      <div className="mt-2 mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        Google Calendar
+      </div>
+      <div className="mb-3 text-sm text-muted">
+        What the assistant reads and writes when you ask about or change your calendar. Google only
+        lets it in through a sign-in, with an OAuth client of your own.
+      </div>
+
+      {outcome === "ok" && data?.account && (
+        <div className="mb-3 rounded-[11px] bg-run/10 px-3 py-2 text-[13px] text-run ring-1 ring-run/30">
+          Signed in as {data.account}.
+        </div>
+      )}
+      {failed && (
+        <div className="mb-3 rounded-[11px] bg-wait/10 px-3 py-2 text-[13px] text-wait ring-1 ring-wait/30">
+          Sign-in did not finish: {failed}
+        </div>
+      )}
+      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+
+      {data?.account ? (
+        <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
+          <StatusChip kind="run" label="connected" />
+          <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{data.account}</span>
+          <a
+            href="/api/calendar/google/start"
+            className="tap font-mono text-[12px] text-muted hover:text-text"
+          >
+            sign in again
+          </a>
+          <button
+            onClick={disconnect}
+            className="tap font-mono text-[12px] text-muted hover:text-wait"
+          >
+            disconnect
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-[11px] border border-dashed border-line px-[15px] py-3 text-[13px]">
+          <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-muted">
+            <li>
+              In the Google Cloud console, signed in with your Workspace account: create a project,
+              enable the <span className="text-text">CalDAV API</span>, and set the OAuth consent
+              screen's user type to <span className="text-text">Internal</span>.
+            </li>
+            <li>
+              Create an OAuth client ID of type <span className="text-text">Web application</span>,
+              with this as its authorised redirect URI:
+              <span className="mt-1 flex items-center gap-2">
+                <code className="min-w-0 flex-1 truncate rounded-md bg-surface-2 px-2 py-1 font-mono text-[12px] text-text">
+                  {data?.redirectUri ?? "…"}
+                </code>
+                <button
+                  onClick={async () => {
+                    if (data && (await copyText(data.redirectUri))) setCopied(true);
+                  }}
+                  className="tap flex-none font-mono text-[12px] text-muted hover:text-text"
+                >
+                  {copied ? "copied" : "copy"}
+                </button>
+              </span>
+            </li>
+            <li>Paste its client ID and secret below, then sign in.</li>
+          </ol>
+
+          {data?.clientSet ? (
+            <div className="flex flex-wrap items-center gap-2.5">
+              <a href="/api/calendar/google/start" className={button}>
+                Sign in with Google
+              </a>
+              <span className="font-mono text-[11.5px] text-faint">
+                client saved; change it under Agents, Environment
+              </span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2.5">
+              <input
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                placeholder="client ID"
+                spellCheck={false}
+                autoComplete="off"
+                className={field}
+              />
+              <input
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                placeholder="client secret"
+                type="password"
+                autoComplete="off"
+                className={field}
+              />
+              <button
+                onClick={saveClient}
+                disabled={!clientId.trim() || !secret.trim()}
+                className={button}
+              >
+                save
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 

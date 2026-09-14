@@ -110,6 +110,11 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   { name: "calendar_today", chairOnly: false },
   { name: "calendar_upcoming", chairOnly: false },
   { name: "calendar_search", chairOnly: false },
+  // Writes with no undo, taken on the person's word in the chat, which only
+  // the chair hears directly.
+  { name: "calendar_add", chairOnly: true },
+  { name: "calendar_update", chairOnly: true },
+  { name: "calendar_delete", chairOnly: true },
   { name: "repo_diff", chairOnly: false },
   { name: "recent_prompts", chairOnly: false },
   { name: "propose_memory", chairOnly: false },

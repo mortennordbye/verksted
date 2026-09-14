@@ -1014,7 +1014,10 @@ export interface AssistantEntry {
   at: string;
   /** Set when the turn ended badly; the text then carries what went wrong. */
   failed?: boolean;
-  /** Upload names attached to a user turn, served from /api/assistant/uploads. */
+  /**
+   * Upload names served from /api/assistant/uploads: what a user turn attached,
+   * or what a tool showed an assistant turn (a browser screenshot).
+   */
   images?: string[];
   /**
    * Which council member said this. Absent means the chair, so every thread
@@ -1336,6 +1339,16 @@ export interface SourceStatus {
   mail: boolean;
   calendar: boolean;
   docs: boolean;
+}
+
+/** Google sign-in for the calendar, as the settings page shows it. */
+export interface GoogleCalendarStatus {
+  /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are both saved. */
+  clientSet: boolean;
+  /** The address signed in, or null when nobody is. */
+  account: string | null;
+  /** What to register as an authorised redirect URI on the OAuth client. */
+  redirectUri: string;
 }
 
 /** One entry in a directory of the share. */

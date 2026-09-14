@@ -98,10 +98,12 @@ Five rules, each of which decides something below:
    tapped, which is your action carried out, not the agent's.
 5. **Read anywhere; write freely where there is an undo; propose and wait for
    a tap where there is none.** A draft, a session, a schedule, a memory, a
-   loop: done and said in a line. Sending a mail, putting something in the
-   calendar, merging, ending a run: prepared in full, shown as a card, executed
-   on the pod when you tap it. Nothing irreversible ever happens without that
-   tap, and nothing you would do yourself should need more than it.
+   loop: done and said in a line. Sending a mail, merging, ending a run:
+   prepared in full, shown as a card, executed on the pod when you tap it.
+   Nothing irreversible ever happens without that tap, and nothing you would
+   do yourself should need more than it. The calendar is the one exception, by
+   choice: an event you tell it to add, move or remove is changed directly,
+   since the telling is the tap. One it thinks of by itself is still a card.
 6. **Judgment is a model's, not a keyword's.** What is urgent, what belongs
    together, what you are likely to have forgotten: those are decided by a
    model with your profile in front of it. Cost is held by ceilings on how

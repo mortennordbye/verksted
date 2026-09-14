@@ -36,6 +36,12 @@ export default async function sourceRoutes(app: FastifyInstance) {
     try {
       return await fn();
     } catch (err) {
+      if (err instanceof calendar.CalendarNotFound) {
+        return reply.code(404).send({ error: err.message });
+      }
+      if (err instanceof calendar.CalendarRefused) {
+        return reply.code(409).send({ error: err.message });
+      }
       if (err instanceof mail.MailUnavailable || err instanceof calendar.CalendarUnavailable) {
         return reply.code(503).send({ error: err.message });
       }
@@ -150,5 +156,125 @@ export default async function sourceRoutes(app: FastifyInstance) {
     },
     (req, reply) =>
       guard<CalendarEvent[]>(() => calendar.search(req.query.q), reply, "calendar search"),
+  );
+
+  /** A month grid's six weeks, or any window up to about that. */
+  app.get<{ Querystring: { start: string; end: string } }>(
+    "/api/calendar/range",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          required: ["start", "end"],
+          additionalProperties: false,
+          properties: {
+            start: { type: "string", maxLength: 40 },
+            end: { type: "string", maxLength: 40 },
+          },
+        },
+      },
+    },
+    (req, reply) => {
+      const start = Date.parse(req.query.start);
+      const end = Date.parse(req.query.end);
+      if (Number.isNaN(start) || Number.isNaN(end) || end <= start) {
+        return reply.code(400).send({ error: "start and end must be dates, end after start" });
+      }
+      if (end - start > 62 * 86_400_000) {
+        return reply.code(400).send({ error: "at most 62 days at a time" });
+      }
+      return guard<CalendarEvent[]>(
+        () => calendar.events(new Date(start), new Date(end)),
+        reply,
+        "calendar",
+      );
+    },
+  );
+
+  // Writes. There is no undo on the server, so these are for when the person
+  // said to do it: the chair's calendar tools call them, and an event it only
+  // thinks of itself still goes through a proposal card.
+  const eventProps = {
+    summary: { type: "string", minLength: 1, maxLength: 300 },
+    // Checked with Date.parse below rather than format: date-time, which
+    // refuses the offset-less local time a person's "15:50" arrives as.
+    start: { type: "string", minLength: 1, maxLength: 40 },
+    end: { type: "string", minLength: 1, maxLength: 40 },
+    location: { type: "string", maxLength: 300 },
+    description: { type: "string", maxLength: 2000 },
+  };
+  const uidParam = {
+    type: "object",
+    required: ["uid"],
+    additionalProperties: false,
+    // A UID is only ever compared against what the server holds, never put in
+    // a path or a command; printable ASCII is every one seen in the wild.
+    properties: { uid: { type: "string", pattern: "^[\\x21-\\x7e]{1,500}$" } },
+  };
+  /** Dates as ISO, or a sentence saying why not. */
+  const badDates = (start?: string, end?: string): string | null => {
+    if ([start, end].some((d) => d !== undefined && Number.isNaN(Date.parse(d)))) {
+      return "start and end must be dates";
+    }
+    if (start && end && Date.parse(end) <= Date.parse(start)) return "end must be after start";
+    return null;
+  };
+  const iso = (d?: string) => (d === undefined ? undefined : new Date(d).toISOString());
+
+  app.post<{ Body: calendar.EventFields }>(
+    "/api/calendar/events",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["summary", "start", "end"],
+          additionalProperties: false,
+          properties: eventProps,
+        },
+      },
+    },
+    (req, reply) => {
+      const bad = badDates(req.body.start, req.body.end);
+      if (bad) return reply.code(400).send({ error: bad });
+      return guard<{ uid: string }>(
+        () => calendar.put({ ...req.body, start: iso(req.body.start)!, end: iso(req.body.end)! }),
+        reply,
+        "calendar add",
+      );
+    },
+  );
+
+  app.patch<{ Params: { uid: string }; Body: Partial<calendar.EventFields> }>(
+    "/api/calendar/events/:uid",
+    {
+      schema: {
+        params: uidParam,
+        body: {
+          type: "object",
+          minProperties: 1,
+          additionalProperties: false,
+          properties: eventProps,
+        },
+      },
+    },
+    (req, reply) => {
+      const bad = badDates(req.body.start, req.body.end);
+      if (bad) return reply.code(400).send({ error: bad });
+      const change = { ...req.body, start: iso(req.body.start), end: iso(req.body.end) };
+      if (change.start === undefined) delete change.start;
+      if (change.end === undefined) delete change.end;
+      return guard<CalendarEvent>(
+        () => calendar.update(req.params.uid, change),
+        reply,
+        "calendar update",
+      );
+    },
+  );
+
+  app.delete<{ Params: { uid: string } }>(
+    "/api/calendar/events/:uid",
+    { schema: { params: uidParam } },
+    (req, reply) =>
+      guard<CalendarEvent>(() => calendar.remove(req.params.uid), reply, "calendar delete"),
   );
 }

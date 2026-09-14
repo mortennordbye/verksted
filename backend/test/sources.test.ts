@@ -60,6 +60,48 @@ const ICS = [
   "END:VCALENDAR",
 ].join("\r\n");
 
+describe("editing an event", () => {
+  const SRC = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "UID:a1",
+    "DTSTART;TZID=Europe/Oslo:20260918T155000",
+    "DTEND;TZID=Europe/Oslo:20260918T161000",
+    "SUMMARY:Hårklipp",
+    "LOCATION:Della",
+    "ATTENDEE:mailto:someone@example.com",
+    "BEGIN:VALARM",
+    "DESCRIPTION:Reminder",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  it("replaces only what changed and keeps alarms and attendees", () => {
+    const out = calendar.edit(SRC, {
+      DTSTART: "20260918T130000Z",
+      DTEND: "20260918T132000Z",
+      LOCATION: "",
+    });
+
+    expect(out).not.toContain("TZID");
+    expect(out).not.toContain("LOCATION");
+    expect(out).toContain("SUMMARY:Hårklipp");
+    expect(out).toContain("ATTENDEE:mailto:someone@example.com");
+    // The alarm's own DESCRIPTION is the alarm's, not the event's.
+    expect(out).toContain("BEGIN:VALARM\r\nDESCRIPTION:Reminder\r\nEND:VALARM");
+    const [e] = calendar.parseIcs(out);
+    expect(e.start).toBe("2026-09-18T13:00:00.000Z");
+    expect(e.end).toBe("2026-09-18T13:20:00.000Z");
+  });
+
+  it("does not touch a property of the same name inside the alarm", () => {
+    const out = calendar.edit(SRC, { DESCRIPTION: "600 kr" });
+    expect(out).toContain("DESCRIPTION:Reminder");
+    expect(out).toContain("DESCRIPTION:600 kr");
+  });
+});
+
 describe("the calendar", () => {
   it("reads the three shapes of date, a folded line and an escaped description", () => {
     const [standup, birthday, dentist] = calendar.parseIcs(ICS, "home");
@@ -127,6 +169,33 @@ describe("mail", () => {
 });
 
 describe("the routes", () => {
+  it("checks a calendar write before saying the calendar is not set up", async () => {
+    const add = (payload: object) =>
+      app.inject({ method: "POST", url: "/api/calendar/events", payload });
+    const ok = { summary: "Hårklipp", start: "2026-09-18T15:50", end: "2026-09-18T16:10" };
+
+    expect((await add(ok)).statusCode).toBe(503);
+    expect((await add({ ...ok, start: "fredag" })).statusCode).toBe(400);
+    expect((await add({ ...ok, end: "2026-09-18T15:00" })).statusCode).toBe(400);
+
+    const patch = (payload: object) =>
+      app.inject({ method: "PATCH", url: "/api/calendar/events/abc%40google.com", payload });
+    expect((await patch({})).statusCode).toBe(400);
+    expect((await patch({ start: "2026-09-18T13:00" })).statusCode).toBe(503);
+    expect(
+      (await app.inject({ method: "DELETE", url: "/api/calendar/events/abc%40google.com" }))
+        .statusCode,
+    ).toBe(503);
+  });
+
+  it("reads a month's grid, and no more than about that", async () => {
+    const range = (start: string, end: string) =>
+      app.inject({ url: `/api/calendar/range?start=${start}&end=${end}` });
+    expect((await range("2026-08-31T00:00:00Z", "2026-10-12T00:00:00Z")).statusCode).toBe(503);
+    expect((await range("2026-09-01T00:00:00Z", "2027-01-01T00:00:00Z")).statusCode).toBe(400);
+    expect((await range("2026-10-01T00:00:00Z", "2026-09-01T00:00:00Z")).statusCode).toBe(400);
+  });
+
   it("say a source is not set up rather than failing", async () => {
     expect((await app.inject({ url: "/api/sources" })).json()).toMatchObject({
       mail: false,

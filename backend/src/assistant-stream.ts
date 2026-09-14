@@ -20,8 +20,20 @@ interface ContentBlock {
   type?: string;
   text?: string;
   name?: string;
+  id?: string;
+  tool_use_id?: string;
   input?: Record<string, unknown>;
+  content?: unknown;
+  source?: { media_type?: string; data?: string };
 }
+
+/** A picture a tool handed back, still as bytes: assistant.ts decides where it lands. */
+export interface Shot {
+  mediaType: string;
+  data: string;
+}
+
+const SHOT_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /**
  * The argument worth showing on a chip. Tools disagree about what to call their
@@ -46,7 +58,7 @@ function trim(text: string, max: number): string {
 /** What one completed run of the CLI produced. */
 export interface StreamResult {
   /** Assistant turns, in order. A tool-using run produces more than one. */
-  entries: Omit<AssistantEntry, "id" | "at">[];
+  entries: Entry[];
   /** The session id the CLI reports; should match the one we passed in. */
   conversationId: string | null;
   /** Set when the run ended on an error, from the result event. */
@@ -66,6 +78,10 @@ export interface StreamState {
   conversationId: string | null;
   error: string | null;
   pendingTools: AssistantToolCall[];
+  /** Pictures tools returned, carried to the next thing said like the tools are. */
+  pendingShots: Shot[];
+  /** Tool names by call id, so a result can be told apart by what made it. */
+  toolNames: Map<string, string>;
   /** Bytes arrived since the last newline; a chunk boundary is not a line. */
   buffer: string;
   /**
@@ -77,10 +93,19 @@ export interface StreamState {
 }
 
 export function newStreamState(): StreamState {
-  return { conversationId: null, error: null, pendingTools: [], buffer: "", live: "" };
+  return {
+    conversationId: null,
+    error: null,
+    pendingTools: [],
+    pendingShots: [],
+    toolNames: new Map(),
+    buffer: "",
+    live: "",
+  };
 }
 
-type Entry = Omit<AssistantEntry, "id" | "at">;
+/** An entry as parsed: `shots` become upload names before it is stored. */
+export type Entry = Omit<AssistantEntry, "id" | "at"> & { shots?: Shot[] };
 
 function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry | null {
   const sessionId = event.session_id;
@@ -109,19 +134,48 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
     for (const b of blocks) {
       if (b.type === "tool_use" && typeof b.name === "string") {
         state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
+        if (b.id) state.toolNames.set(b.id, b.name);
       }
     }
     // A turn that is only tool calls carries its tools forward to whichever
     // turn finally says something, rather than becoming an empty bubble.
     if (text) {
-      const entry = { role: "assistant" as const, text, tools: state.pendingTools };
+      const entry: Entry = { role: "assistant", text, tools: state.pendingTools };
+      if (state.pendingShots.length) entry.shots = state.pendingShots;
       state.pendingTools = [];
+      state.pendingShots = [];
       state.live = "";
       return entry;
     }
     // A tool-only turn: whatever was being written was the model thinking out
     // loud towards the call, and the call is now the thing to show.
     state.live = "";
+    return null;
+  }
+
+  // Tool results. Only a picture is kept: a screenshot is what the chair is
+  // about to ask you to confirm, and saying "here it is" without showing it
+  // was the complaint. Read is left out, since the picture it returns is one
+  // you attached and can already see above.
+  if (event.type === "user") {
+    const message = event.message as { content?: ContentBlock[] } | undefined;
+    const blocks = Array.isArray(message?.content) ? message.content : [];
+    for (const b of blocks) {
+      if (b.type !== "tool_result" || !Array.isArray(b.content)) continue;
+      if (state.toolNames.get(b.tool_use_id ?? "") === "Read") continue;
+      for (const c of b.content as ContentBlock[]) {
+        const mediaType = c.source?.media_type;
+        const data = c.source?.data;
+        if (
+          c.type === "image" &&
+          mediaType &&
+          SHOT_TYPES.has(mediaType) &&
+          typeof data === "string"
+        ) {
+          state.pendingShots.push({ mediaType, data });
+        }
+      }
+    }
     return null;
   }
 
@@ -173,9 +227,15 @@ export function consumeChunk(chunk: string, state: StreamState): Entry[] {
  */
 export function finishStream(state: StreamState): Entry[] {
   const out = state.buffer.trim() ? consumeChunk("\n", state) : [];
-  if (state.pendingTools.length) {
-    out.push({ role: "assistant", text: "", tools: state.pendingTools });
+  if (state.pendingTools.length || state.pendingShots.length) {
+    out.push({
+      role: "assistant",
+      text: "",
+      tools: state.pendingTools,
+      ...(state.pendingShots.length ? { shots: state.pendingShots } : {}),
+    });
     state.pendingTools = [];
+    state.pendingShots = [];
   }
   return out;
 }
