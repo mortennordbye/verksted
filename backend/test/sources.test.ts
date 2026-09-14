@@ -180,6 +180,116 @@ describe("the calendar", () => {
   });
 });
 
+describe("a repeating event", () => {
+  const count = (s: string, needle: string) => s.split(needle).length - 1;
+  // Shaped like what Google's CalDAV hands back for a weekly meeting: a zone,
+  // a rule, and an alarm that must travel with any occurrence taken out of it.
+  const WEEKLY = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "BEGIN:VTIMEZONE",
+    "TZID:Europe/Oslo",
+    "END:VTIMEZONE",
+    "BEGIN:VEVENT",
+    "UID:weekly-1",
+    "DTSTAMP:20260801T000000Z",
+    "DTSTART;TZID=Europe/Oslo:20260901T100000",
+    "DTEND;TZID=Europe/Oslo:20260901T103000",
+    "RRULE:FREQ=WEEKLY;BYDAY=TU",
+    "SUMMARY:Standup",
+    "BEGIN:VALARM",
+    "ACTION:DISPLAY",
+    "DESCRIPTION:Reminder",
+    "TRIGGER:-PT10M",
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ].join("\r\n");
+  // 3 November is after the clocks go back: 10:00 in Oslo is 09:00 UTC.
+  const NOV3 = "2026-11-03T09:00:00.000Z";
+  const moved = () =>
+    calendar.occurrenceUpdate(WEEKLY, NOV3, { start: "2026-11-03T13:00:00.000Z" });
+
+  it("is marked as a series when read, and a single event is not", () => {
+    expect(calendar.parseIcs(WEEKLY)[0].recurring).toBe(true);
+    expect(calendar.parseIcs(ICS)[0].recurring).toBeUndefined();
+  });
+
+  it("moves one occurrence into an override written in the series' own zone", () => {
+    const out = moved();
+    // Named by the start the rule gave it, in the form of the series' DTSTART.
+    expect(out).toContain("RECURRENCE-ID;TZID=Europe/Oslo:20261103T100000");
+    expect(out).toContain("DTSTART;TZID=Europe/Oslo:20261103T140000");
+    // The length it had, and the alarm and the uid with it.
+    expect(out).toContain("DTEND;TZID=Europe/Oslo:20261103T143000");
+    expect(count(out, "UID:weekly-1")).toBe(2);
+    expect(count(out, "DESCRIPTION:Reminder")).toBe(2);
+    // The rule stays on the series alone, which is otherwise untouched.
+    expect(count(out, "RRULE")).toBe(1);
+    expect(out).toContain("DTSTART;TZID=Europe/Oslo:20260901T100000");
+    expect(count(out, "BEGIN:VTIMEZONE")).toBe(1);
+  });
+
+  it("moves an occurrence already moved where it stands, rather than adding a second", () => {
+    const out = calendar.occurrenceUpdate(moved(), "2026-11-03T13:00:00.000Z", {
+      start: "2026-11-03T14:00:00.000Z",
+    });
+    expect(count(out, "BEGIN:VEVENT")).toBe(2);
+    expect(out).toContain("RECURRENCE-ID;TZID=Europe/Oslo:20261103T100000");
+    expect(out).toContain("DTSTART;TZID=Europe/Oslo:20261103T150000");
+  });
+
+  it("removes one occurrence with an EXDATE, and a moved one with its override", () => {
+    expect(calendar.occurrenceRemove(WEEKLY, "2026-09-22T08:00:00.000Z")).toContain(
+      "EXDATE;TZID=Europe/Oslo:20260922T100000",
+    );
+    const out = calendar.occurrenceRemove(moved(), "2026-11-03T13:00:00.000Z");
+    // The start the rule gave it, not the one it had been moved to.
+    expect(out).toContain("EXDATE;TZID=Europe/Oslo:20261103T100000");
+    expect(count(out, "BEGIN:VEVENT")).toBe(1);
+  });
+
+  it("renames every occurrence, a moved one included", () => {
+    const out = calendar.seriesUpdate(moved(), { summary: "Morgenmøte" });
+    expect(out).not.toContain("SUMMARY:Standup");
+    expect(count(out, "SUMMARY:Morgenmøte")).toBe(2);
+  });
+
+  it("moves every occurrence by the clock in the series' zone, not to UTC", () => {
+    // Asked in November for 11:00; the series began in September, in summer
+    // time. Written in UTC it would drift an hour at every change of clocks.
+    const out = calendar.seriesUpdate(WEEKLY, { start: "2026-11-03T10:00:00.000Z" }, NOV3);
+    expect(out).toContain("DTSTART;TZID=Europe/Oslo:20260901T110000");
+    expect(out).toContain("DTEND;TZID=Europe/Oslo:20260901T113000");
+    expect(out).toContain("RRULE:FREQ=WEEKLY;BYDAY=TU");
+  });
+
+  it("refuses to move every occurrence once one was moved, or without saying which", () => {
+    const later = { start: "2026-11-03T10:00:00.000Z" };
+    expect(() => calendar.seriesUpdate(moved(), later, NOV3)).toThrow(calendar.CalendarRefused);
+    expect(() => calendar.seriesUpdate(WEEKLY, later)).toThrow(calendar.CalendarRefused);
+  });
+
+  it("writes an all-day series as dates and a UTC series in UTC", () => {
+    const yearly = WEEKLY.replace(
+      "DTSTART;TZID=Europe/Oslo:20260901T100000",
+      "DTSTART;VALUE=DATE:20260901",
+    )
+      .replace("DTEND;TZID=Europe/Oslo:20260901T103000", "DTEND;VALUE=DATE:20260902")
+      .replace("FREQ=WEEKLY;BYDAY=TU", "FREQ=YEARLY");
+    expect(calendar.occurrenceRemove(yearly, "2027-09-01")).toContain("EXDATE;VALUE=DATE:20270901");
+
+    const utc = WEEKLY.replace(
+      "DTSTART;TZID=Europe/Oslo:20260901T100000",
+      "DTSTART:20260901T080000Z",
+    ).replace("DTEND;TZID=Europe/Oslo:20260901T103000", "DTEND:20260901T083000Z");
+    expect(
+      calendar.occurrenceUpdate(utc, "2026-09-08T08:00:00.000Z", { summary: "Flyttet" }),
+    ).toContain("RECURRENCE-ID:20260908T080000Z");
+  });
+});
+
 describe("mail", () => {
   it("reduces an envelope to a line, and HTML to text", () => {
     const s = mail.summarise({
@@ -232,6 +342,19 @@ describe("the routes", () => {
       (await app.inject({ method: "DELETE", url: "/api/calendar/events/abc%40google.com" }))
         .statusCode,
     ).toBe(503);
+
+    // Which part of a repeating one: a date, something to change, and for a
+    // delete not both.
+    expect((await patch({ every: true })).statusCode).toBe(400);
+    expect((await patch({ occurrence: "fredag", summary: "x" })).statusCode).toBe(400);
+    expect(
+      (await patch({ occurrence: "2026-09-22 10:00", start: "2026-09-22T11:00" })).statusCode,
+    ).toBe(503);
+    const del = (query: string) =>
+      app.inject({ method: "DELETE", url: `/api/calendar/events/abc%40google.com?${query}` });
+    expect((await del("occurrence=fredag")).statusCode).toBe(400);
+    expect((await del("occurrence=2026-09-22&every=true")).statusCode).toBe(400);
+    expect((await del("every=true")).statusCode).toBe(503);
   });
 
   it("reads a month's grid, and no more than about that", async () => {

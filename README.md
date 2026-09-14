@@ -80,8 +80,10 @@ password in `CALDAV_PASSWORD` under Settings, Agents, Environment.
 **What the assistant does with it.** `calendar_add`, `calendar_update` and
 `calendar_delete` are the chair's alone and are never offered to a scheduled
 run. They are for when you asked; an event it thinks of by itself is still a
-card to tap. New events go on the primary calendar. A recurring event is
-refused rather than guessed at (see `BACKLOG.md`). The chat's **calendar**
+card to tap. New events go on the primary calendar. A repeating event is only
+changed when you say which part: one occurrence (moved or removed on its own)
+or every one. Moving the time of a whole series is refused once any occurrence
+has been moved or removed, since those would lose their place. The chat's **calendar**
 button shows the month beside the thread, refreshed as it talks.
 
 **When it does not work.**
