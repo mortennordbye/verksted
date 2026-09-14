@@ -264,6 +264,26 @@ describe("the app in a real browser", () => {
     await page.getByText("the file tree cannot rename a file").first().waitFor({ timeout: 15_000 });
   });
 
+  it("walks the inbox from the keyboard, and a key's action can be undone", async () => {
+    await page.goto(`${base}/runs`, { waitUntil: "networkidle" });
+    const row = page.locator('[id="bench:feedback:e2e"]');
+    await row.waitFor({ timeout: 15_000 });
+
+    // Walked to rather than assumed first: the seeded runs are on the list too,
+    // and which of them sorts above the note is not what this is testing.
+    for (let i = 0; i < 10 && (await row.getAttribute("aria-current")) !== "true"; i++) {
+      await page.keyboard.press("j");
+      await page.locator('main [aria-current="true"]').first().waitFor({ timeout: 15_000 });
+    }
+    expect(await row.getAttribute("aria-current")).toBe("true");
+
+    await page.keyboard.press("e");
+    await page.getByText("marked done").waitFor({ timeout: 15_000 });
+    // Put back, so the rest of the suite still finds the note on the list.
+    await page.getByRole("button", { name: "undo" }).click();
+    await page.getByText("marked done").waitFor({ state: "detached", timeout: 15_000 });
+  });
+
   it("reads a finished run's changes and opens the diff behind them", async () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
     // The panel the deep link asks for, its commit, and its file.
