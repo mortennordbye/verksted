@@ -181,11 +181,110 @@ describe("POST /api/projects/:name/git/push", () => {
     const before = remoteHead("topic");
     const res = await app.inject({ method: "POST", url: "/api/projects/demo/git/push" });
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: "rejected by the remote — pull first" });
+    expect(res.json()).toEqual({ error: "rejected by the remote — pull first, or force push" });
     expect(remoteHead("topic")).toBe(before);
     // Nothing fetched, so the tracking ref has not moved: still 1 ahead, 0 behind.
     expect(await branches()).toMatchObject({ ahead: 1, behind: 0 });
+  });
+
+  it("will not force over commits this repo has not fetched", async () => {
+    const before = remoteHead("topic");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/demo/git/push",
+      payload: { force: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/not fetched/);
+    expect(remoteHead("topic")).toBe(before);
+  });
+
+  it("force pushes over what was fetched", async () => {
+    run(repo(), "fetch", "origin");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/demo/git/push",
+      payload: { force: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(remoteHead("topic")).toBe(localHead());
     run(repo(), "switch", "main");
+  });
+
+  it("rejects a body with anything but force", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/demo/git/push",
+      payload: { force: "yes" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("submodules", () => {
+  // A pull that moves a submodule used to leave its checkout behind, and the
+  // repo then read as dirty with nothing changed by anyone.
+  let sub: string;
+  let parent: string;
+  let clone: string;
+  const status = (dir: string) =>
+    execFileSync("git", ["-C", dir, "status", "--porcelain"], { encoding: "utf8" }).trim();
+
+  beforeAll(() => {
+    sub = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sub-"));
+    execFileSync("git", ["init", "-b", "main", sub], { stdio: "pipe" });
+    fs.writeFileSync(path.join(sub, "s.txt"), "one");
+    run(sub, "add", "-A");
+    run(sub, "commit", "-m", "one");
+
+    parent = fs.mkdtempSync(path.join(os.tmpdir(), "vk-parent-"));
+    execFileSync("git", ["init", "--bare", "-b", "main", parent], { stdio: "pipe" });
+    const seed = fs.mkdtempSync(path.join(os.tmpdir(), "vk-pseed-"));
+    execFileSync("git", ["clone", parent, seed], { stdio: "pipe" });
+    run(seed, "-c", "protocol.file.allow=always", "submodule", "add", sub, "theme");
+    run(seed, "commit", "-m", "add theme");
+    run(seed, "push", "origin", "main");
+
+    clone = path.join(reposDir, "withsub");
+    execFileSync(
+      "git",
+      ["-c", "protocol.file.allow=always", "clone", "--recurse-submodules", parent, clone],
+      {
+        stdio: "pipe",
+      },
+    );
+
+    // Move the submodule forward upstream.
+    fs.writeFileSync(path.join(sub, "s.txt"), "two");
+    run(sub, "commit", "-am", "two");
+    run(path.join(seed, "theme"), "pull", "origin", "main");
+    run(seed, "commit", "-am", "bump theme");
+    run(seed, "push", "origin", "main");
+    fs.rmSync(seed, { recursive: true, force: true });
+    process.env.GIT_CONFIG_COUNT = "1";
+    process.env.GIT_CONFIG_KEY_0 = "protocol.file.allow";
+    process.env.GIT_CONFIG_VALUE_0 = "always";
+  });
+
+  afterAll(() => {
+    delete process.env.GIT_CONFIG_COUNT;
+    delete process.env.GIT_CONFIG_KEY_0;
+    delete process.env.GIT_CONFIG_VALUE_0;
+  });
+
+  it("brings the submodule along on a pull, leaving the repo clean", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/projects/withsub/git/pull" });
+    expect(res.statusCode).toBe(200);
+    expect(status(clone)).toBe("");
+    expect(fs.readFileSync(path.join(clone, "theme", "s.txt"), "utf8")).toBe("two");
+  });
+
+  it("puts a drifted submodule back on reset", async () => {
+    run(path.join(clone, "theme"), "checkout", "-q", "HEAD~1");
+    expect(status(clone)).not.toBe("");
+    const res = await app.inject({ method: "POST", url: "/api/projects/withsub/git/reset" });
+    expect(res.statusCode).toBe(200);
+    expect(status(clone)).toBe("");
   });
 });
 

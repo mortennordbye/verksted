@@ -7,15 +7,16 @@ import Sheet from "./Sheet";
 
 /**
  * The branch label, clickable: switch branch, pull, push, or reset the branch
- * to its upstream. Pull is always fast-forward and push never forces — reset is
- * the only destructive way out of a diverged branch, and it asks first.
+ * to its upstream. Pull is always fast-forward. The two destructive ways out of
+ * a diverged branch, reset and force push, both ask first.
  */
-type Op = "pull" | "push" | "reset" | "checkout";
+type Op = "pull" | "push" | "force" | "reset" | "checkout";
 
 /** What the banner says while an operation runs. */
 const DOING: Record<Op, string> = {
   pull: "Pulling",
   push: "Pushing",
+  force: "Force-pushing",
   reset: "Resetting",
   checkout: "Switching",
 };
@@ -119,6 +120,24 @@ export default function BranchControl({
     );
   }
 
+  async function forcePush() {
+    if (
+      !(await confirm({
+        title: `Force push ${current} to ${upstream}?`,
+        body: "Commits on the remote that are not on this branch are overwritten. It refuses if the remote has commits this repo has not fetched.",
+        action: "force push",
+        danger: true,
+      }))
+    ) {
+      return;
+    }
+    void run(
+      "force",
+      () => post("push", { force: true }),
+      `Force-pushed ${current} to ${upstream}`,
+    );
+  }
+
   async function reset() {
     if (
       !(await confirm({
@@ -143,6 +162,8 @@ export default function BranchControl({
     .map((r) => r.slice(r.indexOf("/") + 1))
     .filter((short) => !local.includes(short));
   const matches = (b: string) => b.toLowerCase().includes(filter.trim().toLowerCase());
+  // Force only has something to overwrite with once there is a commit to send.
+  const canForce = !!data && !!upstream && data.ahead > 0;
   const target = working === "push" ? (upstream ?? "origin") : upstream;
 
   return (
@@ -198,7 +219,9 @@ export default function BranchControl({
               <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-accent" />
               {DOING[working]}
               {working === "pull" && ` from ${target}`}
-              {(working === "push" || working === "reset") && ` to ${target}`}…
+              {(working === "push" || working === "force" || working === "reset") &&
+                ` to ${target}`}
+              …
             </div>
           )}
           {!working && result && (
@@ -238,6 +261,19 @@ export default function BranchControl({
             >
               <Icon name="push" size={15} />
               {working === "push" ? "pushing…" : upstream ? "push" : "publish"}
+            </button>
+            <button
+              onClick={() => void forcePush()}
+              disabled={busy || !canForce}
+              title={
+                canForce
+                  ? `overwrite ${upstream} with this branch`
+                  : "nothing on this branch to force over the remote"
+              }
+              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-fail hover:text-fail disabled:opacity-50"
+            >
+              <Icon name="push" size={15} />
+              {working === "force" ? "forcing…" : "force push"}
             </button>
             <button
               onClick={() => void reset()}

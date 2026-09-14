@@ -8,7 +8,8 @@ const projects = vi.fn<() => Promise<unknown>>();
 vi.mock("../src/sessions-store.js", () => ({ listSessions: () => sessions() }));
 vi.mock("../src/projects-store.js", () => ({ listProjects: () => projects() }));
 
-const { subscribe, clientCount, resetEvents, setEventLogger } = await import("../src/events.js");
+const { subscribe, clientCount, refreshTopic, resetEvents, setEventLogger } =
+  await import("../src/events.js");
 
 /** Long enough for both intervals (sessions 3s, projects 10s) to have ticked. */
 const BOTH_TICKS = 10_000;
@@ -116,6 +117,31 @@ describe("the event hub", () => {
     subscribe(record);
     expect(topics().sort()).toEqual(["projects", "sessions"]);
     expect(sessions.mock.calls.length).toBe(asked);
+  });
+
+  it("recomputes on request instead of waiting out the interval", async () => {
+    subscribe(record);
+    await vi.advanceTimersByTimeAsync(0);
+    projects.mockResolvedValue([{ name: "demo", dirty: false }]);
+    refreshTopic("projects");
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sent.at(-1)).toEqual(["projects", JSON.stringify([{ name: "demo", dirty: false }])]);
+  });
+
+  it("never lets an older computation land after a newer one", async () => {
+    subscribe(record);
+    await vi.advanceTimersByTimeAsync(0);
+    // A slow scan that saw the repo dirty, overtaken by a request after it went clean.
+    let finish!: (v: unknown) => void;
+    projects.mockImplementationOnce(() => new Promise((r) => (finish = r)));
+    refreshTopic("projects");
+    projects.mockResolvedValue([{ name: "demo", dirty: false }]);
+    refreshTopic("projects");
+    finish([{ name: "demo", dirty: true }]);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sent.at(-1)![1]).toContain('"dirty":false');
   });
 
   it("does not hand a joining client a snapshot from before everyone left", async () => {

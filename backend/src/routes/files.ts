@@ -15,6 +15,7 @@ import type {
   TreeNode,
   UploadedFile,
 } from "../../../shared/api.js";
+import { refreshTopic } from "../events.js";
 import { branchOf, git, gitError, gitRaw, parsePorcelainZ } from "../git.js";
 import { repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
@@ -185,6 +186,12 @@ async function walk(
 }
 
 export default async function fileRoutes(app: FastifyInstance) {
+  // Every write here (stage, commit, discard, upload, replace, pull, push,
+  // reset, switch) can change what the hub shows about the repo. Recompute it
+  // now, so "dirty" follows the repo instead of lagging it by an interval.
+  app.addHook("onResponse", async (req) => {
+    if (req.method === "POST") refreshTopic("projects");
+  });
   // Raw request bodies for the upload endpoint.
   app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (_req, body, done) =>
     done(null, body),
@@ -610,7 +617,7 @@ export default async function fileRoutes(app: FastifyInstance) {
       try {
         // A name that only exists on one remote gets a local tracking branch
         // here, which is why this is switch and not checkout of a ref.
-        await git(repoDir, ["switch", branch], { timeout: 60_000 });
+        await git(repoDir, ["switch", "--recurse-submodules", branch], { timeout: 60_000 });
       } catch (err) {
         req.log.error(err, "git switch failed");
         return reply.code(409).send({ error: gitError(err) });
@@ -628,7 +635,10 @@ export default async function fileRoutes(app: FastifyInstance) {
     try {
       // ff-only: a diverged branch is a decision for the user, not a merge
       // commit made behind their back. The reset route is the way out.
-      await git(repoDir, ["pull", "--ff-only"], {
+      // Submodules follow the commit: without it a pull that moves a submodule
+      // leaves its checkout behind, and the repo reads as dirty with nothing
+      // changed by anyone.
+      await git(repoDir, ["pull", "--ff-only", "--recurse-submodules"], {
         env: { ...process.env, ...(await execEnv()) },
         timeout: 120_000,
       });
@@ -639,29 +649,54 @@ export default async function fileRoutes(app: FastifyInstance) {
     return { branch: await branchOf(repoDir) };
   });
 
-  // Never a force push: a rejected push is the user's to sort out, by pulling
-  // or by resetting, and the error says which. A branch that tracks nothing is
-  // published to origin under its own name, the way opening a PR does it.
-  app.post<{ Params: { name: string } }>("/api/projects/:name/git/push", async (req, reply) => {
-    const repoDir = repoDirOr404(reply, req.params.name);
-    if (!repoDir) return;
-    const upstream = await upstreamOf(repoDir);
-    try {
-      await git(repoDir, upstream ? ["push"] : ["push", "-u", "origin", "HEAD"], {
-        env: { ...process.env, ...(await execEnv()) },
-        timeout: 120_000,
-      });
-    } catch (err) {
-      req.log.error(err, "git push failed");
-      // git's first line on a reject is "To <url>", which says nothing.
-      const stderr = String((err as { stderr?: string }).stderr ?? "");
-      const error = /\[rejected\]/.test(stderr)
-        ? "rejected by the remote — pull first"
-        : gitError(err);
-      return reply.code(409).send({ error });
-    }
-    return { branch: await branchOf(repoDir), upstream: await upstreamOf(repoDir) };
-  });
+  // A rejected push is the user's to sort out, by pulling, resetting or forcing,
+  // and the error says which. A branch that tracks nothing is published to
+  // origin under its own name, the way opening a PR does it. A force push is
+  // --force-with-lease: it overwrites only what was last fetched, never commits
+  // someone pushed that this repo has not seen.
+  app.post<{ Params: { name: string }; Body: { force?: boolean } | undefined }>(
+    "/api/projects/:name/git/push",
+    {
+      schema: {
+        body: {
+          type: ["object", "null"],
+          additionalProperties: false,
+          properties: { force: { type: "boolean" } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const repoDir = repoDirOr404(reply, req.params.name);
+      if (!repoDir) return;
+      const upstream = await upstreamOf(repoDir);
+      const force = req.body?.force === true;
+      if (force && !upstream) {
+        return reply.code(409).send({ error: "branch has no upstream to force" });
+      }
+      try {
+        await git(
+          repoDir,
+          force
+            ? ["push", "--force-with-lease"]
+            : upstream
+              ? ["push"]
+              : ["push", "-u", "origin", "HEAD"],
+          { env: { ...process.env, ...(await execEnv()) }, timeout: 120_000 },
+        );
+      } catch (err) {
+        req.log.error(err, "git push failed");
+        // git's first line on a reject is "To <url>", which says nothing.
+        const stderr = String((err as { stderr?: string }).stderr ?? "");
+        const error = /stale info/.test(stderr)
+          ? "the remote has commits this repo has not fetched — pull first to see them"
+          : /\[rejected\]/.test(stderr)
+            ? "rejected by the remote — pull first, or force push"
+            : gitError(err);
+        return reply.code(409).send({ error });
+      }
+      return { branch: await branchOf(repoDir), upstream: await upstreamOf(repoDir) };
+    },
+  );
 
   // Destructive: drops local commits and tracked-file changes on the current
   // branch to match its upstream. Untracked files are left alone.
@@ -675,7 +710,7 @@ export default async function fileRoutes(app: FastifyInstance) {
         env: { ...process.env, ...(await execEnv()) },
         timeout: 120_000,
       });
-      await git(repoDir, ["reset", "--hard", upstream]);
+      await git(repoDir, ["reset", "--hard", "--recurse-submodules", upstream]);
     } catch (err) {
       req.log.error(err, "git reset failed");
       return reply.code(409).send({ error: gitError(err) });
