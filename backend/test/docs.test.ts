@@ -183,7 +183,7 @@ describe("the catalogue", () => {
     );
     const open = await loops.list();
     expect(open.map((l) => [l.what, l.due, l.from])).toEqual([
-      ["renewal: bil/forsikring-2025.txt", "2026-09-03", "doc:bil/forsikring-2025.txt"],
+      ["renewal: forsikring-2025.txt", "2026-09-03", "doc:bil/forsikring-2025.txt"],
     ]);
     // The catalogue line answers a search before any body is opened.
     expect((await docs.search("insurance EL12345"))[0].path).toBe("bil/forsikring-2025.txt");

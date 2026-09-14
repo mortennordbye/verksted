@@ -123,11 +123,14 @@ export function saysTheSame(item: FeedItem): boolean {
 function Row({
   item,
   session,
+  loopTitle,
   onChange,
   onActed,
 }: {
   item: FeedItem;
   session?: Session;
+  /** The words of the loop this item is filed under, when it still exists. */
+  loopTitle?: string;
   onChange: () => void;
   /** What just happened to which items, so the screen can offer it back. */
   onActed: (ids: string[], label: string) => void;
@@ -234,13 +237,11 @@ function Row({
           )}
         </button>
         <span className="flex flex-none items-center gap-2">
-          {/* Only when it says something. "new" and "quiet" are already in the
-              mark's colour, and a chip on every row is a column of chips. */}
-          {(done || item.state === "snoozed" || item.urgency === "attention") && (
-            <StatusChip
-              kind={done ? "idle" : u.kind}
-              label={done ? "done" : item.state === "snoozed" ? "snoozed" : u.label}
-            />
+          {/* Only when it says something. The urgency is already the section
+              the row is in and the mark's colour, and a "needs you" chip under
+              a "Needs you" heading cost the title most of a phone's width. */}
+          {(done || item.state === "snoozed") && (
+            <StatusChip kind={done ? "idle" : u.kind} label={done ? "done" : "snoozed"} />
           )}
           <span className="font-mono text-[11px] text-faint">{agoLabel(item.at)}</span>
         </span>
@@ -249,7 +250,7 @@ function Row({
       {item.source === "proposal" && <ProposalCard item={item} onChange={onChange} />}
       {(item.loop || item.did) && (
         <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
-          {item.loop && <span>loop: {item.loop}</span>}
+          {item.loop && <span>loop: {loopTitle ?? item.loop.replace(/-/g, " ")}</span>}
           {item.did && <span>did: {item.did}</span>}
         </div>
       )}
@@ -386,6 +387,7 @@ export default function Inbox() {
   const attention = live.filter((i) => i.urgency === "attention").length;
   const unjudged = live.filter((i) => !i.triaged).length;
   const open = (loops ?? []).filter((l) => l.state === "open");
+  const loopWhat = new Map((loops ?? []).map((l) => [l.slug, l.what]));
   const byId = new Map((sessions ?? []).map((s) => [s.id, s]));
 
   /**
@@ -495,7 +497,9 @@ export default function Inbox() {
                   key={l.slug}
                   className="flex flex-wrap items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13px]"
                 >
-                  <span className="min-w-0 flex-1">{l.what}</span>
+                  {/* Breaks anywhere: a file path is one long word, and one
+                      that cannot break was drawn over the due date beside it. */}
+                  <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{l.what}</span>
                   {l.due && <span className="font-mono text-[11px] text-wait">due {l.due}</span>}
                   <button
                     onClick={() =>
@@ -514,32 +518,36 @@ export default function Inbox() {
         )}
 
         {/* The filters and the list's own actions in one bar of their own, so
-            they read as controls rather than as the first row of the list. */}
-        <div className="mb-7 flex flex-wrap items-center gap-1.5 rounded-xl border border-line bg-surface px-2.5 py-2">
-          {(["all", ...present] as (FeedSource | "all")[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSource(s)}
-              aria-pressed={source === s}
-              className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
-                source === s
-                  ? "border-accent/50 text-accent"
-                  : "border-line text-faint hover:border-line-strong"
-              }`}
-            >
-              {s !== "all" && (
-                <SourceMark source={s} className="mr-1.5 inline-block align-[-2px]" />
-              )}
-              {s}
-              {/* What is behind the chip, so a filter can be chosen rather than
+            they read as controls rather than as the first row of the list.
+            On a phone the actions get a row of their own under a rule: left
+            to wrap, they landed alone on a third line under the chips. */}
+        <div className="mb-7 flex flex-col gap-2 rounded-xl border border-line bg-surface px-2.5 py-2 min-[800px]:flex-row min-[800px]:items-center">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(["all", ...present] as (FeedSource | "all")[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSource(s)}
+                aria-pressed={source === s}
+                className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
+                  source === s
+                    ? "border-accent/50 text-accent"
+                    : "border-line text-faint hover:border-line-strong"
+                }`}
+              >
+                {s !== "all" && (
+                  <SourceMark source={s} className="mr-1.5 inline-block align-[-2px]" />
+                )}
+                {s}
+                {/* What is behind the chip, so a filter can be chosen rather than
                   tried. Counted over what is live, which is what the list is
                   showing unless done is switched on. */}
-              <span className="ml-1.5 text-line-strong">
-                {s === "all" ? counted.length : counted.filter((i) => i.source === s).length}
-              </span>
-            </button>
-          ))}
-          <span className="ml-auto flex items-center gap-2">
+                <span className="ml-1.5 text-line-strong">
+                  {s === "all" ? counted.length : counted.filter((i) => i.source === s).length}
+                </span>
+              </button>
+            ))}
+          </div>
+          <span className="flex items-center gap-2 border-t border-line pt-2 min-[800px]:ml-auto min-[800px]:border-0 min-[800px]:pt-0">
             {unjudged > 0 && (
               <button
                 onClick={() => void judge()}
@@ -621,6 +629,7 @@ export default function Inbox() {
                           session={
                             i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined
                           }
+                          loopTitle={i.loop ? loopWhat.get(i.loop) : undefined}
                           onChange={refresh}
                           onActed={(ids, label) => setUndo({ ids, label })}
                         />

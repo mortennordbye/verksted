@@ -779,7 +779,10 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
     for (const d of v.dates) {
       const when = Date.parse(d.on);
       if (Number.isNaN(when) || when < now || when - now > LOOP_HORIZON_DAYS * 86_400_000) continue;
-      await loops.open({ what: `${d.what}: ${v.rel}`, due: d.on, from: `doc:${v.rel}` });
+      // The file's name, not its path: the path is in `from`, and a loop that
+      // read "start date: documents/Documents/Kontrakt/…" was mostly folders.
+      const file = v.rel.split("/").pop() ?? v.rel;
+      await loops.open({ what: `${d.what}: ${file}`, due: d.on, from: `doc:${v.rel}` });
     }
   }
   // A document the model said nothing about is filed as unread, so it is not

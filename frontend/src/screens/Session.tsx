@@ -8,14 +8,13 @@ import type {
   FileContent,
   GitFileStatus,
   GitStatus,
-  Memory,
   Session as SessionInfo,
   SessionFileDiff,
   Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
-import { Badge } from "../components/Tabs";
+import { Badge, useNeedsYou } from "../components/Tabs";
 import TopBar, { BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Terminal from "../components/Terminal";
@@ -32,6 +31,10 @@ import { fileIcon } from "../fileicons";
 import Icon from "../components/Icon";
 import { useConfirm } from "../useConfirm";
 import { useOverlayDismiss } from "../useDismissOnBack";
+// The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
+// down it is `dvh`, which needs none of this and cannot go stale — see the
+// shell below.
+import { useVisualViewport } from "../useVisualViewport";
 
 /** hljs language for a path, via its extension (aliases resolve: ts, py, yml…). */
 function langFor(path: string): string | null {
@@ -52,46 +55,6 @@ interface Viewed {
    * also what says whether this file can be edited.
    */
   etag?: string;
-}
-
-/**
- * Publishes the visual viewport as `--vvh` (height) and `--vvt` (offset from the
- * layout viewport top). iOS Safari keeps `100dvh` — and the layout viewport —
- * at full height when the on-screen keyboard opens, so a terminal sized in dvh
- * puts the agent prompt underneath the keys. The visual viewport is the only
- * height that reflects the keyboard; sizing the screen to it (and never letting
- * the document scroll) keeps the prompt above the keyboard, and shrinking the
- * terminal box refits xterm, which resizes tmux to match.
- *
- * The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
- * down it is `dvh`, which needs none of this and cannot go stale — see the
- * shell below.
- */
-function useVisualViewport() {
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const root = document.documentElement;
-    const apply = () => {
-      root.style.setProperty("--vvh", `${vv.height}px`);
-      root.style.setProperty("--vvt", `${vv.offsetTop}px`);
-      // The keyboard, as a boolean, for the `kbd` variant in theme.css. The
-      // layout viewport keeps its full height while the visual one shrinks, so
-      // the gap is the keyboard — 150px clears the browser's own toolbars,
-      // which are what account for the difference when no keyboard is up.
-      root.dataset.kbd = innerHeight - vv.height > 150 ? "1" : "";
-    };
-    apply();
-    vv.addEventListener("resize", apply);
-    vv.addEventListener("scroll", apply);
-    return () => {
-      vv.removeEventListener("resize", apply);
-      vv.removeEventListener("scroll", apply);
-      root.style.removeProperty("--vvh");
-      root.style.removeProperty("--vvt");
-      delete root.dataset.kbd;
-    };
-  }, []);
 }
 
 const SIDE_KEY = "vk.session.sideWidth";
@@ -239,8 +202,7 @@ export default function Session() {
   // phone — so the count has to reach the ⋯ that took the bar's place. The bar
   // keeps its own poll for every other screen; one extra GET every two minutes
   // on a desktop session is cheaper than a context for two call sites.
-  const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
-  const waiting = proposed?.proposals.length ?? 0;
+  const waiting = useNeedsYou();
   const [pane, setPane] = useState<"tree" | "term">(wantsSide === "changes" ? "tree" : "term");
   const [side, setSide] = useState<Side>(wantsSide === "changes" ? "changes" : "files");
   // Companion panes next to the agent terminal; on desktop all three can
