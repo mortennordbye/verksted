@@ -143,6 +143,19 @@ describe("POST /api/assistant/messages", () => {
     expect(config.mcpServers.verksted.args).toEqual(["/etc/verksted/verksted-mcp.mjs"]);
   });
 
+  it("gives the chair its own browser, booted through the backend before it connects", async () => {
+    await say("hello");
+
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__browser");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: Record<string, { args: string[] }>;
+    };
+    const browserArgs = config.mcpServers.browser.args.join(" ");
+    expect(browserArgs).toContain("/api/assistant/browser/start");
+    expect(browserArgs).toContain('--cdp-endpoint "$VK_BROWSER_CDP"');
+  });
+
   it("runs on the cheap settings, since the real work happens in the sessions it starts", async () => {
     await say("hello");
 

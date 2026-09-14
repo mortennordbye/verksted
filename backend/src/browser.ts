@@ -19,6 +19,14 @@ export function nextCdpPort(used: Set<number>): number {
   throw new Error("no free CDP ports");
 }
 
+/**
+ * The chair's own browser: one per pod, not a session's. Fixed id and port,
+ * outside the per-session pool above, so it never collides with one and needs
+ * no metadata to remember where it lives.
+ */
+export const ASSISTANT_BROWSER_ID = "assistant";
+export const ASSISTANT_CDP_PORT = CDP_PORT_MAX + 1;
+
 /** User-entered navigation targets: web only — file:// would read the pod filesystem. */
 export function validNavUrl(url: string): string | null {
   if (url.length > 2000) return null;

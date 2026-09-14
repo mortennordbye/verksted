@@ -139,6 +139,23 @@ describe("a meeting of one", () => {
     expect(fake.argvFor("claude").some((argv) => argv[1].startsWith("The council"))).toBe(false);
   });
 
+  it("gives no advisor the browser, not even the one whose whole remit is the web", async () => {
+    // Sophia already reads the web (WebFetch/WebSearch); the browser is a
+    // second, different way to act in it, and the chair's alone regardless of
+    // what an advisor's remit is.
+    fake.reply("claude", "-p", { stdout: run("convene: sophia") });
+    whenAsked("Sophia", "Found nothing relevant.");
+
+    await say("look this up for me");
+
+    const [argv] = callsFor("Sophia");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).not.toContain("mcp__browser");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(config.mcpServers.browser).toBeUndefined();
+  });
+
   it("still closes a meeting of two, which is where synthesis happens", async () => {
     fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });
     whenAsked("Michael", "The cluster is green.");

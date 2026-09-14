@@ -1012,7 +1012,7 @@ export default function Session() {
                     <div
                       className={`${active === "browser" ? "flex" : "hidden"} min-h-0 min-w-0 flex-1 desk:flex ${shell ? "desk:border-l desk:border-line" : ""}`}
                     >
-                      <BrowserPane sessionId={session.id} />
+                      <BrowserPane wsPath={`/api/sessions/${session.id}/browser`} />
                     </div>
                   )}
                 </div>

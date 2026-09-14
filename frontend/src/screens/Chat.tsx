@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AssistantThread, AssistantThreadSummary, CouncilMember } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import BrowserPane from "../components/BrowserPane";
 import Room from "../components/Room";
 import Sheet from "../components/Sheet";
 import Tabs from "../components/Tabs";
@@ -196,6 +197,11 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
   const [browsing, setBrowsing] = useState(false);
+  // Gabriel's own browser (chair-only, see assistant.ts's mcpConfig). Not
+  // remembered across reloads, the way the session screen's toggle isn't
+  // either: a hidden pane still streaming frames is the thing that switch
+  // exists to avoid.
+  const [showBrowser, setShowBrowser] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
@@ -499,6 +505,13 @@ export default function Chat() {
               </Toggle>
             )}
             <button
+              onClick={() => setShowBrowser((v) => !v)}
+              title="Gabriel's own browser"
+              className={`tap-hit ml-1 rounded-lg px-2.5 py-1 font-medium hover:bg-surface-2 hover:text-text ${showBrowser ? "bg-surface-2 text-text" : "bg-surface text-muted"}`}
+            >
+              {showBrowser ? "✕ browser" : "◫ browser"}
+            </button>
+            <button
               onClick={() => setBrowsing(true)}
               disabled={thinking}
               className="tap-hit ml-1 rounded-lg bg-surface px-2.5 py-1 font-medium text-muted hover:bg-surface-2 hover:text-text disabled:opacity-40"
@@ -766,6 +779,18 @@ export default function Chat() {
           onOpen={openThread}
           onClose={() => setBrowsing(false)}
         />
+      )}
+
+      {showBrowser && (
+        <Sheet
+          title="Gabriel's browser"
+          sub="Live — whatever it navigates to or clicks shows up here."
+          onClose={() => setShowBrowser(false)}
+        >
+          <div className="flex h-[60vh] min-h-[320px] flex-col overflow-hidden rounded-lg border border-line">
+            <BrowserPane wsPath="/api/assistant/browser" />
+          </div>
+        </Sheet>
       )}
     </div>
   );

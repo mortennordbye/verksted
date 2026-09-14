@@ -29,6 +29,7 @@ import intakeRoutes from "./routes/intake.js";
 import docsRoutes from "./routes/docs.js";
 import councilRoutes from "./routes/council.js";
 import attachRoutes from "./ws/attach.js";
+import assistantBrowserRoutes from "./ws/assistant-browser.js";
 import browserRoutes from "./ws/browser.js";
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
@@ -120,6 +121,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(councilRoutes);
   await app.register(attachRoutes);
   await app.register(browserRoutes);
+  await app.register(assistantBrowserRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));
 

@@ -3,7 +3,7 @@ import type { BrowserClientMsg, BrowserServerMsg } from "../../../shared/api.js"
 import * as browser from "../browser.js";
 import * as store from "../sessions-store.js";
 
-function clamp(n: unknown, min: number, max: number): number {
+export function clamp(n: unknown, min: number, max: number): number {
   const v = Number(n);
   return Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : min;
 }
@@ -93,7 +93,8 @@ export default async function browserRoutes(app: FastifyInstance) {
   );
 }
 
-async function handle(
+/** Shared with ws/assistant-browser.ts, which streams the chair's own browser the same way. */
+export async function handle(
   entry: browser.BrowserEntry,
   msg: BrowserClientMsg,
   reply: (m: BrowserServerMsg) => void,

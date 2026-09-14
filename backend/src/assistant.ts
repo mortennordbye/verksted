@@ -18,6 +18,7 @@ import {
 } from "./assistant-persona.js";
 import { consumeChunk, finishStream, newStreamState } from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
+import { ASSISTANT_CDP_PORT } from "./browser.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
 import * as journal from "./journal-store.js";
@@ -145,8 +146,25 @@ function mcpConfig(
   // too: the finance watch is a schedule Ariel answers, and the deny list on
   // the writes holds whether or not anyone is reading.
   const headroom = member === HEADROOM_MEMBER && headroomConfigured;
+  // The chair's own browser, never an advisor's and never unattended, for the
+  // same reason as headroom: a briefing reads the bench, and the bench is
+  // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
+  // through the backend, then hand playwright-mcp the CDP endpoint it booted.
+  const browser = member === null && !unattended;
   return {
     mcpServers: {
+      ...(browser
+        ? {
+            browser: {
+              command: "sh",
+              args: [
+                "-c",
+                `curl -sf -X POST http://127.0.0.1:${env.PORT}/api/assistant/browser/start >/dev/null 2>&1; ` +
+                  'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"',
+              ],
+            },
+          }
+        : {}),
       ...(headroom
         ? {
             headroom: {
@@ -870,7 +888,15 @@ async function turn(o: {
 
   const child = spawn("claude", args, {
     cwd: env.REPOS_DIR,
-    env: { ...process.env, ...(await agentEnv()) },
+    env: {
+      ...process.env,
+      ...(await agentEnv()),
+      // Matches the mcpConfig() browser entry, which only exists for the
+      // chair's attended turns — this is the endpoint its wrapper connects to.
+      ...(speaker.id === CHAIR_ID && !unattended
+        ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
+        : {}),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   o.onSpawn(child);
@@ -967,9 +993,19 @@ function policyFor(
 ): Pick<Speaker, "builtins" | "allowed" | "denied" | "tools"> {
   const web = member.web ? ["WebFetch", "WebSearch"] : [];
   const headroom = member.id === HEADROOM_MEMBER;
+  // The chair's alone: Sophia and Ariel already reach the web read-only
+  // (WebFetch/WebSearch above) for their own remit, and stay that way — asked
+  // for input, not given a second way to act on it.
+  const browser = member.chair ? ["mcp__browser"] : [];
   return {
     builtins: [...BUILTIN_READ, ...web],
-    allowed: [...BUILTIN_READ, ...web, "mcp__verksted", ...(headroom ? ["mcp__headroom"] : [])],
+    allowed: [
+      ...BUILTIN_READ,
+      ...web,
+      "mcp__verksted",
+      ...browser,
+      ...(headroom ? ["mcp__headroom"] : []),
+    ],
     // The chair keeps every tool, so it is offered the server unfiltered; an
     // advisor is offered exactly what its file names.
     tools: member.chair ? null : member.tools,
