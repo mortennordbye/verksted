@@ -291,25 +291,75 @@ async function apply(seen: Seen[], over: string[] = [], why = "over"): Promise<n
 }
 
 /**
- * A routine run that a later run has replaced.
+ * A run that a later run of the same schedule has replaced.
  *
- * Every firing files an item, and a quiet one is a routine ok: worth a row on
- * the morning it happened, and history the moment the schedule fires again.
- * Nothing used to end them, so nine days of nightly renders and tidy-ups sat
- * in the inbox as new, and the six the screen shows were the six least worth
- * reading. Only the quiet ones: a run that needed someone keeps its row until
- * someone deals with it, however many have run since.
+ * Every firing files an item, and the newest one is the schedule's current
+ * word. Loud ones included, which they used to be spared: a problem still there
+ * is reported again by the next run, and one that was fixed kept a week of rows
+ * saying it was broken. Twenty of those were most of a "needs you" of 37, each
+ * morning briefing repeating the last. Newest across done items too, so a
+ * person finishing the latest row does not hand "newest" back to an older one.
  */
 async function supersededRuns(): Promise<string[]> {
   const newest = new Map<string, string>();
-  const items = (await feed.list()).filter((i) => i.source === "schedule" && i.state !== "done");
+  const items = (await feed.list()).filter((i) => i.source === "schedule");
   for (const i of items) {
     // `schedule:<id>:<at>`, and the schedule id has no colons.
     const id = i.id.split(":")[1];
     if (!newest.has(id) || i.at > (newest.get(id) as string)) newest.set(id, i.at);
   }
   return items
-    .filter((i) => i.urgency === "quiet" && i.at !== newest.get(i.id.split(":")[1]))
+    .filter((i) => i.state !== "done" && i.at !== newest.get(i.id.split(":")[1]))
+    .map((i) => i.id);
+}
+
+/**
+ * The same GitHub notification, sent again.
+ *
+ * A workflow failing twice on one branch is two notifications with one subject
+ * and one link, and the second says nothing the first did not. The newest
+ * stays; the rest are over. The poller's own error row and the maintainer's
+ * queue are not notifications.
+ */
+export function repeatedFailures(items: FeedItem[]): string[] {
+  const open = items.filter(
+    (i) =>
+      i.source === "github" &&
+      i.state !== "done" &&
+      i.id !== "github:poller" &&
+      !i.id.startsWith("github:queue:"),
+  );
+  const key = (i: FeedItem) => `${i.title}\n${i.link ?? ""}`;
+  const newest = new Map<string, FeedItem>();
+  for (const i of open) {
+    const kept = newest.get(key(i));
+    if (!kept || i.at > kept.at) newest.set(key(i), i);
+  }
+  return open.filter((i) => newest.get(key(i)) !== i).map((i) => i.id);
+}
+
+/** How long a mail keeps shouting when nothing it belongs to is open. */
+export const MAIL_URGENT_DAYS = 3;
+
+/**
+ * Mail that has been urgent for days without anything coming of it.
+ *
+ * A security alert or a confirm-your-address is urgent the morning it lands
+ * and noise by the weekend, and nothing else ever took one off "needs you".
+ * It fades rather than ends: still in the inbox as new, so an exam reminder or
+ * a password warning is there to find, just not shouting. One triage tied to a
+ * loop keeps shouting, since the loop says something is still open about it.
+ */
+export function fadedMail(items: FeedItem[], now = Date.now()): string[] {
+  return items
+    .filter(
+      (i) =>
+        i.source === "mail" &&
+        i.state !== "done" &&
+        i.urgency === "attention" &&
+        !i.loop &&
+        now - Date.parse(i.at) >= MAIL_URGENT_DAYS * 86_400_000,
+    )
     .map((i) => i.id);
 }
 
@@ -325,6 +375,14 @@ export async function pollBench(): Promise<number> {
   ]);
   const { seen, over } = sessionItems(sessions);
   let changed = await apply(seen, over, "answered");
+  // A deleted session is not in the list at all, so sessionItems never sees it
+  // end, and its row stayed on "needs you" for a session that was gone.
+  const known = new Set(sessions.map((s) => `bench:wait:${s.id}`));
+  for (const i of await feed.list()) {
+    if (i.id.startsWith("bench:wait:") && i.state !== "done" && !known.has(i.id)) {
+      await feed.resolve(i.id, "session gone");
+    }
+  }
   changed += await apply(runItems(runs));
   // After filing, not before: the run that supersedes the others is the one
   // this pass has just put on the feed.
@@ -335,6 +393,13 @@ export async function pollBench(): Promise<number> {
     .filter((i) => i.source === "memory" && i.state !== "done" && !open.has(i.id))
     .map((i) => i.id);
   changed += await apply(proposalItems(proposals), gone, "reviewed");
+  // Every source's items live on this volume, so tidying them costs a read and
+  // belongs here, on every open of the feed, not behind a remote poller's timer.
+  const items = await feed.list();
+  for (const id of repeatedFailures(items)) await feed.resolve(id, "sent again");
+  for (const id of fadedMail(items)) {
+    await feed.fade(id, `no longer urgent after ${MAIL_URGENT_DAYS} days`);
+  }
   await closeSettledLoops();
   return changed;
 }

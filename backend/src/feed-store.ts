@@ -231,6 +231,20 @@ export async function resolve(id: string, what: string): Promise<void> {
 }
 
 /**
+ * Still here, no longer shouting: attention becomes new, and the row says why.
+ *
+ * For what time alone has settled. Resolving would claim something happened
+ * to it, and the person may still want to find it in the inbox.
+ */
+export async function fade(id: string, why: string): Promise<void> {
+  const item = await get(id);
+  if (!item || item.state === "done" || item.urgency !== "attention") return;
+  item.urgency = "new";
+  item.did = item.did ? `${item.did}; ${why}` : why;
+  await write(item);
+}
+
+/**
  * Delete an item outright, leaving no row and no title behind.
  *
  * The one thing resolve() cannot do: a blocked owner's item must not survive
