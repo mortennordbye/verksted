@@ -5,6 +5,7 @@ import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
 import type { IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import { uncite } from "../components/chat/cite";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import SourceMark from "../components/SourceMark";
@@ -216,8 +217,12 @@ function Row({
             <span className="font-medium">{item.title}</span>
           </span>
           {item.detail && item.source !== "proposal" && !saysTheSame(item) && (
+            /* A scheduled run is asked to cite what it read, and this row is one
+               truncated line with nowhere to put a chip: the brackets came out
+               here rather than being read as "open square bracket session". The
+               row already links to the thing they point at. */
             <span className={`block text-[12.5px] text-muted ${open ? "" : "truncate"}`}>
-              {item.detail}
+              {uncite(item.detail)}
             </span>
           )}
           {item.facts.length > 0 && (
