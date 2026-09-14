@@ -89,7 +89,7 @@ function CrumbLabel({ crumb, first }: { crumb: Crumb; first: boolean }) {
   const className = `overflow-hidden text-ellipsis whitespace-nowrap ${
     first
       ? "text-[16.5px] font-semibold tracking-[-.02em] text-text"
-      : "font-mono text-[14px] font-normal text-muted"
+      : "text-[14px] font-normal text-muted"
   }`;
   if (!crumb.to) return <b className={className}>{crumb.label}</b>;
   return (

@@ -36,15 +36,13 @@ export default function ActionsPanel({ project }: { project: string }) {
         Workflow runs
       </div>
 
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
 
       <div className="flex flex-col gap-2.5">
         {runs?.map((run) => (
           <RunRow key={run.id} run={run} onClick={() => setOpen(run.id)} />
         ))}
-        {runs?.length === 0 && (
-          <div className="font-mono text-[12.5px] text-faint">no workflow runs</div>
-        )}
+        {runs?.length === 0 && <div className="text-[13px] text-faint">no workflow runs</div>}
         {!runs && !error && (
           <SkeletonList
             count={3}
@@ -160,7 +158,7 @@ function RunSheet({
         }
         onClose={() => !busy && onClose()}
       >
-        {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
+        {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
 
         <div className="mb-3 flex flex-wrap gap-2">
           {failed && (
@@ -171,7 +169,7 @@ function RunSheet({
                 )
               }
               disabled={busy}
-              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               {busy ? "working…" : "◫ failed logs"}
             </button>
@@ -180,7 +178,7 @@ function RunSheet({
             <button
               onClick={cancel}
               disabled={busy}
-              className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               ✕ cancel
             </button>
@@ -189,7 +187,7 @@ function RunSheet({
               <button
                 onClick={() => act(() => post("rerun"))}
                 disabled={busy}
-                className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
               >
                 ⟲ re-run all
               </button>
@@ -197,7 +195,7 @@ function RunSheet({
                 <button
                   onClick={() => act(() => post("rerun", { failed: true }))}
                   disabled={busy}
-                  className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                  className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
                 >
                   ⟲ failed only
                 </button>

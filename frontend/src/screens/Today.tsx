@@ -282,12 +282,12 @@ function Composer({ name }: { name: string }) {
           }}
         >
           {busy && (
-            <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
+            <div className="flex items-center gap-2 text-[12.5px] text-muted">
               <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
               working…
             </div>
           )}
-          {error && <div className="font-mono text-[12px] text-fail">{error}</div>}
+          {error && <div className="text-[12.5px] text-fail">{error}</div>}
           {reply && (
             <div className="text-[14px]">
               <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
@@ -296,7 +296,7 @@ function Composer({ name }: { name: string }) {
             </div>
           )}
           <div className="mt-4 flex justify-end">
-            <Link to="/ai" className="font-mono text-[12px] text-accent hover:underline">
+            <Link to="/ai" className="text-[12.5px] text-accent hover:underline">
               open the thread →
             </Link>
           </div>
@@ -408,14 +408,14 @@ export default function Today() {
               ) : (
                 "Nothing needs you."
               )}
-              {error && <div className="mt-1 font-mono text-[12px] text-fail">{error}</div>}
+              {error && <div className="mt-1 text-[12.5px] text-fail">{error}</div>}
             </>
           }
           actions={
             acked ? (
               <span
                 title="acknowledged today: opening verksted goes to the bench until tomorrow"
-                className="flex flex-none items-center gap-1.5 rounded-lg px-2.5 py-1.5 font-mono text-[12px] text-faint"
+                className="flex flex-none items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] text-faint"
               >
                 <Icon name="check" size={14} />
                 seen today
@@ -508,7 +508,7 @@ export default function Today() {
                             href={e.url}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex-none font-mono text-[11px] text-accent hover:underline"
+                            className="flex-none text-[11.5px] text-accent hover:underline"
                           >
                             join ↗
                           </a>
@@ -577,7 +577,7 @@ export default function Today() {
                     );
                   })}
                   {open.length > 6 && (
-                    <Link to="/runs" className="font-mono text-[11px] text-faint hover:text-accent">
+                    <Link to="/runs" className="text-[11.5px] text-faint hover:text-accent">
                       and {open.length - 6} more →
                     </Link>
                   )}
@@ -601,7 +601,7 @@ export default function Today() {
               <h2 className="mb-3 flex items-baseline gap-2 text-[16px] font-semibold tracking-[-.02em]">
                 The brief
                 {brief && (
-                  <span className="font-mono text-[11px] font-normal tracking-normal text-faint">
+                  <span className="text-[11.5px] font-normal tracking-normal text-faint">
                     from {name}
                   </span>
                 )}
@@ -756,7 +756,7 @@ export default function Today() {
                     </>
                   );
                   const className =
-                    "flex items-center gap-2 px-1 py-0.5 font-mono text-[12px] text-muted hover:text-text";
+                    "flex items-center gap-2 px-1 py-0.5 text-[12.5px] text-muted hover:text-text";
                   const title = !on
                     ? "not set up: tap to add it"
                     : outside

@@ -46,7 +46,7 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
       <Link to={`/s/${session.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <StatusDot running={live} />
         <div className="min-w-0 flex-1">
-          <div className="overflow-hidden font-mono text-[13.5px] text-ellipsis whitespace-nowrap">
+          <div className="overflow-hidden text-[13.5px] text-ellipsis whitespace-nowrap">
             {session.title}
           </div>
           <div className="mt-0.5 flex items-center gap-2.5 text-[12px] text-faint">
@@ -267,7 +267,7 @@ export default function Project() {
           }
         />
 
-        {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+        {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
 
         {/* An unselected panel is unmounted, so its poll does not run.
             Scrolls sideways like the settings strip: with their icons the four
@@ -282,7 +282,7 @@ export default function Project() {
               key={t}
               aria-pressed={tab === t}
               onClick={() => setTab(t)}
-              className={`flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
+              className={`flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
                 tab === t
                   ? "border-accent bg-surface-2 text-text"
                   : "border-line bg-surface text-muted hover:text-text"
@@ -315,7 +315,7 @@ export default function Project() {
                     />
                   ))
                 ) : (
-                  <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
+                  <div className="text-[13px] text-faint">no active sessions</div>
                 ))}
             </div>
 
@@ -341,7 +341,7 @@ export default function Project() {
         <div className="mt-10 border-t border-line pt-4">
           <button
             onClick={() => setConfirmingDelete(true)}
-            className="flex items-center gap-1.5 font-mono text-[12px] text-faint hover:text-wait"
+            className="flex items-center gap-1.5 text-[12.5px] text-faint hover:text-wait"
           >
             <Icon name="trash" size={13} />
             delete project…
@@ -365,7 +365,7 @@ export default function Project() {
               >
                 <span className={`h-3 w-3 flex-none rounded-[3px] ${o.swatch}`} />
                 <span>
-                  <span className="font-mono text-[14px] font-semibold">{o.agent}</span>
+                  <span className="text-[14px] font-semibold">{o.agent}</span>
                   <br />
                   <span className="text-[12px] text-muted">{o.desc}</span>
                 </span>
@@ -375,7 +375,7 @@ export default function Project() {
               </button>
             ))}
           </div>
-          <label className="mt-3 flex items-center gap-2.5 font-mono text-[12px] text-muted">
+          <label className="mt-3 flex items-center gap-2.5 text-[12.5px] text-muted">
             <input
               type="checkbox"
               checked={resume}
@@ -404,7 +404,7 @@ export default function Project() {
           <button
             onClick={newWorktree}
             disabled={branchBusy || !branch.trim()}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {branchBusy ? "working…" : "create worktree"}
           </button>

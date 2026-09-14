@@ -50,26 +50,26 @@ export default function PrPanel({
         </div>
         <button
           onClick={() => setAll(!all)}
-          className="ml-auto rounded-md border border-line px-2 py-0.5 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+          className="ml-auto rounded-md border border-line px-2 py-0.5 text-[11.5px] text-muted hover:border-faint hover:text-text"
         >
           {all ? "open only" : "show closed"}
         </button>
         <button
           onClick={() => setCreating(true)}
-          className="rounded-md border border-line px-2 py-0.5 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+          className="rounded-md border border-line px-2 py-0.5 text-[11.5px] text-muted hover:border-faint hover:text-text"
         >
           ＋ new pr
         </button>
       </div>
 
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
 
       <div className="flex flex-col gap-2.5">
         {prs?.map((pr) => (
           <PrRow key={pr.number} pr={pr} onClick={() => setOpen(pr.number)} />
         ))}
         {prs?.length === 0 && (
-          <div className="font-mono text-[12.5px] text-faint">
+          <div className="text-[13px] text-faint">
             {all ? "no pull requests" : "no open pull requests"}
           </div>
         )}
@@ -209,15 +209,15 @@ function PrSheet({
         }
         onClose={() => !busy && onClose()}
       >
-        {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
-        {note && <div className="mb-2.5 font-mono text-[12px] text-wait">{note}</div>}
+        {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
+        {note && <div className="mb-2.5 text-[12.5px] text-wait">{note}</div>}
 
         <div className="mb-3 flex flex-wrap gap-2">
           <button
             onClick={merge}
             disabled={busy || !open}
             title={open ? "squash and delete the branch" : `already ${pr?.state.toLowerCase()}`}
-            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "working…" : open ? "⑃ squash merge" : (pr?.state.toLowerCase() ?? "…")}
           </button>
@@ -225,7 +225,7 @@ function PrSheet({
             onClick={() => run(() => post<{ branch: string }>("checkout"))}
             disabled={busy}
             title="check this branch out in the project"
-            className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+            className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
           >
             ⇄ checkout
           </button>
@@ -236,7 +236,7 @@ function PrSheet({
               )
             }
             disabled={busy}
-            className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+            className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
           >
             ◫ diff
           </button>
@@ -254,7 +254,7 @@ function PrSheet({
 
         <div className="max-h-[46vh] overflow-auto">
           {pr?.body && (
-            <div className="mb-3 rounded-[11px] border border-line bg-surface-2 px-3 py-2.5 font-mono text-[12.5px] whitespace-pre-wrap text-muted">
+            <div className="mb-3 rounded-[11px] border border-line bg-surface-2 px-3 py-2.5 text-[13px] whitespace-pre-wrap text-muted">
               {pr.body}
             </div>
           )}
@@ -270,11 +270,7 @@ function PrSheet({
                 )}{" "}
                 · {agoLabel(c.createdAt)}
               </div>
-              {c.body && (
-                <div className="font-mono text-[12.5px] whitespace-pre-wrap text-muted">
-                  {c.body}
-                </div>
-              )}
+              {c.body && <div className="text-[13px] whitespace-pre-wrap text-muted">{c.body}</div>}
             </div>
           ))}
           {pr && pr.files.length > 0 && (
@@ -342,22 +338,22 @@ function CreatePrSheet({
       sub="Pushes the current branch to origin and opens a PR against the default branch. The tree has to be clean — commit first."
       onClose={() => !busy && onClose()}
     >
-      {error && <div className="mb-2.5 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
       <input
         ref={focusIfPointerFine}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="title"
-        className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[14px] outline-none placeholder:text-faint focus:border-accent"
+        className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[14px] outline-none placeholder:text-faint focus:border-accent"
       />
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="description (optional)"
         rows={5}
-        className="mt-2 w-full resize-y rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[13px] outline-none placeholder:text-faint focus:border-accent"
+        className="mt-2 w-full resize-y rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[13.5px] outline-none placeholder:text-faint focus:border-accent"
       />
-      <label className="mt-3 flex items-center gap-2.5 font-mono text-[12px] text-muted">
+      <label className="mt-3 flex items-center gap-2.5 text-[12.5px] text-muted">
         <input
           type="checkbox"
           checked={draft}
@@ -369,7 +365,7 @@ function CreatePrSheet({
       <button
         onClick={create}
         disabled={busy || !title.trim()}
-        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
       >
         {busy ? "pushing…" : "push and open pr"}
       </button>

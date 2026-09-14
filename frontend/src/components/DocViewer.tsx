@@ -96,7 +96,7 @@ function CsvTable({ text, find }: { text: string; find: string }) {
         </tbody>
       </table>
       {truncated && (
-        <div className="mt-2 font-mono text-[11px] text-faint">
+        <div className="mt-2 text-[11.5px] text-faint">
           first {body.length} rows — the rest is in the file
         </div>
       )}
@@ -220,7 +220,7 @@ export default function DocViewer({
               onKeyDown={(e) => e.key === "Enter" && jump()}
               placeholder="find in this document"
               aria-label="find in this document"
-              className="min-w-0 flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+              className="min-w-0 flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
             />
             {find.trim() !== "" && (
               <>
@@ -230,7 +230,7 @@ export default function DocViewer({
                 <button
                   onClick={jump}
                   disabled={hits === 0}
-                  className="tap flex-none rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[11px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
+                  className="tap flex-none rounded-[7px] border border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
                 >
                   next ↓
                 </button>
@@ -256,9 +256,7 @@ export default function DocViewer({
           {view === "pdf" && (
             <iframe src={rawUrl(path)} title={path} className="h-full w-full border-0" />
           )}
-          {view === "text" && failed && (
-            <div className="p-4 font-mono text-[12.5px] text-wait">{failed}</div>
-          )}
+          {view === "text" && failed && <div className="p-4 text-[13px] text-wait">{failed}</div>}
           {view === "text" && !failed && text === null && (
             <SkeletonLines count={8} className="p-4" />
           )}

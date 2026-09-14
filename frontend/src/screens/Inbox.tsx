@@ -221,7 +221,7 @@ function Row({
   });
 
   const button =
-    "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
+    "tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
 
   return (
     <div
@@ -321,12 +321,12 @@ function Row({
               href={item.link}
               target="_blank"
               rel="noreferrer"
-              className="font-mono text-[12px] text-accent hover:underline"
+              className="text-[12.5px] text-accent hover:underline"
             >
               open ↗
             </a>
           ) : (
-            <Link to={item.link} className="font-mono text-[12px] text-accent hover:underline">
+            <Link to={item.link} className="text-[12.5px] text-accent hover:underline">
               open →
             </Link>
           ))}
@@ -336,7 +336,7 @@ function Row({
               <button
                 onClick={() => void review(true)}
                 disabled={busy}
-                className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
               >
                 keep
               </button>
@@ -583,7 +583,7 @@ export default function Inbox() {
                         refresh(),
                       )
                     }
-                    className="tap rounded-[7px] border border-line px-2 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+                    className="tap rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
                   >
                     close
                   </button>
@@ -604,7 +604,7 @@ export default function Inbox() {
                 key={s}
                 onClick={() => setSource(s)}
                 aria-pressed={source === s}
-                className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
+                className={`tap rounded-full border px-2.5 py-1 text-[11.5px] ${
                   source === s
                     ? "border-accent/50 text-accent"
                     : "border-line text-faint hover:border-line-strong"
@@ -628,7 +628,7 @@ export default function Inbox() {
               <button
                 onClick={() => void judge()}
                 disabled={judging}
-                className="tap rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                className="tap rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
                 title="ask the assistant to sort what has not been sorted yet"
               >
                 {judging ? "sorting…" : `sort ${unjudged} new`}
@@ -638,7 +638,7 @@ export default function Inbox() {
               <button
                 onClick={() => void clearShown(clearable)}
                 disabled={clearing}
-                className="tap rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                className="tap rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
                 title="mark everything on this list done"
               >
                 {clearing ? "clearing…" : `clear ${clearable.length}`}
@@ -647,7 +647,7 @@ export default function Inbox() {
             <button
               onClick={() => setShowDone((d) => !d)}
               aria-pressed={showDone}
-              className={`tap rounded-[7px] border px-2.5 py-1 font-mono text-[11px] ${
+              className={`tap rounded-[7px] border px-2.5 py-1 text-[11.5px] ${
                 showDone ? "border-accent/50 text-accent" : "border-line text-faint"
               }`}
             >
@@ -666,7 +666,7 @@ export default function Inbox() {
             <span className="min-w-0 flex-1 text-muted">{undo.label}</span>
             <button
               onClick={() => void undoLast()}
-              className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11.5px] text-muted hover:border-faint hover:text-text"
+              className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 text-[12px] text-muted hover:border-faint hover:text-text"
             >
               undo
             </button>
@@ -687,7 +687,7 @@ export default function Inbox() {
                     <button
                       onClick={() => setShowQuiet((q) => !q)}
                       aria-expanded={showQuiet}
-                      className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+                      className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
                     >
                       {showQuiet ? "hide" : "show"}
                     </button>
@@ -734,7 +734,7 @@ export default function Inbox() {
           </div>
         )}
         {items !== null && shown.length === 0 && (
-          <div className="font-mono text-[12.5px] text-faint">
+          <div className="text-[13px] text-faint">
             nothing here — schedules, GitHub and the agents all land in this list
           </div>
         )}

@@ -67,11 +67,11 @@ export default function Docs() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="search the text of every document…"
-          className="mb-5 w-full rounded-[9px] border border-line bg-surface-2 px-3 py-2 font-mono text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
+          className="mb-5 w-full rounded-[9px] border border-line bg-surface-2 px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-accent"
         />
 
         {error && (
-          <div className="mb-4 font-mono text-[12px] text-wait">
+          <div className="mb-4 text-[12.5px] text-wait">
             {/* 503 is the honest case: no share is mounted at DOCS_DIR. */}
             {error}
           </div>

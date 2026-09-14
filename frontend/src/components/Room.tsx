@@ -209,7 +209,7 @@ export default function Room({
     <div className="flex flex-col gap-3">
       {thread.entries.length === 0 && (
         <div className="mt-8 text-center">
-          <div className="font-mono text-[13px] text-muted">nothing said yet</div>
+          <div className="text-[13.5px] text-muted">nothing said yet</div>
           <p className="mx-auto mt-2 max-w-[42ch] text-[14px] text-faint">
             Ask what needs you, or tell it something to remember. It reads your projects, sessions,
             runs and the cluster, and brings in a specialist when a question is theirs.
@@ -254,7 +254,7 @@ export default function Room({
 
       {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
       {thinking && !thread.live && (
-        <div className="flex items-center gap-2 font-mono text-[12px] text-muted">
+        <div className="flex items-center gap-2 text-[12.5px] text-muted">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
           thinking…
         </div>

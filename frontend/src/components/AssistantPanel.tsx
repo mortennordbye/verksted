@@ -45,11 +45,11 @@ function CanDo() {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left text-[13.5px] font-medium hover:text-text"
+        className="tap flex w-full items-center gap-2 text-left text-[13.5px] font-medium hover:text-text"
       >
         <span className="font-mono text-[11px] text-faint">{open ? "▾" : "▸"}</span>
         What it can do
-        <span className="ml-auto font-mono text-[11px] text-faint">
+        <span className="ml-auto text-[11.5px] text-faint">
           read the bench, the repos, the cluster and the web; act through these
         </span>
       </button>
@@ -177,7 +177,7 @@ export default function AssistantPanel() {
   }
 
   const field =
-    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
 
   return (
     <section className="mt-8">
@@ -250,7 +250,7 @@ export default function AssistantPanel() {
                 </option>
               ))}
             </select>
-            <span className="font-mono text-[11px] text-faint">
+            <span className="text-[11.5px] text-faint">
               {sampling ? "speaking…" : "spoken on the pod · picking one plays a sample"}
             </span>
           </div>
@@ -272,7 +272,7 @@ export default function AssistantPanel() {
                   </option>
                 ))}
               </select>
-              <span className="font-mono text-[11px] text-faint">
+              <span className="text-[11.5px] text-faint">
                 this pod has no voice of its own, so the browser reads replies
               </span>
             </div>
@@ -283,13 +283,13 @@ export default function AssistantPanel() {
           <button
             onClick={() => void save()}
             disabled={!draft}
-            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             save
           </button>
-          {saved && <span className="font-mono text-[11px] text-run">saved</span>}
-          {error && <span className="font-mono text-[11px] text-fail">{error}</span>}
-          <span className="ml-auto font-mono text-[11px] text-faint">
+          {saved && <span className="text-[11.5px] text-run">saved</span>}
+          {error && <span className="text-[11.5px] text-fail">{error}</span>}
+          <span className="ml-auto text-[11.5px] text-faint">
             a bigger model follows instructions more closely and costs more
           </span>
         </div>

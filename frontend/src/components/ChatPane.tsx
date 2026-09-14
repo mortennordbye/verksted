@@ -217,7 +217,7 @@ function Turn({
  */
 function Activity({ busy, doing }: { busy: boolean; doing: string | null }) {
   return (
-    <div className="flex flex-none items-center gap-2 border-t border-line px-3.5 py-1.5 font-mono text-[11px]">
+    <div className="flex flex-none items-center gap-2 border-t border-line px-3.5 py-1.5 text-[11.5px]">
       <span
         className={`h-1.5 w-1.5 flex-none rounded-full ${busy ? "animate-pulse bg-run" : "bg-idle"}`}
       />
@@ -546,7 +546,7 @@ export default function ChatPane({ session }: { session: Session }) {
         {truncated && (
           <button
             onClick={() => setBytes((b) => Math.min(b * 4, MAX_WINDOW))}
-            className="mx-auto flex-none rounded-full border border-line px-3 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+            className="mx-auto flex-none rounded-full border border-line px-3 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
           >
             load earlier
           </button>
@@ -563,7 +563,7 @@ export default function ChatPane({ session }: { session: Session }) {
         )}
 
         {!loading && messages.length === 0 && (
-          <div className="m-auto max-w-[36ch] text-center font-mono text-[12px] text-faint">
+          <div className="m-auto max-w-[36ch] text-center text-[12.5px] text-faint">
             {session.agent === "claude"
               ? "nothing said yet"
               : `${session.agent} keeps no transcript — use the terminal`}
@@ -614,7 +614,7 @@ export default function ChatPane({ session }: { session: Session }) {
       {live && !prompt && session.status !== "waiting" && <Activity busy={busy} doing={doing} />}
 
       {error && (
-        <div className="flex-none border-t border-line px-3.5 py-1.5 font-mono text-[12px] text-fail">
+        <div className="flex-none border-t border-line px-3.5 py-1.5 text-[12.5px] text-fail">
           {error}
         </div>
       )}
@@ -640,7 +640,7 @@ export default function ChatPane({ session }: { session: Session }) {
             disabled={attaching}
             aria-label="attach an image"
             title="upload an image for it to read"
-            className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
+            className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
           >
             {attaching ? "…" : "img"}
           </button>

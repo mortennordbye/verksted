@@ -28,7 +28,7 @@ export default function AskCard({ ask }: { ask: ChatAsk }) {
                 {q.header}
               </span>
             )}
-            {q.multiSelect && <span className="font-mono text-[10px] text-faint">pick any</span>}
+            {q.multiSelect && <span className="text-[10.5px] text-faint">pick any</span>}
           </div>
           <p className="text-[14px] font-medium text-text">{q.question}</p>
 

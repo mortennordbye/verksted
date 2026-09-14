@@ -48,13 +48,13 @@ export default class ErrorBoundary extends Component<Props, State> {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => this.setState({ error: null })}
-            className="rounded-[7px] border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:text-text"
+            className="rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted hover:text-text"
           >
             try again
           </button>
           <a
             href="/"
-            className="rounded-[7px] bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+            className="rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
           >
             back to the hub
           </a>

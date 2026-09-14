@@ -38,8 +38,11 @@ const CRON_PRESETS = [
 
 const field =
   "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
+// The same box for what is typed as words: a name, a prompt, a choice between named things.
+const proseField =
+  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
 const ghost =
-  "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
+  "tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
 
 /**
  * A cron pattern, and what it would actually do.
@@ -328,15 +331,15 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           </button>
         )}
       </div>
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
-      {note && <div className="mb-3 font-mono text-[12px] text-muted">{note}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {note && <div className="mb-3 text-[12.5px] text-muted">{note}</div>}
       {/* The starters, until each exists. A bench without a morning briefing
           has no front page, and the button is the whole of setting one up. */}
       {!project &&
         schedules &&
         STARTERS.some((st) => !schedules.some((s) => s.name === st.name)) && (
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="font-mono text-[11px] text-faint">start with:</span>
+            <span className="text-[11.5px] text-faint">start with:</span>
             {STARTERS.filter((st) => !schedules.some((s) => s.name === st.name)).map((st) => (
               <button
                 key={st.name}
@@ -374,9 +377,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         {(schedules ?? []).map((s) => (
           <div key={s.id} className="rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
             <div className="flex flex-wrap items-center gap-2.5">
-              <span className="font-mono text-[12.5px]">{s.name}</span>
+              <span className="text-[13px]">{s.name}</span>
               {!project && (
-                <span className="font-mono text-[11px] text-faint">
+                <span className="text-[11.5px] text-faint">
                   {s.kind === "assistant"
                     ? (council?.find((m) => m.id === (s.member || "chair"))?.name ??
                       "the assistant")
@@ -404,7 +407,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 <button
                   onClick={() => remove(s)}
                   disabled={busy}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
                 >
                   delete
                 </button>
@@ -433,7 +436,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                     onChange={(cron) => setEdit((d) => ({ ...d, cron }))}
                     width="w-[200px]"
                   />
-                  <label className="font-mono text-[11px] text-faint">
+                  <label className="text-[11.5px] text-faint">
                     jitter
                     <input
                       type="number"
@@ -453,12 +456,12 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   onChange={(e) => setEdit((d) => ({ ...d, prompt: e.target.value }))}
                   rows={3}
                   aria-label="prompt"
-                  className={`w-full resize-y ${field}`}
+                  className={`w-full resize-y ${proseField}`}
                 />
                 <button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
                   disabled={busy || !edit.cron.trim() || (!edit.prompt.trim() && !s.stage)}
-                  className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                  className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   save
                 </button>
@@ -469,7 +472,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           </div>
         ))}
         {schedules?.length === 0 && (
-          <div className="font-mono text-[12.5px] text-faint">
+          <div className="text-[13px] text-faint">
             {project ? `no schedules in ~/${project}` : "no schedules"}
           </div>
         )}
@@ -481,7 +484,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
               placeholder="what it does"
               aria-label="schedule name"
-              className={`w-[200px] ${field}`}
+              className={`w-[200px] ${proseField}`}
             />
             {!project && (
               <select
@@ -502,7 +505,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   )
                 }
                 aria-label="who runs it"
-                className={field}
+                className={proseField}
               >
                 {/* One control, because "which repo" and "which of the council
                     instead of a repo" are the same question asked once. */}
@@ -530,7 +533,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   setDraft((d) => ({ ...d, stage: e.target.value as "" | MaintainerStage }))
                 }
                 aria-label="stage"
-                className={field}
+                className={proseField}
               >
                 <option value="">own prompt</option>
                 <option value="scout">maintainer: scout</option>
@@ -539,7 +542,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               </select>
             )}
             {assistantDraft && !draft.member && (
-              <label className="flex items-center gap-1.5 font-mono text-[11px] text-faint">
+              <label className="flex items-center gap-1.5 text-[11.5px] text-faint">
                 <input
                   type="checkbox"
                   checked={draft.convenes}
@@ -548,7 +551,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 may ask the council
               </label>
             )}
-            <label className="font-mono text-[11px] text-faint">
+            <label className="text-[11.5px] text-faint">
               jitter
               <input
                 type="number"
@@ -573,7 +576,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             }
             rows={3}
             aria-label="prompt"
-            className={`w-full resize-y ${field}`}
+            className={`w-full resize-y ${proseField}`}
           />
           <button
             onClick={add}
@@ -583,7 +586,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               (!draft.prompt.trim() && !(draft.stage && !assistantDraft)) ||
               (!project && !assistantDraft && !projects?.length)
             }
-            className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             add schedule
           </button>

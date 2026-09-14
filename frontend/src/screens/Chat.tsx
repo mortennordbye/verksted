@@ -183,7 +183,7 @@ function Threads({
           <Icon name="compose" size={15} />
           new thread
         </button>
-        {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
+        {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
         {threads === null && !error && (
           <div className="flex flex-col gap-1.5">
             {[0, 1, 2].map((i) => (
@@ -236,7 +236,7 @@ function Threads({
           <button
             type="button"
             onClick={() => void clearOld()}
-            className="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 font-mono text-[12.5px] text-muted hover:border-fail/50 hover:text-fail"
+            className="tap mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-line px-3 py-2 text-[13px] text-muted hover:border-fail/50 hover:text-fail"
           >
             <Icon name="trash" size={14} />
             clear old threads ({others.length})
@@ -440,7 +440,7 @@ function Month({ refresh }: { refresh: number }) {
           ›
         </button>
       </div>
-      {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
+      {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
         {days.slice(0, 7).map((d) => (
@@ -517,7 +517,7 @@ function Month({ refresh }: { refresh: number }) {
                   href={e.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex-none font-mono text-[11px] text-accent hover:underline"
+                  className="flex-none text-[11.5px] text-accent hover:underline"
                 >
                   open ↗
                 </a>
@@ -561,7 +561,7 @@ function People({ members, onAsk }: { members: CouncilMember[]; onAsk: (id: stri
               <span className="font-mono text-[11px] text-faint">
                 {m.chair ? "chair" : `@${m.id}`}
               </span>
-              {!m.enabled && <span className="font-mono text-[11px] text-faint">off</span>}
+              {!m.enabled && <span className="text-[11.5px] text-faint">off</span>}
             </div>
             <span className="text-[13px] leading-snug text-muted">{m.remit}</span>
             <span className="font-mono text-[11px] text-faint">
@@ -582,7 +582,7 @@ function People({ members, onAsk }: { members: CouncilMember[]; onAsk: (id: stri
       ))}
       <Link
         to="/settings#council"
-        className="mt-1 flex items-center gap-1.5 px-1 font-mono text-[12px] text-faint hover:text-text"
+        className="mt-1 flex items-center gap-1.5 px-1 text-[12.5px] text-faint hover:text-text"
       >
         <Icon name="users" size={13} />
         edit specialists in settings
@@ -1007,7 +1007,7 @@ export default function Chat() {
         {thread && <Room thread={thread} members={members} chair={chair} />}
 
         {voiceMode && (
-          <div className="flex items-center gap-2.5 rounded-xl bg-accent-tint px-3 py-2 font-mono text-[12px] ring-1 ring-accent/30">
+          <div className="flex items-center gap-2.5 rounded-xl bg-accent-tint px-3 py-2 text-[12.5px] ring-1 ring-accent/30">
             <span
               className={`h-2 w-2 flex-none rounded-full ${
                 listening ? "animate-pulse bg-accent" : speaking ? "bg-run" : "bg-idle"
@@ -1036,7 +1036,7 @@ export default function Chat() {
           and a line across the page on top of that read as a second border.
           With the keyboard up the bar is hidden, so it sits on the keys. */}
       <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))] kbd:bottom-0 kbd:pb-2">
-        {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
+        {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
           <div className="mb-2 flex items-center gap-3 rounded-xl bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">
@@ -1080,7 +1080,7 @@ export default function Chat() {
                 key={`${i}-${q.text}`}
                 className="flex items-center gap-2.5 rounded-xl bg-surface px-3 py-2 text-[13px]"
               >
-                <span className="flex-none font-mono text-[11px] text-faint">queued</span>
+                <span className="flex-none text-[11.5px] text-faint">queued</span>
                 <span className="min-w-0 flex-1 truncate">
                   {q.text || "(image)"}
                   {q.images.length > 0 &&

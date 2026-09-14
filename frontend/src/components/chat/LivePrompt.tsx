@@ -60,7 +60,7 @@ export default function LivePrompt({
               onClick={() => void onAnswer(String(o.number))}
               disabled={sending}
               aria-pressed={prompt.multiSelect ? o.checked === true : undefined}
-              className={`tap max-w-full truncate rounded-md border px-2.5 py-1 text-left font-mono text-[12px] disabled:opacity-50 ${
+              className={`tap max-w-full truncate rounded-md border px-2.5 py-1 text-left text-[12.5px] disabled:opacity-50 ${
                 o.checked
                   ? "border-run/60 text-run"
                   : o.selected && !prompt.multiSelect
@@ -83,7 +83,7 @@ export default function LivePrompt({
           <button
             onClick={() => void onKey("right")}
             disabled={sending}
-            className="tap self-start rounded-md border border-accent px-2.5 py-1 font-mono text-[12px] text-accent disabled:opacity-50"
+            className="tap self-start rounded-md border border-accent px-2.5 py-1 text-[12.5px] text-accent disabled:opacity-50"
           >
             review and submit →
           </button>
@@ -96,7 +96,7 @@ export default function LivePrompt({
     // Blocked on something the parser did not recognise. Saying so beats saying
     // nothing, and the terminal is one tap away.
     return (
-      <div className="flex flex-none flex-wrap items-center gap-2 border-t border-wait/40 bg-wait/5 px-3.5 py-2 font-mono text-[12px] text-wait">
+      <div className="flex flex-none flex-wrap items-center gap-2 border-t border-wait/40 bg-wait/5 px-3.5 py-2 text-[12.5px] text-wait">
         <span className="min-w-0 flex-1">it is waiting for you</span>
         <button
           onClick={() => void onSend("y")}

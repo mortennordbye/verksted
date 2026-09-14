@@ -272,7 +272,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
         </div>
       )}
       {error && (
-        <div className="border-b border-line bg-surface px-2.5 py-1 font-mono text-[11px] text-wait">
+        <div className="border-b border-line bg-surface px-2.5 py-1 text-[11.5px] text-wait">
           {error}
         </div>
       )}
@@ -360,7 +360,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
         {disconnected && (
           <button
             onClick={() => setAttempt((a) => a + 1)}
-            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 font-mono text-[13px] text-muted"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 text-[13.5px] text-muted"
           >
             disconnected — tap to reconnect
           </button>

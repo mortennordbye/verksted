@@ -111,7 +111,7 @@ export default function Settings() {
               key={g.key}
               aria-pressed={tab === g.key}
               onClick={() => setParams({ tab: g.key }, { replace: true })}
-              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
+              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
                 tab === g.key
                   ? "border-accent bg-surface-2 text-text"
                   : "border-line bg-surface text-muted hover:text-text"
@@ -142,7 +142,7 @@ export default function Settings() {
               without putting it on the screen.
             </div>
 
-            {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+            {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
 
             <SectionLabel icon="chip" sub>
               Server · from the deployment (read-only)
@@ -199,7 +199,7 @@ export default function Settings() {
                   {drafts[v.key]?.trim() && (
                     <button
                       onClick={() => saveDraft(v.key)}
-                      className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+                      className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
                     >
                       save
                     </button>
@@ -208,7 +208,7 @@ export default function Settings() {
                     <button
                       onClick={() => save({ [v.key]: null })}
                       title="remove the stored value"
-                      className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait"
+                      className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait"
                     >
                       clear
                     </button>
@@ -234,7 +234,7 @@ export default function Settings() {
                 <button
                   onClick={addVar}
                   disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
                 >
                   add
                 </button>
@@ -284,7 +284,7 @@ function CopyVar({ keyName }: { keyName: string }) {
         setTimeout(() => setSaid(null), 2000);
       }}
       title="copy the value to the clipboard"
-      className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-text"
+      className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-text"
     >
       {said ?? "copy"}
     </button>
@@ -341,7 +341,7 @@ function GoogleCalendar() {
   const field =
     "min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
   const button =
-    "tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50";
+    "tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50";
 
   return (
     <>
@@ -363,7 +363,7 @@ function GoogleCalendar() {
           Sign-in did not finish: {failed}
         </div>
       )}
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
 
       {data?.account ? (
         <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
@@ -371,14 +371,11 @@ function GoogleCalendar() {
           <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{data.account}</span>
           <a
             href="/api/calendar/google/start"
-            className="tap font-mono text-[12px] text-muted hover:text-text"
+            className="tap text-[12.5px] text-muted hover:text-text"
           >
             sign in again
           </a>
-          <button
-            onClick={disconnect}
-            className="tap font-mono text-[12px] text-muted hover:text-wait"
-          >
+          <button onClick={disconnect} className="tap text-[12.5px] text-muted hover:text-wait">
             disconnect
           </button>
         </div>
@@ -405,7 +402,7 @@ function GoogleCalendar() {
                   onClick={async () => {
                     if (data && (await copyText(data.redirectUri))) setCopied(true);
                   }}
-                  className="tap flex-none font-mono text-[12px] text-muted hover:text-text"
+                  className="tap flex-none text-[12.5px] text-muted hover:text-text"
                 >
                   {copied ? "copied" : "copy"}
                 </button>
@@ -419,7 +416,7 @@ function GoogleCalendar() {
               <a href="/api/calendar/google/start" className={button}>
                 Sign in with Google
               </a>
-              <span className="font-mono text-[11.5px] text-faint">
+              <span className="text-[12px] text-faint">
                 client saved; change it under Agents, Environment
               </span>
             </div>
@@ -494,7 +491,7 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
         GitHub owners the inbox skips entirely. Nothing from them is filed, triaged, pushed or
         shown, and saving removes what was filed before.
       </div>
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
       <div className="flex flex-wrap items-center gap-2">
         {owners.map((owner) => (
           <span
@@ -523,7 +520,7 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
         <button
           onClick={add}
           disabled={!draft.trim()}
-          className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           add
         </button>
@@ -654,7 +651,7 @@ function Notifications() {
         Notifications
       </SectionLabel>
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
-        <span className="font-mono text-[12.5px]">this device</span>
+        <span className="text-[13px]">this device</span>
         {state === "on" && <StatusChip kind="run" label="subscribed" />}
         {state === "off" && <StatusChip kind="idle" label="off" />}
         {state === "denied" && <StatusChip kind="wait" label="blocked" />}
@@ -664,14 +661,14 @@ function Notifications() {
             <button
               onClick={test}
               disabled={busy}
-              className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+              className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
             >
               send test
             </button>
             <button
               onClick={disable}
               disabled={busy}
-              className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
             >
               turn off
             </button>
@@ -681,13 +678,13 @@ function Notifications() {
           <button
             onClick={enable}
             disabled={busy}
-            className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             {busy ? "enabling…" : "enable"}
           </button>
         )}
       </div>
-      {note && <div className="mt-2.5 font-mono text-[12px] text-muted">{note}</div>}
+      {note && <div className="mt-2.5 text-[12.5px] text-muted">{note}</div>}
       <div className="mt-5 text-[13px] text-muted">
         {state === "unavailable" ? (
           <>
@@ -763,11 +760,9 @@ function Backups() {
         are left out.
       </div>
 
-      {note && <div className="mb-3 font-mono text-[12px] text-wait">{note}</div>}
+      {note && <div className="mb-3 text-[12.5px] text-wait">{note}</div>}
       {data?.lastError && !running && (
-        <div className="mb-3 font-mono text-[12px] text-fail">
-          last run failed: {data.lastError}
-        </div>
+        <div className="mb-3 text-[12.5px] text-fail">last run failed: {data.lastError}</div>
       )}
 
       <div className="mb-3 overflow-hidden rounded-xl border border-line">
@@ -837,11 +832,11 @@ function Backups() {
       )}
 
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
-        <span className="font-mono text-[12.5px]">back up now</span>
+        <span className="text-[13px]">back up now</span>
         <button
           onClick={backUpNow}
           disabled={running}
-          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {running ? "backing up…" : "back up"}
         </button>
@@ -890,11 +885,11 @@ function AppReset() {
         App
       </SectionLabel>
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
-        <span className="font-mono text-[12.5px]">hard reset</span>
+        <span className="text-[13px]">hard reset</span>
         <button
           onClick={hardReset}
           disabled={busy}
-          className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
         >
           {busy ? "resetting…" : "clear cache and reload"}
         </button>
@@ -924,7 +919,7 @@ function CopyButton({ text }: { text: string }) {
         setTimeout(() => setState("idle"), 1500);
       }}
       title="copy public key"
-      className={`tap rounded-[7px] border px-2.5 py-1.5 font-mono text-[12px] ${
+      className={`tap rounded-[7px] border px-2.5 py-1.5 text-[12.5px] ${
         state === "fail"
           ? "border-fail/50 text-fail"
           : state === "ok"
@@ -995,7 +990,7 @@ function SshKeys() {
       <SectionLabel icon="key" className="mt-10">
         SSH keys · ~/.ssh on the data volume
       </SectionLabel>
-      {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
+      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
       <div className="flex flex-col gap-2">
         {(keys ?? []).map((k) => (
           <div
@@ -1010,14 +1005,14 @@ function SshKeys() {
               <span className="ml-auto flex gap-2">
                 <button
                   onClick={() => setShown(shown === k.name ? null : k.name)}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text"
                 >
                   {shown === k.name ? "hide" : "public key"}
                 </button>
                 <button
                   onClick={() => remove(k)}
                   disabled={busy}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
                 >
                   delete
                 </button>
@@ -1039,9 +1034,7 @@ function SshKeys() {
             className="h-[54px] rounded-[11px] border border-line bg-surface"
           />
         )}
-        {keys?.length === 0 && (
-          <div className="font-mono text-[12.5px] text-faint">no keys installed</div>
-        )}
+        {keys?.length === 0 && <div className="text-[13px] text-faint">no keys installed</div>}
 
         <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -1056,7 +1049,7 @@ function SshKeys() {
               disabled={busy || !name.trim()}
               title="generate an ed25519 keypair in the pod — the private key never leaves it"
               aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
-              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               generate in pod
             </button>
@@ -1074,7 +1067,7 @@ function SshKeys() {
             <button
               onClick={add}
               disabled={busy || !name.trim()}
-              className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
             >
               add key
             </button>
