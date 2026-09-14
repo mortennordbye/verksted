@@ -268,18 +268,20 @@ export default function Project() {
 
         {error && <div className="mb-3 font-mono text-[12px] text-wait">{error}</div>}
 
-        {/* An unselected panel is unmounted, so its poll does not run. */}
+        {/* An unselected panel is unmounted, so its poll does not run.
+            Scrolls sideways like the settings strip: with their icons the four
+            tabs are wider than a phone, and the last one ran off the screen. */}
         <div
           role="group"
           aria-label="project view"
-          className="mt-6 mb-4 flex gap-1.5 border-b border-line pb-3"
+          className="mt-6 mb-4 flex gap-1.5 overflow-x-auto border-b border-line pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {(["sessions", "prs", "actions", "schedules"] as const).map((t) => (
             <button
               key={t}
               aria-pressed={tab === t}
               onClick={() => setTab(t)}
-              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
+              className={`flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 font-mono text-[12px] ${
                 tab === t
                   ? "border-accent bg-surface-2 text-text"
                   : "border-line bg-surface text-muted hover:text-text"

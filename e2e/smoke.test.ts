@@ -326,10 +326,10 @@ describe("the app in a real browser", () => {
   /**
    * What the bar carries, on both screens this app is used from.
    *
-   * The rule is one rule: the four doors carry the four as words on a wide
-   * screen and as a bottom bar on a phone, and no back arrow, because every
-   * other door is one tap away; anything you drilled into carries the arrow and
-   * its trail and neither kind of nav. It used to be decided screen by screen,
+   * The rule is one rule: on a wide screen every screen carries the four as
+   * words; on a phone the four doors carry them as a bottom bar and no back
+   * arrow, because every other door is one tap away, and anything you drilled
+   * into carries the arrow and its trail instead. It used to be decided screen by screen,
    * and had drifted — the inbox showed a trail and lost the words, the thread
    * had a back arrow and no bottom bar at all.
    */
@@ -397,7 +397,8 @@ describe("the app in a real browser", () => {
           home: true,
           inbox: true,
           settings: true,
-          words: DOORS.includes(route),
+          // Every screen, since #145: a wide bar is the same bar everywhere.
+          words: true,
           // The bottom bar is the phone's half of the same nav, never both.
           bottom: false,
           back: !DOORS.includes(route),
@@ -468,21 +469,35 @@ describe("the app in a real browser", () => {
         // tsconfig, whose lib is ES2022 with no DOM — deliberately, since the
         // rest of that project is a server. Hence the local shape rather than a
         // `dom` lib that would also let `document` typecheck in `backend/src`.
-        const { document } = globalThis as unknown as {
+        interface Box {
+          tagName: string;
+          className: unknown;
+          parentElement: Box | null;
+          getBoundingClientRect(): { width: number; right: number };
+        }
+        const { document, getComputedStyle } = globalThis as unknown as {
           document: {
             documentElement: { clientWidth: number };
-            querySelectorAll(selector: string): Iterable<{
-              tagName: string;
-              className: unknown;
-              getBoundingClientRect(): { width: number; right: number };
-            }>;
+            querySelectorAll(selector: string): Iterable<Box>;
           };
+          getComputedStyle(el: Box): { overflowX: string };
         };
         const limit = document.documentElement.clientWidth;
+        // Inside a box that clips or scrolls sideways, overflow is that box's
+        // business: a tab strip that scrolls, or a line cut off with an
+        // ellipsis, does not make the page pan. The box is still checked as an
+        // element of its own. The walk stops at body, whose backstop would
+        // otherwise excuse everything.
+        const clipped = (el: Box) => {
+          for (let p = el.parentElement; p && p.tagName !== "BODY"; p = p.parentElement) {
+            if (getComputedStyle(p).overflowX !== "visible") return true;
+          }
+          return false;
+        };
         return [...document.querySelectorAll("body *")]
           .filter((el) => {
             const box = el.getBoundingClientRect();
-            return box.width > 0 && box.right > limit + 1;
+            return box.width > 0 && box.right > limit + 1 && !clipped(el);
           })
           .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 80)}`);
       });
