@@ -167,10 +167,17 @@ function Turn({
   }
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent">
-          {message.text}
-        </div>
+      <div className="flex flex-col items-end gap-2">
+        {/* Pasted with the words, so drawn with them: above, the way the CLI
+            shows them before the prompt they came with. */}
+        {message.images && message.images.length > 0 && (
+          <Images images={message.images} sessionId={sessionId} project={project} bytes={bytes} />
+        )}
+        {message.text && (
+          <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent">
+            {message.text}
+          </div>
+        )}
       </div>
     );
   }

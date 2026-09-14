@@ -579,6 +579,59 @@ describe("images", () => {
     });
   }
 
+  /**
+   * A turn the person typed with pictures pasted into it, in the shape the CLI
+   * writes one: a text block, then an image block per picture.
+   */
+  function pasted(text: string, count: number): { line: string; uuid: string } {
+    const uuid = `p${++uuids}`;
+    const line = JSON.stringify({
+      type: "user",
+      uuid,
+      timestamp: stamp(),
+      origin: { kind: "human" },
+      imagePasteIds: Array.from({ length: count }, (_, i) => i + 1),
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text },
+          ...Array.from({ length: count }, () => ({
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: b64 },
+          })),
+        ],
+      },
+    });
+    return { line, uuid };
+  }
+
+  it("draws the pictures pasted into a person's turn, and the words without their markers", () => {
+    const { line, uuid } = pasted("[Image #1] [Image #2] why is this check red?", 2);
+    const { messages } = chat.parseTranscript([line, says("A lint failure.")].join("\n"));
+    expect(messages[0]).toMatchObject({
+      role: "user",
+      text: "why is this check red?",
+      images: [
+        { id: `${uuid}_0`, path: null, mediaType: "image/png" },
+        { id: `${uuid}_1`, path: null, mediaType: "image/png" },
+      ],
+    });
+    expect(JSON.stringify(messages)).not.toContain(b64);
+  });
+
+  it("serves a pasted picture by its turn and its place in it", async () => {
+    const { line, uuid } = pasted("look", 2);
+    writeTranscript("demo", [line, says("Seen.")]);
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/image?ref=${uuid}_1` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/png");
+    expect(res.rawPayload.equals(PNG)).toBe(true);
+    // A third picture was never pasted.
+    expect(
+      (await app.inject({ url: `/api/sessions/${SESSION}/chat/image?ref=${uuid}_2` })).statusCode,
+    ).toBe(404);
+  });
+
   it("points an image in the repo at the route that already serves files", () => {
     const { messages } = chat.parseTranscript(
       [

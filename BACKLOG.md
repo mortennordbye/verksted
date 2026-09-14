@@ -657,24 +657,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/routes/push.ts` (`REPEAT_WINDOW_MS`),
   `backend/src/scheduler.ts` (`briefing`)
 
-## The session chat view drops images and pasted attachments
-
-- **What:** The chat view renders a session's typed turns, its replies, and its
-  tool calls. What it does not render is anything attached to a turn: an image
-  pasted into the pane, or a file dropped on it, arrives in the transcript as an
-  `attachment` entry and as content blocks the parser ignores, so the turn shows
-  as text alone — or, if it was only an image, does not show at all.
-- **Why deferred:** The ask was reading a session back, and the material that
-  makes a session hard to read on a phone is prose and tool calls. Attachments
-  are rare in a coding session, and serving them needs a route that reads bytes
-  out of the transcript's own storage, which is a second security surface —
-  every path there has to go through `resolveInsideRepos` or an equivalent.
-- **Unblocked by:** Wanting to see a screenshot you pasted without opening the
-  terminal. `parseTranscript` already walks every content block, so the work is
-  a `type: "image"` branch plus an endpoint to serve the bytes.
-- **Where:** `backend/src/chat.ts` (`parseTranscript`),
-  `frontend/src/components/ChatPane.tsx` (`Turn`)
-
 ## eslint-plugin-jsx-a11y is unmaintained and pinned to ESLint 10 by an override
 
 - **What:** The toolchain runs ESLint 10, but `eslint-plugin-jsx-a11y` declares

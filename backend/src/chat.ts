@@ -413,6 +413,45 @@ export function parseTranscript(
       }
       if (Array.isArray(content)) {
         const blocks = content as Block[];
+        // A turn the person typed with pictures pasted into it arrives as
+        // blocks rather than a string, and used to be dropped whole, words and
+        // pictures both. The CLI leaves "[Image #n]" where each was pasted,
+        // which says nothing once the picture is drawn beside the words. Each
+        // picture is named by its turn and its place among the turn's images,
+        // which is what findImage looks it up by.
+        if (
+          blocks.some((b) => b?.type === "image") &&
+          !blocks.some((b) => b?.type === "tool_result") &&
+          !entry.isMeta &&
+          (!entry.origin?.kind || entry.origin.kind === "human")
+        ) {
+          const said = blocks
+            .flatMap((b) => (b?.type === "text" && typeof b.text === "string" ? [b.text] : []))
+            .join("\n")
+            .replace(/\[Image #\d+\]\s*/g, "")
+            .trim();
+          const images: ChatImage[] = [];
+          blocks
+            .filter((b) => b?.type === "image")
+            .forEach((b, n) => {
+              const mediaType = b.source?.media_type;
+              if (id && mediaType && IMAGE_TYPES.has(mediaType)) {
+                images.push({ id: `${id}_${n}`, path: null, mediaType });
+              }
+            });
+          if (said || images.length) {
+            flushTools(id, at);
+            messages.push({
+              id,
+              role: "user",
+              text: said,
+              tools: [],
+              at,
+              ...(images.length ? { images } : {}),
+            });
+          }
+          continue;
+        }
         // A result. The output is dropped; only a failure marks its chip, and
         // the rest is fetched by id if anybody wants to read it.
         for (const b of blocks) {
@@ -865,6 +904,9 @@ async function readSubagent(
  * traverse, and the only file opened is the session's own transcript.
  */
 export function findImage(text: string, ref: string): { mediaType: string; data: Buffer } | null {
+  // A picture pasted into a person's turn has no tool call to be named by, so
+  // it is named by the turn's uuid and its place among that turn's images.
+  const pasted = /^(.+)_(\d+)$/.exec(ref);
   for (const line of text.split("\n")) {
     if (!line.startsWith("{")) continue;
     let entry: Entry;
@@ -876,6 +918,12 @@ export function findImage(text: string, ref: string): { mediaType: string; data:
     if (entry.isSidechain) continue;
     const content = entry.message?.content;
     if (!Array.isArray(content)) continue;
+    if (pasted && entry.uuid === pasted[1]) {
+      const image = (content as Block[]).filter((b) => b?.type === "image")[Number(pasted[2])];
+      const { media_type: mediaType, data } = image?.source ?? {};
+      if (!mediaType || !IMAGE_TYPES.has(mediaType) || typeof data !== "string") return null;
+      return { mediaType, data: Buffer.from(data, "base64") };
+    }
     for (const b of content as Block[]) {
       if (b?.type !== "tool_result" || b.tool_use_id !== ref) continue;
       const blocks = Array.isArray(b.content) ? (b.content as Block[]) : [];

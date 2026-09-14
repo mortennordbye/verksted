@@ -349,7 +349,10 @@ export interface ChatMessage {
  * all, exists only inside the transcript and comes from the chat's own route.
  */
 export interface ChatImage {
-  /** The tool_use id whose result carries it. */
+  /**
+   * The tool_use id whose result carries it, or `<turn uuid>_<n>` for the nth
+   * picture pasted into a person's turn, which has no tool call to be named by.
+   */
   id: string;
   /** Repo-relative when it is a file in this project; null otherwise. */
   path: string | null;
