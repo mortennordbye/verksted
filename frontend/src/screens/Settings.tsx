@@ -349,8 +349,9 @@ function GoogleCalendar() {
         Google Calendar
       </SectionLabel>
       <div className="mb-3 text-sm text-muted">
-        What the assistant reads and writes when you ask about or change your calendar. Google only
-        lets it in through a sign-in, with an OAuth client of your own.
+        What the assistant reads and writes when you ask about or change your calendar, and the
+        Gmail labels and filters it can set up under Mail. Google only lets either in through a
+        sign-in, with an OAuth client of your own.
       </div>
 
       {outcome === "ok" && data?.account && (
@@ -384,8 +385,10 @@ function GoogleCalendar() {
           <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-muted">
             <li>
               In the Google Cloud console, signed in with your Workspace account: create a project,
-              enable the <span className="text-text">CalDAV API</span>, and set the OAuth consent
-              screen's user type to <span className="text-text">Internal</span>.
+              enable the <span className="text-text">CalDAV API</span> and the{" "}
+              <span className="text-text">Gmail API</span>, and set the OAuth consent screen's user
+              type to <span className="text-text">Internal</span>. If Gmail's own admin console
+              blocks new apps, trust this one under Security, API controls.
             </li>
             <li>
               Create an OAuth client ID of type <span className="text-text">Web application</span>,

@@ -896,3 +896,19 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `mock-inbox.html` in the repo root.
+
+## Gmail rules have no settings-page view
+
+- **What:** `mail_labels`, `mail_rules`, `mail_rule_create` and
+  `mail_rule_delete` (`backend/src/gmail.ts`) are chat-only: seeing what
+  filters exist or removing one means asking the assistant, there is no list
+  on the settings page the way sources, schedules and blocked owners get one.
+- **Why deferred:** The ask was the tools themselves — teaching verksted to
+  set up Gmail filters at all — not a management screen for them, and a filter
+  wrong enough to need fixing without asking is the rare case, not the common
+  one.
+- **Unblocked by:** Wanting to see or clear rules without a chat turn. Then a
+  `GET /api/mail/rules` list (already there) plus a table and a delete button
+  under the Mail tab, the same shape as the blocked-owners list.
+- **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
+  `backend/src/routes/sources.ts` (`/api/mail/rules`).

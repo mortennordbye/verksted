@@ -4,13 +4,17 @@ import { env } from "./env.js";
 import { readVars, writeVars } from "./settings-store.js";
 
 /**
- * Signing in to Google, for the calendar.
+ * Signing in to Google, for the calendar and for Gmail's labels and filters.
  *
  * Google's CalDAV takes OAuth and nothing else: a password in CALDAV_* is
  * answered with a 401. This is the authorization-code flow with offline
  * access. The person signs in once on Google's own page, the pod keeps the
- * refresh token beside the other source credentials, and tsdav trades it for
- * an access token each time it connects.
+ * refresh token beside the other source credentials, and tsdav (gmail.ts for
+ * Gmail) trades it for an access token each time it connects.
+ *
+ * One sign-in, one refresh token, both scopes: Gmail's rules and labels
+ * (gmail.ts) ride the same consent as the calendar rather than a second
+ * button, since it is the same account either way.
  *
  * Nothing here verifies a token. Every one arrives straight from Google's
  * token endpoint over TLS, in answer to a request this server made, so there
@@ -21,6 +25,8 @@ export const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
+export const GMAIL_LABELS_SCOPE = "https://www.googleapis.com/auth/gmail.labels";
+export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
 export const GOOGLE_CALDAV_URL = "https://apidata.googleusercontent.com/caldav/v2/";
 
 export const CALLBACK_PATH = "/api/calendar/google/callback";
@@ -49,7 +55,7 @@ export function authUrl(clientId: string, redirect: string, state: string): stri
     client_id: clientId,
     redirect_uri: redirect,
     response_type: "code",
-    scope: ["openid", "email", CALENDAR_SCOPE].join(" "),
+    scope: ["openid", "email", CALENDAR_SCOPE, GMAIL_LABELS_SCOPE, GMAIL_SETTINGS_SCOPE].join(" "),
     // offline for a refresh token; consent so Google sends one again on a
     // second sign-in, which it otherwise leaves out.
     access_type: "offline",

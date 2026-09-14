@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type {
   CalendarEvent,
+  GmailLabel,
+  GmailRule,
   MailFolder,
   MailMessage,
   MailSummary,
@@ -8,6 +10,7 @@ import type {
 } from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
 import * as docs from "../docs.js";
+import * as gmail from "../gmail.js";
 import * as mail from "../mail.js";
 
 /**
@@ -17,9 +20,10 @@ import * as mail from "../mail.js";
  * screen can tell "no mail here" from "mail broke", and 502 when the server
  * on the other side would not answer.
  *
- * One thing here writes: a move between mailboxes, which is undone by moving
- * back. A destination the server did not list is a 400 rather than a mailbox
- * created on the way past.
+ * Mail's one write here is a move between mailboxes, undone by moving back.
+ * The Gmail-only label and filter routes (gmail.ts) write more lastingly — a
+ * filter acts on every mail from then on — which is why creating or deleting
+ * one is chair-only at the tool layer, not something enforced here.
  */
 /**
  * Where a source lives on the web, told from the settings it already has.
@@ -86,12 +90,21 @@ export default async function sourceRoutes(app: FastifyInstance) {
       if (err instanceof calendar.CalendarRefused) {
         return reply.code(409).send({ error: err.message });
       }
-      if (err instanceof mail.MailUnavailable || err instanceof calendar.CalendarUnavailable) {
+      if (
+        err instanceof mail.MailUnavailable ||
+        err instanceof calendar.CalendarUnavailable ||
+        err instanceof gmail.GmailUnavailable
+      ) {
         return reply.code(503).send({ error: err.message });
       }
       // A folder that is not there is the caller's mistake, and the sentence
       // saying so is the whole of how a model corrects itself.
-      if (err instanceof mail.MailDenied) return reply.code(400).send({ error: err.message });
+      if (err instanceof mail.MailDenied || err instanceof gmail.RuleRefused) {
+        return reply.code(400).send({ error: err.message });
+      }
+      // Signed in, but without the Gmail scopes: distinct from "not signed in"
+      // at all, since the fix is reconnecting rather than setting anything up.
+      if (err instanceof gmail.GmailDenied) return reply.code(403).send({ error: err.message });
       app.log.warn(err, `${what} failed`);
       return reply.code(502).send({ error: `${what} could not be read` });
     }
@@ -164,6 +177,57 @@ export default async function sourceRoutes(app: FastifyInstance) {
         async () => ({ moved: await mail.move(req.body.uids, req.body.to) }),
         reply,
         "mail move",
+      ),
+  );
+
+  // Gmail's labels and filters, over its API rather than IMAP — see gmail.ts.
+  app.get("/api/mail/labels", (_req, reply) =>
+    guard<GmailLabel[]>(() => gmail.labels(), reply, "gmail labels"),
+  );
+
+  app.get("/api/mail/rules", (_req, reply) =>
+    guard<GmailRule[]>(() => gmail.rules(), reply, "gmail rules"),
+  );
+
+  app.post<{ Body: gmail.RuleFields }>(
+    "/api/mail/rules",
+    {
+      schema: {
+        body: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            from: { type: "string", maxLength: 200 },
+            subject: { type: "string", maxLength: 200 },
+            query: { type: "string", maxLength: 500 },
+            label: { type: "string", minLength: 1, maxLength: 200 },
+            archive: { type: "boolean" },
+            markRead: { type: "boolean" },
+          },
+        },
+      },
+    },
+    (req, reply) => guard<GmailRule>(() => gmail.createRule(req.body), reply, "gmail rule create"),
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    "/api/mail/rules/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          properties: { id: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    (req, reply) =>
+      guard<{ id: string }>(
+        async () => {
+          await gmail.deleteRule(req.params.id);
+          return { id: req.params.id };
+        },
+        reply,
+        "gmail rule delete",
       ),
   );
 

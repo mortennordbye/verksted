@@ -377,6 +377,13 @@ password), Fastmail, iCloud and any self-hosted server, and is the reason the
 backend needs no OAuth flow, no Google project and no Gemini. Sending, for
 proposals, is SMTP submission with the same credential.
 
+Labels and filters are the one piece IMAP cannot do — Gmail exposes neither
+over IMAP or Sieve — so that piece alone (`gmail.ts`) does take the Gmail API,
+on the same Google sign-in as the calendar. `mail_labels` and `mail_rules`
+list; `mail_rule_create` and `mail_rule_delete` are chair-only, the same rule
+as the calendar writes, because a filter acts on every mail from then on
+rather than once like `mail_move`. Everything else about mail stays IMAP.
+
 **Calendar.** CalDAV, read-only. `calendar_today`, `calendar_upcoming` (seven
 days) and `calendar_search`. Polled every fifteen minutes; the only feed items
 it produces are "starts in thirty minutes" for events with a location or a video
@@ -828,7 +835,10 @@ These change what gets built, and are the owner's to make.
   and covers Google Workspace, Fastmail and iCloud. If the account is Google and
   app passwords are disabled by policy, the alternative is the Gmail API with an
   OAuth client, which is a Google Cloud project and a consent screen, and is not
-  the assumption.
+  the assumption. Decided for one piece only: labels and filters (`gmail.ts`)
+  use the Gmail API regardless of provider, since IMAP has no equivalent — see
+  the Mail section above. Reading and filing (`mail_recent`/`mail_move`, etc.)
+  stay IMAP.
 - **Calendar provider.** CalDAV is the assumption; Google exposes it, so does
   iCloud. If the calendar is Outlook, it does not, and that needs Graph.
 - **The share.** Host, export path, protocol (NFS is assumed since the PVC is
