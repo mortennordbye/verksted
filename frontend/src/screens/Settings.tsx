@@ -22,6 +22,7 @@ import CouncilPanel from "../components/CouncilPanel";
 import MemoryPanel from "../components/MemoryPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import { StatusChip } from "../components/StatusChip";
+import Skeleton, { SkeletonList } from "../components/Skeleton";
 
 function sourceChip(source: SettingVar["source"]) {
   if (source === "env") return <StatusChip kind="run" label="env" />;
@@ -147,6 +148,13 @@ export default function Settings() {
               Server · from the deployment (read-only)
             </SectionLabel>
             <div className="mb-7 overflow-hidden rounded-xl border border-line">
+              {!data && (
+                <SkeletonList
+                  count={3}
+                  gap="gap-0"
+                  className="h-[42px] border-b border-line bg-surface last:border-b-0"
+                />
+              )}
               {Object.entries(data?.server ?? {}).map(([key, value]) => (
                 <div
                   key={key}
@@ -162,6 +170,12 @@ export default function Settings() {
               Agent environment
             </SectionLabel>
             <div className="flex flex-col gap-2">
+              {!data && (
+                <SkeletonList
+                  count={3}
+                  className="h-[54px] rounded-[11px] border border-line bg-surface"
+                />
+              )}
               {(data?.vars ?? []).map((v) => (
                 <div
                   key={v.key}
@@ -381,7 +395,11 @@ function GoogleCalendar() {
               with this as its authorised redirect URI:
               <span className="mt-1 flex items-center gap-2">
                 <code className="min-w-0 flex-1 truncate rounded-md bg-surface-2 px-2 py-1 font-mono text-[12px] text-text">
-                  {data?.redirectUri ?? "…"}
+                  {data ? (
+                    data.redirectUri
+                  ) : (
+                    <Skeleton className="inline-block h-3 w-48 max-w-full rounded bg-line align-middle" />
+                  )}
                 </code>
                 <button
                   onClick={async () => {
@@ -754,7 +772,13 @@ function Backups() {
 
       <div className="mb-3 overflow-hidden rounded-xl border border-line">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line bg-surface px-[15px] py-2.5 font-mono text-[12.5px]">
-          <span className="min-w-0 break-all text-text">{data?.dir ?? "…"}</span>
+          <span className="min-w-0 break-all text-text">
+            {data ? (
+              data.dir
+            ) : (
+              <Skeleton className="inline-block h-3 w-40 rounded bg-surface-2 align-middle" />
+            )}
+          </span>
           {data && !data.offVolume && <StatusChip kind="wait" label="on the data volume" />}
           {data && data.totalBytes > 0 && (
             <span className="ml-auto text-muted">{gib(data.freeBytes)} free</span>
@@ -763,7 +787,15 @@ function Backups() {
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 bg-surface px-[15px] py-2.5 font-mono text-[12.5px]">
           <span className="text-muted">nightly</span>
           <span className="text-text">
-            {data ? (data.keep > 0 ? `on, keeping ${data.keep}` : "off") : "…"}
+            {data ? (
+              data.keep > 0 ? (
+                `on, keeping ${data.keep}`
+              ) : (
+                "off"
+              )
+            ) : (
+              <Skeleton className="inline-block h-3 w-24 rounded bg-surface-2 align-middle" />
+            )}
           </span>
           <span className="ml-auto text-muted">
             {running ? "backing up…" : `last ${agoLabel(latest?.createdAt ?? null)}`}
@@ -1001,6 +1033,12 @@ function SshKeys() {
             )}
           </div>
         ))}
+        {keys === null && (
+          <SkeletonList
+            count={1}
+            className="h-[54px] rounded-[11px] border border-line bg-surface"
+          />
+        )}
         {keys?.length === 0 && (
           <div className="font-mono text-[12.5px] text-faint">no keys installed</div>
         )}

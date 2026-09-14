@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import type { ChatDetail, ChatToolCall } from "../../../../shared/api";
 import { api } from "../../api";
 import { diffLineClass } from "../../diff";
+import { SkeletonLines } from "../Skeleton";
 import { MD, REMARK } from "./markdown";
 
 /**
@@ -66,9 +67,7 @@ export default function ToolChip({
 
       {open && (
         <div className="min-w-0 overflow-hidden rounded-md border border-line bg-term">
-          {!detail && !failedToLoad && (
-            <p className="px-2.5 py-2 font-mono text-[11px] text-faint">reading it back…</p>
-          )}
+          {!detail && !failedToLoad && <SkeletonLines count={3} className="px-2.5 py-2" />}
           {failedToLoad && (
             <p className="px-2.5 py-2 font-mono text-[11px] text-fail">could not read it back</p>
           )}

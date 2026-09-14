@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { Profile } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
+import Skeleton from "./Skeleton";
 
 /**
  * The profile: who the assistant works for, in your own words.
@@ -59,14 +60,20 @@ export default function ProfilePanel() {
         it something about yourself.
       </div>
       <div className="flex flex-col gap-2 rounded-[11px] border border-line bg-surface px-[15px] py-3">
-        <textarea
-          value={shown}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={10}
-          aria-label="profile"
-          placeholder={HINT}
-          className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
-        />
+        {/* Not an empty textarea while it loads: that showed the hint, which
+            reads as "nothing written yet" and invites typing over the real text. */}
+        {data === null && draft === null ? (
+          <Skeleton className="block h-[214px] rounded-[7px] border border-line bg-surface-2" />
+        ) : (
+          <textarea
+            value={shown}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={10}
+            aria-label="profile"
+            placeholder={HINT}
+            className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
+          />
+        )}
         <div className="flex items-center gap-3">
           <button
             onClick={() => void save()}

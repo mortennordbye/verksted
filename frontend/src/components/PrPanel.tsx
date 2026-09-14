@@ -5,6 +5,7 @@ import { useConfirm } from "../useConfirm";
 import { StatusChip } from "./StatusChip";
 import Sheet, { focusIfPointerFine } from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
+import { SkeletonList } from "./Skeleton";
 
 const CHECK_CHIP = {
   passing: { kind: "run", label: "checks ok" },
@@ -72,7 +73,13 @@ export default function PrPanel({
             {all ? "no pull requests" : "no open pull requests"}
           </div>
         )}
-        {!prs && !error && <div className="font-mono text-[12.5px] text-faint">…</div>}
+        {!prs && !error && (
+          <SkeletonList
+            count={3}
+            gap="gap-2.5"
+            className="h-[66px] rounded-[11px] border border-line bg-surface"
+          />
+        )}
       </div>
 
       {open !== null && (

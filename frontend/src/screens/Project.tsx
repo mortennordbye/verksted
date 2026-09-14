@@ -25,6 +25,7 @@ const TAB_ICON: Record<"sessions" | "prs" | "actions" | "schedules", IconName> =
 };
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
+import Skeleton from "../components/Skeleton";
 import { useConfirm } from "../useConfirm";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
@@ -240,7 +241,7 @@ export default function Project() {
                   </span>
                 </>
               ) : (
-                "…"
+                <Skeleton className="inline-block h-[22px] w-40 rounded-md bg-surface-2" />
               )}
             </span>
           }
@@ -305,11 +306,17 @@ export default function Project() {
               {active.map((s) => (
                 <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
               ))}
-              {active.length === 0 && (
-                <div className="font-mono text-[12.5px] text-faint">
-                  {sessionsLoading ? "loading…" : "no active sessions"}
-                </div>
-              )}
+              {active.length === 0 &&
+                (sessionsLoading ? (
+                  [0, 1].map((i) => (
+                    <Skeleton
+                      key={i}
+                      className="block h-[62px] rounded-xl border border-line bg-surface"
+                    />
+                  ))
+                ) : (
+                  <div className="font-mono text-[12.5px] text-faint">no active sessions</div>
+                ))}
             </div>
 
             {recent.length > 0 && (

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionChanges } from "../../shared/api";
+import { resetPollCache } from "../src/api";
 import ChangesPanel from "../src/components/ChangesPanel";
 
 const changes = (over: Partial<SessionChanges> = {}): SessionChanges => ({
@@ -25,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetPollCache();
   vi.unstubAllGlobals();
 });
 

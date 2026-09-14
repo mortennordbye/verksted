@@ -5,6 +5,7 @@ import { agoLabel, usePoll } from "../api";
 import DocViewer from "../components/DocViewer";
 import TopBar from "../components/TopBar";
 import PageHeader from "../components/PageHeader";
+import { SkeletonList } from "../components/Skeleton";
 
 /**
  * The share, looked at rather than searched.
@@ -109,6 +110,13 @@ export default function Docs() {
               ))}
             </div>
             <div className="overflow-hidden rounded-xl border border-line">
+              {entries === null && !error && (
+                <SkeletonList
+                  count={4}
+                  gap="gap-0"
+                  className="h-[42px] border-b border-line bg-surface last:border-b-0"
+                />
+              )}
               {entries?.length === 0 && (
                 <div className="bg-surface px-[15px] py-3 text-[13px] text-faint">empty</div>
               )}

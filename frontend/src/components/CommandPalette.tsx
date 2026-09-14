@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { Project, Session } from "../../../shared/api";
 import { api } from "../api";
+import Skeleton from "./Skeleton";
 import { useDismissOnBack } from "../useDismissOnBack";
 
 interface Entry {
@@ -155,9 +156,12 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
           {entries !== null && shown.length === 0 && (
             <li className="px-4 py-3 font-mono text-[12.5px] text-faint">nothing matches</li>
           )}
-          {entries === null && (
-            <li className="px-4 py-3 font-mono text-[12.5px] text-faint">loading…</li>
-          )}
+          {entries === null &&
+            ["w-2/5", "w-3/5", "w-1/2"].map((w) => (
+              <li key={w} className="px-4 py-2.5">
+                <Skeleton className={`block h-3.5 rounded bg-surface-2 ${w}`} />
+              </li>
+            ))}
         </ul>
       </div>
     </div>

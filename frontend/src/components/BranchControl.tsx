@@ -4,6 +4,7 @@ import { api, usePoll } from "../api";
 import { useConfirm } from "../useConfirm";
 import Icon from "./Icon";
 import Sheet from "./Sheet";
+import { SkeletonLines } from "./Skeleton";
 
 /**
  * The branch label, clickable: switch branch, pull, push, or reset the branch
@@ -293,6 +294,7 @@ export default function BranchControl({
             className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-2.5 font-mono text-[13px] outline-none placeholder:text-faint focus:border-accent"
           />
           <div className="mt-2 max-h-[38vh] overflow-auto">
+            {!data && <SkeletonLines count={4} className="px-2.5 py-2" />}
             {local.filter(matches).map((b) => (
               <BranchRow
                 key={b}

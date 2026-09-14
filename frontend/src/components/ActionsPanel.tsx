@@ -5,6 +5,7 @@ import { useConfirm } from "../useConfirm";
 import { StatusChip, StatusDot } from "./StatusChip";
 import Sheet from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
+import { SkeletonList } from "./Skeleton";
 
 const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
 
@@ -44,7 +45,13 @@ export default function ActionsPanel({ project }: { project: string }) {
         {runs?.length === 0 && (
           <div className="font-mono text-[12.5px] text-faint">no workflow runs</div>
         )}
-        {!runs && !error && <div className="font-mono text-[12.5px] text-faint">…</div>}
+        {!runs && !error && (
+          <SkeletonList
+            count={3}
+            gap="gap-2.5"
+            className="h-[66px] rounded-[11px] border border-line bg-surface"
+          />
+        )}
       </div>
 
       {open !== null && (
@@ -210,6 +217,9 @@ function RunSheet({
         </div>
 
         <div className="max-h-[46vh] overflow-auto">
+          {!detail && (
+            <SkeletonList count={3} gap="gap-1.5" className="h-9 rounded-lg bg-surface-2" />
+          )}
           {detail?.jobs.map((job) => {
             const chip = chipFor(job);
             return (

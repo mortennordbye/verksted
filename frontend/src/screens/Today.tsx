@@ -23,6 +23,7 @@ import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
 import Tabs from "../components/Tabs";
+import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
 import { canSpeak, useSpeech } from "../useSpeech";
@@ -400,11 +401,13 @@ export default function Today() {
           title={dateLine()}
           sub={
             <>
-              {!loaded
-                ? "…"
-                : needs
-                  ? `${needs} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`
-                  : "Nothing needs you."}
+              {!loaded ? (
+                <Skeleton className="inline-block h-3.5 w-40 rounded bg-surface-2 align-middle" />
+              ) : needs ? (
+                `${needs} thing${needs === 1 ? "" : "s"} need${needs === 1 ? "s" : ""} you`
+              ) : (
+                "Nothing needs you."
+              )}
               {error && <div className="mt-1 font-mono text-[12px] text-fail">{error}</div>}
             </>
           }
@@ -519,10 +522,14 @@ export default function Today() {
                       </div>
                     ))}
                   </div>
-                ) : (
-                  <div className="text-[13px] text-faint">
-                    {events === null ? "reading…" : "nothing on the calendar"}
+                ) : events === null ? (
+                  <div className="flex flex-col gap-1.5">
+                    {[0, 1].map((i) => (
+                      <Skeleton key={i} className="block h-9 rounded-lg bg-surface-2" />
+                    ))}
                   </div>
+                ) : (
+                  <div className="text-[13px] text-faint">nothing on the calendar</div>
                 )}
               </div>
             )}

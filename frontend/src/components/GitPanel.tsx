@@ -8,6 +8,7 @@ import { useConfirm } from "../useConfirm";
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 import { fileIcon } from "../fileicons";
 import BranchControl from "./BranchControl";
+import { SkeletonLines } from "./Skeleton";
 
 const STATUS_COLOR: Record<string, string> = {
   M: "text-wait",
@@ -241,6 +242,7 @@ export default function GitPanel({
         </button>
         {error && <div className="mt-1 text-[11px] text-wait">{error}</div>}
       </div>
+      {!status && <SkeletonLines count={4} className="px-2.5 pt-3" />}
       {status && files.length === 0 && (
         <div className="px-2.5 pt-2 text-faint">working tree clean</div>
       )}
