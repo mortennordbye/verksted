@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router";
 import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
@@ -121,15 +121,30 @@ export function saysTheSame(item: FeedItem): boolean {
   return item.facts.some((f) => plain(f) === detail) || plain(item.facts.join(" ")) === detail;
 }
 
+/**
+ * A plain key press meant for the list: not typed into a field, not a chord
+ * like Cmd+K, and not while a sheet or a confirm is up — those are dialogs, and
+ * a key that snoozed the row behind one would be acting on what you cannot see.
+ */
+function listKey(e: KeyboardEvent): boolean {
+  if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return false;
+  const target = e.target as HTMLElement | null;
+  if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return false;
+  return !document.querySelector('[role="dialog"]');
+}
+
 function Row({
   item,
   session,
   loopTitle,
+  selected,
   onChange,
   onActed,
 }: {
   item: FeedItem;
   session?: Session;
+  /** The row the keyboard is on. */
+  selected: boolean;
   /** The words of the loop this item is filed under, when it still exists. */
   loopTitle?: string;
   onChange: () => void;
@@ -175,6 +190,35 @@ function Row({
         { method: keep ? "POST" : "DELETE" },
       ),
     );
+  // A proposal ends on its own card, so neither applies to one.
+  const canSnooze = !done && item.state !== "snoozed" && item.source !== "proposal";
+  const canFinish = !done && item.source !== "proposal";
+  const finish = () => void setState("done").then(() => onActed([item.id], "marked done"));
+
+  const navigate = useNavigate();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+  // The row's own keys, bound only while it is the selected one. The same
+  // actions as the buttons. No dependency list: they close over busy, and one
+  // listener is cheap to rebind.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!listKey(e)) return;
+      if (e.key === "e" && canFinish) finish();
+      else if (e.key === "s" && canSnooze) setSnoozing(true);
+      else if (e.key === "o") {
+        if (!item.link) setOpen((o) => !o);
+        else if (external) window.open(item.link, "_blank", "noreferrer");
+        else void navigate(item.link);
+      } else return;
+      e.preventDefault();
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  });
 
   const button =
     "tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
@@ -182,7 +226,11 @@ function Row({
   return (
     <div
       id={item.id}
-      className={`group rounded-[11px] border px-3 py-2 ${
+      ref={ref}
+      aria-current={selected || undefined}
+      // A ring rather than the hover's border, so the keyboard's row and the
+      // pointer's row can be told apart when they are not the same one.
+      className={`group rounded-[11px] border px-3 py-2 ${selected ? "ring-2 ring-accent/60" : ""} ${
         done
           ? "border-line/60 bg-surface/60 opacity-70"
           : item.urgency === "attention"
@@ -265,7 +313,7 @@ function Row({
           to be scrolled. They come back on the row under the pointer, and on
           the row you tapped — which is the only one of the two a phone has. */}
       <div
-        className={`mt-2 flex-wrap items-center gap-2 ${open ? "flex" : "hidden group-hover:flex"}`}
+        className={`mt-2 flex-wrap items-center gap-2 ${open || selected ? "flex" : "hidden group-hover:flex"}`}
       >
         {item.link &&
           (external ? (
@@ -297,7 +345,7 @@ function Row({
               </button>
             </>
           )}
-          {!done && item.state !== "snoozed" && item.source !== "proposal" && (
+          {canSnooze && (
             <button
               onClick={() => setSnoozing(true)}
               disabled={busy}
@@ -307,12 +355,8 @@ function Row({
               snooze
             </button>
           )}
-          {!done && item.source === "proposal" ? null : !done ? (
-            <button
-              onClick={() => void setState("done").then(() => onActed([item.id], "marked done"))}
-              disabled={busy}
-              className={button}
-            >
+          {!done && !canFinish ? null : canFinish ? (
+            <button onClick={finish} disabled={busy} className={button}>
               done
             </button>
           ) : (
@@ -363,6 +407,9 @@ export default function Inbox() {
   // What the last action did, and the way back out of it. An inbox where
   // "done" is one tap and irreversible is one you stop trusting to tap in.
   const [undo, setUndo] = useState<{ ids: string[]; label: string } | null>(null);
+  // Where the keyboard is: the row, and where on the list it was, so a row that
+  // leaves (marked done, snoozed) hands the selection to the one that took its place.
+  const [cursor, setCursor] = useState<{ id: string; index: number } | null>(null);
   const [confirm, confirmDialog] = useConfirm();
 
   // Offered for as long as it is plausibly still the thing you just did.
@@ -415,6 +462,32 @@ export default function Inbox() {
     },
     { key: "done", icon: "check", title: "Done", items: shown.filter((i) => i.state === "done") },
   ];
+
+  // j and k walk the rows as they are drawn, so folded quiet ones are skipped.
+  const order = sections.flatMap((s) =>
+    s.key === "quiet" && !showQuiet ? [] : byDay(s.items).flatMap((d) => d.items.map((i) => i.id)),
+  );
+  const selected =
+    !cursor || !order.length
+      ? null
+      : order.includes(cursor.id)
+        ? cursor.id
+        : order[Math.min(cursor.index, order.length - 1)];
+  // Joined, so the listener is rebound when the list changes and not on every poll.
+  const walk = order.join("\n");
+  useEffect(() => {
+    const ids = walk ? walk.split("\n") : [];
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== "j" && e.key !== "k") || !ids.length || !listKey(e)) return;
+      e.preventDefault();
+      const at = selected ? ids.indexOf(selected) : -1;
+      const next =
+        at < 0 ? 0 : Math.max(0, Math.min(ids.length - 1, at + (e.key === "j" ? 1 : -1)));
+      setCursor({ id: ids[next], index: next });
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [walk, selected]);
 
   /**
    * Every item on the list as it is filtered, in one go.
@@ -583,6 +656,11 @@ export default function Inbox() {
           </span>
         </div>
 
+        {/* Only where there is a keyboard to press them on. */}
+        <div className="-mt-5 mb-5 hidden font-mono text-[11px] text-faint pointer-fine:block">
+          j k move · o open · e done · s snooze
+        </div>
+
         {undo && (
           <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13px]">
             <span className="min-w-0 flex-1 text-muted">{undo.label}</span>
@@ -633,6 +711,7 @@ export default function Inbox() {
                             i.id.startsWith("bench:wait:") ? byId.get(i.id.slice(11)) : undefined
                           }
                           loopTitle={i.loop ? loopWhat.get(i.loop) : undefined}
+                          selected={i.id === selected}
                           onChange={refresh}
                           onActed={(ids, label) => setUndo({ ids, label })}
                         />
