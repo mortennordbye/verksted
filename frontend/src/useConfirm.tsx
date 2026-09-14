@@ -1,5 +1,6 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Sheet from "./components/Sheet";
+import { overlaysSettled } from "./useDismissOnBack";
 
 interface Request {
   title: string;
@@ -27,6 +28,7 @@ interface Request {
 export function useConfirm(): [(req: Request) => Promise<boolean>, ReactNode] {
   const [request, setRequest] = useState<Request | null>(null);
   const resolver = useRef<((ok: boolean) => void) | null>(null);
+  const answer = useRef<boolean | null>(null);
 
   const confirm = useCallback((req: Request) => {
     setRequest(req);
@@ -36,10 +38,23 @@ export function useConfirm(): [(req: Request) => Promise<boolean>, ReactNode] {
   }, []);
 
   const settle = (ok: boolean) => {
+    answer.current = ok;
     setRequest(null);
-    resolver.current?.(ok);
-    resolver.current = null;
   };
+
+  // Answered from here rather than in settle, and only once the sheet's
+  // history entry is gone. Callers navigate straight after a "yes", and a
+  // navigation made before that entry's Back lands is undone by it. This
+  // effect runs after the sheet's own unmount cleanup, so the Back it may
+  // issue is already queued when overlaysSettled starts waiting.
+  useEffect(() => {
+    if (request || answer.current === null) return;
+    const ok = answer.current;
+    const resolve = resolver.current;
+    answer.current = null;
+    resolver.current = null;
+    void overlaysSettled().then(() => resolve?.(ok));
+  }, [request]);
 
   const dialog = request ? (
     // Escape, the backdrop and Android Back all reach onClose, and every one of

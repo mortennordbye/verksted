@@ -16,6 +16,25 @@ import { useEffect, useRef } from "react";
  */
 let openOverlays = 0;
 
+/**
+ * The Back this module issued to drop an overlay's entry, until the browser has
+ * done it. `history.back()` is asynchronous, so a navigation made in between —
+ * a confirm resolving, a request returning, then `navigate()` — is pushed first
+ * and then undone by the Back landing after it: deleting a session from its
+ * own screen could leave you on the page of the session just deleted.
+ */
+let ownBack: Promise<void> | null = null;
+
+/**
+ * Resolves once no overlay that has already closed still has its history entry
+ * on the way out. One task first, so a closing overlay's deferred decision
+ * below has run; then its Back, if it issued one.
+ */
+export async function overlaysSettled(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await ownBack;
+}
+
 /** True while the current history entry is the one an overlay pushed. */
 function overlayEntry(): boolean {
   return (history.state as { vkOverlay?: boolean } | null)?.vkOverlay === true;
@@ -63,7 +82,18 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
       // Back itself needs nothing here: the browser has popped the entry
       // already, which is what the check below sees.
       setTimeout(() => {
-        if (openOverlays === 0 && overlayEntry()) history.back();
+        if (openOverlays !== 0 || !overlayEntry()) return;
+        ownBack = new Promise((resolve) =>
+          addEventListener(
+            "popstate",
+            () => {
+              ownBack = null;
+              resolve();
+            },
+            { once: true },
+          ),
+        );
+        history.back();
       }, 0);
     };
   }, [open]);
