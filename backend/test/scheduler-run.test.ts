@@ -634,9 +634,13 @@ describe("a schedule that runs the assistant", () => {
     // And the verksted tools are cut at the server, which is the only place a
     // tool can be made not to exist rather than merely not auto-approved.
     const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
-      mcpServers: { verksted: { env: Record<string, string> } };
+      mcpServers: { verksted: { env: Record<string, string> }; browser?: unknown };
     };
     expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
+    // Even the chair's own browser is cut: nobody is reading a briefing as it
+    // runs, and it is the one tool here that can act on a page rather than
+    // just read one.
+    expect(config.mcpServers.browser).toBeUndefined();
   });
 
   it("gets its own conversation, so it never touches the one being read", async () => {

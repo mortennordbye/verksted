@@ -19,7 +19,7 @@ function modifiers(e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; shi
 
 const BUTTONS = ["left", "middle", "right"] as const;
 
-export default function BrowserPane({ sessionId }: { sessionId: string }) {
+export default function BrowserPane({ wsPath }: { wsPath: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -52,7 +52,7 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/sessions/${sessionId}/browser`);
+    const ws = new WebSocket(`${proto}://${location.host}${wsPath}`);
     wsRef.current = ws;
     let unmounted = false;
 
@@ -107,7 +107,7 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
       ws.close();
       wsRef.current = null;
     };
-  }, [sessionId, attempt]);
+  }, [wsPath, attempt]);
 
   // Reconnect on tab refocus after a drop, same pattern as the terminal.
   useEffect(() => {
@@ -242,7 +242,7 @@ export default function BrowserPane({ sessionId }: { sessionId: string }) {
         </button>
         {cdpUrl && (
           <span
-            title={`Agents in this session reach this browser at $VK_BROWSER_CDP (${cdpUrl})`}
+            title={`Reachable at $VK_BROWSER_CDP (${cdpUrl})`}
             className="hidden flex-none text-[10.5px] text-faint min-[800px]:inline"
           >
             cdp :{cdpUrl.split(":").at(-1)}

@@ -81,3 +81,27 @@ describe("POST /api/sessions/:id/browser/start", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe("POST /api/assistant/browser/start", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
+    process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
+    process.env.STATIC_DIR = "";
+    const { buildApp } = await import("../src/app.js");
+    app = await buildApp({ logger: false });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  // No id to get wrong and no session to look up — the chair's browser is
+  // one fixed identity, so the only way this fails here is the same way a
+  // session's does: chromium is not where playwright looks for it.
+  it("502s when chromium is not there, same as a session's", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/assistant/browser/start" });
+    expect(res.statusCode).toBe(502);
+  });
+});
