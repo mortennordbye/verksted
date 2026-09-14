@@ -298,7 +298,7 @@ function ProjectBars({ projects }: { projects: UsageSummary["projects"] }) {
           key={p.project}
           className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-3"
         >
-          <span className="truncate font-mono text-[12px]">{p.project}</span>
+          <span className="truncate text-[12.5px]">{p.project}</span>
           <div className="h-[6px] overflow-hidden rounded-full bg-surface-2">
             <div
               className="h-full rounded-full bg-chart-1"

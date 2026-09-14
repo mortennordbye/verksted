@@ -78,12 +78,12 @@ export default function ProfilePanel() {
           <button
             onClick={() => void save()}
             disabled={draft === null || used > budget}
-            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
           >
             save
           </button>
-          {saved && <span className="font-mono text-[11px] text-run">saved</span>}
-          {error && <span className="font-mono text-[11px] text-fail">{error}</span>}
+          {saved && <span className="text-[11.5px] text-run">saved</span>}
+          {error && <span className="text-[11.5px] text-fail">{error}</span>}
           <span
             className={`ml-auto font-mono text-[11px] ${used > budget ? "text-fail" : "text-faint"}`}
           >

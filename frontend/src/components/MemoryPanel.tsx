@@ -102,7 +102,7 @@ function Editor({
           value={type}
           onChange={(e) => setType(e.target.value as MemoryType)}
           aria-label="type"
-          className="rounded-[7px] border border-line bg-surface-2 px-2 py-1.5 font-mono text-[12px]"
+          className="rounded-[7px] border border-line bg-surface-2 px-2 py-1.5 text-[12.5px]"
         >
           {TYPES.map((t) => (
             <option key={t} value={t}>
@@ -115,23 +115,23 @@ function Editor({
           onChange={(e) => setScope(e.target.value)}
           aria-label="scope"
           placeholder="global, or a project"
-          className="w-[170px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+          className="w-[170px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
         />
         <button
           onClick={() => void save()}
           disabled={busy || !text.trim()}
-          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
         >
           {memory ? "save" : "remember"}
         </button>
         <button
           onClick={onCancel}
-          className="tap rounded-[7px] border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-faint hover:text-text"
+          className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text"
         >
           cancel
         </button>
       </div>
-      {error && <div className="font-mono text-[11px] text-fail">{error}</div>}
+      {error && <div className="text-[11.5px] text-fail">{error}</div>}
     </div>
   );
 }
@@ -158,14 +158,14 @@ function Row({
         <button
           onClick={onEdit}
           aria-label={`edit: ${memory.text.slice(0, 40)}`}
-          className="tap-sq flex-none rounded-[7px] border border-line px-2 py-1 font-mono text-[11px] text-muted hover:border-faint hover:text-text"
+          className="tap-sq flex-none rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
         >
           edit
         </button>
         <button
           onClick={onForget}
           aria-label={`forget: ${memory.text.slice(0, 40)}`}
-          className="tap-sq flex-none rounded-[7px] border border-line px-2 py-1 font-mono text-[11px] text-muted hover:border-fail hover:text-fail"
+          className="tap-sq flex-none rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-fail hover:text-fail"
         >
           forget
         </button>
@@ -203,9 +203,9 @@ function MemberNotes({ member }: { member: CouncilMember }) {
 
   return (
     <div className="rounded-[11px] border border-line bg-surface px-[15px] py-3">
-      <div className="mb-2 font-mono text-[12px]">
+      <div className="mb-2 text-[12.5px]">
         {member.name}
-        <span className="ml-2 text-[11px] text-faint">
+        <span className="ml-2 text-[11.5px] text-faint">
           {notes.length} note{notes.length === 1 ? "" : "s"}, read by nobody else
         </span>
       </div>
@@ -215,7 +215,7 @@ function MemberNotes({ member }: { member: CouncilMember }) {
             <span className="min-w-0 flex-1 break-words text-muted">{m.text}</span>
             <button
               onClick={() => void forget(m.slug)}
-              className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 font-mono text-[11px] text-faint hover:border-wait hover:text-wait"
+              className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 text-[11.5px] text-faint hover:border-wait hover:text-wait"
             >
               forget
             </button>
@@ -288,7 +288,7 @@ export default function MemoryPanel() {
             setEditing(null);
             setAdding(true);
           }}
-          className="tap flex-none rounded-lg bg-accent px-3 py-1.5 font-mono text-[12px] font-semibold text-on-accent hover:brightness-110"
+          className="tap flex-none rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
         >
           + remember
         </button>
@@ -323,7 +323,7 @@ export default function MemoryPanel() {
           <button
             onClick={startHarvesting}
             disabled={busy}
-            className="tap flex-none rounded-lg border border-line px-3 py-1.5 font-mono text-[12px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
+            className="tap flex-none rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
           >
             learn nightly
           </button>
