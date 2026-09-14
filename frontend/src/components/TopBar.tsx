@@ -1,7 +1,5 @@
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
-import type { Memory } from "../../../shared/api";
-import { usePoll } from "../api";
-import { Badge, isTabRoute, TabLinks } from "./Tabs";
+import { Badge, isTabRoute, TabLinks, useNeedsYou } from "./Tabs";
 
 /**
  * The way up, as a pop rather than a push: pushing meant the browser's own Back
@@ -111,10 +109,8 @@ export default function TopBar({
   /** Extra classes on the header itself. A wrapper would break its sticky. */
   className?: string;
 }) {
-  // A harvested memory that nobody notices is a harvest that did not happen:
-  // the queue is the one thing in the inbox that arrives without a session or a
-  // run to announce it. Polled slowly on purpose — it changes once a night.
-  const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
+  // What the inbox's headline counts, so the badge and the page agree.
+  const needs = useNeedsYou();
   // One rule for the whole app, read off the route rather than passed in by
   // each screen. On a wide screen every bar is the same: the four doors as
   // words and settings, whatever screen you are on. On a phone, where there is
@@ -189,17 +185,13 @@ export default function TopBar({
       <div className="ml-auto flex flex-none items-center gap-5">
         {/* The four screens, as words, on every screen wide enough for words:
             the bar on settings or a session is the same bar as on Today. */}
-        <TabLinks badge={proposed?.proposals.length} />
+        <TabLinks badge={needs} />
         {/* The envelope is the phone's way to the inbox from a screen with no
             bottom bar. On a wide screen the word Inbox is right beside it, so
             there it would be a second door to the same place. */}
         {!onTab && (
           <span className="flex-none min-[800px]:hidden">
-            <IconLink
-              to="/runs"
-              title="inbox — what the schedules did"
-              badge={proposed?.proposals.length}
-            >
+            <IconLink to="/runs" title="inbox — what the schedules did" badge={needs}>
               <rect x="2" y="4" width="20" height="16" rx="2" />
               <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
             </IconLink>

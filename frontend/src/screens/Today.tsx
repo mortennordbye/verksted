@@ -248,7 +248,7 @@ function Composer({ name }: { name: string }) {
             rows={1}
             placeholder={`ask ${name}…`}
             aria-label={`ask ${name}`}
-            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
+            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent text-[15px] outline-none! placeholder:text-faint"
           />
           <button
             onClick={() => void send()}
@@ -543,8 +543,12 @@ export default function Today() {
                           className="tap flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2"
                         >
                           <span className="min-w-0 truncate">{l.what}</span>
+                          {/* Capped and truncated: for an item that is not a PR
+                              this is the item's title, which can be a sentence,
+                              and a flex-none sentence pushed the row past the ×
+                              and the page past the screen. */}
                           {source && (
-                            <span className="flex-none font-mono text-[11.5px] text-faint">
+                            <span className="max-w-[45%] flex-none truncate font-mono text-[11.5px] text-faint">
                               {source}
                             </span>
                           )}

@@ -17,6 +17,7 @@ import TopBar from "../components/TopBar";
 import { useConfirm } from "../useConfirm";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
+import { useVisualViewport } from "../useVisualViewport";
 
 /**
  * The composer's icons, drawn rather than typed.
@@ -639,6 +640,10 @@ export default function Chat() {
     return () => ws.close();
   }, []);
 
+  // Sets `data-kbd`, which hides the tab bar and drops the composer onto the
+  // keys: left where they were, the two floated above a band of nothing.
+  useVisualViewport();
+
   // This is the one door whose field is always on screen, and iOS leaves the
   // fixed tab bar resting at the offset it had while the keyboard was up
   // instead of the real one once it closes. The visual viewport returning to
@@ -887,7 +892,7 @@ export default function Chat() {
     // With a panel open on a desktop, the whole screen gives up its right half
     // to it, top bar included, so the two read as one split view.
     <div
-      className={`flex min-h-full flex-col pb-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:pb-0 ${
+      className={`flex min-h-full flex-col pb-[calc(55px+env(safe-area-inset-bottom))] min-[800px]:pb-0 kbd:pb-0 ${
         panel ? "desk:pr-[50%]" : ""
       }`}
     >
@@ -1008,8 +1013,9 @@ export default function Chat() {
           height), and back to its own inset where there is none. Painted with
           the page ground so the thread passing behind does not show around
           its corners. No rule above it: the field is a lifted card already,
-          and a line across the page on top of that read as a second border. */}
-      <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))]">
+          and a line across the page on top of that read as a second border.
+          With the keyboard up the bar is hidden, so it sits on the keys. */}
+      <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))] kbd:bottom-0 kbd:pb-2">
         {error && <div className="mb-2 font-mono text-[12px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
@@ -1118,7 +1124,9 @@ export default function Chat() {
                   : "Ask, or tell me something…"
             }
             aria-label="message the assistant"
-            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none placeholder:text-faint"
+            // outline-none! because theme.css draws a focus ring on every
+            // textarea, unlayered, and inside this card it was a second border.
+            className="block max-h-32 min-h-[26px] w-full resize-none bg-transparent px-1 text-[16px] outline-none! placeholder:text-faint"
           />
           {/* Attach on the left, voice and send on the right. The audience
               chips that sat between them are gone: the chair decides who

@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from "react-router";
-import type { Memory } from "../../../shared/api";
+import type { FeedItem } from "../../../shared/api";
 import { usePoll } from "../api";
 import Icon, { type IconName } from "./Icon";
 
@@ -64,15 +64,27 @@ export function Badge({ count, inline = false }: { count: number; inline?: boole
   );
 }
 
+/**
+ * How many inbox items need you: the number the inbox's own headline says.
+ * It counted proposed memories, which is why the tab read 9+ over a page that
+ * said two things needed you.
+ */
+export function useNeedsYou(): number {
+  const { data } = usePoll<FeedItem[]>("/api/feed", 60_000);
+  return (data ?? []).filter((i) => i.state !== "done" && i.urgency === "attention").length;
+}
+
 export default function Tabs() {
   // The same count the top bar carries, read the same way: the phone shows the
   // bar's words nowhere, so the bottom tabs are where it has to appear.
-  const { data: proposed } = usePoll<{ proposals: Memory[] }>("/api/memory/proposed", 120_000);
+  const needs = useNeedsYou();
   const { pathname } = useLocation();
   return (
+    // Gone while the keyboard is up: the composer drops onto the keys, and a
+    // bar left between them was a band of dead space in the middle of a phone.
     <nav
       aria-label="screens"
-      className="fixed inset-x-0 bottom-0 z-20 flex transform-gpu border-t border-line bg-bg/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[800px]:hidden"
+      className="fixed inset-x-0 bottom-0 z-20 flex transform-gpu border-t border-line bg-bg/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[800px]:hidden kbd:hidden"
     >
       {TABS.map((t) => (
         <NavLink
@@ -84,9 +96,13 @@ export default function Tabs() {
             }`
           }
         >
-          <Icon name={t.icon} size={20} strokeWidth={1.8} />
+          {/* The badge rides on the icon: on the whole cell its corner was the
+              border with the next tab. */}
+          <span className="relative">
+            <Icon name={t.icon} size={20} strokeWidth={1.8} />
+            {t.to === "/runs" && <Badge count={needs} />}
+          </span>
           {t.label}
-          {t.to === "/runs" && <Badge count={proposed?.proposals.length ?? 0} />}
         </NavLink>
       ))}
     </nav>
