@@ -93,6 +93,11 @@ describe("deleting a session from its own screen", () => {
   it("removes the session, and leaves the screen it was on", async () => {
     await page.getByRole("button", { name: "delete", exact: true }).click();
     await page.waitForURL("**/p/demo", { timeout: 10_000 });
+    // And stays there. The confirm drops its history entry with a Back of its
+    // own, and one landing after the navigation took the page back to the
+    // session it had just deleted — under load, about one run in three.
+    await page.waitForTimeout(500);
+    expect(new URL(page.url()).pathname).toBe("/p/demo");
     expect(fs.existsSync(path.join(sessionsDir, "vk-demo-1.json"))).toBe(false);
   });
 

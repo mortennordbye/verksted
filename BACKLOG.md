@@ -912,19 +912,3 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `mock-inbox.html` in the repo root.
-
-## The Back-closes-a-sheet e2e test has flaked since screens load on demand
-
-- **What:** `still closes a sheet on Back, without leaving the session` timed
-  out waiting for `/p/demo` after its second Back, once in five `make e2e`
-  runs, all of them after every screen but Today and the bench became its own
-  lazy chunk. The other four passed.
-- **Why deferred:** It would not fail again on demand. Whether the 5s wait is
-  too tight for going back into a lazy Project chunk, or the lazy boundary
-  widened a history race, takes more runs to tell than one change should be
-  held for.
-- **Unblocked by:** It failing again. Then loop that one file
-  (`npx vitest run --config e2e/vitest.config.ts e2e/session-actions.test.ts`)
-  and check whether the Project chunk has loaded when `waitForURL` gives up.
-- **Where:** `e2e/session-actions.test.ts`, `frontend/src/App.tsx` (the `lazy`
-  routes)
