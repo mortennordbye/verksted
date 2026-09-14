@@ -112,6 +112,18 @@ const propose = (action, why) =>
 const eventLine = (e) =>
   `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.recurring ? " (repeats)" : ""}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""} [${e.uid}]`;
 
+/** A Gmail filter, on one line: what it matches, then what it does. */
+const ruleLine = (r) =>
+  `${
+    [r.from && `from:${r.from}`, r.subject && `subject:${r.subject}`, r.query]
+      .filter(Boolean)
+      .join(" ") || "(no match given)"
+  } -> ${
+    [r.label && `label ${r.label}`, r.archive && "archive", r.markRead && "mark read"]
+      .filter(Boolean)
+      .join(", ") || "(nothing)"
+  }`;
+
 /** Only the fields the calendar routes take: they refuse anything else. */
 const eventBody = (a) =>
   Object.fromEntries(
@@ -763,6 +775,52 @@ const TOOLS = [
     run: async (a) => {
       const { moved } = await call("POST", "/api/mail/move", { uids: a.uids, to: a.to });
       return `moved ${moved} to ${a.to}`;
+    },
+  },
+  {
+    name: "mail_labels",
+    unattended: true,
+    description:
+      "The account's own labels, for naming one in mail_rule_create. Gmail only — this and the two rule tools use the Gmail API, not IMAP, so they answer 'not signed in' on any other provider.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => rows(await call("GET", "/api/mail/labels"), (l) => l.name),
+  },
+  {
+    name: "mail_rules",
+    unattended: true,
+    description:
+      "The filters already set on the account: what each one matches and what it does to a match. Read this before mail_rule_create so you do not add one that is already there.",
+    inputSchema: { type: "object", properties: {} },
+    run: async () => rows(await call("GET", "/api/mail/rules"), (r) => `${r.id}  ${ruleLine(r)}`),
+  },
+  {
+    name: "mail_rule_create",
+    description:
+      "Add a standing Gmail filter: mail matching from/subject/query gets labelled, archived, or marked read, from then on, with no further asking. Because it acts on every mail from here on rather than once like mail_move, only set one up on their word in the chat, never on your own — say what you set up. Needs at least one thing to match and one thing to do; mail_labels lists label names, and a label named here is created if it does not exist yet.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        from: { type: "string" },
+        subject: { type: "string" },
+        query: { type: "string", description: 'a Gmail search, e.g. "has:attachment larger:5M"' },
+        label: { type: "string" },
+        archive: { type: "boolean" },
+        markRead: { type: "boolean" },
+      },
+    },
+    run: async (a) => {
+      const r = await call("POST", "/api/mail/rules", a);
+      return `set up ${r.id}: ${ruleLine(r)}`;
+    },
+  },
+  {
+    name: "mail_rule_delete",
+    description:
+      "Remove a filter mail_rules listed, by its id. Same rule as creating one: only on their word.",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+    run: async (a) => {
+      await call("DELETE", `/api/mail/rules/${encodeURIComponent(a.id)}`);
+      return `removed rule ${a.id}`;
     },
   },
   {

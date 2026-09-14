@@ -1361,6 +1361,24 @@ export interface SourceStatus {
   links: { github: string; mail?: string; calendar?: string };
 }
 
+/** A Gmail label: what mail_rule_create files a match under. */
+export interface GmailLabel {
+  id: string;
+  name: string;
+}
+
+/** A Gmail filter, in the shape mail_rules lists and mail_rule_create takes. */
+export interface GmailRule {
+  id: string;
+  from?: string;
+  subject?: string;
+  query?: string;
+  /** The label a match is filed under, when the rule files rather than only acts. */
+  label?: string;
+  archive: boolean;
+  markRead: boolean;
+}
+
 /** Google sign-in for the calendar, as the settings page shows it. */
 export interface GoogleCalendarStatus {
   /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are both saved. */

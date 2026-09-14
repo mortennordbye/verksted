@@ -119,6 +119,10 @@ describe("the tool set", () => {
         "docs_search",
         "mail_folders",
         "mail_move",
+        "mail_labels",
+        "mail_rules",
+        "mail_rule_create",
+        "mail_rule_delete",
         "mail_read",
         "mail_recent",
         "mail_search",
@@ -212,10 +216,12 @@ describe("the tool set", () => {
         "list_prs",
         "list_schedules",
         "loops",
-        // Read-only, and the chair reads the mail itself now. mail_move is not
-        // here on purpose: it is the one mail tool that changes something, and
+        // Read-only, and the chair reads the mail itself now. mail_move and the
+        // rule writes are not here on purpose: they change something, and
         // nothing that changes anything is offered when nobody is reading.
         "mail_folders",
+        "mail_labels",
+        "mail_rules",
         "notify",
         "pr_detail",
         // Writes to the review queue, never to memory — which is exactly why it
