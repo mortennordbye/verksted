@@ -1338,6 +1338,11 @@ export interface CalendarEvent {
   url: string | null;
   description: string | null;
   calendar: string;
+  /**
+   * One occurrence of a repeating event. Its uid is the whole series', so a
+   * change to it has to say which occurrence, or every one.
+   */
+  recurring?: boolean;
 }
 
 /** Which of the credentialed sources are set up on this bench. */

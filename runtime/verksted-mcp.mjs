@@ -110,7 +110,7 @@ const propose = (action, why) =>
 
 /** One event, on one line: when, what, where, and the uid a change names it by. */
 const eventLine = (e) =>
-  `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""} [${e.uid}]`;
+  `${e.allDay ? local(e.start).slice(0, 10) + " all day" : local(e.start)} ${e.summary}${e.recurring ? " (repeats)" : ""}${e.location ? ` @ ${e.location}` : ""}${e.url ? ` ${e.url}` : ""} [${e.uid}]`;
 
 /** Only the fields the calendar routes take: they refuse anything else. */
 const eventBody = (a) =>
@@ -127,6 +127,20 @@ const EVENT_FIELDS = {
   location: { type: "string" },
   description: { type: "string" },
 };
+
+/** Which part of an event marked (repeats) a change or a delete means. */
+const OCCURRENCE_FIELDS = {
+  occurrence: {
+    type: "string",
+    description: "for an event marked (repeats): the start of that one occurrence, as listed",
+  },
+  every: { type: "boolean", description: "for an event marked (repeats): every occurrence" },
+};
+
+const targetOf = (a) => ({
+  ...(typeof a.occurrence === "string" ? { occurrence: a.occurrence } : {}),
+  ...(a.every === true ? { every: true } : {}),
+});
 
 const TOOLS = [
   {
@@ -830,22 +844,30 @@ const TOOLS = [
   {
     name: "calendar_update",
     description:
-      "Change one event they told you to change, named by the uid in brackets that calendar_today, calendar_upcoming and calendar_search print. Only the fields given change; a new start alone keeps its length; an empty location or description clears it. A recurring event is refused: tell them to change that one in their calendar app.",
+      "Change one event they told you to change, named by the uid in brackets that calendar_today, calendar_upcoming and calendar_search print. Only the fields given change; a new start alone keeps its length; an empty location or description clears it. An event marked (repeats) also needs occurrence (the start of the one they mean, exactly as listed) or every: true for the whole series; if they did not say which, ask. Moving the time of every occurrence needs both every and occurrence (the one the new time is for), and is refused once any occurrence was moved or removed.",
     inputSchema: {
       type: "object",
-      properties: { uid: { type: "string" }, ...EVENT_FIELDS },
+      properties: { uid: { type: "string" }, ...EVENT_FIELDS, ...OCCURRENCE_FIELDS },
       required: ["uid"],
     },
     run: async (a) =>
-      `now: ${eventLine(await call("PATCH", `/api/calendar/events/${encodeURIComponent(a.uid)}`, eventBody(a)))}`,
+      `now: ${eventLine(await call("PATCH", `/api/calendar/events/${encodeURIComponent(a.uid)}`, { ...eventBody(a), ...targetOf(a) }))}`,
   },
   {
     name: "calendar_delete",
     description:
-      "Take one event off the calendar because they told you to, by its uid in brackets from the calendar tools. Say what was removed. A recurring event is refused.",
-    inputSchema: { type: "object", properties: { uid: { type: "string" } }, required: ["uid"] },
-    run: async (a) =>
-      `removed: ${eventLine(await call("DELETE", `/api/calendar/events/${encodeURIComponent(a.uid)}`))}`,
+      "Take one event off the calendar because they told you to, by its uid in brackets from the calendar tools. Say what was removed. An event marked (repeats) also needs occurrence (the one they mean, its start as listed) or every: true to remove the whole series; if they did not say which, ask.",
+    inputSchema: {
+      type: "object",
+      properties: { uid: { type: "string" }, ...OCCURRENCE_FIELDS },
+      required: ["uid"],
+    },
+    run: async (a) => {
+      const q = new URLSearchParams(
+        Object.entries(targetOf(a)).map(([k, v]) => [k, String(v)]),
+      ).toString();
+      return `removed: ${eventLine(await call("DELETE", `/api/calendar/events/${encodeURIComponent(a.uid)}${q ? `?${q}` : ""}`))}`;
+    },
   },
   {
     name: "propose",

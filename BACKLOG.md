@@ -3,22 +3,6 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
-## The chair cannot change a recurring event
-
-- **What:** `calendar_update` and `calendar_delete` refuse any event whose file
-  has an RRULE or more than one VEVENT, and tell the person to use their
-  calendar app. Moving one Tuesday of a weekly meeting, or ending the series,
-  is not possible from the chat.
-- **Why deferred:** "Move it" on a series is ambiguous between one occurrence
-  and all of them, and getting it wrong on a server with no undo rewrites every
-  future week. Doing it right means writing RECURRENCE-ID overrides or EXDATEs,
-  which is a second editing path for the rarer case.
-- **Unblocked by:** Asking for it. Then take an occurrence start in the tool,
-  write an override VEVENT (or an EXDATE for a delete) into the same file, and
-  only touch the master when the person says "every".
-- **Where:** `backend/src/calendar.ts` (`find`, `update`, `remove`, `edit`),
-  `runtime/verksted-mcp.mjs` (`calendar_update`, `calendar_delete`).
-
 ## A member seeded before a tool existed never gains it
 
 - **What:** Uriel on the pod holds `status, recall, list_memories, remember,

@@ -264,6 +264,14 @@ export default async function sourceRoutes(app: FastifyInstance) {
     return null;
   };
   const iso = (d?: string) => (d === undefined ? undefined : new Date(d).toISOString());
+  // Which part of a repeating event a change means (calendar.Target). Kept as
+  // it was sent: "2026-09-22" is a day here, which toISOString would make UTC.
+  const targetProps = {
+    occurrence: { type: "string", minLength: 1, maxLength: 40 },
+    every: { type: "boolean" },
+  };
+  const badOccurrence = (when?: string): string | null =>
+    when !== undefined && Number.isNaN(Date.parse(when)) ? "occurrence must be a date" : null;
 
   app.post<{ Body: calendar.EventFields }>(
     "/api/calendar/events",
@@ -288,7 +296,10 @@ export default async function sourceRoutes(app: FastifyInstance) {
     },
   );
 
-  app.patch<{ Params: { uid: string }; Body: Partial<calendar.EventFields> }>(
+  app.patch<{
+    Params: { uid: string };
+    Body: Partial<calendar.EventFields> & calendar.Target;
+  }>(
     "/api/calendar/events/:uid",
     {
       schema: {
@@ -297,28 +308,46 @@ export default async function sourceRoutes(app: FastifyInstance) {
           type: "object",
           minProperties: 1,
           additionalProperties: false,
-          properties: eventProps,
+          properties: { ...eventProps, ...targetProps },
         },
       },
     },
     (req, reply) => {
-      const bad = badDates(req.body.start, req.body.end);
+      const { occurrence, every, ...fields } = req.body;
+      if (!Object.keys(fields).length) return reply.code(400).send({ error: "nothing to change" });
+      const bad = badDates(fields.start, fields.end) ?? badOccurrence(occurrence);
       if (bad) return reply.code(400).send({ error: bad });
-      const change = { ...req.body, start: iso(req.body.start), end: iso(req.body.end) };
+      const change = { ...fields, start: iso(fields.start), end: iso(fields.end) };
       if (change.start === undefined) delete change.start;
       if (change.end === undefined) delete change.end;
       return guard<CalendarEvent>(
-        () => calendar.update(req.params.uid, change),
+        () => calendar.update(req.params.uid, change, { occurrence, every }),
         reply,
         "calendar update",
       );
     },
   );
 
-  app.delete<{ Params: { uid: string } }>(
+  app.delete<{ Params: { uid: string }; Querystring: calendar.Target }>(
     "/api/calendar/events/:uid",
-    { schema: { params: uidParam } },
-    (req, reply) =>
-      guard<CalendarEvent>(() => calendar.remove(req.params.uid), reply, "calendar delete"),
+    {
+      schema: {
+        params: uidParam,
+        querystring: { type: "object", additionalProperties: false, properties: targetProps },
+      },
+    },
+    (req, reply) => {
+      const { occurrence, every } = req.query;
+      if (occurrence !== undefined && every) {
+        return reply.code(400).send({ error: "either one occurrence or every one, not both" });
+      }
+      const bad = badOccurrence(occurrence);
+      if (bad) return reply.code(400).send({ error: bad });
+      return guard<CalendarEvent>(
+        () => calendar.remove(req.params.uid, { occurrence, every }),
+        reply,
+        "calendar delete",
+      );
+    },
   );
 }
