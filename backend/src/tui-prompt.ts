@@ -198,10 +198,15 @@ export function parseMode(pane: string): string | null {
  * chat you could not, and "is it working or is it stuck" is the question being
  * asked of that screen most often.
  *
- * The pane knows. Claude prints "esc to interrupt" on its status line while a
- * turn is running and never when one is not, so that is the signal — the one
- * bit that matters. The verb above it is decoration: nice when it parses,
- * absent without consequence when it does not.
+ * The pane knows, two ways. Claude prints "esc to interrupt" on its status
+ * line while a turn is running and never when one is not — but that line also
+ * carries the permission mode and, once convened from a chat, which PR is
+ * open, and the CLI truncates the whole thing to fit the pane rather than
+ * wrap it. Narrow enough — a phone's terminal tab, which is exactly where
+ * this reading matters most — and "esc to interrupt" is the part that gets
+ * cut, left as `esc to int…`. So it is a hint, not the only signal: the
+ * verb-and-timer line below is checked either way, and either one on its own
+ * means a turn is running.
  */
 const BUSY_RE = /esc to interrupt/i;
 
@@ -219,16 +224,16 @@ export function parseActivity(pane: string): { busy: boolean; doing: string | nu
   // Blanks dropped before the tail is taken, the same as `parseMode`: a real
   // capture is the pane's full height, so the last lines of one are the empty
   // rows under the composer rather than the status line.
-  const busy = lines
+  const hint = lines
     .filter(Boolean)
     .slice(-MODE_TAIL_LINES - 2)
     .some((l) => BUSY_RE.test(l));
-  if (!busy) return { busy: false, doing: null };
   // Nearest first: the CLI redraws this line in place, so the last one on the
-  // pane is the turn that is running now.
+  // pane is the turn that is running now — checked whether or not the hint
+  // above was found, since a truncated pane can lose the hint and keep this.
   for (let i = lines.length - 1; i >= 0; i--) {
     const m = ACTIVITY_RE.exec(lines[i]);
-    if (m) return { busy, doing: m[1].slice(0, MAX_QUESTION) };
+    if (m) return { busy: true, doing: m[1].slice(0, MAX_QUESTION) };
   }
-  return { busy, doing: null };
+  return { busy: hint, doing: null };
 }
