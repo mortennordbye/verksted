@@ -877,22 +877,3 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   under the Mail tab, the same shape as the blocked-owners list.
 - **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
   `backend/src/routes/sources.ts` (`/api/mail/rules`).
-
-## Gmail rules are merged but not signed in yet
-
-- **What:** `mail_labels`, `mail_rules`, `mail_rule_create` and
-  `mail_rule_delete` land as code (#162) but answer "not signed in" or "Gmail
-  refused" (`GmailUnavailable`/`GmailDenied` in `backend/src/gmail.ts`) until
-  three things happen outside the repo: the Gmail API is enabled on the same
-  Google Cloud project the calendar uses, the OAuth client is trusted under
-  Workspace's Security → API controls if that blocks new app scopes, and
-  Google is signed in to again on the settings page — the existing
-  `GOOGLE_REFRESH_TOKEN` predates the two Gmail scopes this needs.
-- **Why deferred:** All three are one-time manual steps in Google Cloud
-  Console and the settings page, not something a session on this pod can do
-  for itself.
-- **Unblocked by:** Doing the three steps above, then asking the assistant to
-  list labels or set up a rule to confirm it went through.
-- **Where:** Google Cloud Console (outside the repo);
-  `frontend/src/screens/Settings.tsx` (the "sign in again" link);
-  `backend/src/gmail.ts`.
