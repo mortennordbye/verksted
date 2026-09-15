@@ -124,6 +124,7 @@ describe("the tool set", () => {
         "mail_rules",
         "mail_rule_create",
         "mail_rule_delete",
+        "mail_label_delete",
         "mail_read",
         "mail_recent",
         "mail_search",

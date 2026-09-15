@@ -53,6 +53,10 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
   if (url.endsWith("/messages/batchModify") && method === "POST") {
     return Promise.resolve(new Response(null, { status: 204 }));
   }
+  if (/\/labels\/L\d+$/.test(url) && method === "DELETE") {
+    userLabels = userLabels.filter((l) => !url.endsWith(`/${l.id}`));
+    return Promise.resolve(new Response(null, { status: 204 }));
+  }
   if (/\/settings\/filters\/F\d+$/.test(url) && method === "DELETE") {
     filters = filters.filter((f) => !url.endsWith(f.id));
     return Promise.resolve(new Response(null, { status: 204 }));
@@ -92,6 +96,23 @@ beforeEach(() => {
   filters = [];
   messages = [];
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
+});
+
+describe("deleting a label", () => {
+  const deletes = () => requests.filter((r) => r.method === "DELETE");
+
+  it("deletes the label by the name mail_labels shows, through its id", async () => {
+    await gmail.deleteLabel("Existing");
+    expect(deletes().map((r) => r.url.split("/users/me")[1])).toEqual(["/labels/L1"]);
+    expect(await gmail.labels()).toEqual([]);
+  });
+
+  it("refuses a name that is not there, or a label a filter still files into", async () => {
+    await expect(gmail.deleteLabel("Typo")).rejects.toBeInstanceOf(gmail.RuleRefused);
+    filters = [{ id: "F1", criteria: { from: "a@b.com" }, action: { addLabelIds: ["L1"] } }];
+    await expect(gmail.deleteLabel("Existing")).rejects.toThrow(/F1/);
+    expect(deletes()).toHaveLength(0);
+  });
 });
 
 describe("relabel", () => {

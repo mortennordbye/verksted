@@ -185,6 +185,30 @@ export default async function sourceRoutes(app: FastifyInstance) {
     guard<GmailLabel[]>(() => gmail.labels(), reply, "gmail labels"),
   );
 
+  // By name in the body rather than the path: a nested label has a / in it.
+  app.delete<{ Body: { name: string } }>(
+    "/api/mail/labels",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["name"],
+          additionalProperties: false,
+          properties: { name: { type: "string", minLength: 1, maxLength: 200 } },
+        },
+      },
+    },
+    (req, reply) =>
+      guard<{ name: string }>(
+        async () => {
+          await gmail.deleteLabel(req.body.name);
+          return { name: req.body.name };
+        },
+        reply,
+        "gmail label delete",
+      ),
+  );
+
   app.post<{ Body: gmail.RelabelFields }>(
     "/api/mail/relabel",
     {
