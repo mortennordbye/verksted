@@ -44,7 +44,13 @@ describe("the sign-in link", () => {
   it("asks for offline calendar access and comes back to this host", () => {
     const url = new URL(google.authUrl("client-1", CALLBACK, "s1"));
     expect(url.origin + url.pathname).toBe(google.AUTH_URL);
-    expect(url.searchParams.get("scope")?.split(" ")).toContain(google.CALENDAR_SCOPE);
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining([
+        google.CALENDAR_SCOPE,
+        google.GMAIL_MODIFY_SCOPE,
+        google.GMAIL_SETTINGS_SCOPE,
+      ]),
+    );
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("prompt")).toBe("consent");
     expect(url.searchParams.get("redirect_uri")).toBe(CALLBACK);

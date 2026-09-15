@@ -25,7 +25,9 @@ export const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 export const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
-export const GMAIL_LABELS_SCOPE = "https://www.googleapis.com/auth/gmail.labels";
+// modify rather than labels, so reading and filing mail over the API later
+// does not need another sign-in. It stops short of deleting mail outright.
+export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 export const GMAIL_SETTINGS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
 export const GOOGLE_CALDAV_URL = "https://apidata.googleusercontent.com/caldav/v2/";
 
@@ -55,7 +57,7 @@ export function authUrl(clientId: string, redirect: string, state: string): stri
     client_id: clientId,
     redirect_uri: redirect,
     response_type: "code",
-    scope: ["openid", "email", CALENDAR_SCOPE, GMAIL_LABELS_SCOPE, GMAIL_SETTINGS_SCOPE].join(" "),
+    scope: ["openid", "email", CALENDAR_SCOPE, GMAIL_MODIFY_SCOPE, GMAIL_SETTINGS_SCOPE].join(" "),
     // offline for a refresh token; consent so Google sends one again on a
     // second sign-in, which it otherwise leaves out.
     access_type: "offline",
