@@ -185,6 +185,38 @@ export default async function sourceRoutes(app: FastifyInstance) {
     guard<GmailLabel[]>(() => gmail.labels(), reply, "gmail labels"),
   );
 
+  app.post<{ Body: gmail.RelabelFields }>(
+    "/api/mail/relabel",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["query"],
+          additionalProperties: false,
+          properties: {
+            query: { type: "string", minLength: 1, maxLength: 500 },
+            add: {
+              type: "array",
+              maxItems: 10,
+              items: { type: "string", minLength: 1, maxLength: 200 },
+            },
+            remove: {
+              type: "array",
+              maxItems: 10,
+              items: { type: "string", minLength: 1, maxLength: 200 },
+            },
+          },
+        },
+      },
+    },
+    (req, reply) =>
+      guard<{ changed: number }>(
+        async () => ({ changed: await gmail.relabel(req.body) }),
+        reply,
+        "gmail relabel",
+      ),
+  );
+
   app.get("/api/mail/rules", (_req, reply) =>
     guard<GmailRule[]>(() => gmail.rules(), reply, "gmail rules"),
   );

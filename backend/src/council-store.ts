@@ -103,6 +103,8 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   { name: "mail_read", chairOnly: false },
   { name: "mail_folders", chairOnly: false },
   { name: "mail_move", chairOnly: false },
+  // Undone by the opposite relabel, the same reason mail_move needs no asking.
+  { name: "mail_relabel", chairOnly: false },
   { name: "mail_labels", chairOnly: false },
   { name: "mail_rules", chairOnly: false },
   { name: "docs_catalogue", chairOnly: false },
@@ -144,6 +146,7 @@ export const PRIVATE_TOOLS = new Set([
   "mail_read",
   "mail_folders",
   "mail_move",
+  "mail_relabel",
   "mail_labels",
   "mail_rules",
   "mail_rule_create",

@@ -119,6 +119,7 @@ describe("the tool set", () => {
         "docs_search",
         "mail_folders",
         "mail_move",
+        "mail_relabel",
         "mail_labels",
         "mail_rules",
         "mail_rule_create",

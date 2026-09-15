@@ -778,6 +778,28 @@ const TOOLS = [
     },
   },
   {
+    name: "mail_relabel",
+    description:
+      "Put Gmail labels on and take them off the mail a Gmail search finds, at most 50 at a time. This is the fix when mail_move left a label behind, since a move only drops INBOX. query is a Gmail search; a label with spaces, & or / in it is searched with - instead, so H&M is label:h-m. add and remove are label names from mail_labels, or INBOX, UNREAD, STARRED, IMPORTANT; a label in add is created if it does not exist. Like mail_move it is undone by the opposite relabel, so do it when you are sure and say what you changed. Gmail only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string" },
+        add: { type: "array", items: { type: "string" } },
+        remove: { type: "array", items: { type: "string" } },
+      },
+      required: ["query"],
+    },
+    run: async (a) => {
+      const { changed } = await call("POST", "/api/mail/relabel", {
+        query: a.query,
+        add: a.add,
+        remove: a.remove,
+      });
+      return `relabelled ${changed} matching ${a.query}`;
+    },
+  },
+  {
     name: "mail_labels",
     unattended: true,
     description:
