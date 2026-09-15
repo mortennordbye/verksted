@@ -700,14 +700,14 @@ describe("the advisor that reads headroom", () => {
     expect(serversIn(callsFor("Ariel")[0])).not.toContain("headroom");
   });
 
-  it("gives Ariel headroom, and gives it to nobody else in the room", async () => {
+  it("gives Ariel and the chair headroom, and gives it to nobody else in the room", async () => {
     await say("how is the budget looking?");
 
     expect(serversIn(callsFor("Ariel")[0])).toContain("headroom");
-    // Not the advisor sitting beside him, and not the chair that convened them:
-    // the numbers are one member's remit rather than the room's.
+    // The chair reads a plain figure itself now, on a live turn — Michael, who
+    // is not the one this bench pointed at headroom, still does not get it.
     expect(serversIn(callsFor("Michael")[0])).not.toContain("headroom");
-    expect(serversIn(fake.argvFor("claude")[0])).not.toContain("headroom");
+    expect(serversIn(fake.argvFor("claude")[0])).toContain("headroom");
   });
 
   it("lets Ariel read headroom and not write it", async () => {
@@ -724,6 +724,16 @@ describe("the advisor that reads headroom", () => {
     // advisor that also reads the web.
     expect(denied).toContain("mcp__headroom__get_raw_data");
     expect(denied).not.toContain("mcp__headroom__get_budget_summary");
+  });
+
+  it("lets the chair read headroom and not write it either", async () => {
+    await say("how is the budget looking?");
+
+    const [argv] = fake.argvFor("claude");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    expect(denied).toContain("mcp__headroom__set_category_budget");
+    expect(denied).toContain("mcp__headroom__get_raw_data");
   });
 });
 

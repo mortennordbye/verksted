@@ -102,13 +102,17 @@ const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task"];
 const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
 /**
- * The one advisor that may read headroom, and what it may not do there.
+ * The one advisor whose id is fixed to headroom, and what neither it nor the
+ * chair may do there once they have it.
  *
  * A member id fixed in code rather than a field on the member, and for the same
  * reason the denied built-ins are: a member is a JSON file somebody can edit
  * from a phone, and "may read the household finances" is not a checkbox worth
- * having on that form. The chair's id is never this one, so the chair does not
- * get it either — the numbers belong in one room, not in every answer.
+ * having on that form. The chair reads headroom too, on a live turn — see
+ * `policyFor` and `mcpConfig` — for a plain lookup ("what did I save last
+ * month"); Ariel stays who the chair convenes for a question that wants
+ * judgement on those numbers, an unattended run's finance watch, or a member
+ * asked by name.
  *
  * The deny list is the half that works. An allow list only auto-approves, and
  * `mcp__headroom` can only be allowed whole; verksted's own server is narrowed
@@ -146,12 +150,13 @@ function mcpConfig(
   member: string | null,
   headroomConfigured: boolean,
 ) {
-  // Never unattended: a nightly briefing reads the bench, and the bench is not
-  // where the money is. Never without both vars set, so a bench that does not
-  // run headroom offers no tools that would fail on every call. Unattended
-  // too: the finance watch is a schedule Ariel answers, and the deny list on
-  // the writes holds whether or not anyone is reading.
-  const headroom = member === HEADROOM_MEMBER && headroomConfigured;
+  // Ariel always; the chair too, but only on a live turn — a nightly briefing
+  // reads the bench, and the finance watch that runs unattended is still
+  // Ariel's schedule to answer. Never without both vars set, so a bench that
+  // does not run headroom offers no tools that would fail on every call. The
+  // deny list on the writes holds whether or not anyone is reading.
+  const headroom =
+    (member === HEADROOM_MEMBER || (member === null && !unattended)) && headroomConfigured;
   // The chair's own browser, never an advisor's and never unattended, for the
   // same reason as headroom: a briefing reads the bench, and the bench is
   // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
@@ -1062,7 +1067,7 @@ function policyFor(
   member: CouncilMember,
 ): Pick<Speaker, "builtins" | "allowed" | "denied" | "tools"> {
   const web = member.web ? ["WebFetch", "WebSearch"] : [];
-  const headroom = member.id === HEADROOM_MEMBER;
+  const headroom = member.id === HEADROOM_MEMBER || member.chair === true;
   // The chair's alone: Sophia and Ariel already reach the web read-only
   // (WebFetch/WebSearch above) for their own remit, and stay that way — asked
   // for input, not given a second way to act on it.

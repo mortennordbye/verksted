@@ -61,6 +61,22 @@ const WORKING = `* Building the live prompt strip… (35m 21s · ↓ 85.8k token
   ⏵⏵ auto mode on (shift+tab to cycle) · esc to interrupt
 `;
 
+/**
+ * The same session, captured off a phone's 43-column terminal tab. The CLI
+ * truncates its own status line to fit rather than wrap it, and "esc to
+ * interrupt" is the part that falls off.
+ */
+const NARROW = `· Topsy-turvying… (thought for 1s)
+  ⎿  Tip: Use /btw to ask a quick side
+     question without interrupting Claude's
+     current work
+
+───────────────────────────────────────────
+❯
+───────────────────────────────────────────
+  ⏵⏵ auto mode on · PR #166 · esc to int…
+`;
+
 describe("parsePrompt", () => {
   it("reads a blocking dialog, and which option the cursor is on", () => {
     const prompt = parsePrompt(RESUME);
@@ -346,6 +362,12 @@ describe("parseActivity", () => {
     // The same pane, mid-survey, with a half-typed message under it. "\u2190 for
     // agents" rather than "esc to interrupt" is the whole difference.
     expect(parseActivity(SURVEY)).toEqual({ busy: false, doing: null });
+  });
+
+  it("is still busy when a narrow pane truncates the interrupt hint", () => {
+    // The hint line reads "esc to int…" here, not "esc to interrupt" — the
+    // verb-and-timer line is what has to carry this on a phone.
+    expect(parseActivity(NARROW)).toEqual({ busy: true, doing: "Topsy-turvying" });
   });
 
   it("is busy without a verb rather than not busy", () => {
