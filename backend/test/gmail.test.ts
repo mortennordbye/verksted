@@ -19,6 +19,7 @@ let filters: {
   criteria?: Record<string, string>;
   action?: Record<string, string[]>;
 }[] = [];
+let messages: { id: string }[] = [];
 
 function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
   const method = init.method ?? "GET";
@@ -45,6 +46,12 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
     const created = { id: `F${filters.length + 1}`, criteria: body.criteria, action: body.action };
     filters = [...filters, created];
     return Promise.resolve(new Response(JSON.stringify(created), { status: 200 }));
+  }
+  if (url.includes("/messages?") && method === "GET") {
+    return Promise.resolve(new Response(JSON.stringify({ messages }), { status: 200 }));
+  }
+  if (url.endsWith("/messages/batchModify") && method === "POST") {
+    return Promise.resolve(new Response(null, { status: 204 }));
   }
   if (/\/settings\/filters\/F\d+$/.test(url) && method === "DELETE") {
     filters = filters.filter((f) => !url.endsWith(f.id));
@@ -83,7 +90,58 @@ beforeEach(() => {
   requests.length = 0;
   userLabels = [{ id: "L1", name: "Existing", type: "user" }];
   filters = [];
+  messages = [];
   vi.stubGlobal("fetch", vi.fn(fakeFetch));
+});
+
+describe("relabel", () => {
+  const batches = () => requests.filter((r) => r.url.endsWith("/messages/batchModify"));
+
+  it("takes a label off and puts another on what the search found, by name", async () => {
+    userLabels = [...userLabels, { id: "L2", name: "H&M", type: "user" }];
+    messages = [{ id: "m1" }, { id: "m2" }];
+
+    const changed = await gmail.relabel({
+      query: "label:h-m",
+      add: ["Newsletters"],
+      remove: ["H&M", "INBOX"],
+    });
+
+    expect(changed).toBe(2);
+    const list = requests.find((r) => r.url.includes("/messages?"));
+    expect(new URL(list!.url).searchParams.get("q")).toBe("label:h-m");
+    expect(new URL(list!.url).searchParams.get("maxResults")).toBe(String(gmail.MAX_RELABEL));
+    expect(batches()).toHaveLength(1);
+    expect(batches()[0].body).toEqual({
+      ids: ["m1", "m2"],
+      // Newsletters did not exist, so it was created first, as the third label.
+      addLabelIds: ["L3"],
+      removeLabelIds: ["L2", "INBOX"],
+    });
+  });
+
+  it("refuses trash, a label that is not there, or nothing to do, touching no mail", async () => {
+    messages = [{ id: "m1" }];
+    for (const fields of [
+      { query: "x", add: ["TRASH"] },
+      { query: "x", remove: ["SPAM"] },
+      { query: "x", remove: ["Typo"] },
+      { query: "x" },
+      { query: " ", add: ["Existing"] },
+      { query: "x", add: ["Existing"], remove: ["Existing"] },
+    ]) {
+      await expect(gmail.relabel(fields), JSON.stringify(fields)).rejects.toBeInstanceOf(
+        gmail.RuleRefused,
+      );
+    }
+    expect(batches()).toHaveLength(0);
+  });
+
+  it("creates no label when the search finds nothing", async () => {
+    expect(await gmail.relabel({ query: "label:empty", add: ["Brand new"] })).toBe(0);
+    expect(requests.some((r) => r.url.endsWith("/labels") && r.method === "POST")).toBe(false);
+    expect(batches()).toHaveLength(0);
+  });
 });
 
 describe("labels and rules", () => {
