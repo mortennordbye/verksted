@@ -124,6 +124,8 @@ export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
   // above, not an advisor's judgment.
   { name: "mail_rule_create", chairOnly: true },
   { name: "mail_rule_delete", chairOnly: true },
+  // Takes the label off every message at once, and no call puts it back.
+  { name: "mail_label_delete", chairOnly: true },
   { name: "repo_diff", chairOnly: false },
   { name: "recent_prompts", chairOnly: false },
   { name: "propose_memory", chairOnly: false },
@@ -151,6 +153,7 @@ export const PRIVATE_TOOLS = new Set([
   "mail_rules",
   "mail_rule_create",
   "mail_rule_delete",
+  "mail_label_delete",
   "docs_catalogue",
   "docs_search",
   "docs_list",

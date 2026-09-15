@@ -197,6 +197,30 @@ export async function deleteRule(id: string): Promise<void> {
   await call<unknown>("DELETE", `/settings/filters/${encodeURIComponent(id)}`);
 }
 
+/**
+ * Delete one of the account's own labels, by name.
+ *
+ * The mail stays; the label comes off every message that had it, and nothing
+ * later puts it back, which is why the tool is chair-only. A label a filter
+ * still files into is refused: the filter would go on naming a label that is
+ * gone, so that filter is removed first.
+ */
+export async function deleteLabel(name: string): Promise<void> {
+  const [ls, data] = await Promise.all([
+    labels(),
+    call<{ filter?: RawFilter[] }>("GET", "/settings/filters"),
+  ]);
+  const label = ls.find((l) => l.name === name);
+  if (!label) throw new RuleRefused(`no such label: ${name}`);
+  const filter = (data.filter ?? []).find((f) => f.action?.addLabelIds?.includes(label.id));
+  if (filter) {
+    throw new RuleRefused(
+      `filter ${filter.id} still files into ${name}: remove it with mail_rule_delete first`,
+    );
+  }
+  await call<unknown>("DELETE", `/labels/${encodeURIComponent(label.id)}`);
+}
+
 /** One sweep's worth, as mail.ts's move. A model that wants more asks twice. */
 export const MAX_RELABEL = 50;
 

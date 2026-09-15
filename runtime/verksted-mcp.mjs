@@ -846,6 +846,16 @@ const TOOLS = [
     },
   },
   {
+    name: "mail_label_delete",
+    description:
+      "Delete one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it and cannot be put back, so only on their word in the chat, and say which label you deleted. Refused while a filter still files into it: remove that filter with mail_rule_delete first, again only on their word.",
+    inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
+    run: async (a) => {
+      await call("DELETE", "/api/mail/labels", { name: a.name });
+      return `deleted label ${a.name}`;
+    },
+  },
+  {
     name: "docs_catalogue",
     description:
       "What is on the share, one line per document: what it is, who it is with, the dates in it that matter. Read this before searching; 'the contract with the builder' is usually a line here.",
