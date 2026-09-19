@@ -8,24 +8,27 @@ import type { ChatImage } from "../../../../shared/api";
  * only exists inside the transcript and comes from the chat's own. Either way
  * these are `<img src>`, so the bytes travel on the browser's own cache path
  * and never through the poll.
+ *
+ * The URL names the picture and nothing else. It used to carry the window the
+ * conversation was showing, which made it a different URL every time somebody
+ * tapped "load earlier" — so the cached copy of every picture on screen was
+ * thrown away at the moment there was most to redraw.
  */
 export default function Images({
   images,
   sessionId,
   project,
-  bytes,
 }: {
   images: ChatImage[];
   sessionId: string;
   project: string;
-  bytes: number;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
       {images.map((img, i) => {
         const src = img.path
           ? `/api/projects/${encodeURIComponent(project)}/raw?path=${encodeURIComponent(img.path)}`
-          : `/api/sessions/${encodeURIComponent(sessionId)}/chat/image?ref=${encodeURIComponent(img.id)}&bytes=${bytes}`;
+          : `/api/sessions/${encodeURIComponent(sessionId)}/chat/image?ref=${encodeURIComponent(img.id)}`;
         return (
           <a
             key={`${img.id}-${i}`}

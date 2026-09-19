@@ -498,6 +498,39 @@ describe("readChat", () => {
     expect(whole.messages.length).toBeGreaterThan(400);
   });
 
+  /**
+   * The bug this pins.
+   *
+   * A window with no newline in it is one that landed inside a single
+   * enormous line, which in a transcript means a screenshot: the CLI writes
+   * the image back as base64 on a line of its own, routinely larger than the
+   * default window. The window came back as the empty string, so a session
+   * that had run for hours said "nothing said yet" — and stayed that way, for
+   * as long as that line was near the tail.
+   */
+  it("widens the window past a line too long to fit in it", async () => {
+    writeTranscript("demo", [
+      human("what does it look like?"),
+      says("Here is the page."),
+      // Last, and far larger than the window asked for below — so the window
+      // lands wholly inside it and finds no line boundary at all.
+      says(`a screenshot: ${"QUJD".repeat(20_000)}`),
+    ]);
+    const file = path.join(transcriptDir("demo"), `${CONV}.jsonl`);
+
+    const windowed = await chat.readChat(file, CONV, { bytes: 20_000 });
+
+    expect(windowed.messages.map((m) => m.text)).toContain("Here is the page.");
+  });
+
+  it("gives up rather than looping when one line is larger than the whole ceiling", async () => {
+    writeTranscript("demo", [human("hi"), says("x".repeat(chat.MAX_WINDOW + 1_000))]);
+    const file = path.join(transcriptDir("demo"), `${CONV}.jsonl`);
+
+    // Nothing to show, which is honest, and it is reached rather than hung on.
+    expect((await chat.readChat(file, CONV, { bytes: 20_000 })).messages).toEqual([]);
+  });
+
   it("returns only what the caller has not got", async () => {
     writeTranscript("demo", [human("first"), says("second"), human("third")]);
     const file = path.join(transcriptDir("demo"), `${CONV}.jsonl`);
@@ -1161,11 +1194,57 @@ describe("GET /api/sessions/:id/chat/detail", () => {
     expect(res.json<ChatDetail>()).toMatchObject({ kind: "tool", output: "all green" });
   });
 
+  /**
+   * The bug this pins.
+   *
+   * A chip is asked for by reference, and the reference used to be looked for
+   * in whatever window the client happened to be showing. That window is
+   * anchored to the end of a file the session keeps appending to, while the
+   * conversation on screen only grows — so a chip an hour into a busy session,
+   * still drawn and still perfectly readable, answered "there is no such
+   * call". Nothing the reader could see said which chips would open.
+   */
+  it("opens a call that the tail has long since slid past", async () => {
+    writeTranscript("demo", [
+      calls("Bash", { command: "make test" }, "old1"),
+      returned("old1", { stdout: "all green" }),
+      // Far more than the default window's worth of conversation on top of it.
+      ...Array.from({ length: 400 }, (_, i) => says(`then ${i} ${"x".repeat(2_000)}`)),
+    ]);
+
+    const res = await app.inject({ url: `/api/sessions/${SESSION}/chat/detail?ref=old1` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ChatDetail>()).toMatchObject({ kind: "tool", output: "all green" });
+  });
+
   it("refuses a reference that is shaped like a path", async () => {
     const res = await app.inject({
       url: `/api/sessions/${SESSION}/chat/detail?ref=${encodeURIComponent("../../etc/passwd")}`,
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  /**
+   * The window used to be part of every chip and picture URL, which meant a
+   * different URL for the same bytes every time somebody tapped "load
+   * earlier" — and an immutable cache thrown away at the moment there was most
+   * to redraw. It is gone from the schema; ajv drops it rather than refusing,
+   * so a tab still open across the deploy that removed it keeps working.
+   */
+  it("takes the reference alone, and ignores a window sent alongside it", async () => {
+    writeTranscript("demo", [
+      human("run them"),
+      calls("Bash", { command: "make test" }, "tt1"),
+      returned("tt1", { stdout: "all green" }),
+    ]);
+
+    const res = await app.inject({
+      url: `/api/sessions/${SESSION}/chat/detail?ref=tt1&bytes=800000`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json<ChatDetail>()).toMatchObject({ kind: "tool", output: "all green" });
   });
 
   it("will not say whether an unknown reference ever existed", async () => {

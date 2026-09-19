@@ -19,15 +19,7 @@ import { MD, REMARK } from "./markdown";
  * the conversation only ever grows — so a call fetched once stays fetched, and
  * nothing has to be remembered on its behalf.
  */
-export default function ToolChip({
-  tool,
-  sessionId,
-  bytes,
-}: {
-  tool: ChatToolCall;
-  sessionId: string;
-  bytes: number;
-}) {
+export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ChatDetail | null>(null);
   const [failedToLoad, setFailedToLoad] = useState(false);
@@ -40,7 +32,7 @@ export default function ToolChip({
     setOpen(true);
     if (detail || !tool.id) return;
     try {
-      const query = new URLSearchParams({ ref: tool.id, bytes: String(bytes) });
+      const query = new URLSearchParams({ ref: tool.id });
       setDetail(await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`));
     } catch {
       setFailedToLoad(true);
