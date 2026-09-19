@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type {
   ChatMessage,
@@ -249,6 +249,80 @@ const ECHO_TTL_MS = 90_000;
 const WINDOW = 256_000;
 const MAX_WINDOW = 8_000_000;
 
+/**
+ * Whether two readings of the same message say the same thing.
+ *
+ * Cheap on purpose, and deliberately not a deep compare: this runs over every
+ * held message every three seconds, and what it guards is object identity. A
+ * message that has not changed must come back as the *same object*, or every
+ * bubble in the conversation re-parses its markdown on every poll.
+ *
+ * What can actually change after a message is first written is a card closing
+ * and a turn growing another tool chip. Text is immutable once the entry is in
+ * the transcript.
+ */
+function same(a: ChatMessage, b: ChatMessage): boolean {
+  return (
+    a.text === b.text &&
+    a.tools.length === b.tools.length &&
+    a.ask?.answered === b.ask?.answered &&
+    a.plan?.approved === b.plan?.approved &&
+    // The chosen answers, which change without `answered` doing so on a
+    // multi-question card answered one at a time.
+    a.ask?.questions.map((q) => q.chosen.join()).join("|") ===
+      b.ask?.questions.map((q) => q.chosen.join()).join("|")
+  );
+}
+
+/**
+ * The conversation so far, plus whatever the last poll said.
+ *
+ * By id rather than by position: the newest turn is deliberately re-sent on
+ * every poll (see readChat), and a widened window overlaps what is already
+ * held, so the transcript's own id is the authority.
+ *
+ * Upsert rather than append. The server does not only add messages, it changes
+ * ones it has already sent — a question card is written when the question is
+ * put and mutated when the answer arrives. Appending by unseen id meant a
+ * card that had been answered minutes ago was still on screen asking, with
+ * its buttons live, for the rest of the session.
+ */
+export function merge(
+  prev: ChatMessage[],
+  incoming: ChatMessage[],
+  /**
+   * True when `incoming` is a whole window rather than what is new since the
+   * last poll — the first load, and every widening of it. Then `incoming` is
+   * the conversation's order and prev is a suffix of it, so appending by
+   * unseen id would put the older half at the bottom.
+   */
+  whole = false,
+): ChatMessage[] {
+  const held = new Map(prev.map((m) => [m.id, m]));
+  if (whole) {
+    // Reuse the object already on screen wherever it still says the same
+    // thing: a widened window re-sends everything the narrow one held, and
+    // handing every bubble a new object would re-parse the whole conversation.
+    const out = incoming.map((m) => {
+      const was = held.get(m.id);
+      return was && same(was, m) ? was : m;
+    });
+    return out.length === prev.length && out.every((m, i) => m === prev[i]) ? prev : out;
+  }
+  let changed = false;
+  for (const m of incoming) {
+    const was = held.get(m.id);
+    if (was && same(was, m)) continue;
+    held.set(m.id, m);
+    changed = true;
+  }
+  // Nothing new and nothing moved: the same array, so nothing re-renders.
+  if (!changed) return prev;
+  // Insertion order holds the conversation's order: `held` was built from the
+  // list already on screen, and a replacement keeps its place in a Map.
+  return [...held.values()];
+}
+
 export default function ChatPane({
   session,
   onOpenTerminal,
@@ -277,6 +351,18 @@ export default function ChatPane({
   const fileRef = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
+  /** The same thing the effect reads, for the thing the screen draws. */
+  const [away, setAway] = useState(false);
+  /** Which session the messages on screen belong to; see the poll effect. */
+  const shownFor = useRef<string | null>(null);
+  /**
+   * How far from the bottom the reader was when "load earlier" was pressed.
+   *
+   * Measured from the bottom rather than the top, because the whole point is
+   * that a great deal is about to be inserted above them. Null when nothing is
+   * waiting to be put back.
+   */
+  const keepPlace = useRef<{ fromBottom: number; count: number } | null>(null);
   const grow = useGrow(text);
   const live = session.status !== "done";
 
@@ -294,13 +380,23 @@ export default function ChatPane({
     let stopped = false;
     let since: string | null = null;
     let conversation: string | null = null;
-    setMessages([]);
-    setPending([]);
-    setTodos([]);
-    setMode("");
-    setLoading(true);
+    // Widening the window is not a change of session: what is on screen is
+    // still true, and the wider answer is a superset of it. Blanking it to
+    // skeletons and then landing the reader at the bottom of a longer list was
+    // the opposite of what "load earlier" is for.
+    if (shownFor.current !== session.id) {
+      shownFor.current = session.id;
+      setMessages([]);
+      setPending([]);
+      setTodos([]);
+      setMode("");
+      setLoading(true);
+    }
 
     async function tick() {
+      // A tick with nothing to go on asks for the window whole, which is the
+      // first one after mounting and after every widening.
+      const whole = !since;
       const query = new URLSearchParams({ bytes: String(bytes) });
       if (since) query.set("since", since);
       let chat: SessionChat;
@@ -331,14 +427,7 @@ export default function ChatPane({
       setMode(chat.permissionMode);
       if (chat.messages.length) {
         since = chat.messages.at(-1)!.at || since;
-        setMessages((prev) => {
-          // By id rather than by position. The newest turn is deliberately
-          // re-sent on every poll (see readChat), and a widened window overlaps
-          // what is already held, so the transcript's own id is the authority.
-          const seen = new Set(prev.map((m) => m.id));
-          const fresh = chat.messages.filter((m) => !seen.has(m.id));
-          return fresh.length ? [...prev, ...fresh] : prev;
-        });
+        setMessages((prev) => merge(prev, chat.messages, whole));
         // Anything the transcript now shows as said is no longer in flight.
         const said = chat.messages.filter((m) => m.role === "user").map((m) => m.text);
         setEchoes((prev) =>
@@ -410,14 +499,41 @@ export default function ChatPane({
     };
   }, [session.id, live]);
 
-  // Follow the conversation, unless the reader has scrolled up to read
-  // something — pinning them to the bottom mid-sentence is the whole complaint
-  // about the terminal.
-  useEffect(() => {
-    if (!atBottom.current) return;
+  /**
+   * Follow the conversation, unless the reader has scrolled up to read
+   * something — pinning them to the bottom mid-sentence is the whole complaint
+   * about the terminal.
+   *
+   * Before the paint rather than after it, so the older half of a widened
+   * window is never briefly seen from the wrong place.
+   */
+  useLayoutEffect(() => {
     const el = scroller.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    const kept = keepPlace.current;
+    // Only once the longer list has actually landed. A tool chip arriving in
+    // the three seconds between the tap and the answer would otherwise spend
+    // the restore on a list that had not grown, and the reader would be left
+    // looking at whatever the older turns pushed into their view.
+    if (kept && messages.length > kept.count) {
+      // "Load earlier" just landed: put the reader back on the line they were
+      // reading, however much was inserted above it.
+      el.scrollTop = el.scrollHeight - kept.fromBottom;
+      keepPlace.current = null;
+      return;
+    }
+    if (kept) return;
+    if (!atBottom.current) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages, pending, echoes]);
+
+  function toLatest() {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    atBottom.current = true;
+    setAway(false);
+  }
 
   /**
    * Press a key, which `send` deliberately cannot.
@@ -549,66 +665,90 @@ export default function ChatPane({
         mode={paneMode ?? mode}
         onCycleMode={live ? () => void press("shift-tab") : null}
       />
-      <div
-        ref={scroller}
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3.5"
-      >
-        {truncated && (
-          <button
-            onClick={() => setBytes((b) => Math.min(b * 4, MAX_WINDOW))}
-            className="mx-auto flex-none rounded-full border border-line px-3 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
-          >
-            load earlier
-          </button>
-        )}
+      {/* Positioned, for the one control that floats over the conversation. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={scroller}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+            setAway(!atBottom.current);
+          }}
+          className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3.5"
+        >
+          {truncated && (
+            <button
+              onClick={() => {
+                // Where the reader is now, measured from the bottom, so the
+                // layout effect can put them back once the longer list lands.
+                const el = scroller.current;
+                keepPlace.current = el
+                  ? { fromBottom: el.scrollHeight - el.scrollTop, count: messages.length }
+                  : null;
+                setBytes((b) => Math.min(b * 4, MAX_WINDOW));
+              }}
+              className="mx-auto flex-none rounded-full border border-line px-3 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
+            >
+              load earlier
+            </button>
+          )}
 
-        {/* The rough rhythm of a conversation: your short ask, a longer answer. */}
-        {loading && (
-          <div className="flex flex-col gap-3">
-            <Skeleton className="block h-10 w-2/5 self-end rounded-2xl bg-surface-2" />
-            <Skeleton className="block h-24 w-4/5 rounded-2xl bg-surface-2" />
-            <Skeleton className="block h-10 w-1/3 self-end rounded-2xl bg-surface-2" />
-            <Skeleton className="block h-16 w-3/5 rounded-2xl bg-surface-2" />
-          </div>
-        )}
+          {/* The rough rhythm of a conversation: your short ask, a longer answer. */}
+          {loading && (
+            <div className="flex flex-col gap-3">
+              <Skeleton className="block h-10 w-2/5 self-end rounded-2xl bg-surface-2" />
+              <Skeleton className="block h-24 w-4/5 rounded-2xl bg-surface-2" />
+              <Skeleton className="block h-10 w-1/3 self-end rounded-2xl bg-surface-2" />
+              <Skeleton className="block h-16 w-3/5 rounded-2xl bg-surface-2" />
+            </div>
+          )}
 
-        {!loading && messages.length === 0 && (
-          <div className="m-auto max-w-[36ch] text-center text-[12.5px] text-faint">
-            {session.agent === "claude"
-              ? "nothing said yet"
-              : `${session.agent} keeps no transcript — use the terminal`}
-          </div>
-        )}
+          {!loading && messages.length === 0 && (
+            <div className="m-auto max-w-[36ch] text-center text-[12.5px] text-faint">
+              {session.agent === "claude"
+                ? "nothing said yet"
+                : `${session.agent} keeps no transcript — use the terminal`}
+            </div>
+          )}
 
-        {messages.map((m) => (
-          <Turn
-            key={m.id}
-            message={m}
-            sessionId={session.id}
-            project={session.project}
-            bytes={bytes}
-          />
-        ))}
+          {messages.map((m) => (
+            <Turn
+              key={m.id}
+              message={m}
+              sessionId={session.id}
+              project={session.project}
+              bytes={bytes}
+            />
+          ))}
 
-        {/* Work in flight: the calls it has made since the last thing it said. */}
-        {pending.map((t, i) => (
-          <ToolChip key={t.id || `p${i}`} tool={t} sessionId={session.id} bytes={bytes} />
-        ))}
+          {/* Work in flight: the calls it has made since the last thing it said. */}
+          {pending.map((t, i) => (
+            <ToolChip key={t.id || `p${i}`} tool={t} sessionId={session.id} bytes={bytes} />
+          ))}
 
-        {/* Sent from here, not yet in the transcript. An agent that is busy
+          {/* Sent from here, not yet in the transcript. An agent that is busy
             queues a prompt rather than taking it, so this can sit for a while —
             which is the honest picture of what happened to it. */}
-        {echoes.map((e, i) => (
-          <div key={`e${i}`} className="flex justify-end">
-            <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent/40 px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent opacity-70">
-              {e.text}
+          {echoes.map((e, i) => (
+            <div key={`e${i}`} className="flex justify-end">
+              <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent/40 px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent opacity-70">
+                {e.text}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        {/* Scrolled up to read something, while the agent keeps working: the
+            way back, rather than being dragged there by the next thing it
+            says. */}
+        {away && (
+          <button
+            onClick={toLatest}
+            className="tap absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full border border-line bg-surface-2 px-3 py-1 text-[11.5px] text-muted shadow-sm hover:border-accent hover:text-accent"
+          >
+            latest ↓
+          </button>
+        )}
       </div>
 
       {/* A dialog is drawn by the TUI and never written to the transcript, so

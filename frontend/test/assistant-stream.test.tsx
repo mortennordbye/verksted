@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AssistantThread } from "../../shared/api";
+import type { AssistantFrame, AssistantThread } from "../../shared/api";
 import { useAssistantStream } from "../src/useAssistantStream";
 
 /**
@@ -33,9 +33,9 @@ class FakeSocket {
     this.onopen?.();
   }
 
-  /** One frame, as the route sends it: the whole thread, every time. */
-  send(thread: AssistantThread): void {
-    this.onmessage?.({ data: JSON.stringify(thread) } as MessageEvent<string>);
+  /** One frame, as the route sends it. */
+  send(frame: AssistantFrame): void {
+    this.onmessage?.({ data: JSON.stringify(frame) } as MessageEvent<string>);
   }
 
   /** The phone going to sleep, the pod restarting, WireGuard dropping. */
@@ -166,6 +166,69 @@ describe("useAssistantStream", () => {
     });
     await act(async () => void (await vi.advanceTimersByTimeAsync(20_000)));
     expect(fetchMock.mock.calls.length).toBe(asked);
+  });
+
+  /**
+   * The frames in between. While a reply is being written the socket sends ten
+   * a second, and all any of them carries is a few more tokens — so the server
+   * leaves `entries` out, and the whole morning's conversation stays where it
+   * is instead of going down a phone tunnel again.
+   */
+  it("keeps the entries it holds when a frame arrives without them", () => {
+    const { result } = renderHook(() => useAssistantStream());
+    act(() => {
+      FakeSocket.last.open();
+      FakeSocket.last.send(
+        thread({
+          status: "thinking",
+          entries: [
+            {
+              id: "e1",
+              role: "user",
+              text: "what needs me?",
+              tools: [],
+              at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+    });
+    const held = result.current.thread!.entries;
+
+    act(() => {
+      FakeSocket.last.send({
+        conversationId: thread().conversationId,
+        status: "thinking",
+        live: "Two things",
+      });
+    });
+
+    expect(result.current.thread?.live).toBe("Two things");
+    // The same array, which is what keeps every bubble on screen from being
+    // rebuilt and re-parsed for a frame that said nothing new.
+    expect(result.current.thread?.entries).toBe(held);
+  });
+
+  it("takes a whole thread again when one arrives", () => {
+    const { result } = renderHook(() => useAssistantStream());
+    act(() => {
+      FakeSocket.last.open();
+      FakeSocket.last.send(thread({ entries: [] }));
+      FakeSocket.last.send(
+        thread({
+          entries: [
+            {
+              id: "e1",
+              role: "assistant",
+              text: "Two things.",
+              tools: [],
+              at: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+    });
+    expect(result.current.thread?.entries.map((e) => e.text)).toEqual(["Two things."]);
   });
 
   it("stops reconnecting once the screen is gone", async () => {

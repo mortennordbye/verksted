@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
+import type { AssistantFrame } from "../../shared/api.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -438,5 +439,78 @@ describe("recall", () => {
 
     expect(await hits("kargo promotion")).toHaveLength(1);
     expect(await hits("kargo rollback")).toEqual([]);
+  });
+});
+
+/**
+ * The stream, over a real socket.
+ *
+ * `inject` cannot upgrade, so this listens on a port and connects to it. What
+ * it pins is the frame protocol: a socket is sent the thread whole once, and
+ * after that only the frames that carry something new carry entries at all.
+ * A reply being written announces ten times a second, and the alternative is
+ * a whole morning's conversation down a phone tunnel per three tokens.
+ */
+describe("GET /api/assistant/stream", () => {
+  /**
+   * Everything the socket is sent over `ms`, in order.
+   *
+   * Node's own WebSocket rather than the `ws` package the server runs on: it
+   * is a global here, and this is the client half.
+   */
+  function listen(url: string, ms: number): { done: Promise<AssistantFrame[]> } {
+    const got: AssistantFrame[] = [];
+    const done = new Promise<AssistantFrame[]>((resolve, reject) => {
+      const socket = new WebSocket(url);
+      socket.onerror = () => reject(new Error("the stream socket failed"));
+      socket.onmessage = (e: MessageEvent) =>
+        got.push(JSON.parse(String(e.data)) as AssistantFrame);
+      socket.onopen = () =>
+        setTimeout(() => {
+          socket.close();
+          resolve(got);
+        }, ms);
+    });
+    return { done };
+  }
+
+  it("sends the thread whole once, then leaves the entries out of the frames that add none", async () => {
+    // Its own instance, because `inject` cannot upgrade — and everything in
+    // this test goes through it. An earlier case resets the module registry,
+    // so a server built here and the `app` built in beforeAll hold two
+    // different copies of the thread module, with a set of listeners each.
+    const { buildApp } = await import("../src/app.js");
+    const server = await buildApp({ logger: false });
+    await server.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = server.server.address() as { port: number };
+    try {
+      const watching = listen(`ws://127.0.0.1:${port}/api/assistant/stream`, 900);
+      // Let the opening frame land before anything is announced over it.
+      await new Promise((r) => setTimeout(r, 250));
+      await server.inject({
+        method: "POST",
+        url: "/api/assistant/messages",
+        payload: { text: "what needs me today?" },
+      });
+
+      const frames = await watching.done;
+
+      // A turn announces several times: the user entry, the spawn, the reply,
+      // the end. Only the ones that appended something carry entries.
+      expect(frames.length).toBeGreaterThan(2);
+      expect(frames[0].entries).toBeDefined();
+      expect(frames.some((f) => f.entries === undefined)).toBe(true);
+
+      // Every frame that does carry them carries the whole list, so a client
+      // that replaces rather than appends is always right.
+      const last = frames.filter((f) => f.entries).at(-1)!;
+      expect(last.entries!.map((e) => e.text)).toEqual([
+        "what needs me today?",
+        "Two things need you.",
+      ]);
+      expect(frames.at(-1)!.conversationId).toBe(frames[0].conversationId);
+    } finally {
+      await server.close();
+    }
   });
 });

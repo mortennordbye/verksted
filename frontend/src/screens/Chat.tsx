@@ -644,6 +644,8 @@ export default function Chat() {
    * on; this is the same thing for the case where nothing was toggled.
    */
   const primedRef = useRef<string | null>(null);
+  /** Whether the end of the conversation is on screen; see the scroll effect. */
+  const [atLatest, setAtLatest] = useState(true);
   // The roster changes when somebody edits it in settings, which is rarely, so
   // it is polled slowly rather than pushed: the header shows the chair, and a
   // specialist's card is drawn in its own colour when one answers.
@@ -671,11 +673,30 @@ export default function Chat() {
     return () => vv.removeEventListener("resize", onResize);
   }, []);
 
-  // Follow the conversation as it grows, the way a conversation is expected
-  // to: an answer landing under the question is worth scrolling to.
+  /**
+   * Follow the conversation as it grows, the way a conversation is expected
+   * to: an answer landing under the question is worth scrolling to.
+   *
+   * Unless the reader has gone up to read something. This used to scroll on
+   * every tick of the reply being written — ten times a second — so going back
+   * to check what was asked three answers ago was not possible at all while
+   * the chair was talking: the screen snapped to the bottom mid-sentence.
+   */
   useEffect(() => {
+    if (!atLatest) return;
     scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-  }, [thread?.entries.length, thread?.status, thread?.live]);
+  }, [thread?.entries.length, thread?.status, thread?.live, atLatest]);
+
+  // Whether the bottom is on screen. The margin is generous on purpose: the
+  // composer and the tab bar sit over the last few lines.
+  useEffect(() => {
+    const onScroll = () => {
+      setAtLatest(innerHeight + scrollY >= document.documentElement.scrollHeight - 120);
+    };
+    onScroll();
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => removeEventListener("scroll", onScroll);
+  }, []);
 
   const thinking = thread?.status === "thinking";
 
@@ -1046,6 +1067,20 @@ export default function Chat() {
           and a line across the page on top of that read as a second border.
           With the keyboard up the bar is hidden, so it sits on the keys. */}
       <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))] kbd:bottom-0 kbd:pb-2">
+        {/* Gone up to read something while it keeps talking: the way back,
+            rather than being dragged there by the next token. In the sticky
+            card so it clears the tab bar on a phone without a second set of
+            insets to keep right. */}
+        {!atLatest && thread && thread.entries.length > 0 && (
+          <div className="mb-2 flex justify-center">
+            <button
+              onClick={() => scrollTo({ top: document.documentElement.scrollHeight })}
+              className="tap rounded-full border border-line bg-surface px-3 py-1 text-[11.5px] text-muted shadow-sm hover:border-accent hover:text-accent"
+            >
+              latest ↓
+            </button>
+          </div>
+        )}
         {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (

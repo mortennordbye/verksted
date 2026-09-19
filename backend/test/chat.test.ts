@@ -121,6 +121,11 @@ function transcriptDir(project: string): string {
 
 function writeTranscript(project: string, lines: string[]): void {
   fs.writeFileSync(path.join(transcriptDir(project), `${CONV}.jsonl`), lines.join("\n") + "\n");
+  // The route keeps the last parse of each transcript, keyed on size and mtime.
+  // A real transcript is only ever appended to, so that settles it; these are
+  // rewritten in place, and two rewrites can land in the same millisecond at
+  // the same length.
+  chat.resetChatCache();
 }
 
 beforeAll(async () => {
@@ -505,6 +510,87 @@ describe("readChat", () => {
     // caller drops the repeat by id.
     const caught = await chat.readChat(file, CONV, { since: all.messages.at(-1)!.at });
     expect(caught.messages.map((m) => m.text)).toEqual(["third"]);
+  });
+
+  /**
+   * The bug this pins.
+   *
+   * A card is written when the question is put and then changed in place when
+   * the answer comes back. Its `at` is the moment it was asked, so once any
+   * turn had happened since, `since` filtered out the very update that says it
+   * is no longer waiting. The client holds a card by id and never heard again:
+   * an answered question stayed on screen asking, buttons live, for the rest
+   * of the session.
+   */
+  it("carries a card that has changed even when the caller is caught up", async () => {
+    const question = {
+      questions: [
+        {
+          question: "Which scope?",
+          header: "Scope",
+          multiSelect: false,
+          options: [{ label: "Both repos", description: "the full fix" }],
+        },
+      ],
+    };
+    writeTranscript("demo", [human("what should I do?"), calls("AskUserQuestion", question, "q1")]);
+    const file = path.join(transcriptDir("demo"), `${CONV}.jsonl`);
+    const open = await chat.readChat(file, CONV);
+    const card = open.messages.at(-1)!;
+    expect(card.ask!.answered).toBe(false);
+
+    // Answered, and a turn on top of that, so the card is behind whatever a
+    // client that has kept up would send as `since`.
+    fs.appendFileSync(
+      file,
+      [
+        returned("q1", {
+          questions: question.questions,
+          answers: { "Which scope?": "Both repos" },
+          annotations: {},
+        }),
+        says("Doing both."),
+      ].join("\n") + "\n",
+    );
+    const all = await chat.readChat(file, CONV);
+    const caughtUp = all.messages.at(-1)!.at;
+
+    const next = await chat.readChat(file, CONV, { since: caughtUp });
+
+    const closed = next.messages.find((m) => m.id === card.id);
+    expect(closed?.ask?.answered).toBe(true);
+    expect(closed?.ask?.questions[0].chosen).toEqual(["Both repos"]);
+    // The exemption is for cards alone: the question it was asked in answer to
+    // is long past and does not come back.
+    expect(next.messages.map((m) => m.text)).not.toContain("what should I do?");
+  });
+
+  /**
+   * Every open client asks for this every three seconds, and after "load
+   * earlier" the window is 8 MB — read off the volume and `JSON.parse`d line by
+   * line, base64 screenshots included, to answer "nothing has happened".
+   */
+  it("does not parse the transcript again while it has not changed", async () => {
+    writeTranscript("demo", [human("first"), says("second")]);
+    const file = path.join(transcriptDir("demo"), `${CONV}.jsonl`);
+
+    const first = await chat.readChat(file, CONV);
+    const again = await chat.readChat(file, CONV);
+    // The same objects, which is the only thing that can mean "not parsed
+    // again": a fresh parse builds every message from scratch.
+    expect(again.messages[0]).toBe(first.messages[0]);
+    expect(again.messages.map((m) => m.text)).toEqual(["first", "second"]);
+
+    // A narrower window is a different answer rather than a subset of this
+    // one: it starts at a different line and is truncated where this is not.
+    const narrow = await chat.readChat(file, CONV, { bytes: 120 });
+    expect(narrow.messages[0]).not.toBe(first.messages[0]);
+
+    // And an appended line is read afresh, which is the case that must never
+    // be served from the cache.
+    fs.appendFileSync(file, says("third") + "\n");
+    const grown = await chat.readChat(file, CONV);
+    expect(grown.messages.map((m) => m.text)).toEqual(["first", "second", "third"]);
   });
 });
 

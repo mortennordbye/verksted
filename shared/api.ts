@@ -1066,6 +1066,24 @@ export interface AssistantThread {
  * Enough to pick it out and nothing more: the entries come over the socket once
  * it is opened, the way the current thread's always have.
  */
+/**
+ * One frame of the assistant stream.
+ *
+ * The same thread, with `entries` left out when nothing has been appended
+ * since the last frame this socket was sent — which, while a reply is being
+ * written, is every frame but the first, ten times a second. A whole morning's
+ * conversation was being re-sent down a phone tunnel to deliver three more
+ * tokens of `live`.
+ *
+ * The client keeps the entries it holds when a frame arrives without them,
+ * which also means the array it holds keeps its identity and nothing on screen
+ * re-parses its markdown for a frame that changed nothing.
+ *
+ * A socket is always sent a whole thread first, so there is nothing to patch
+ * onto that has not arrived.
+ */
+export type AssistantFrame = Omit<AssistantThread, "entries"> & { entries?: AssistantEntry[] };
+
 export interface AssistantThreadSummary {
   conversationId: string;
   /** The first thing typed into it, cut to a line. */
