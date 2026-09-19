@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type {
   ChatMessage,
@@ -151,16 +151,21 @@ function Todos({
   );
 }
 
-function Turn({
+/**
+ * One turn.
+ *
+ * Memoized, because the poll runs every three seconds whether or not anything
+ * was said, and this parses markdown. `merge` hands back the same object for a
+ * message that has not changed, so an unchanged turn is not drawn again.
+ */
+const Turn = memo(function Turn({
   message,
   sessionId,
   project,
-  bytes,
 }: {
   message: ChatMessage;
   sessionId: string;
   project: string;
-  bytes: number;
 }) {
   if (message.role === "event") {
     return <Rail message={message} />;
@@ -171,7 +176,7 @@ function Turn({
         {/* Pasted with the words, so drawn with them: above, the way the CLI
             shows them before the prompt they came with. */}
         {message.images && message.images.length > 0 && (
-          <Images images={message.images} sessionId={sessionId} project={project} bytes={bytes} />
+          <Images images={message.images} sessionId={sessionId} project={project} />
         )}
         {message.text && (
           <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent">
@@ -185,15 +190,15 @@ function Turn({
     return <AskCard ask={message.ask} />;
   }
   if (message.plan) {
-    return <PlanCard plan={message.plan} sessionId={sessionId} bytes={bytes} />;
+    return <PlanCard plan={message.plan} sessionId={sessionId} />;
   }
   return (
     <div className="flex flex-col gap-2.5">
       {message.tools.map((t, i) => (
-        <ToolChip key={t.id || i} tool={t} sessionId={sessionId} bytes={bytes} />
+        <ToolChip key={t.id || i} tool={t} sessionId={sessionId} />
       ))}
       {message.images && message.images.length > 0 && (
-        <Images images={message.images} sessionId={sessionId} project={project} bytes={bytes} />
+        <Images images={message.images} sessionId={sessionId} project={project} />
       )}
       {message.text && (
         <div className="flex">
@@ -206,7 +211,7 @@ function Turn({
       )}
     </div>
   );
-}
+});
 
 /**
  * What the session is doing right now, in the one place you are already looking.
@@ -248,6 +253,20 @@ const ECHO_TTL_MS = 90_000;
     backend's default, and its ceiling. */
 const WINDOW = 256_000;
 const MAX_WINDOW = 8_000_000;
+
+/**
+ * Whether a poll's answer says what is already held.
+ *
+ * For the small fixed-shape things that arrive on every poll whether or not
+ * they have changed — the checklist, the calls in flight, the dialog. They are
+ * a handful of small objects, so this costs nothing next to what it saves:
+ * handing React a new array every three seconds re-renders everything built
+ * from it, and one of them is watched by the effect that decides where the
+ * conversation is scrolled to.
+ */
+function unchanged(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 /**
  * Whether two readings of the same message say the same thing.
@@ -420,10 +439,13 @@ export default function ChatPane({
       }
       conversation = chat.conversationId;
       setTruncated(chat.truncated);
-      setPending(chat.pending);
       // Replaced rather than appended: both are what the window last saw, so
       // they arrive on every poll including the ones that carry no new turns.
-      setTodos(chat.todos);
+      // Kept by reference when they say the same thing, because a new array
+      // every three seconds is a re-render of the whole conversation every
+      // three seconds — and `pending` is what the scroll effect watches.
+      setPending((prev) => (unchanged(prev, chat.pending) ? prev : chat.pending));
+      setTodos((prev) => (unchanged(prev, chat.todos) ? prev : chat.todos));
       setMode(chat.permissionMode);
       if (chat.messages.length) {
         since = chat.messages.at(-1)!.at || since;
@@ -473,7 +495,9 @@ export default function ChatPane({
       try {
         const res = await api<SessionPrompt>(`/api/sessions/${session.id}/prompt`);
         if (stopped) return;
-        setPrompt(res.prompt);
+        // Same reason as the poll's: a dialog nobody has touched is a new
+        // object on every capture, and it is drawn above the conversation.
+        setPrompt((prev) => (unchanged(prev, res.prompt) ? prev : res.prompt));
         setPaneMode(res.mode);
         setBusy(res.busy);
         setDoing(res.doing);
@@ -712,18 +736,12 @@ export default function ChatPane({
           )}
 
           {messages.map((m) => (
-            <Turn
-              key={m.id}
-              message={m}
-              sessionId={session.id}
-              project={session.project}
-              bytes={bytes}
-            />
+            <Turn key={m.id} message={m} sessionId={session.id} project={session.project} />
           ))}
 
           {/* Work in flight: the calls it has made since the last thing it said. */}
           {pending.map((t, i) => (
-            <ToolChip key={t.id || `p${i}`} tool={t} sessionId={session.id} bytes={bytes} />
+            <ToolChip key={t.id || `p${i}`} tool={t} sessionId={session.id} />
           ))}
 
           {/* Sent from here, not yet in the transcript. An agent that is busy

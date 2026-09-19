@@ -303,7 +303,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * types — an SVG out of a tool result is arbitrary markup and would be served
    * from this app's origin, which no screenshot is worth.
    */
-  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+  app.get<{ Params: { id: string }; Querystring: { ref: string } }>(
     "/api/sessions/:id/chat/image",
     {
       schema: {
@@ -311,22 +311,19 @@ export default async function sessionRoutes(app: FastifyInstance) {
           type: "object",
           required: ["ref"],
           additionalProperties: false,
-          properties: {
-            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
-            bytes: {
-              type: "integer",
-              minimum: 1_000,
-              maximum: MAX_WINDOW,
-              default: DEFAULT_WINDOW,
-            },
-          },
+          // The reference and nothing else. This used to take the window the
+          // client was showing, which made the URL of a picture change every
+          // time somebody tapped "load earlier" — so the immutable cache below
+          // was thrown away for every image on screen at the moment it was
+          // least affordable. The lookup finds the reference wherever it is.
+          properties: { ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" } },
         },
       },
     },
     async (req, reply) => {
       const file = await transcriptFor(req.params.id);
       if (file === undefined) return reply.code(404).send({ error: "not found" });
-      const image = await readImage(file, req.query.ref, req.query.bytes);
+      const image = await readImage(file, req.query.ref);
       if (!image) return reply.code(404).send({ error: "not found" });
       return (
         reply
@@ -363,10 +360,11 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * `ref` is the transcript's own tool_use id. It is matched against ids read
    * out of the file and never touches a path, so the only thing on disk this
    * can reach is the session's own transcript — the same one `/chat` derives
-   * from the conversation id it recorded. A reference that is not in the window
-   * answers "nothing to show" rather than saying whether it ever existed.
+   * from the conversation id it recorded. A reference that is nowhere in the
+   * transcript answers "nothing to show" rather than saying whether it ever
+   * existed.
    */
-  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
+  app.get<{ Params: { id: string }; Querystring: { ref: string } }>(
     "/api/sessions/:id/chat/detail",
     {
       schema: {
@@ -374,15 +372,9 @@ export default async function sessionRoutes(app: FastifyInstance) {
           type: "object",
           required: ["ref"],
           additionalProperties: false,
-          properties: {
-            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
-            bytes: {
-              type: "integer",
-              minimum: 1_000,
-              maximum: MAX_WINDOW,
-              default: DEFAULT_WINDOW,
-            },
-          },
+          // No window: see the image route above. A chip still on screen must
+          // open whatever the tail has slid past since it was drawn.
+          properties: { ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" } },
         },
       },
     },
@@ -401,10 +393,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
           // The project is gone; a subagent chip then opens onto nothing.
         }
       }
-      return readDetail(file ?? null, req.query.ref, {
-        bytes: req.query.bytes,
-        subagentDir: subagents,
-      });
+      return readDetail(file ?? null, req.query.ref, { subagentDir: subagents });
     },
   );
 

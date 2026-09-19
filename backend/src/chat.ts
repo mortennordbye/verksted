@@ -151,20 +151,42 @@ const INTERRUPTED = "[Request interrupted by user]";
  * Starting mid-file lands in the middle of a line, and possibly in the middle
  * of a UTF-8 sequence. Both are the same fix: drop everything before the first
  * newline. What is left is whole lines from a valid boundary.
+ *
+ * And when nothing survives that trim, the window is widened and read again.
+ * A window that comes back empty is one that landed inside a single enormous
+ * line, which in a transcript means a screenshot: the CLI writes the image
+ * back as base64 on a line of its own, routinely larger than the default
+ * window. The whole conversation — a session that had run for hours — then
+ * said "nothing said yet", and went on saying it for as long as that line was
+ * near the tail.
+ *
+ * Emptiness rather than the absence of a newline, because a file ends with
+ * one: a window wholly inside the last line still holds that final byte, so
+ * the boundary was found, the slice after it was "", and the widening this
+ * exists for never happened.
  */
 async function tail(file: string, bytes: number): Promise<{ text: string; truncated: boolean }> {
   const handle = await fs.open(file, "r");
   try {
     const { size } = await handle.stat();
-    const start = Math.max(0, size - bytes);
-    const buf = Buffer.alloc(size - start);
-    if (buf.length) await handle.read(buf, 0, buf.length, start);
-    const text = buf.toString("utf8");
-    if (start === 0) return { text, truncated: false };
-    const nl = text.indexOf("\n");
-    // No newline at all: the window landed inside one enormous line and there
-    // is nothing in it that can be parsed.
-    return { text: nl === -1 ? "" : text.slice(nl + 1), truncated: true };
+    let want = bytes;
+    for (;;) {
+      const start = Math.max(0, size - want);
+      const buf = Buffer.alloc(size - start);
+      if (buf.length) await handle.read(buf, 0, buf.length, start);
+      const text = buf.toString("utf8");
+      if (start === 0) return { text, truncated: false };
+      const nl = text.indexOf("\n");
+      const kept = nl === -1 ? "" : text.slice(nl + 1);
+      // Short-circuits at the first character that is not whitespace, rather
+      // than copying several megabytes to trim them.
+      if (/\S/.test(kept)) return { text: kept, truncated: true };
+      // Four at a time rather than two: the line being stepped over is an
+      // image, so the gap between the window and the line is an order of
+      // magnitude rather than a little.
+      if (want >= MAX_WINDOW) return { text: "", truncated: true };
+      want = Math.min(want * 4, MAX_WINDOW);
+    }
   } finally {
     await handle.close();
   }
@@ -916,20 +938,52 @@ export function findDetail(text: string, ref: string): FoundDetail {
   };
 }
 
-/** One call out of a transcript's tail, or nothing when it is not in it. */
+/**
+ * Look for one thing in the transcript, widening until it turns up.
+ *
+ * A chip and an image are asked for by reference, and the reference used to be
+ * looked for in whatever window the client happened to be showing. That window
+ * slides: it is anchored to the end of a file the session keeps appending to,
+ * while the conversation on screen only grows. So a chip tapped an hour into a
+ * busy session — still on screen, still perfectly readable — answered "there
+ * is no such call", and an image already drawn started 404ing. Nothing about
+ * what the reader could see said which of the two it would be.
+ *
+ * Widening rather than a byte offset carried per message, because the ceiling
+ * is the same either way: this is the same MAX_WINDOW the conversation itself
+ * is bounded by, so anything the chat can show, this can now find. A hit in
+ * the first window — every tap on anything recent — costs one read, as before.
+ */
+async function widening<T>(file: string, find: (text: string) => T | null): Promise<T | null> {
+  let bytes = DEFAULT_WINDOW;
+  for (;;) {
+    const window = await tail(file, bytes);
+    const found = find(window.text);
+    if (found) return found;
+    // Nothing more to widen into: either the whole file has been read, or the
+    // ceiling is reached and the chat cannot show that far back either.
+    if (!window.truncated || bytes >= MAX_WINDOW) return null;
+    bytes = Math.min(bytes * 4, MAX_WINDOW);
+  }
+}
+
+/** One call out of the transcript, or nothing when it is not in it at all. */
 export async function readDetail(
   file: string | null,
   ref: string,
-  opts: { bytes?: number; subagentDir?: string } = {},
+  opts: { subagentDir?: string } = {},
 ): Promise<ChatDetail> {
   if (!file) return { kind: "none" };
-  let found: FoundDetail;
+  let found: FoundDetail | null;
   try {
-    const window = await tail(file, Math.min(opts.bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
-    found = findDetail(window.text, ref);
+    found = await widening(file, (text) => {
+      const detail = findDetail(text, ref);
+      return detail.kind === "none" ? null : detail;
+    });
   } catch {
     return { kind: "none" };
   }
+  if (!found) return { kind: "none" };
   if (found.kind !== "agent-ref") return found;
   return readSubagent(opts.subagentDir, found.agentId, found.description);
 }
@@ -1030,16 +1084,14 @@ export function findImage(text: string, ref: string): { mediaType: string; data:
   return null;
 }
 
-/** One image out of a transcript's tail, or nothing when it is not in it. */
+/** One image out of the transcript, or nothing when it is not in it at all. */
 export async function readImage(
   file: string | null,
   ref: string,
-  bytes?: number,
 ): Promise<{ mediaType: string; data: Buffer } | null> {
   if (!file) return null;
   try {
-    const window = await tail(file, Math.min(bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
-    return findImage(window.text, ref);
+    return await widening(file, (text) => findImage(text, ref));
   } catch {
     return null;
   }

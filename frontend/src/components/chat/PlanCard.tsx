@@ -17,15 +17,7 @@ import { MD, REMARK } from "./markdown";
  * length, and a panel pinned to the bottom of the screen is the wrong shape for
  * that.
  */
-export default function PlanCard({
-  plan,
-  sessionId,
-  bytes,
-}: {
-  plan: ChatPlan;
-  sessionId: string;
-  bytes: number;
-}) {
+export default function PlanCard({ plan, sessionId }: { plan: ChatPlan; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const [markdown, setMarkdown] = useState<string | null>(null);
   const [failedToLoad, setFailedToLoad] = useState(false);
@@ -38,7 +30,7 @@ export default function PlanCard({
     setOpen(true);
     if (markdown !== null || !plan.id) return;
     try {
-      const query = new URLSearchParams({ ref: plan.id, bytes: String(bytes) });
+      const query = new URLSearchParams({ ref: plan.id });
       const detail = await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`);
       setMarkdown(detail.kind === "plan" ? detail.markdown : "");
     } catch {
