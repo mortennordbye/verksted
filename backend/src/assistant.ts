@@ -778,9 +778,40 @@ export async function clearThreads(olderThanDays?: number, now = Date.now()): Pr
   return deleted;
 }
 
+/**
+ * The last read of each thread file.
+ *
+ * The open thread is read on every push, and a push happens ten times a second
+ * for as long as a reply is being written — so a conversation that had run all
+ * morning was read off the volume and `JSON.parse`d line by line, ten times a
+ * second, to deliver a frame whose only new content was three more tokens.
+ *
+ * A thread file is append-only and this module is its only writer, so size and
+ * mtime together settle whether the parse is still the answer.
+ *
+ * The array identity matters as much as the saved work: it is what lets the
+ * socket route tell "nothing has been appended" from "something has", and send
+ * the entries only when there are new ones.
+ */
+const threads = new Map<string, { size: number; mtimeMs: number; entries: AssistantEntry[] }>();
+/**
+ * The open thread, the one being written, and a little room around them.
+ *
+ * Deliberately small: a thread is a whole conversation held in memory. The
+ * three callers that sweep every file — the journal, search, and the thread
+ * list — will walk straight past it and evict what is in it. That costs one
+ * full frame on the next push and is then warm again, which is the right trade
+ * against holding every conversation ever had.
+ */
+const THREAD_CACHE = 4;
+
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
+  const file = threadPath(conversationId, unattended);
   try {
-    const raw = await fs.readFile(threadPath(conversationId, unattended), "utf8");
+    const { size, mtimeMs } = await fs.stat(file);
+    const held = threads.get(file);
+    if (held && held.size === size && held.mtimeMs === mtimeMs) return held.entries;
+    const raw = await fs.readFile(file, "utf8");
     const entries: AssistantEntry[] = [];
     for (const line of raw.split("\n")) {
       if (!line.trim()) continue;
@@ -790,10 +821,20 @@ async function readEntries(conversationId: string, unattended = false): Promise<
         // One corrupt line loses one turn, not the whole conversation.
       }
     }
+    if (threads.size >= THREAD_CACHE && !threads.has(file)) {
+      const oldest = threads.keys().next().value;
+      if (oldest !== undefined) threads.delete(oldest);
+    }
+    threads.set(file, { size, mtimeMs, entries });
     return entries;
   } catch {
     return [];
   }
+}
+
+/** Forget every cached read. For tests, which rewrite thread files in place. */
+export function resetThreadCache(): void {
+  threads.clear();
 }
 
 /**

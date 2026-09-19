@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import { agoLabel } from "../api";
@@ -28,8 +29,16 @@ function ToolChip({ name, detail }: { name: string; detail: string }) {
   );
 }
 
-/** What one reply carries: the tools it used, what they showed it, and its words. */
-function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
+/**
+ * What one reply carries: the tools it used, what they showed it, and its words.
+ *
+ * Memoized, along with the two things that draw it. While the chair is writing,
+ * the screen is re-rendered ten times a second, and every reply in the thread
+ * was re-parsing its markdown on each of those frames — on a phone, on a
+ * conversation that had run all morning. An entry never changes once it is in
+ * the thread, so its bubble only has to be drawn once.
+ */
+const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
   // "handoff" is a mark old threads carry from when the council was a screen
   // of its own; it pointed next door, and there is no next door.
   const tools = entry.tools.filter((t) => t.name !== "handoff");
@@ -86,7 +95,7 @@ function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
       )}
     </>
   );
-}
+});
 
 function Writing({ live }: { live: string }) {
   return (
@@ -103,7 +112,13 @@ function Writing({ live }: { live: string }) {
  * time once, at the end. The same words said twice in a row (a failure the CLI
  * reported on two turns) show once, marked with how many times.
  */
-function Bubble({ entries, live }: { entries: AssistantEntry[]; live?: string }) {
+const Bubble = memo(function Bubble({
+  entries,
+  live,
+}: {
+  entries: AssistantEntry[];
+  live?: string;
+}) {
   const parts: { entry: AssistantEntry; times: number }[] = [];
   for (const entry of entries) {
     const prev = parts.at(-1);
@@ -134,10 +149,10 @@ function Bubble({ entries, live }: { entries: AssistantEntry[]; live?: string })
       )}
     </div>
   );
-}
+});
 
 /** A specialist's answer: its own face, name and colour, and the time beside them. */
-function Card({ who, entry }: { who: CouncilMember; entry: AssistantEntry }) {
+const Card = memo(function Card({ who, entry }: { who: CouncilMember; entry: AssistantEntry }) {
   return (
     <div
       className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
@@ -152,7 +167,7 @@ function Card({ who, entry }: { who: CouncilMember; entry: AssistantEntry }) {
       <Said entry={entry} />
     </div>
   );
-}
+});
 
 /** How close together two of the chair's replies have to be to share a bubble. */
 const RUN_MS = 5 * 60_000;
@@ -199,7 +214,11 @@ export default function Room({
   chair: CouncilMember;
 }) {
   const thinking = thread.status === "thinking";
-  const drawn = blocks(thread.entries);
+  // Keyed on the entries array rather than recomputed per frame: while a reply
+  // is streaming, the socket sends frames that carry no entries at all, and the
+  // hook keeps the array it holds — so this is the same list, and every bubble
+  // built from it keeps its props and stays drawn.
+  const drawn = useMemo(() => blocks(thread.entries), [thread.entries]);
   // The answer being written joins the chair's last bubble when that is the
   // last thing on screen, and starts one of its own otherwise.
   const writing = thinking && thread.live ? thread.live : undefined;

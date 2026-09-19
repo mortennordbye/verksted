@@ -617,6 +617,77 @@ export function parseTranscript(
   return { messages, pending, todos, permissionMode };
 }
 
+/** What one read of the tail window comes to, before `since` is applied. */
+interface Window {
+  size: number;
+  mtimeMs: number;
+  bytes: number;
+  repoDir: string | undefined;
+  truncated: boolean;
+  parsed: ReturnType<typeof parseTranscript>;
+}
+
+/**
+ * The last parse of each open transcript.
+ *
+ * Every client polls this every three seconds, and each poll read the whole
+ * window off the volume and ran `JSON.parse` over every line of it — including
+ * the multi-megabyte base64 lines a screenshot leaves behind. After somebody
+ * taps "load earlier" the window is 8 MB, so an idle session with two tabs open
+ * was 16 MB of NFS read and parse every three seconds, to answer "nothing has
+ * happened".
+ *
+ * A transcript is append-only, so size and mtime together settle it: unchanged
+ * means the parse is still the answer. Only the window actually asked for is
+ * kept, because a narrower one is a different answer, not a subset — it starts
+ * at a different line and `truncated` differs.
+ *
+ * Small and bounded: this is a keep-the-common-case cache, not an index. A
+ * file that has grown is still re-read and re-parsed in full.
+ */
+const windows = new Map<string, Window>();
+/** Enough for the handful of sessions anybody has open at once. */
+const WINDOW_CACHE = 8;
+
+async function readWindow(
+  file: string,
+  bytes: number,
+  repoDir: string | undefined,
+): Promise<Window> {
+  const { size, mtimeMs } = await fs.stat(file);
+  const held = windows.get(file);
+  if (
+    held &&
+    held.size === size &&
+    held.mtimeMs === mtimeMs &&
+    held.bytes === bytes &&
+    held.repoDir === repoDir
+  ) {
+    return held;
+  }
+  const window = await tail(file, bytes);
+  const fresh: Window = {
+    size,
+    mtimeMs,
+    bytes,
+    repoDir,
+    truncated: window.truncated,
+    parsed: parseTranscript(window.text, { repoDir }),
+  };
+  // Oldest out first; insertion order is Map's own.
+  if (windows.size >= WINDOW_CACHE && !windows.has(file)) {
+    const oldest = windows.keys().next().value;
+    if (oldest !== undefined) windows.delete(oldest);
+  }
+  windows.set(file, fresh);
+  return fresh;
+}
+
+/** Forget every cached parse. For tests, which rewrite transcripts in place. */
+export function resetChatCache(): void {
+  windows.clear();
+}
+
 /**
  * The conversation, or an empty one when there is nothing to read.
  *
@@ -638,15 +709,17 @@ export async function readChat(
     permissionMode: "",
   };
   if (!file) return empty;
-  let window: { text: string; truncated: boolean };
+  let window: Window;
   try {
-    window = await tail(file, Math.min(opts.bytes ?? DEFAULT_WINDOW, MAX_WINDOW));
+    window = await readWindow(
+      file,
+      Math.min(opts.bytes ?? DEFAULT_WINDOW, MAX_WINDOW),
+      opts.repoDir,
+    );
   } catch {
     return empty;
   }
-  const { messages, pending, todos, permissionMode } = parseTranscript(window.text, {
-    repoDir: opts.repoDir,
-  });
+  const { messages, pending, todos, permissionMode } = window.parsed;
   return {
     conversationId,
     // Everything the caller has not got. A poll that finds nothing new is then
@@ -658,7 +731,20 @@ export async function readChat(
     // the timestamp of the message that triggered it — and an exclusive filter
     // would drop the second one for good if it landed after the first was read.
     // Costs one message per poll; the client discards it by id.
-    messages: opts.since ? messages.filter((m) => m.at >= opts.since!) : messages,
+    //
+    // Cards are exempt, and that is the whole reason they can ever close. A
+    // question and a plan are written once, at the moment they are put, and
+    // then *changed in place* when the answer comes back — `answered`,
+    // `chosen`, `approved`. Their `at` is the moment they were asked, which is
+    // by then long behind `since`, so the filter dropped precisely the update
+    // that says the thing is no longer waiting for anybody. A card left open
+    // on screen for the rest of the session is what the client saw.
+    //
+    // Cheap to exempt: a window holds a handful of these at most, and the
+    // client replaces by id rather than appending.
+    messages: opts.since
+      ? messages.filter((m) => m.at >= opts.since! || m.ask || m.plan)
+      : messages,
     pending,
     truncated: window.truncated,
     // State, not a delta: both are what the window last saw, so neither is

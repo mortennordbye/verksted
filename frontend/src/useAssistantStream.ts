@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AssistantThread } from "../../shared/api";
+import type { AssistantFrame, AssistantThread } from "../../shared/api";
 import { api } from "./api";
 
 /** 1s, 2s, 4s, 8s, then every 16. */
@@ -65,7 +65,16 @@ export function useAssistantStream(): {
       };
       ws.onmessage = (e: MessageEvent<string>) => {
         try {
-          setThread(JSON.parse(e.data) as AssistantThread);
+          const frame = JSON.parse(e.data) as AssistantFrame;
+          setThread((prev) => {
+            // No entries means nothing has been said since the last frame, so
+            // the ones already held are still the ones — kept by reference, so
+            // nothing on screen re-parses its markdown for a frame that only
+            // moved `live` on by a token.
+            if (frame.entries) return frame as AssistantThread;
+            if (!prev) return null;
+            return { ...frame, entries: prev.entries };
+          });
         } catch {
           // A frame we cannot read is not worth taking the screen down for.
         }

@@ -1,7 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import type { AssistantTool, AssistantVoices } from "../../../shared/api.js";
+import type {
+  AssistantEntry,
+  AssistantFrame,
+  AssistantThread,
+  AssistantTool,
+  AssistantVoices,
+} from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
 import { env } from "../env.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
@@ -326,12 +332,28 @@ export default async function assistantRoutes(app: FastifyInstance) {
     // Without this a socket error (a phone dropping off mid-frame) reaches the
     // server's error event and takes the process down.
     socket.on("error", (err: unknown) => req.log.warn({ err }, "assistant socket error"));
-    const unsubscribe = assistant.subscribe((thread) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
-    });
+
+    /**
+     * The entries this socket was last sent, by identity.
+     *
+     * The thread module hands out the same array for as long as nothing has
+     * been appended, so this is an O(1) answer to "has anything been said
+     * since I last wrote to this socket" — and the frames in between carry no
+     * entries at all. A socket that has just opened has been sent nothing, so
+     * its first frame is always whole.
+     */
+    let sent: AssistantEntry[] | null = null;
+
+    const send = (thread: AssistantThread) => {
+      if (socket.readyState !== socket.OPEN) return;
+      const frame: AssistantFrame =
+        thread.entries === sent ? { ...thread, entries: undefined } : thread;
+      sent = thread.entries;
+      socket.send(JSON.stringify(frame));
+    };
+
+    const unsubscribe = assistant.subscribe(send);
     socket.on("close", unsubscribe);
-    void assistant.readThread().then((thread) => {
-      if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(thread));
-    });
+    void assistant.readThread().then(send);
   });
 }
