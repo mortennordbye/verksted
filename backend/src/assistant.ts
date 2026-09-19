@@ -231,7 +231,12 @@ async function ensureMcpConfig(o: {
   tools: string[] | null;
 }): Promise<string> {
   const isChair = o.id === CHAIR_ID;
-  const name = o.unattended ? "mcp-unattended" : isChair ? "mcp" : `mcp-${o.id}`;
+  // Per speaker on an unattended run too. The advisors a nightly meeting
+  // convenes run under one `Promise.all`, and they all wrote this file: the
+  // last writer decided what every one of them could reach, so an advisor
+  // could start with another's VK_TOOLS, another's VK_MEMBER, and headroom
+  // without the deny list that is added for the one member meant to have it.
+  const name = o.unattended ? `mcp-unattended-${o.id}` : isChair ? "mcp" : `mcp-${o.id}`;
   const file = path.join(env.ASSISTANT_DIR, `${name}.json`);
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   // Whether headroom is reachable at all is the only thing the backend needs to
@@ -345,8 +350,21 @@ async function readTools(): Promise<AssistantTool[]> {
   const out: string[] = [];
   child.stdout.on("data", (d: Buffer) => out.push(String(d)));
   const closed = new Promise<void>((resolve, reject) => {
-    child.on("error", reject);
-    child.on("close", () => resolve());
+    // A server that answers neither way is worse than one that fails: the
+    // promise is cached for the life of the process, so every future request
+    // for the tool list would wait on the same hung child for ever.
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("the tool server did not answer in time"));
+    }, 10_000);
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
   // The handshake first, as the CLI does it; the server exits when stdin ends.
   child.stdin.end(
@@ -974,6 +992,12 @@ async function turn(o: {
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
+  // character in half wherever the pipe happens to break, and both halves come
+  // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
+  // marks, at random, in text that is then stored and read back for ever.
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
   o.onSpawn(child);
   o.onChange();
 
@@ -1002,8 +1026,8 @@ async function turn(o: {
       timedOut = true;
       child.kill("SIGKILL");
     }, speaker.timeoutMs);
-    child.stdout?.on("data", (d: Buffer) => {
-      const entries = consumeChunk(d.toString(), state);
+    child.stdout?.on("data", (d: string) => {
+      const entries = consumeChunk(d, state);
       if (!entries.length) {
         // Nothing completed, but the live text moved: push it so the answer is
         // visible as it lands. Throttled, since deltas arrive per token.
@@ -1021,7 +1045,7 @@ async function turn(o: {
         o.onChange();
       });
     });
-    child.stderr?.on("data", (d: Buffer) => (err += d.toString()));
+    child.stderr?.on("data", (d: string) => (err += d));
     const done = () => {
       clearTimeout(timer);
       // Whatever was mid-write when the process ended still has to land.

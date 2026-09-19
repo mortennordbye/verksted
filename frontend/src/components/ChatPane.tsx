@@ -249,7 +249,14 @@ const ECHO_TTL_MS = 90_000;
 const WINDOW = 256_000;
 const MAX_WINDOW = 8_000_000;
 
-export default function ChatPane({ session }: { session: Session }) {
+export default function ChatPane({
+  session,
+  onOpenTerminal,
+}: {
+  session: Session;
+  /** Switches the pane to the terminal; the way out of a dialog nothing here can read. */
+  onOpenTerminal: () => void;
+}) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState<ChatToolCall[]>([]);
   const [truncated, setTruncated] = useState(false);
@@ -612,7 +619,7 @@ export default function ChatPane({ session }: { session: Session }) {
         prompt={prompt}
         onAnswer={answer}
         onKey={press}
-        onSend={send}
+        onOpenTerminal={onOpenTerminal}
         sending={sending}
       />
 

@@ -783,6 +783,29 @@ describe("a schedule that runs the assistant", () => {
       fs.readFileSync(michael[michael.indexOf("--mcp-config") + 1], "utf8"),
     ) as { mcpServers: { verksted: { env: Record<string, string> } } };
     expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
+
+    /*
+     * And each advisor got its own file.
+     *
+     * The convened advisors run under one Promise.all, and every unattended
+     * speaker used to write the same `mcp-unattended.json`: the last writer
+     * decided what all of them could reach. An advisor could start holding
+     * another's tools, writing to another's memory, or reading headroom
+     * without the deny list added for the one member meant to have it.
+     */
+    const [raphael] = fake
+      .argvFor("claude")
+      .filter((argv) => argv.join(" ").includes("Your name is Raphael."));
+    const configFor = (argv: string[]) => argv[argv.indexOf("--mcp-config") + 1];
+    expect(configFor(michael)).not.toBe(configFor(raphael));
+    const memberOf = (argv: string[]) =>
+      (
+        JSON.parse(fs.readFileSync(configFor(argv), "utf8")) as {
+          mcpServers: { verksted: { env: Record<string, string> } };
+        }
+      ).mcpServers.verksted.env.VK_MEMBER;
+    expect(memberOf(michael)).toBe("michael");
+    expect(memberOf(raphael)).toBe("raphael");
   });
 
   it("does not let a briefing convene unless it was asked to", async () => {

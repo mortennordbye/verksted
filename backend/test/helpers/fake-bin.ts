@@ -53,6 +53,16 @@ export interface Reply {
    * takes seconds; this is the smallest way to say so.
    */
   delayMs?: number;
+  /**
+   * Write stdout as two chunks, breaking at this byte offset.
+   *
+   * A pipe delivers bytes, not characters, and what the reader gets is
+   * whatever happened to have arrived. Anything that decodes per chunk is
+   * therefore correct right up until a multi-byte character straddles the
+   * break — which on this pod means every æ, ø and å, at random. There is no
+   * way to say that in a test without writing the two halves separately.
+   */
+  splitAt?: number;
 }
 
 const HELPER = `
@@ -83,6 +93,18 @@ function writeAll(fd, text) {
   while (off < buf.length) off += fs.writeSync(fd, buf, off, buf.length - off);
 }
 function finish(m) {
+  if (m.stdout && m.splitAt) {
+    // Two writes with a beat between them, so the reader really does get two
+    // data events rather than one buffer the kernel joined up.
+    const buf = Buffer.from(m.stdout);
+    writeAll(1, buf.subarray(0, m.splitAt));
+    setTimeout(() => {
+      writeAll(1, buf.subarray(m.splitAt));
+      if (m.stderr) writeAll(2, m.stderr);
+      process.exit(m.code || 0);
+    }, 20);
+    return;
+  }
   if (m.stdout) writeAll(1, m.stdout);
   if (m.stderr) writeAll(2, m.stderr);
   process.exit(m.code || 0);

@@ -50,6 +50,13 @@ export const MD: Components = {
         {children}
       </a>
     ),
+  // Never a remote fetch. An `![](…)` in a reply is not a picture anybody asked
+  // for: the images in this app arrive as entry attachments and are drawn by
+  // the bubble, so the only thing that writes one into the markdown is a model
+  // repeating text it read somewhere. Rendering it would issue the request on
+  // sight, with whatever the model put in the query string, before anyone had
+  // the chance to not tap it. The alt text stays, so nothing vanishes silently.
+  img: ({ alt }) => <span className="text-faint italic">{alt || "image"}</span>,
   blockquote: ({ children }) => (
     <blockquote className="mb-2 border-l-2 border-line pl-3 text-muted last:mb-0">
       {children}

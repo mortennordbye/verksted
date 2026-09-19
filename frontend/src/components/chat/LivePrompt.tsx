@@ -26,7 +26,7 @@ export default function LivePrompt({
   prompt,
   onAnswer,
   onKey,
-  onSend,
+  onOpenTerminal,
   sending,
 }: {
   session: Session;
@@ -35,9 +35,9 @@ export default function LivePrompt({
   /** Presses one option's number. Sends no Return — see ChatPane's `answer`. */
   onAnswer: (digit: string) => Promise<void> | void;
   /** Presses a named key, for moving on from a question with several answers. */
-  onKey: (key: "right") => Promise<void> | void;
-  /** Types a line, for the dialogs this cannot read. */
-  onSend: (value: string) => Promise<void> | void;
+  onKey: (key: "escape" | "right") => Promise<void> | void;
+  /** Switches the pane to the terminal, for the dialogs this cannot read. */
+  onOpenTerminal: () => void;
   sending: boolean;
 }) {
   const waiting = session.status === "waiting";
@@ -93,24 +93,35 @@ export default function LivePrompt({
   }
 
   if (waiting) {
-    // Blocked on something the parser did not recognise. Saying so beats saying
-    // nothing, and the terminal is one tap away.
+    /*
+     * Blocked on something the parser did not recognise. Saying so beats saying
+     * nothing, and the terminal is one tap away.
+     *
+     * Nothing here answers the dialog, and that is deliberate. This strip used
+     * to offer "yes" and "no", which typed the letter and pressed Return — into
+     * a dialog whose options nobody had read. Return does not submit a choice,
+     * it takes whatever the cursor is resting on, which on a claude dialog is
+     * normally the first option: "yes". So "no" approved, on exactly the
+     * dialogs the parser failed at — a CLI release that moved the layout, or a
+     * question with more options than it knows. An unreadable dialog gets the
+     * two answers that are safe not knowing what was asked: back out of it, or
+     * go and look.
+     */
     return (
       <div className="flex flex-none flex-wrap items-center gap-2 border-t border-wait/40 bg-wait/5 px-3.5 py-2 text-[12.5px] text-wait">
-        <span className="min-w-0 flex-1">it is waiting for you</span>
+        <span className="min-w-0 flex-1">it is waiting for you, and I cannot read the dialog</span>
         <button
-          onClick={() => void onSend("y")}
-          disabled={sending}
-          className="tap rounded-md border border-run/50 px-2.5 py-1 text-run disabled:opacity-50"
+          onClick={onOpenTerminal}
+          className="tap rounded-md border border-accent px-2.5 py-1 text-accent"
         >
-          yes
+          open terminal
         </button>
         <button
-          onClick={() => void onSend("n")}
+          onClick={() => void onKey("escape")}
           disabled={sending}
-          className="tap rounded-md border border-fail/50 px-2.5 py-1 text-fail disabled:opacity-50"
+          className="tap rounded-md border border-line px-2.5 py-1 text-muted disabled:opacity-50"
         >
-          no
+          esc
         </button>
       </div>
     );

