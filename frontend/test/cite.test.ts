@@ -36,6 +36,15 @@ describe("cite", () => {
     expect(citePath("https://example.com")).toBeNull();
   });
 
+  // This runs during render, and the only error boundary is the app's: one
+  // stored reply holding a half-written escape took the whole /ai screen down
+  // on every visit, with no way back but deleting the thread over the API.
+  it("draws no chip for a citation it cannot decode, rather than throwing", () => {
+    expect(() => citePath("vk:doc/%E0%A4%A")).not.toThrow();
+    expect(citePath("vk:doc/%E0%A4%A")).toBeNull();
+    expect(citePath("vk:session/%")).toBeNull();
+  });
+
   // A markdown destination ends at the first space, so a document whose folder
   // is called "Kontrakt Nimtech" drew no chip at all until the id was encoded.
   it("survives a path with spaces in it", () => {

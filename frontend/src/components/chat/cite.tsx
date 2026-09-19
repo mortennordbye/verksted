@@ -64,7 +64,16 @@ export function citePath(href: string): { to?: string; doc?: string; label: stri
   const m = /^vk:(doc|feed|loop|mail|session|pr)\/(.+)$/.exec(href);
   if (!m) return null;
   const [, kind] = m;
-  const id = decodeURIComponent(m[2]);
+  // A half-written escape (`%E0%A4%A`) throws here, and this runs during
+  // render: one stored reply with a malformed citation in it took the whole
+  // screen down on every visit, with no way back but deleting the thread
+  // through the API. A chip that cannot be read is simply not a chip.
+  let id: string;
+  try {
+    id = decodeURIComponent(m[2]);
+  } catch {
+    return null;
+  }
   switch (kind) {
     case "doc":
       return { doc: id, label: id.split("/").at(-1) ?? id };

@@ -102,7 +102,21 @@ async function start(): Promise<Worker> {
   const lines = readline.createInterface({ input: proc.stdout });
 
   const ready = new Promise<Worker>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("the voice did not start")), 60_000);
+    const timer = setTimeout(() => {
+      // Killed, not merely given up on: a python that is still loading a model
+      // nobody is waiting for holds a gigabyte of the pod for nothing, and the
+      // next request would otherwise queue behind a second copy of it.
+      proc.kill();
+      reject(new Error("the voice did not start"));
+    }, 60_000);
+    // No `error` listener is an unhandled `error` event, and that is the whole
+    // backend: an ENOENT on the interpreter, or an EACCES, would take the API
+    // and every attached terminal down with it because a phone asked for a
+    // sentence to be read aloud.
+    proc.once("error", (err: Error) => {
+      clearTimeout(timer);
+      reject(new Error(err.message));
+    });
     lines.once("line", (line: string) => {
       clearTimeout(timer);
       try {
@@ -130,11 +144,20 @@ async function start(): Promise<Worker> {
       settle({ ok: false, error: "the voice answered with something unreadable" });
     }
   });
-  proc.on("exit", () => {
-    entry.pending?.({ ok: false, error: "the voice stopped" });
+  const died = (reason: string) => {
+    entry.pending?.({ ok: false, error: reason });
     entry.pending = null;
     if (worker === entry) worker = null;
-  });
+  };
+  proc.on("exit", () => died("the voice stopped"));
+  // The same reason as the one in `ready`, for the rest of the worker's life —
+  // and for the write below it. A worker that has exited between the queue
+  // picking this request up and the sentence going down the pipe answers with
+  // EPIPE on stdin, which is an `error` event on a stream nobody is listening
+  // to, which is the backend. The sentence is lost either way; the process is
+  // not.
+  proc.on("error", (err: Error) => died(err.message));
+  proc.stdin.on("error", (err: Error) => died(err.message));
 
   return ready;
 }

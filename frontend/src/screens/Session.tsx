@@ -949,7 +949,7 @@ export default function Session() {
                     {/* The transcript outlives tmux, so an ended session has a
                           conversation to read even though it has no terminal. */}
                     {chatView ? (
-                      <ChatPane session={session} />
+                      <ChatPane session={session} onOpenTerminal={() => setMain("agent")} />
                     ) : live ? (
                       <Terminal sessionId={session.id} project={session.project} />
                     ) : (

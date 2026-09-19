@@ -195,6 +195,31 @@ describe("POST /api/assistant/messages", () => {
 
     expect(thread.entries.at(-1).failed).toBe(true);
   });
+
+  /**
+   * Norwegian, through a pipe.
+   *
+   * The CLI's output was decoded one chunk at a time, and a chunk is a length
+   * of bytes rather than a length of text: an å whose two bytes straddled the
+   * break came back as a pair of U+FFFD, one in each half. It happened at
+   * whatever offset the pipe chose on the day, so it looked random — and the
+   * corrupted text is stored, which means it is wrong for as long as the
+   * thread exists and gets fed back to the model on every later turn.
+   */
+  it("does not corrupt a character that straddles two chunks of the CLI's output", async () => {
+    const text = "Nei, det går fint. Blåbærsyltetøy til frokost.";
+    const stdout = run(text);
+    fake.reply("claude", "-p", {
+      stdout,
+      // One byte into the å: its second byte arrives in the next chunk.
+      splitAt: Buffer.from(stdout).indexOf(Buffer.from("å")) + 1,
+    });
+
+    const thread = (await say("går det bra?")).json();
+
+    expect(thread.entries.at(-1).text).toBe(text);
+    expect(thread.entries.at(-1).text).not.toContain("�");
+  });
 });
 
 describe("the thread", () => {
