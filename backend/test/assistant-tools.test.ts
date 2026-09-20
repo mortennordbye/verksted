@@ -26,7 +26,14 @@ let seen: Seen[] = [];
 let api: string;
 
 /** Canned replies keyed by "METHOD /path"; anything else answers null. */
+/** Paths the stub answers 500 to, once each: for the fail-closed cases. */
+const failNext = new Set<string>();
+
 const REPLIES: Record<string, unknown> = {
+  "POST /api/memory/proposed": { slug: "invoices" },
+  "PUT /api/memory/invoices": { slug: "invoices" },
+  "PUT /api/council/uriel/memory/rates": { slug: "rates" },
+  "POST /api/assistant/turn/private": { browsing: "closed" },
   "DELETE /api/sessions/vk-demo-1": { id: "vk-demo-1", report: "ok: done" },
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
@@ -61,6 +68,43 @@ function rpc(request: object, env: Record<string, string> = {}): Promise<Record<
   });
 }
 
+/**
+ * Several calls to one server process, in order, with the replies matched back
+ * by id. What a turn is: the CLI spawns this server once and calls it as often
+ * as the model asks, so anything the server remembers between calls — what this
+ * turn has already read — only exists here.
+ */
+async function rpcTurn(
+  requests: object[],
+  env: Record<string, string> = {},
+): Promise<Record<string, unknown>[]> {
+  const out = await new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, [SERVER], {
+      env: { ...process.env, VK_API: api, ...env },
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    let buf = "";
+    child.stdout.on("data", (d) => (buf += d));
+    child.on("error", reject);
+    child.on("close", () => resolve(buf));
+    // One at a time: the server answers each line before the next matters, and
+    // a turn's calls are sequential for the same reason.
+    void (async () => {
+      for (const r of requests) {
+        child.stdin.write(`${JSON.stringify(r)}\n`);
+        await new Promise((f) => setTimeout(f, 120));
+      }
+      child.stdin.end();
+    })();
+  });
+  const byId = new Map<unknown, Record<string, unknown>>();
+  for (const line of out.split("\n").filter(Boolean)) {
+    const msg = JSON.parse(line) as Record<string, unknown>;
+    byId.set(msg.id, msg);
+  }
+  return requests.map((r) => byId.get((r as { id: unknown }).id) ?? {});
+}
+
 /** What the backend sets for a turn a schedule fired, with nobody reading. */
 const VK_UNATTENDED = { VK_UNATTENDED: "1" };
 
@@ -75,6 +119,10 @@ beforeAll(async () => {
       seen.push({ method: req.method ?? "", url: req.url ?? "", body });
       const key = `${req.method} ${(req.url ?? "").split("?")[0]}`;
       res.setHeader("content-type", "application/json");
+      if (failNext.delete(key)) {
+        res.statusCode = 500;
+        return res.end(JSON.stringify({ error: "no" }));
+      }
       res.end(JSON.stringify(REPLIES[key] ?? null));
     });
   });
@@ -422,6 +470,109 @@ describe("one advisor's tools", () => {
       expect(PRIVATE_TOOLS.has(name), name).toBe(true);
     }
     expect(PRIVATE_TOOLS.has("status")).toBe(false);
+  });
+});
+
+/**
+ * A-01 and A-03: the chair reads the mail, the documents and the calendar, and
+ * it drives a browser that can open any URL. Holding both at once is a
+ * zero-click exfiltration path, and writing memory from what it read is a
+ * standing instruction for every future session in every repo.
+ */
+describe("a turn that reads something of the person's", () => {
+  const TURN = { VK_TURN: "turn-1" };
+  const call = (id: number, name: string, args: object = {}) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+
+  it("pays for the read by closing the browser, before the answer", async () => {
+    seen = [];
+
+    await rpcTurn([call(1, "mail_read", { uid: 4 })], TURN);
+
+    // First, not merely somewhere: between reading the mail and the browser
+    // going there must be no moment at all.
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe("/api/assistant/turn/private");
+    expect(JSON.parse(seen[0].body)).toEqual({ turn: "turn-1" });
+    expect(seen[1].url).toContain("/api/mail/");
+  });
+
+  it("does not answer at all if the browser could not be closed", async () => {
+    // Fails closed. A read this server cannot pay for is a read it does not do.
+    failNext.add("POST /api/assistant/turn/private");
+    seen = [];
+
+    const [res] = (await rpcTurn([call(1, "docs_read", { path: "x.pdf" })], TURN)) as {
+      result?: { isError?: boolean; content: { text: string }[] };
+    }[];
+
+    expect(res.result?.isError).toBe(true);
+    expect(res.result?.content[0].text).toContain("could not close the browser");
+    expect(seen.some((r) => r.url.startsWith("/api/docs"))).toBe(false);
+  });
+
+  it("proposes what it would have remembered, once it has read outside text", async () => {
+    seen = [];
+
+    const [, res] = (await rpcTurn(
+      [
+        call(1, "mail_read", { uid: 4 }),
+        call(2, "remember", { slug: "invoices", text: "Send invoices on the 1st." }),
+      ],
+      TURN,
+    )) as { result?: { content: { text: string }[] } }[];
+
+    const wrote = seen.filter((r) => r.url.startsWith("/api/memory"));
+    expect(wrote.map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/memory/proposed"]);
+    expect(res.result?.content[0].text).toContain("proposed");
+    expect(res.result?.content[0].text).toContain("read text written elsewhere");
+  });
+
+  it("notes about the person go the same way", async () => {
+    seen = [];
+
+    await rpcTurn(
+      [call(1, "pr_detail", { project: "demo", number: 3 }), call(2, "person_note", { text: "x" })],
+      TURN,
+    );
+
+    expect(seen.some((r) => r.url === "/api/profile/lines")).toBe(false);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(true);
+  });
+
+  it("still remembers outright on a turn that has read nothing written elsewhere", async () => {
+    // The ordinary case, and the one that must not become a chore: the person
+    // said it in the chat, and the chair writes it down.
+    seen = [];
+
+    await rpcTurn(
+      [call(1, "status"), call(2, "remember", { slug: "invoices", text: "On the 1st." })],
+      TURN,
+    );
+
+    expect(seen.some((r) => r.method === "PUT" && r.url === "/api/memory/invoices")).toBe(true);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
+  });
+
+  it("leaves an advisor's own notebook alone", async () => {
+    // A member's memory reaches nothing but its own next turn, so reading a
+    // document does not make writing it an instruction to anybody.
+    seen = [];
+
+    await rpcTurn(
+      [
+        call(1, "docs_read", { path: "x.pdf" }),
+        call(2, "remember", { slug: "rates", text: "They bill monthly." }),
+      ],
+      { ...TURN, VK_MEMBER: "uriel", VK_TOOLS: "docs_read,remember" },
+    );
+
+    expect(seen.some((r) => r.url === "/api/council/uriel/memory/rates")).toBe(true);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
   });
 });
 

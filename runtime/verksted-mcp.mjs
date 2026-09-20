@@ -103,6 +103,36 @@ const ALLOW = process.env.VK_TOOLS
 const MEMBER = process.env.VK_MEMBER || null;
 const mine = (path) => `/api/council/${encodeURIComponent(MEMBER)}${path}`;
 
+/**
+ * This run of the CLI, named by the backend that spawned it.
+ *
+ * Two things follow a turn rather than a conversation: the browser the chair
+ * loses when it reads something of the person's, and whether anything it has
+ * read was written by somebody outside this bench. Both are decided per turn
+ * because that is the unit a prompt injection acts within — the next turn
+ * starts clean.
+ */
+const TURN = process.env.VK_TURN || null;
+
+/**
+ * Whether this turn has read text nobody here wrote: a mail body, a document,
+ * a pull request description, a build log.
+ *
+ * In this process rather than on the backend because this process is the one
+ * that served it, and it lives exactly as long as the turn does.
+ */
+let readOutside = false;
+
+/** The review queue: a fact that waits on the inbox rather than one in force. */
+const proposeMemory = (a) =>
+  call("POST", "/api/memory/proposed", {
+    slug: a.slug,
+    text: a.text,
+    ...(a.type ? { type: a.type } : {}),
+    ...(a.scope ? { scope: a.scope } : {}),
+    ...(a.source ? { source: a.source } : {}),
+  });
+
 /** File a card for the person to tap; the reply says so and no more. */
 const propose = (action, why) =>
   call("POST", "/api/proposals", { action, ...(why ? { why } : {}) }).then(
@@ -1098,7 +1128,20 @@ const TOOLS = [
       properties: { text: { type: "string", description: "one line, as a note to yourself" } },
       required: ["text"],
     },
-    run: (a) => call("POST", "/api/profile/lines", { text: a.text }).then(() => "noted"),
+    run: (a) =>
+      readOutside
+        ? // Same reasoning as remember: this line is carried in every system
+          // prompt the chair is given, so it is an instruction too.
+          proposeMemory({
+            slug: `about-${Date.now().toString(36)}`,
+            text: a.text,
+            type: "preference",
+            source: "person_note, on a turn that had read text written elsewhere",
+          }).then(
+            () =>
+              "proposed for review rather than noted, because this turn has read text written elsewhere",
+          )
+        : call("POST", "/api/profile/lines", { text: a.text }).then(() => "noted"),
   },
   {
     name: "council_add",
@@ -1201,14 +1244,7 @@ const TOOLS = [
       },
       required: ["slug", "text"],
     },
-    run: (a) =>
-      call("POST", "/api/memory/proposed", {
-        slug: a.slug,
-        text: a.text,
-        ...(a.type ? { type: a.type } : {}),
-        ...(a.scope ? { scope: a.scope } : {}),
-        ...(a.source ? { source: a.source } : {}),
-      }).then((m) => `proposed ${m.slug}, waiting for review in the inbox`),
+    run: (a) => proposeMemory(a).then((m) => `proposed ${m.slug}, waiting for review in the inbox`),
   },
   {
     name: "recall",
@@ -1271,12 +1307,22 @@ const TOOLS = [
             text: a.text,
             ...(a.source ? { source: a.source } : {}),
           }).then((m) => `remembered ${m.slug}, for yourself only`)
-        : call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
-            text: a.text,
-            ...(a.type ? { type: a.type } : {}),
-            ...(a.scope ? { scope: a.scope } : {}),
-            ...(a.source ? { source: a.source } : {}),
-          }).then((m) => `remembered ${m.slug}`),
+        : readOutside
+          ? // The bench's memory is read as its own instructions by every
+            // session in every repo, so one poisoned mail would otherwise
+            // become a standing order for every future agent. A turn that has
+            // read outside text can still put the fact somewhere — it just
+            // goes to the review queue, where a person keeps it or drops it.
+            proposeMemory(a).then(
+              (m) =>
+                `proposed ${m.slug} for review rather than remembering it outright, because this turn has read text written elsewhere`,
+            )
+          : call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
+              text: a.text,
+              ...(a.type ? { type: a.type } : {}),
+              ...(a.scope ? { scope: a.scope } : {}),
+              ...(a.source ? { source: a.source } : {}),
+            }).then((m) => `remembered ${m.slug}`),
   },
   {
     name: "forget",
@@ -1368,6 +1414,27 @@ async function handle(msg) {
         error: { code: -32601, message: `no such tool: ${msg.params?.name}` },
       });
     }
+    const policy = policyOf(tool.name);
+    if (policy.private && TURN) {
+      // Before the answer, never after: between reading the mail and the
+      // browser closing there must be no moment at all. Fails closed — a read
+      // this server cannot pay for is a read it does not do.
+      try {
+        await call("POST", "/api/assistant/turn/private", { turn: TURN });
+      } catch (err) {
+        return send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            content: [
+              { type: "text", text: `failed: could not close the browser first: ${err.message}` },
+            ],
+            isError: true,
+          },
+        });
+      }
+    }
+    if (policy.outside) readOutside = true;
     try {
       const result = await tool.run(msg.params.arguments ?? {});
       return send({
