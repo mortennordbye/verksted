@@ -181,6 +181,27 @@ describe("liveness when tmux answers", () => {
     expect((await store.listSessions())[0].endedAt).toBe(endedAt);
   });
 
+  /**
+   * Null usage says two things at once — nobody has measured it, and somebody
+   * did and found no transcript — and only the first is a job left undone.
+   * Reading the pod after a deploy, the two were indistinguishable, so an idle
+   * backfill and a broken one looked exactly alike.
+   */
+  it("says whether a session's cost has been looked for, not only what it was", async () => {
+    writeMeta("vk-demo-1");
+    writeMeta("vk-demo-2", { endedAt: "2026-01-02T00:00:00.000Z", usage: null });
+    tmuxList.mockResolvedValue([]);
+
+    const byId = new Map((await store.listSessions()).map((s) => [s.id, s]));
+    // Never looked at: it has not been swept yet.
+    expect(byId.get("vk-demo-1")).toMatchObject({ usage: null, measured: false });
+    // Looked at, and there was no transcript to read.
+    expect(byId.get("vk-demo-2")).toMatchObject({ usage: null, measured: true });
+
+    await store.sweepSessions();
+    expect((await store.getSession("vk-demo-1"))!.measured).toBe(true);
+  });
+
   it("reports a session tmux still has as running", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue(["vk-demo-1"]);

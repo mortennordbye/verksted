@@ -360,6 +360,10 @@ async function toSession(
     ...wire,
     work: meta.work ?? null,
     usage: meta.usage ?? null,
+    // Absent means nobody has measured it; null means somebody did and there
+    // was no transcript to read. Both arrive as null, so the fact of having
+    // looked has to travel beside it.
+    measured: meta.usage !== undefined,
     status,
     lastActivityAt: activity ? new Date(activity.activity * 1000).toISOString() : null,
     report,

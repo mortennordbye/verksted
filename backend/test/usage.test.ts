@@ -64,6 +64,7 @@ function session(over: Partial<Session>): Session {
     outcome: "done",
     work: null,
     usage: null,
+    measured: true,
     lastActivityAt: null,
     review: { reviewed: 0, verdict: null },
     unattended: null,

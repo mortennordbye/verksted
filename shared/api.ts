@@ -44,6 +44,16 @@ export interface Session {
    */
   usage: SessionUsage | null;
   /**
+   * Whether anything has tried to measure `usage` yet.
+   *
+   * Null usage says two different things on its own — nobody has looked, and
+   * somebody looked and there was no transcript — and the store knows which
+   * while the wire used to flatten them. That is not a detail: the two are
+   * what tell an idle backfill apart from a broken one, and reading the pod
+   * after a deploy, they were indistinguishable.
+   */
+  measured: boolean;
+  /**
    * When the session's pane last printed anything; null once it has ended, and
    * null while tmux cannot be asked. What it answers is the question a status
    * alone cannot: whether a running session is working or finished hours ago
