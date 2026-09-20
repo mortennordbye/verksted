@@ -24,6 +24,15 @@ import path from "node:path";
 export interface FakeCall {
   bin: string;
   argv: string[];
+  /**
+   * The fake's own pid, recorded as it starts.
+   *
+   * What a long-running call does when something else ends it is only visible
+   * from outside the process: the websocket bridge's "detach, never kill" is
+   * the attach client dying while tmux is never asked to kill anything, and
+   * `process.kill(pid, 0)` is how a test sees the first half.
+   */
+  pid: number;
 }
 
 export interface Reply {
@@ -68,7 +77,7 @@ export interface Reply {
 const HELPER = `
 const fs = require("node:fs");
 const [bin, logPath, repliesPath, ...argv] = process.argv.slice(2);
-fs.appendFileSync(logPath, JSON.stringify({ bin, argv }) + "\\n");
+fs.appendFileSync(logPath, JSON.stringify({ bin, argv, pid: process.pid }) + "\\n");
 let replies = {};
 try {
   replies = JSON.parse(fs.readFileSync(repliesPath, "utf8"));

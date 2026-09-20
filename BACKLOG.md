@@ -1095,26 +1095,25 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   `backend/src/routes/assistant.ts`, `recordCall` in
   `runtime/verksted-mcp.mjs`.
 
-## The websocket bridges have no behavioural test
+## The resize race and the browser bridge are still untested
 
-- **What:** `backend/src/ws/attach.ts` and `ws/browser.ts` are driven by no
-  test at all. What the audit calls the core feature — closing a terminal
-  socket detaches the `tmux attach` client and never kills the tmux session —
-  is asserted nowhere, and neither is the new guard around `pty.resize` on a
-  terminal whose process has gone (R-23), which is the one throw known to be
-  able to take the backend down and every agent with it. The
-  `uncaughtException` handler that now closes the app before exiting is
+- **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —
+  detach never kills, a shell pane gets its companion session, an unknown
+  session is refused, the client cap holds — which was O-24. Two things it
+  does not reach. The guard around `pty.resize` on a terminal whose process
+  has gone (R-23) is the one throw known to be able to take the backend down
+  and every agent with it, and `ws/browser.ts` is driven by no test at all.
+  The `uncaughtException` handler that closes the app before exiting is
   bootstrap wiring in `index.ts` and is not reachable from a test either.
-- **Why deferred:** A test needs a real pty against a fake tmux that stays
-  alive long enough to be attached to and then asked to resize, and the exit
-  race it guards is inherently timing-dependent: `pty.onExit` closes the socket,
-  so the resize has to land in the same tick as the exit to reach the throw at
-  all. Writing that without making it flaky is its own piece of work.
-- **Unblocked by:** The fake-bin helper growing a way to hold a process open
-  until the test says so (`delayMs` is the closest thing today). Then: open,
-  send a resize after the pane dies, assert the process is still up; and open,
-  close, assert the attach client died and no `kill-session` ran — which is
-  O-24 in the audit.
-- **Where:** `backend/src/ws/attach.ts` (the message handler, the close
-  handler), `backend/src/index.ts` (`shutdown`, the `uncaughtException`
-  handler), `backend/test/helpers/fake-bin.ts`.
+- **Why deferred:** The exit race is inherently timing-dependent: `pty.onExit`
+  closes the socket, so a resize has to land in the same tick as the exit to
+  reach the throw at all. A test that waits for the exit tests nothing, and
+  one that races it is flaky. Writing that honestly is its own piece of work —
+  most likely a unit test of the message handler over a pty stub rather than
+  another end-to-end case.
+- **Unblocked by:** Deciding that a stubbed pty is worth it for this one path
+  (the rest of the bridge is better tested for real, as it now is), or finding
+  a way to make node-pty throw on demand.
+- **Where:** `backend/src/ws/attach.ts` (the `resize` branch of the message
+  handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
+  the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
