@@ -193,14 +193,16 @@ async function exists(file: string): Promise<boolean> {
 async function cached<T>(
   held: Map<string, Held<T>>,
   id: string,
-  toPath: (id: string) => string,
+  suffix: string,
   read: (file: string) => Promise<T>,
 ): Promise<T | null> {
-  // The id is checked here, and the path built from it here, rather than taken
-  // from the caller: this is the one place in the module that turns a session
-  // id into a file to open, so it is the place the check belongs.
+  // Checked and joined here rather than handed in already built: this is the
+  // one place in the module that turns a session id into a file to open, so it
+  // is where the check belongs. Taking the path from the caller would also put
+  // the check in one function and the open in another, which is a shape no
+  // reader — and no scanner — can see the safety of.
   if (!SESSION_ID_RE.test(id)) return null;
-  const file = toPath(id);
+  const file = path.join(env.SESSIONS_DIR, `${id}${suffix}`);
   try {
     const { size, mtimeMs } = await fs.stat(file);
     const hit = held.get(id);
@@ -222,7 +224,7 @@ export function resetSessionCache(): void {
 
 /** The run's own verdict, first line only; null when it wrote none. */
 export async function readReport(id: string): Promise<string | null> {
-  return await cached(reportCache, id, reportPath, async (file) => {
+  return await cached(reportCache, id, ".report", async (file) => {
     const first = (await fs.readFile(file, "utf8")).trim().split("\n")[0]?.trim();
     return first ? first.slice(0, 300) : null;
   });
@@ -306,7 +308,7 @@ function isMeta(value: unknown): value is Meta {
 }
 
 async function readMeta(id: string): Promise<Meta | null> {
-  const meta = await cached(metaCache, id, metaPath, async (file) => {
+  const meta = await cached(metaCache, id, ".json", async (file) => {
     const parsed: unknown = JSON.parse(await fs.readFile(file, "utf8"));
     if (!isMeta(parsed)) throw new Error(`${id}: not session metadata`);
     return parsed;
