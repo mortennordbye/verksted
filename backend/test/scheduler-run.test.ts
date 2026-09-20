@@ -740,8 +740,10 @@ describe("a schedule that runs the assistant", () => {
 
   it("lets a briefing ask the council, and charges every turn it costs", async () => {
     const { saveMember } = await import("../src/council-store.js");
-    await saveMember({ id: "michael", name: "Michael", remit: "the cluster", tools: [] });
-    await saveMember({ id: "raphael", name: "Raphael", remit: "the code", tools: [] });
+    // With a tool each, because what is asserted below is the config the
+    // server is given: a member holding none is handed no server at all.
+    await saveMember({ id: "michael", name: "Michael", remit: "the cluster", tools: ["status"] });
+    await saveMember({ id: "raphael", name: "Raphael", remit: "the code", tools: ["status"] });
     const s = await store.createSchedule({
       name: "morning",
       kind: "assistant",

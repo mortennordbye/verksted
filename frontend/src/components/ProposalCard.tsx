@@ -49,6 +49,8 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
     delete_schedule: "delete it",
     start_session: "start it",
     desk_session: "start it",
+    schedule_put: "set it up",
+    run_schedule: "run it",
   };
   const label = LABELS[a.kind];
   const why = item.detail.includes("\n\n") ? item.detail.split("\n\n")[0] : null;
@@ -111,6 +113,24 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
             <div className="mt-1.5 text-[12.5px] whitespace-pre-wrap text-muted">{a.prompt}</div>
           )}
         </div>
+      )}
+      {/* The prompt again, for the same reason start_session shows one: a
+          session schedule is that session on a timer, and this card is the
+          only place it can be read before it starts running on its own. */}
+      {a.kind === "schedule_put" && (
+        <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">
+          <div className="text-[13px]">
+            {a.id ? `change ${a.id}` : `${a.name} in ${a.project}`}
+            {a.cron ? ` — ${a.cron}` : ""}
+            {a.enabled === false ? " (paused)" : ""}
+          </div>
+          {a.prompt && (
+            <div className="mt-1.5 text-[12.5px] whitespace-pre-wrap text-muted">{a.prompt}</div>
+          )}
+        </div>
+      )}
+      {a.kind === "run_schedule" && (
+        <div className="text-[13px]">run {a.id} now; it starts a session straight away</div>
       )}
       {a.kind === "desk_session" && (
         <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">

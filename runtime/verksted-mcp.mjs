@@ -81,14 +81,20 @@ const UNATTENDED = process.env.VK_UNATTENDED === "1";
  * A filter, not a contract: a name here that is not a tool is ignored. The
  * backend rejects a typo when the member is saved, which is where a person can
  * see it.
+ *
+ * Set and empty is a member that may call none of them, which is not the same
+ * as unset. Read as a truthy string, "" fell through to "no filter" and handed
+ * an advisor with no tools at all every tool there is — the backend leaves the
+ * whole server out in that case now, and this is the other half of saying so.
  */
-const ALLOW = process.env.VK_TOOLS
-  ? new Set(
-      process.env.VK_TOOLS.split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    )
-  : null;
+const ALLOW =
+  process.env.VK_TOOLS === undefined
+    ? null
+    : new Set(
+        process.env.VK_TOOLS.split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      );
 
 /**
  * Which advisor this server is running for, if it is running for one.
@@ -102,6 +108,49 @@ const ALLOW = process.env.VK_TOOLS
  */
 const MEMBER = process.env.VK_MEMBER || null;
 const mine = (path) => `/api/council/${encodeURIComponent(MEMBER)}${path}`;
+
+/**
+ * This run of the CLI, named by the backend that spawned it.
+ *
+ * Two things follow a turn rather than a conversation: the browser the chair
+ * loses when it reads something of the person's, and whether anything it has
+ * read was written by somebody outside this bench. Both are decided per turn
+ * because that is the unit a prompt injection acts within — the next turn
+ * starts clean.
+ */
+const TURN = process.env.VK_TURN || null;
+
+/**
+ * Whether this turn has read text nobody here wrote: a mail body, a document,
+ * a pull request description, a build log.
+ *
+ * In this process rather than on the backend because this process is the one
+ * that served it, and it lives exactly as long as the turn does.
+ */
+let readOutside = false;
+
+/** The review queue: a fact that waits on the inbox rather than one in force. */
+const proposeMemory = (a) =>
+  call("POST", "/api/memory/proposed", {
+    slug: a.slug,
+    text: a.text,
+    ...(a.type ? { type: a.type } : {}),
+    ...(a.scope ? { scope: a.scope } : {}),
+    ...(a.source ? { source: a.source } : {}),
+  });
+
+/**
+ * Which kind a schedule is, asked before anything is changed about it.
+ *
+ * A session schedule starts an agent with a shell on the pod, so creating,
+ * changing or running one is the same thing start_session is a card for. An
+ * assistant schedule runs the chair, which can change nothing, and stays
+ * direct. Unknown is treated as a session: the closed answer.
+ */
+const scheduleKind = (id) =>
+  call("GET", "/api/schedules")
+    .then((list) => (list ?? []).find((s) => s.id === id)?.kind ?? "session")
+    .catch(() => "session");
 
 /** File a card for the person to tap; the reply says so and no more. */
 const propose = (action, why) =>
@@ -156,10 +205,133 @@ const targetOf = (a) => ({
   ...(a.every === true ? { every: true } : {}),
 });
 
+/**
+ * What each tool is, as data.
+ *
+ * This used to be four lists and a good deal of prose: an `unattended` flag
+ * beside each tool below, a `chairOnly` column in the backend's copy of the
+ * names, a `PRIVATE_TOOLS` set beside that which nothing ever checked, and
+ * reversibility explained in tool descriptions and in the persona — where it
+ * was advice rather than a rule. A model that did not take the advice met
+ * nothing at all.
+ *
+ * One table, and the backend reads it back out of `tools/list` (`_meta`), so
+ * its copy cannot drift from this one:
+ *
+ * - `unattended`: may run on a turn nobody is reading. Absent means no, so a
+ *   tool added without a thought decides "no" by itself.
+ * - `chairOnly`: never offered to an advisor, whatever its file asks for.
+ * - `private`: reads something of the person's. No member may hold one of
+ *   these and the web at once; the chair holds both halves, so reading one is
+ *   what shuts its browser for the rest of the turn.
+ * - `outside`: returns text somebody outside this bench wrote. That is the
+ *   injection surface, and a turn that has touched it can only propose a
+ *   memory, not write one.
+ * - `effect`: what a call does.
+ *     read          nothing changes.
+ *     reversible    changes something a later call can change back.
+ *     card          files a proposal; nothing happens until the person taps.
+ *     irreversible  changes something that cannot be put back, with no card.
+ *                   There are three. They are named in BACKLOG.md and pinned
+ *                   by a test, so the number can only go down.
+ */
+const POLICY = {
+  // The bench's own state: nothing of the person's in any of it.
+  status: { unattended: true, effect: "read" },
+  read_session_output: { unattended: true, effect: "read" },
+  repo_status: { unattended: true, effect: "read" },
+  cluster_status: { unattended: true, effect: "read" },
+  repo_diff: { unattended: true, effect: "read" },
+  list_prs: { unattended: true, effect: "read" },
+  list_schedules: { unattended: true, effect: "read" },
+  ci_runs: { unattended: true, effect: "read" },
+
+  // Written by whoever opened the pull request, or by whatever broke the build.
+  pr_detail: { unattended: true, outside: true, effect: "read" },
+  ci_log: { unattended: true, outside: true, effect: "read" },
+
+  // A session is an agent with a shell on the pod holding gh, kubectl and git.
+  // The tap is what stands between that and anything the chair has read.
+  start_session: { chairOnly: true, effect: "card" },
+  desk_session: { chairOnly: true, effect: "card" },
+  end_session: { chairOnly: true, effect: "card" },
+  merge_pr: { chairOnly: true, effect: "card" },
+  propose: { chairOnly: true, effect: "card" },
+  ci_rerun: { chairOnly: true, effect: "reversible" },
+
+  // A session schedule is start_session on a timer, and the prompt in it is
+  // whatever was written there. Run-now is start_session with no timer at all.
+  create_schedule: { chairOnly: true, effect: "card" },
+  update_schedule: { chairOnly: true, effect: "card" },
+  run_schedule: { chairOnly: true, effect: "card" },
+  delete_schedule: { chairOnly: true, effect: "card" },
+  pause_schedules: { chairOnly: true, effect: "reversible" },
+  notify: { unattended: true, chairOnly: true, effect: "reversible" },
+
+  // The inbox and the open loops: the person's working state, and the feed
+  // carries the subject lines strangers wrote.
+  feed: { unattended: true, private: true, outside: true, effect: "read" },
+  feed_done: { chairOnly: true, private: true, effect: "reversible" },
+  brief_material: { unattended: true, private: true, outside: true, effect: "read" },
+  loops: { unattended: true, private: true, effect: "read" },
+  open_loop: { chairOnly: true, private: true, effect: "reversible" },
+  close_loop: { chairOnly: true, private: true, effect: "reversible" },
+
+  // Mail. Every read of it is somebody else's words.
+  mail_recent: { private: true, outside: true, effect: "read" },
+  mail_search: { private: true, outside: true, effect: "read" },
+  mail_read: { private: true, outside: true, effect: "read" },
+  mail_folders: { unattended: true, private: true, effect: "read" },
+  mail_labels: { unattended: true, private: true, effect: "read" },
+  mail_rules: { unattended: true, private: true, effect: "read" },
+  mail_move: { private: true, effect: "reversible" },
+  mail_relabel: { private: true, effect: "reversible" },
+  // A filter acts on every mail from then on rather than once, which is why it
+  // takes the person's own word in the chat; it can be removed again after.
+  mail_rule_create: { chairOnly: true, private: true, effect: "reversible" },
+  // A rule's definition goes with it, and a label comes off every message at
+  // once. Neither has a call that puts it back.
+  mail_rule_delete: { chairOnly: true, private: true, effect: "irreversible" },
+  mail_label_delete: { chairOnly: true, private: true, effect: "irreversible" },
+
+  // The documents: the person's own share, and text nobody here wrote.
+  docs_catalogue: { private: true, outside: true, effect: "read" },
+  docs_search: { private: true, outside: true, effect: "read" },
+  docs_list: { private: true, outside: true, effect: "read" },
+  docs_read: { private: true, outside: true, effect: "read" },
+
+  // The calendar. An invitation is written by whoever sent it.
+  calendar_today: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_upcoming: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_search: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_add: { chairOnly: true, private: true, effect: "reversible" },
+  calendar_update: { chairOnly: true, private: true, effect: "reversible" },
+  // Nothing puts a deleted event back, a whole series least of all.
+  calendar_delete: { chairOnly: true, private: true, effect: "irreversible" },
+
+  // What the bench remembers, and what it has been told about the person.
+  // Searches every conversation the chair ever had, whoever is asking — mail
+  // and documents it quoted along with them.
+  recall: { unattended: true, private: true, outside: true, effect: "read" },
+  recent_prompts: { unattended: true, private: true, effect: "read" },
+  // Not private, because for an advisor these are its own notebook: the MCP
+  // server routes them to that member's store, and nothing outside its next
+  // turn reads it. They are the bench's memory only for the chair, which is
+  // covered by the rule about what a turn that has read outside text may write.
+  list_memories: { unattended: true, effect: "read" },
+  propose_memory: { unattended: true, effect: "card" },
+  remember: { effect: "reversible" },
+  forget: { effect: "reversible" },
+  person_note: { chairOnly: true, private: true, effect: "reversible" },
+  council_add: { chairOnly: true, effect: "reversible" },
+};
+
+/** A tool's policy, or the closed default for one nobody has classified. */
+const policyOf = (name) => POLICY[name] ?? { effect: "irreversible" };
+
 const TOOLS = [
   {
     name: "status",
-    unattended: true,
     description:
       "The whole workbench in one call: every repo, every session and what the scheduled runs did. Use this first for anything like 'what needs me' or 'what is running' — it answers in one round trip what three separate lookups would take three.",
     inputSchema: { type: "object", properties: {} },
@@ -206,7 +378,6 @@ const TOOLS = [
   },
   {
     name: "read_session_output",
-    unattended: true,
     description:
       "The last lines a live session printed. Use this to answer 'what is it doing' or 'why did it stop' without attaching a terminal.",
     inputSchema: {
@@ -221,7 +392,6 @@ const TOOLS = [
   },
   {
     name: "repo_status",
-    unattended: true,
     description:
       "Which files are changed in one repo, and whether each change is staged or untracked. Read-only. Use this to answer 'why is X dirty' rather than starting a session to run git for you.",
     inputSchema: {
@@ -245,7 +415,6 @@ const TOOLS = [
   },
   {
     name: "cluster_status",
-    unattended: true,
     description:
       "The Kubernetes cluster this workbench runs in: nodes, pods that are not healthy, ArgoCD sync state, Kargo stages and promotions, and recent warnings. Read-only. Use it when an answer depends on the cluster rather than on this box — a merged PR that has not appeared, a deploy that says it finished, an app that is down. It reports the shape of the problem; a session with kubectl is where you go digging.",
     inputSchema: { type: "object", properties: {} },
@@ -308,7 +477,6 @@ const TOOLS = [
   },
   {
     name: "list_prs",
-    unattended: true,
     description:
       "Open pull requests in a repo, with their checks and review state. This is how you answer 'anything to merge' — dependabot bumps that are green and patch-level are the case worth raising unprompted.",
     inputSchema: {
@@ -337,7 +505,6 @@ const TOOLS = [
   },
   {
     name: "pr_detail",
-    unattended: true,
     description:
       "One pull request in full: its description, comments and changed files, and optionally the diff. Read this before recommending a merge — a patch-level bump is judged by looking at it.",
     inputSchema: {
@@ -399,7 +566,6 @@ const TOOLS = [
   },
   {
     name: "ci_runs",
-    unattended: true,
     description:
       "Workflow runs for a repo, newest first — or one run's jobs when you pass an id. 'Did it build' is answerable from here without opening anything.",
     inputSchema: {
@@ -439,7 +605,6 @@ const TOOLS = [
   },
   {
     name: "ci_log",
-    unattended: true,
     description:
       "The log of a run's failing jobs — the failing steps only, not the whole build. Use it to say why something went red rather than that it did.",
     inputSchema: {
@@ -478,7 +643,6 @@ const TOOLS = [
   },
   {
     name: "list_schedules",
-    unattended: true,
     description: "The recurring prompts: what runs, when it next fires, and how the last run went.",
     inputSchema: { type: "object", properties: {} },
     run: async () => {
@@ -495,7 +659,7 @@ const TOOLS = [
   {
     name: "create_schedule",
     description:
-      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
+      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something, and it files a card rather than creating anything — nothing runs until the person taps it. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -517,28 +681,43 @@ const TOOLS = [
           description:
             "assistant kind only: do not run at all on a day when no session ended. Set it for anything that looks back over what happened, so a quiet day costs nothing.",
         },
+        why: { type: "string", description: "one line for the card, when this files one" },
       },
       required: ["name", "cron", "prompt"],
     },
     run: (a) =>
-      call("POST", "/api/schedules", {
-        name: a.name,
-        ...(a.kind ? { kind: a.kind } : {}),
-        ...(a.project ? { project: a.project } : {}),
-        ...(a.skipWhenIdle === undefined ? {} : { skipWhenIdle: a.skipWhenIdle }),
-        cron: a.cron,
-        prompt: a.prompt,
-        ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
-        ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
-      }).then(
-        (s) =>
-          `created ${s.id} "${s.name}", next run ${s.enabled === false ? "never (disabled)" : local(s.nextRunAt)}`,
-      ),
+      (a.kind ?? "session") === "session"
+        ? // A timer that starts an agent with a shell, holding whatever prompt
+          // was written into it: the same thing start_session files a card for.
+          propose(
+            {
+              kind: "schedule_put",
+              name: a.name,
+              ...(a.project ? { project: a.project } : {}),
+              cron: a.cron,
+              prompt: a.prompt,
+              ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+              ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
+            },
+            a.why,
+          )
+        : call("POST", "/api/schedules", {
+            name: a.name,
+            kind: a.kind,
+            ...(a.skipWhenIdle === undefined ? {} : { skipWhenIdle: a.skipWhenIdle }),
+            cron: a.cron,
+            prompt: a.prompt,
+            ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+            ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
+          }).then(
+            (s) =>
+              `created ${s.id} "${s.name}", next run ${s.enabled === false ? "never (disabled)" : local(s.nextRunAt)}`,
+          ),
   },
   {
     name: "update_schedule",
     description:
-      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation.",
+      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation. Changing a session schedule files a card, since its prompt is what an unattended agent will be given; changing one of your own applies straight away.",
     inputSchema: {
       type: "object",
       properties: {
@@ -548,33 +727,47 @@ const TOOLS = [
         prompt: { type: "string" },
         enabled: { type: "boolean" },
         jitterMinutes: { type: "integer" },
+        why: { type: "string", description: "one line for the card, when this files one" },
       },
       required: ["id"],
     },
-    run: (a) => {
-      const { id, ...patch } = a;
+    run: async (a) => {
+      const { id, why, ...patch } = a;
       for (const k of Object.keys(patch)) if (patch[k] === undefined) delete patch[k];
-      return call("PATCH", `/api/schedules/${encodeURIComponent(id)}`, patch).then(
-        (s) =>
-          `updated ${s.id} "${s.name}", next run ${s.enabled ? local(s.nextRunAt) : "never (disabled)"}`,
-      );
+      if ((await scheduleKind(id)) === "session") {
+        // Changing the prompt of a session schedule is writing the instructions
+        // an unattended agent will be given, so it goes the same way as making
+        // one. Pausing it is in here too: one card rather than a rule about
+        // which fields are the dangerous ones.
+        return propose({ kind: "schedule_put", id, ...patch }, why);
+      }
+      const s = await call("PATCH", `/api/schedules/${encodeURIComponent(id)}`, patch);
+      return `updated ${s.id} "${s.name}", next run ${s.enabled ? local(s.nextRunAt) : "never (disabled)"}`;
     },
   },
   {
     name: "run_schedule",
     description:
-      "Run a schedule now, without waiting for its cron. Refuses when its previous run is still open, and says so.",
+      "Run a schedule now, without waiting for its cron. A session schedule files a card, since running it starts an agent; one of your own runs straight away. Refuses when its previous run is still open, and says so.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string" } },
+      properties: {
+        id: { type: "string" },
+        why: { type: "string", description: "one line for the card, when this files one" },
+      },
       required: ["id"],
     },
-    run: (a) =>
-      call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`).then((r) =>
-        // An assistant schedule starts no session: what it said is the result,
-        // and it was said by you, a moment ago, in a conversation of its own.
-        r.reply ? `it ran and said: ${r.reply}` : `started ${r.id} (${r.agent}) in ${r.project}`,
-      ),
+    run: async (a) => {
+      // Running a session schedule now is start_session with no timer in front
+      // of it, so it is the card start_session is.
+      if ((await scheduleKind(a.id)) === "session") {
+        return propose({ kind: "run_schedule", id: a.id }, a.why);
+      }
+      const r = await call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`);
+      // An assistant schedule starts no session: what it said is the result,
+      // and it was said by you, a moment ago, in a conversation of its own.
+      return r.reply ? `it ran and said: ${r.reply}` : `started ${r.id}`;
+    },
   },
   {
     name: "delete_schedule",
@@ -607,7 +800,6 @@ const TOOLS = [
   },
   {
     name: "notify",
-    unattended: true,
     description:
       "Push a message to the user's phone. For when something wants them and they are not reading the chat: a scheduled run failed, a session has been blocked for an hour, main went red. Never for the answer to what they just asked — they are already looking at it — and never twice for the same thing.",
     inputSchema: {
@@ -640,7 +832,6 @@ const TOOLS = [
     description:
       "What has arrived lately that is not done: GitHub notifications, the maintainer's queue, runs that signed off, proposals waiting for review, sessions waiting on the person. One line each, newest first, attention first. Read it when asked what is new or what needs them; status covers the bench itself.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: async () => {
       const items = (await call("GET", "/api/feed")).filter((i) => i.state !== "done");
       const rank = { attention: 0, new: 1, quiet: 2 };
@@ -671,7 +862,6 @@ const TOOLS = [
     description:
       "Everything a briefing reads, in one call: what arrived since the last look, the open loops, what is running or waiting, and the last few days' journal. Reach for it first on a briefing and do not follow it with lookups it already answered.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: () => call("GET", "/api/feed/material").then((r) => r.text),
   },
   {
@@ -679,7 +869,6 @@ const TOOLS = [
     description:
       "The open loops: what the person owes and is owed, due first. One line each with the slug, so one can be closed by name.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: async () => {
       const open = (await call("GET", "/api/loops")).filter((l) => l.state === "open");
       return rows(
@@ -752,7 +941,6 @@ const TOOLS = [
   },
   {
     name: "mail_folders",
-    unattended: true,
     description:
       "Where a message can be put: every mailbox on the server, with the role the server gives it (junk, trash, archive, all, sent, drafts). Read this before mail_move and send back a path from it exactly — on Gmail the junk folder is called [Gmail]/Spam and archiving means moving to the one whose role is all.",
     inputSchema: { type: "object", properties: {} },
@@ -803,7 +991,6 @@ const TOOLS = [
   },
   {
     name: "mail_labels",
-    unattended: true,
     description:
       "The account's own labels, for naming one in mail_rule_create. Gmail only — this and the two rule tools use the Gmail API, not IMAP, so they answer 'not signed in' on any other provider.",
     inputSchema: { type: "object", properties: {} },
@@ -811,7 +998,6 @@ const TOOLS = [
   },
   {
     name: "mail_rules",
-    unattended: true,
     description:
       "The filters already set on the account: what each one matches and what it does to a match. Read this before mail_rule_create so you do not add one that is already there.",
     inputSchema: { type: "object", properties: {} },
@@ -898,14 +1084,12 @@ const TOOLS = [
   },
   {
     name: "calendar_today",
-    unattended: true,
     description: "What is on the calendar today: time, title, place or link.",
     inputSchema: { type: "object", properties: {} },
     run: async () => rows(await call("GET", "/api/calendar/today"), eventLine),
   },
   {
     name: "calendar_upcoming",
-    unattended: true,
     description: "The calendar for the next days (seven unless asked otherwise, up to sixty).",
     inputSchema: { type: "object", properties: { days: { type: "integer" } } },
     run: async (a) =>
@@ -913,7 +1097,6 @@ const TOOLS = [
   },
   {
     name: "calendar_search",
-    unattended: true,
     description: "Find an event over the next ninety days by words in its title, place or notes.",
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
     run: async (a) =>
@@ -993,7 +1176,20 @@ const TOOLS = [
       properties: { text: { type: "string", description: "one line, as a note to yourself" } },
       required: ["text"],
     },
-    run: (a) => call("POST", "/api/profile/lines", { text: a.text }).then(() => "noted"),
+    run: (a) =>
+      readOutside
+        ? // Same reasoning as remember: this line is carried in every system
+          // prompt the chair is given, so it is an instruction too.
+          proposeMemory({
+            slug: `about-${Date.now().toString(36)}`,
+            text: a.text,
+            type: "preference",
+            source: "person_note, on a turn that had read text written elsewhere",
+          }).then(
+            () =>
+              "proposed for review rather than noted, because this turn has read text written elsewhere",
+          )
+        : call("POST", "/api/profile/lines", { text: a.text }).then(() => "noted"),
   },
   {
     name: "council_add",
@@ -1038,7 +1234,6 @@ const TOOLS = [
   },
   {
     name: "repo_diff",
-    unattended: true,
     description:
       "The actual change in one file of one repo, as a diff. repo_status says which files moved; this says what moved in them, which is what answers 'what did that session do' without opening a terminal.",
     inputSchema: {
@@ -1066,7 +1261,6 @@ const TOOLS = [
   },
   {
     name: "recent_prompts",
-    unattended: true,
     description:
       "What the user typed into sessions that ended in the last `hours` (default 24). Only their own words: no model replies, no tool output, no file contents. This is the material for learning how they work — corrections, preferences, how a repo is meant to be handled. One call covers every session, so do not ask per session.",
     inputSchema: {
@@ -1085,7 +1279,6 @@ const TOOLS = [
   },
   {
     name: "propose_memory",
-    unattended: true,
     description:
       "Propose a fact for the review queue. It is NOT remembered: it waits on the inbox until the user keeps or drops it, and reaches no session before then. This is the only way to record something they did not tell you directly in this conversation. Propose only what would change how a future agent acts, write it as an instruction, and say in `source` which session it came from. Do not propose something already remembered.",
     inputSchema: {
@@ -1099,18 +1292,10 @@ const TOOLS = [
       },
       required: ["slug", "text"],
     },
-    run: (a) =>
-      call("POST", "/api/memory/proposed", {
-        slug: a.slug,
-        text: a.text,
-        ...(a.type ? { type: a.type } : {}),
-        ...(a.scope ? { scope: a.scope } : {}),
-        ...(a.source ? { source: a.source } : {}),
-      }).then((m) => `proposed ${m.slug}, waiting for review in the inbox`),
+    run: (a) => proposeMemory(a).then((m) => `proposed ${m.slug}, waiting for review in the inbox`),
   },
   {
     name: "recall",
-    unattended: true,
     description:
       "Search what was said in earlier conversations with this person. Your own long-term recall: every thread is kept, and this is the only way back into one — you cannot read them as files. Use it when they refer to something decided before ('what did we say about the promotion'), or when a thread has been started fresh and the subject is not new. The current conversation is not searched, because you are already in it.",
     inputSchema: {
@@ -1127,7 +1312,6 @@ const TOOLS = [
   },
   {
     name: "list_memories",
-    unattended: true,
     description: MEMBER
       ? "What you alone have been told and kept. What the whole bench knows is already in your instructions; this is only yours."
       : "Everything currently remembered about how this person works.",
@@ -1171,12 +1355,22 @@ const TOOLS = [
             text: a.text,
             ...(a.source ? { source: a.source } : {}),
           }).then((m) => `remembered ${m.slug}, for yourself only`)
-        : call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
-            text: a.text,
-            ...(a.type ? { type: a.type } : {}),
-            ...(a.scope ? { scope: a.scope } : {}),
-            ...(a.source ? { source: a.source } : {}),
-          }).then((m) => `remembered ${m.slug}`),
+        : readOutside
+          ? // The bench's memory is read as its own instructions by every
+            // session in every repo, so one poisoned mail would otherwise
+            // become a standing order for every future agent. A turn that has
+            // read outside text can still put the fact somewhere — it just
+            // goes to the review queue, where a person keeps it or drops it.
+            proposeMemory(a).then(
+              (m) =>
+                `proposed ${m.slug} for review rather than remembering it outright, because this turn has read text written elsewhere`,
+            )
+          : call("PUT", `/api/memory/${encodeURIComponent(a.slug)}`, {
+              text: a.text,
+              ...(a.type ? { type: a.type } : {}),
+              ...(a.scope ? { scope: a.scope } : {}),
+              ...(a.source ? { source: a.source } : {}),
+            }).then((m) => `remembered ${m.slug}`),
   },
   {
     name: "forget",
@@ -1205,8 +1399,20 @@ const TOOLS = [
  * The two filters intersect rather than override: an advisor named in VK_TOOLS
  * that fired from a schedule still loses everything that changes anything.
  */
+/**
+ * Which tools exist for this process, both halves read off POLICY.
+ *
+ * chairOnly is enforced here as well as at the moment a member is saved: the
+ * member file is hand-editable on the volume, and a tool that reaches a shell
+ * must not depend on a settings page having refused it earlier.
+ */
 const offered = () =>
-  TOOLS.filter((t) => (!UNATTENDED || t.unattended) && (!ALLOW || ALLOW.has(t.name)));
+  TOOLS.filter((t) => {
+    const p = policyOf(t.name);
+    if (UNATTENDED && !p.unattended) return false;
+    if (MEMBER && p.chairOnly) return false;
+    return !ALLOW || ALLOW.has(t.name);
+  });
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -1235,10 +1441,13 @@ async function handle(msg) {
       jsonrpc: "2.0",
       id: msg.id,
       result: {
+        // _meta carries the policy table: the backend reads it back rather
+        // than keeping a second copy of these decisions in its own source.
         tools: offered().map(({ name, description, inputSchema }) => ({
           name,
           description,
           inputSchema,
+          _meta: { verksted: policyOf(name) },
         })),
       },
     });
@@ -1253,6 +1462,27 @@ async function handle(msg) {
         error: { code: -32601, message: `no such tool: ${msg.params?.name}` },
       });
     }
+    const policy = policyOf(tool.name);
+    if (policy.private && TURN) {
+      // Before the answer, never after: between reading the mail and the
+      // browser closing there must be no moment at all. Fails closed — a read
+      // this server cannot pay for is a read it does not do.
+      try {
+        await call("POST", "/api/assistant/turn/private", { turn: TURN });
+      } catch (err) {
+        return send({
+          jsonrpc: "2.0",
+          id: msg.id,
+          result: {
+            content: [
+              { type: "text", text: `failed: could not close the browser first: ${err.message}` },
+            ],
+            isError: true,
+          },
+        });
+      }
+    }
+    if (policy.outside) readOutside = true;
     try {
       const result = await tool.run(msg.params.arguments ?? {});
       return send({

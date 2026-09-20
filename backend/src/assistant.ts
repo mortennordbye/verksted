@@ -149,6 +149,7 @@ function mcpConfig(
   tools: string[] | null,
   member: string | null,
   headroomConfigured: boolean,
+  turn: string,
 ) {
   // Ariel always; the chair too, but only on a live turn — a nightly briefing
   // reads the bench, and the finance watch that runs unattended is still
@@ -162,6 +163,12 @@ function mcpConfig(
   // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
   // through the backend, then hand playwright-mcp the CDP endpoint it booted.
   const browser = member === null && !unattended;
+  // An empty list is a speaker that may call none of them — Ariel, who holds
+  // headroom and nothing here, and a turn with a job of its own, which holds
+  // nothing at all. Not the same as null, which is the chair and means every
+  // tool: the server is left out rather than offered with an empty filter,
+  // because VK_TOOLS="" reads back as unset and so as no filter at all.
+  const verksted = tools?.length !== 0;
   return {
     mcpServers: {
       ...(browser
@@ -170,7 +177,8 @@ function mcpConfig(
               command: "sh",
               args: [
                 "-c",
-                `curl -sf -X POST http://127.0.0.1:${env.PORT}/api/assistant/browser/start >/dev/null 2>&1; ` +
+                `curl -sf -X POST -H "x-vk-turn: ${turn}" ` +
+                  `http://127.0.0.1:${env.PORT}/api/assistant/browser/start >/dev/null 2>&1; ` +
                   'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"',
               ],
             },
@@ -192,28 +200,37 @@ function mcpConfig(
             },
           }
         : {}),
-      verksted: {
-        command: "node",
-        args: ["/etc/verksted/verksted-mcp.mjs"],
-        env: {
-          VK_API: `http://127.0.0.1:${env.PORT}`,
-          // Read by the server itself, which then offers only the tools that
-          // change nothing. The list lives next to the tool definitions, so
-          // adding a tool means deciding there whether it may run unwatched.
-          ...(unattended ? { VK_UNATTENDED: "1" } : {}),
-          // The same trick, per advisor: the server offers only these, so a
-          // tool a member may not use is absent from tools/list rather than
-          // merely left off an allow list. --allowed-tools can only name the
-          // whole server (`mcp__verksted`), so this is the one place where a
-          // member's tools can actually be narrowed.
-          ...(tools ? { VK_TOOLS: tools.join(",") } : {}),
-          // Whose memory `remember` writes. From the environment rather than a
-          // tool argument, so nothing the model says can change it — an advisor
-          // cannot write into the bench's memory, or another advisor's, by
-          // naming one.
-          ...(member ? { VK_MEMBER: member } : {}),
-        },
-      },
+      ...(verksted
+        ? {
+            verksted: {
+              command: "node",
+              args: ["/etc/verksted/verksted-mcp.mjs"],
+              env: {
+                VK_API: `http://127.0.0.1:${env.PORT}`,
+                // Read by the server itself, which then offers only the tools that
+                // change nothing. The list lives next to the tool definitions, so
+                // adding a tool means deciding there whether it may run unwatched.
+                ...(unattended ? { VK_UNATTENDED: "1" } : {}),
+                // The same trick, per advisor: the server offers only these, so a
+                // tool a member may not use is absent from tools/list rather than
+                // merely left off an allow list. --allowed-tools can only name the
+                // whole server (`mcp__verksted`), so this is the one place where a
+                // member's tools can actually be narrowed.
+                ...(tools ? { VK_TOOLS: tools.join(",") } : {}),
+                // Whose memory `remember` writes. From the environment rather than a
+                // tool argument, so nothing the model says can change it — an advisor
+                // cannot write into the bench's memory, or another advisor's, by
+                // naming one.
+                ...(member ? { VK_MEMBER: member } : {}),
+                // Which turn this server is serving. It is how the backend knows
+                // that the turn about to read the mail is the one whose browser has
+                // to go (see assistant-taint.ts), and it is written here rather than
+                // passed as an argument so nothing a model says can name another.
+                VK_TURN: turn,
+              },
+            },
+          }
+        : {}),
     },
   };
 }
@@ -227,8 +244,10 @@ function mcpConfig(
  */
 async function ensureMcpConfig(o: {
   id: string;
-  unattended: boolean;
+  /** Empty means no server at all; null means the whole set. */
   tools: string[] | null;
+  unattended: boolean;
+  turn: string;
 }): Promise<string> {
   const isChair = o.id === CHAIR_ID;
   // Per speaker on an unattended run too. The advisors a nightly meeting
@@ -244,7 +263,10 @@ async function ensureMcpConfig(o: {
   // var, and the server reads them from the environment it inherits.
   const vars = await agentEnv();
   const configured = !!(vars.HEADROOM_URL && vars.HEADROOM_PASSWORD);
-  await writeJsonAtomic(file, mcpConfig(o.unattended, o.tools, isChair ? null : o.id, configured));
+  await writeJsonAtomic(
+    file,
+    mcpConfig(o.unattended, o.tools, isChair ? null : o.id, configured, o.turn),
+  );
   return file;
 }
 
@@ -970,6 +992,10 @@ async function turn(o: {
   onChange: (live?: string) => void;
 }): Promise<{ text: string }> {
   const { speaker, images, unattended } = o;
+  // This run of the CLI, named. Everything the turn reaches carries it, which
+  // is what lets a read of something private cost this turn its browser
+  // without costing the next one anything (see assistant-taint.ts).
+  const turnId = randomUUID();
 
   // Claude reads an image by path with its own Read tool, so an attachment is
   // delivered as a line telling it where to look rather than as bytes on a
@@ -995,7 +1021,7 @@ async function turn(o: {
     "--permission-mode",
     "auto",
     "--mcp-config",
-    await ensureMcpConfig({ id: speaker.id, unattended, tools: speaker.tools }),
+    await ensureMcpConfig({ id: speaker.id, unattended, tools: speaker.tools, turn: turnId }),
     // Without this, MCP servers configured in $HOME join the ones here — and
     // the allow list only auto-approves, so an unlisted server's tools would
     // still be a classifier's call. The claim that this agent has exactly the
@@ -1030,6 +1056,7 @@ async function turn(o: {
       ...(speaker.id === CHAIR_ID && !unattended
         ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
         : {}),
+      VK_TURN: turnId,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -1147,7 +1174,8 @@ function policyFor(
       ...(headroom ? ["mcp__headroom"] : []),
     ],
     // The chair keeps every tool, so it is offered the server unfiltered; an
-    // advisor is offered exactly what its file names.
+    // advisor is offered exactly what its file names — which council-store has
+    // already taken anything private out of, if this member reads the web.
     tools: member.chair ? null : member.tools,
     denied: [
       ...DENIED_TOOLS,
@@ -1866,12 +1894,17 @@ export async function runUnattended(
               })),
               ctx,
             ),
-          builtins: UNATTENDED_BUILTIN_TOOLS,
-          allowed: UNATTENDED_ALLOWED_TOOLS,
+          // A turn with a job of its own genuinely gets nothing: no built-ins,
+          // no allow list, and an MCP config with no servers in it. The comment
+          // on the triage job says it "reads nothing and writes nothing itself,
+          // which is what makes it safe" — that was a sentence in a prompt, and
+          // triage is fed raw mail subject lines. It is the argv now.
+          builtins: own ? [] : UNATTENDED_BUILTIN_TOOLS,
+          allowed: own ? [] : UNATTENDED_ALLOWED_TOOLS,
           denied: UNATTENDED_DENIED_TOOLS,
           // The MCP server cuts the mutating tools itself under VK_UNATTENDED,
           // so there is nothing more to name here.
-          tools: null,
+          tools: own ? [] : null,
           timeoutMs: TURN_TIMEOUT_MS,
         };
   unattendedRunning = true;

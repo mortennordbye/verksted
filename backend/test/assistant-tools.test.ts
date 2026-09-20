@@ -26,7 +26,22 @@ let seen: Seen[] = [];
 let api: string;
 
 /** Canned replies keyed by "METHOD /path"; anything else answers null. */
+/** Paths the stub answers 500 to, once each: for the fail-closed cases. */
+const failNext = new Set<string>();
+
 const REPLIES: Record<string, unknown> = {
+  "POST /api/memory/proposed": { slug: "invoices" },
+  "PUT /api/memory/invoices": { slug: "invoices" },
+  "PUT /api/council/uriel/memory/rates": { slug: "rates" },
+  "POST /api/assistant/turn/private": { browsing: "closed" },
+  // Which kind a schedule is, which the three schedule tools ask before
+  // changing anything about it.
+  "GET /api/schedules": [
+    { id: "sch-1a2b3c4d", kind: "session", name: "nightly", project: "demo" },
+    { id: "sch-assistant", kind: "assistant", name: "morning" },
+  ],
+  "POST /api/schedules": { id: "sch-new", name: "morning", kind: "assistant", enabled: true },
+  "POST /api/schedules/sch-assistant/run": { reply: "ok: nothing needs you" },
   "DELETE /api/sessions/vk-demo-1": { id: "vk-demo-1", report: "ok: done" },
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
@@ -61,6 +76,43 @@ function rpc(request: object, env: Record<string, string> = {}): Promise<Record<
   });
 }
 
+/**
+ * Several calls to one server process, in order, with the replies matched back
+ * by id. What a turn is: the CLI spawns this server once and calls it as often
+ * as the model asks, so anything the server remembers between calls — what this
+ * turn has already read — only exists here.
+ */
+async function rpcTurn(
+  requests: object[],
+  env: Record<string, string> = {},
+): Promise<Record<string, unknown>[]> {
+  const out = await new Promise<string>((resolve, reject) => {
+    const child = spawn(process.execPath, [SERVER], {
+      env: { ...process.env, VK_API: api, ...env },
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    let buf = "";
+    child.stdout.on("data", (d) => (buf += d));
+    child.on("error", reject);
+    child.on("close", () => resolve(buf));
+    // One at a time: the server answers each line before the next matters, and
+    // a turn's calls are sequential for the same reason.
+    void (async () => {
+      for (const r of requests) {
+        child.stdin.write(`${JSON.stringify(r)}\n`);
+        await new Promise((f) => setTimeout(f, 120));
+      }
+      child.stdin.end();
+    })();
+  });
+  const byId = new Map<unknown, Record<string, unknown>>();
+  for (const line of out.split("\n").filter(Boolean)) {
+    const msg = JSON.parse(line) as Record<string, unknown>;
+    byId.set(msg.id, msg);
+  }
+  return requests.map((r) => byId.get((r as { id: unknown }).id) ?? {});
+}
+
 /** What the backend sets for a turn a schedule fired, with nobody reading. */
 const VK_UNATTENDED = { VK_UNATTENDED: "1" };
 
@@ -75,6 +127,10 @@ beforeAll(async () => {
       seen.push({ method: req.method ?? "", url: req.url ?? "", body });
       const key = `${req.method} ${(req.url ?? "").split("?")[0]}`;
       res.setHeader("content-type", "application/json");
+      if (failNext.delete(key)) {
+        res.statusCode = 500;
+        return res.end(JSON.stringify({ error: "no" }));
+      }
       res.end(JSON.stringify(REPLIES[key] ?? null));
     });
   });
@@ -300,6 +356,13 @@ describe("one advisor's tools", () => {
     expect(names).not.toContain("merge_pr");
   });
 
+  it("offers nothing to a member named with an empty list", async () => {
+    // Set and empty is not the same as unset. Read as a truthy string, "" fell
+    // through to "no filter" and handed an advisor with no verksted tools at
+    // all every tool there is.
+    expect(await list({ VK_TOOLS: "" })).toEqual([]);
+  });
+
   it("ignores a name that is not a tool", async () => {
     // A filter, not a contract. The typo is caught when the member is saved,
     // which is where somebody can see it; here it must not take the run down.
@@ -366,18 +429,165 @@ describe("one advisor's tools", () => {
     expect(JSON.stringify(res)).toContain("added Ledger (@ledger)");
   });
 
-  it("gives the backend's inventory the same names this server offers", async () => {
-    // The backend keeps its own copy of these names, because this file is baked
+  it("gives the backend's inventory the same policy this server offers", async () => {
+    // The backend keeps its own copy of this table, because this file is baked
     // into the image at a path the build does not import from. This is the test
-    // that keeps the copy honest — the settings page's checkboxes and the
-    // write-time validation are both built on it.
+    // that keeps the copy honest — the settings page's checkboxes, the
+    // write-time validation and which tools may sit beside the web are all
+    // built on it, and every one of them is wrong if it drifts.
     const { TOOL_INVENTORY } = await import("../src/council-store.js");
 
-    // As a member with no filter, since the mail tools exist only for one.
-    const all = (await list({ VK_MEMBER: "uriel" })).sort();
-    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual(all);
-    // And the chair's view is the inventory minus what is a member's alone.
-    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual((await list({})).sort());
+    const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })) as {
+      result: { tools: { name: string; _meta?: { verksted?: Record<string, unknown> } }[] };
+    };
+    const served = res.result.tools
+      .map((t) => ({
+        name: t.name,
+        unattended: t._meta?.verksted?.unattended === true,
+        chairOnly: t._meta?.verksted?.chairOnly === true,
+        private: t._meta?.verksted?.private === true,
+        outside: t._meta?.verksted?.outside === true,
+        effect: t._meta?.verksted?.effect,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    expect([...TOOL_INVENTORY].sort((a, b) => a.name.localeCompare(b.name))).toEqual(served);
+  });
+
+  it("offers an advisor nothing that is the chair's alone, whatever its file says", async () => {
+    // Enforced here as well as at the moment a member is saved: a member is a
+    // JSON file on the volume somebody can edit by hand, and a tool that
+    // reaches a shell must not depend on a settings page having refused it.
+    const names = await list({ VK_MEMBER: "uriel", VK_TOOLS: "status,start_session,merge_pr" });
+
+    expect(names).toEqual(["status"]);
+  });
+
+  it("names three tools that cannot be undone, and no more", async () => {
+    // The point of writing the effect down: this set is what BACKLOG tracks,
+    // and a tool added without a card joins it rather than passing unnoticed.
+    const { TOOL_INVENTORY } = await import("../src/council-store.js");
+
+    expect(TOOL_INVENTORY.filter((t) => t.effect === "irreversible").map((t) => t.name)).toEqual([
+      "mail_rule_delete",
+      "mail_label_delete",
+      "calendar_delete",
+    ]);
+  });
+
+  it("keeps the web away from everything private", async () => {
+    // The seeded web advisor held `recall` while this list named only the mail
+    // and the documents, so it could search every conversation the chair ever
+    // had — mail and documents it had quoted included.
+    const { PRIVATE_TOOLS } = await import("../src/council-store.js");
+
+    for (const name of ["recall", "feed", "brief_material", "loops", "recent_prompts"]) {
+      expect(PRIVATE_TOOLS.has(name), name).toBe(true);
+    }
+    expect(PRIVATE_TOOLS.has("status")).toBe(false);
+  });
+});
+
+/**
+ * A-01 and A-03: the chair reads the mail, the documents and the calendar, and
+ * it drives a browser that can open any URL. Holding both at once is a
+ * zero-click exfiltration path, and writing memory from what it read is a
+ * standing instruction for every future session in every repo.
+ */
+describe("a turn that reads something of the person's", () => {
+  const TURN = { VK_TURN: "turn-1" };
+  const call = (id: number, name: string, args: object = {}) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+
+  it("pays for the read by closing the browser, before the answer", async () => {
+    seen = [];
+
+    await rpcTurn([call(1, "mail_read", { uid: 4 })], TURN);
+
+    // First, not merely somewhere: between reading the mail and the browser
+    // going there must be no moment at all.
+    expect(seen[0].method).toBe("POST");
+    expect(seen[0].url).toBe("/api/assistant/turn/private");
+    expect(JSON.parse(seen[0].body)).toEqual({ turn: "turn-1" });
+    expect(seen[1].url).toContain("/api/mail/");
+  });
+
+  it("does not answer at all if the browser could not be closed", async () => {
+    // Fails closed. A read this server cannot pay for is a read it does not do.
+    failNext.add("POST /api/assistant/turn/private");
+    seen = [];
+
+    const [res] = (await rpcTurn([call(1, "docs_read", { path: "x.pdf" })], TURN)) as {
+      result?: { isError?: boolean; content: { text: string }[] };
+    }[];
+
+    expect(res.result?.isError).toBe(true);
+    expect(res.result?.content[0].text).toContain("could not close the browser");
+    expect(seen.some((r) => r.url.startsWith("/api/docs"))).toBe(false);
+  });
+
+  it("proposes what it would have remembered, once it has read outside text", async () => {
+    seen = [];
+
+    const [, res] = (await rpcTurn(
+      [
+        call(1, "mail_read", { uid: 4 }),
+        call(2, "remember", { slug: "invoices", text: "Send invoices on the 1st." }),
+      ],
+      TURN,
+    )) as { result?: { content: { text: string }[] } }[];
+
+    const wrote = seen.filter((r) => r.url.startsWith("/api/memory"));
+    expect(wrote.map((r) => `${r.method} ${r.url}`)).toEqual(["POST /api/memory/proposed"]);
+    expect(res.result?.content[0].text).toContain("proposed");
+    expect(res.result?.content[0].text).toContain("read text written elsewhere");
+  });
+
+  it("notes about the person go the same way", async () => {
+    seen = [];
+
+    await rpcTurn(
+      [call(1, "pr_detail", { project: "demo", number: 3 }), call(2, "person_note", { text: "x" })],
+      TURN,
+    );
+
+    expect(seen.some((r) => r.url === "/api/profile/lines")).toBe(false);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(true);
+  });
+
+  it("still remembers outright on a turn that has read nothing written elsewhere", async () => {
+    // The ordinary case, and the one that must not become a chore: the person
+    // said it in the chat, and the chair writes it down.
+    seen = [];
+
+    await rpcTurn(
+      [call(1, "status"), call(2, "remember", { slug: "invoices", text: "On the 1st." })],
+      TURN,
+    );
+
+    expect(seen.some((r) => r.method === "PUT" && r.url === "/api/memory/invoices")).toBe(true);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
+  });
+
+  it("leaves an advisor's own notebook alone", async () => {
+    // A member's memory reaches nothing but its own next turn, so reading a
+    // document does not make writing it an instruction to anybody.
+    seen = [];
+
+    await rpcTurn(
+      [
+        call(1, "docs_read", { path: "x.pdf" }),
+        call(2, "remember", { slug: "rates", text: "They bill monthly." }),
+      ],
+      { ...TURN, VK_MEMBER: "uriel", VK_TOOLS: "docs_read,remember" },
+    );
+
+    expect(seen.some((r) => r.url === "/api/council/uriel/memory/rates")).toBe(true);
+    expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
   });
 });
 
@@ -448,6 +658,74 @@ describe("requests that carry a safety decision", () => {
     expect(JSON.parse(seen[0].body)).toMatchObject({
       action: { kind: "start_session", project: "demo", agent: "claude", prompt: "look around" },
     });
+  });
+
+  /**
+   * A-02. start_session is a card because a session is an agent with a shell on
+   * the pod. A session schedule is the same shell on a timer, and run-now is
+   * the same shell with no timer at all — and all three reached it directly.
+   */
+  it("proposes a session schedule rather than creating one", async () => {
+    seen = [];
+
+    await callTool("create_schedule", {
+      name: "nightly tidy",
+      project: "demo",
+      cron: "0 3 * * *",
+      prompt: "tidy the branches",
+    });
+
+    expect(seen[0].url).toBe("/api/proposals");
+    expect(JSON.parse(seen[0].body).action).toEqual({
+      kind: "schedule_put",
+      name: "nightly tidy",
+      project: "demo",
+      cron: "0 3 * * *",
+      prompt: "tidy the branches",
+    });
+  });
+
+  it("proposes a change to one, prompt and pause alike", async () => {
+    seen = [];
+
+    await callTool("update_schedule", { id: "sch-1a2b3c4d", prompt: "tidy harder" });
+
+    expect(seen.at(-1)!.url).toBe("/api/proposals");
+    expect(JSON.parse(seen.at(-1)!.body).action).toEqual({
+      kind: "schedule_put",
+      id: "sch-1a2b3c4d",
+      prompt: "tidy harder",
+    });
+  });
+
+  it("proposes running one now, which is a session with no timer in front of it", async () => {
+    seen = [];
+
+    await callTool("run_schedule", { id: "sch-1a2b3c4d" });
+
+    expect(seen.at(-1)!.url).toBe("/api/proposals");
+    expect(JSON.parse(seen.at(-1)!.body).action).toEqual({
+      kind: "run_schedule",
+      id: "sch-1a2b3c4d",
+    });
+  });
+
+  it("creates and runs a schedule of its own directly, which can change nothing", async () => {
+    // The chair on a timer: no repo, no session, no way to change anything.
+    // Carding these would be asking permission to answer a question.
+    seen = [];
+
+    await callTool("create_schedule", {
+      name: "morning",
+      kind: "assistant",
+      cron: "0 7 * * *",
+      prompt: "what needs me?",
+    });
+    await callTool("run_schedule", { id: "sch-assistant" });
+
+    expect(seen[0].url).toBe("/api/schedules");
+    expect(JSON.parse(seen[0].body).kind).toBe("assistant");
+    expect(seen.at(-1)!.url).toBe("/api/schedules/sch-assistant/run");
   });
 
   it("proposes a desk session the same way", async () => {

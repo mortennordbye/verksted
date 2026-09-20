@@ -35,6 +35,8 @@ const ACTION = {
         "delete_schedule",
         "start_session",
         "desk_session",
+        "schedule_put",
+        "run_schedule",
       ],
     },
   },
@@ -63,6 +65,21 @@ export function describe(a: ProposalAction): { title: string; detail: string } {
       };
     case "desk_session":
       return { title: `Start a desk session: ${a.title}`, detail: a.ask };
+    case "schedule_put":
+      return {
+        title: a.id ? `Change schedule ${a.id}` : `Schedule "${a.name}" in ${a.project}, ${a.cron}`,
+        detail:
+          [
+            a.name && !a.id ? null : a.name ? `name: ${a.name}` : null,
+            a.cron ? `cron: ${a.cron}` : null,
+            a.enabled === undefined ? null : a.enabled ? "enabled" : "paused",
+            a.jitterMinutes === undefined ? null : `jitter: ${a.jitterMinutes} min`,
+          ]
+            .filter(Boolean)
+            .join("\n") + (a.prompt ? `\n\n${a.prompt}` : ""),
+      };
+    case "run_schedule":
+      return { title: `Run schedule ${a.id} now`, detail: "it starts a session straight away" };
   }
 }
 
@@ -136,6 +153,30 @@ export function validateAction(a: Record<string, unknown>): ProposalAction {
     }
     case "desk_session":
       return { kind: "desk_session", title: str("title", 200), ask: str("ask", 20_000) };
+    case "schedule_put": {
+      const id = typeof a.id === "string" ? a.id.slice(0, 100) : undefined;
+      // Creating needs enough to be a schedule at all; changing one needs only
+      // the thing being changed, and the route it goes through checks the rest.
+      if (!id && (typeof a.name !== "string" || typeof a.cron !== "string")) {
+        throw new Error("a new schedule needs a name and a cron");
+      }
+      const num = Number(a.jitterMinutes);
+      if (a.jitterMinutes !== undefined && (!Number.isInteger(num) || num < 0 || num > 720)) {
+        throw new Error("jitterMinutes must be 0 to 720");
+      }
+      return {
+        kind: "schedule_put",
+        ...(id ? { id } : {}),
+        ...(typeof a.name === "string" ? { name: a.name.slice(0, 200) } : {}),
+        ...(typeof a.project === "string" ? { project: a.project.slice(0, 100) } : {}),
+        ...(typeof a.cron === "string" ? { cron: a.cron.slice(0, 100) } : {}),
+        ...(typeof a.prompt === "string" ? { prompt: a.prompt.slice(0, 20_000) } : {}),
+        ...(typeof a.enabled === "boolean" ? { enabled: a.enabled } : {}),
+        ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: num }),
+      };
+    }
+    case "run_schedule":
+      return { kind: "run_schedule", id: str("id", 100) };
     default:
       throw new Error("unknown kind");
   }
@@ -275,6 +316,29 @@ async function execute(app: FastifyInstance, a: ProposalAction): Promise<string>
       });
       if (res.statusCode >= 300) throw new Error(errorOf(res));
       return `started ${res.json<{ id: string }>().id} at the desk`;
+    }
+    case "schedule_put": {
+      const { kind: _kind, id, ...fields } = a;
+      const res = await app.inject(
+        id
+          ? {
+              method: "PATCH",
+              url: `/api/schedules/${encodeURIComponent(id)}`,
+              payload: fields,
+            }
+          : { method: "POST", url: "/api/schedules", payload: { ...fields, kind: "session" } },
+      );
+      if (res.statusCode >= 300) throw new Error(errorOf(res));
+      const saved = res.json<{ id: string }>();
+      return id ? `changed schedule ${saved.id}` : `created schedule ${saved.id}`;
+    }
+    case "run_schedule": {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/schedules/${encodeURIComponent(a.id)}/run`,
+      });
+      if (res.statusCode >= 300) throw new Error(errorOf(res));
+      return `ran schedule ${a.id}`;
     }
   }
 }

@@ -101,6 +101,16 @@ describe("the journal", () => {
     expect(system).not.toContain("attention:");
     // The floor settings, not the chair's: this is a cheap turn by design.
     expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
+    // A-05: a turn with a job of its own reads nothing and writes nothing, and
+    // that used to be a sentence in a prompt while Read, Grep, Glob and the
+    // whole verksted server were still on the command line. Triage is fed raw
+    // mail subject lines by the same path.
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toBe("");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(config.mcpServers).toEqual({});
 
     const day = journal.today();
     expect(fs.readFileSync(path.join(assistantDir, "journal", `${day}.md`), "utf8")).toBe(
