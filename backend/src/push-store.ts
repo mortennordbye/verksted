@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import webpush from "web-push";
 import { env } from "./env.js";
+import { writeJsonAtomic } from "./atomic-json.js";
 
 /**
  * Web push for the installed PWA. iOS delivers these to the home-screen app,
@@ -57,25 +58,39 @@ const VAPID_SUBJECT = env.PUBLIC_URL.startsWith("https://")
 
 let cache: PushFile | null = null;
 
+/**
+ * A new identity is only ever started when there is genuinely nothing here.
+ *
+ * Regenerating on any read failure meant a file that was unreadable for a
+ * moment — a truncated write, a stalled NFS mount — silently replaced the VAPID
+ * keypair, and every device that had subscribed stopped receiving pushes with
+ * nothing on any screen to say so. The file is kept, and the error is raised.
+ */
 async function read(): Promise<PushFile> {
   if (cache) return cache;
+  let raw: string;
   try {
-    const parsed = JSON.parse(await fs.readFile(env.PUSH_FILE, "utf8")) as PushFile;
-    if (parsed?.vapid?.publicKey && parsed?.vapid?.privateKey) {
-      cache = { vapid: parsed.vapid, subs: parsed.subs ?? [] };
-      return cache;
-    }
-  } catch {
-    // No file yet (or it is unreadable) — start a fresh identity below.
+    raw = await fs.readFile(env.PUSH_FILE, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    const fresh: PushFile = { vapid: webpush.generateVAPIDKeys(), subs: [] };
+    await write(fresh);
+    return fresh;
   }
-  const fresh: PushFile = { vapid: webpush.generateVAPIDKeys(), subs: [] };
-  await write(fresh);
-  return fresh;
+  const parsed = JSON.parse(raw) as PushFile;
+  if (!parsed?.vapid?.publicKey || !parsed?.vapid?.privateKey) {
+    throw new Error(`${env.PUSH_FILE} holds no VAPID keypair`);
+  }
+  cache = { vapid: parsed.vapid, subs: parsed.subs ?? [] };
+  return cache;
 }
 
 async function write(file: PushFile): Promise<void> {
   cache = file;
-  await fs.writeFile(env.PUSH_FILE, JSON.stringify(file, null, 2));
+  // Atomic, and 0600: the private half of the keypair is in here, and a kill
+  // during a subscribe used to leave the file truncated — which the read above
+  // then took as "no identity yet".
+  await writeJsonAtomic(env.PUSH_FILE, file, 0o600);
 }
 
 /** The half of the keypair the browser needs to subscribe. */

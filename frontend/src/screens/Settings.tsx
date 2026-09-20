@@ -795,7 +795,9 @@ function Backups() {
               <Skeleton className="inline-block h-3 w-24 rounded bg-surface-2 align-middle" />
             )}
           </span>
-          <span className="ml-auto text-muted">
+          {/* The archives are the truth about when one last worked; a failure
+              two nights ago is otherwise only a line in the pod's log. */}
+          <span className={`ml-auto ${data?.stale && !running ? "text-fail" : "text-muted"}`}>
             {running ? "backing up…" : `last ${agoLabel(latest?.createdAt ?? null)}`}
           </span>
         </div>

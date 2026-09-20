@@ -1488,4 +1488,10 @@ export interface BackupStatus {
   /** Result of the last run this process started, if any. */
   lastError: string | null;
   lastFinishedAt: string | null;
+  /**
+   * Nothing has been written for two days, read off the archives themselves.
+   * The two fields above are this process's memory, so a restart cleared them
+   * however long it had been.
+   */
+  stale: boolean;
 }

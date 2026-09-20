@@ -19,8 +19,12 @@ import path from "node:path";
  * The temp name must not end in ".json": the directory scans that back these
  * stores would pick it up and try to parse it.
  */
-export async function writeJsonAtomic(target: string, value: unknown): Promise<void> {
-  await writeAtomic(target, JSON.stringify(value, null, 2));
+export async function writeJsonAtomic(
+  target: string,
+  value: unknown,
+  mode?: number,
+): Promise<void> {
+  await writeAtomic(target, JSON.stringify(value, null, 2), mode);
 }
 
 /**
@@ -35,10 +39,12 @@ export async function writeTextAtomic(target: string, text: string): Promise<voi
   await writeAtomic(target, text);
 }
 
-async function writeAtomic(target: string, body: string): Promise<void> {
+async function writeAtomic(target: string, body: string, mode?: number): Promise<void> {
   const tmp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    await fs.writeFile(tmp, body);
+    // The mode goes on the temp file: rename carries it over, and setting it
+    // afterwards would leave the secret readable for the window in between.
+    await fs.writeFile(tmp, body, mode === undefined ? undefined : { mode });
     await fs.rename(tmp, target);
   } catch (err) {
     await fs.rm(tmp, { force: true });
