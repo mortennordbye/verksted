@@ -307,6 +307,31 @@ describe("PUT /api/projects/:name/file", () => {
     expect(disk).toEqual(Buffer.from([9, 8, 0, 7]));
   });
 
+  // A clone ships whatever it likes, a symlink included, and the scoping above
+  // resolves the directory and stops — so the leaf is where a write leaves the
+  // repo. ".git/config" is the one that matters: a core.fsmonitor written there
+  // runs in this process on the hub's next refresh.
+  it("refuses to write through a symlinked leaf, and leaves the target alone", async () => {
+    const root = process.env.REPOS_DIR!;
+    const outside = path.join(root, "other", "secret.txt");
+    fs.symlinkSync(outside, path.join(root, "demo", "notes"));
+    fs.symlinkSync(path.join(root, "demo", ".git", "config"), path.join(root, "demo", "cfg"));
+
+    for (const leaf of ["notes", "cfg"]) {
+      const res = await put("demo", leaf, Buffer.from("owned"));
+      expect(res.statusCode).toBe(403);
+    }
+    expect(fs.readFileSync(outside, "utf8")).toBe("s");
+    expect(fs.readFileSync(path.join(root, "demo", ".git", "config"), "utf8")).toContain("[core]");
+    // the link itself survives too: this is a refusal, not a repair
+    expect(fs.lstatSync(path.join(root, "demo", "notes")).isSymbolicLink()).toBe(true);
+  });
+
+  it("refuses .git itself, which in a worktree is a file", async () => {
+    const res = await put("demo", ".git", Buffer.from("gitdir: /elsewhere"));
+    expect(res.statusCode).toBe(403);
+  });
+
   // The agent shares this working tree, so a file changing under an open editor
   // is the ordinary case. Without the precondition the save silently wins.
   describe("If-Match precondition", () => {
@@ -415,6 +440,19 @@ describe("POST /api/projects/:name/upload", () => {
     expect(res.json().path).toMatch(/^\.verksted\/uploads\/\d{8}-\d{9}-passwd$/);
   });
 
+  it("refuses an upload once .verksted has left the repo", async () => {
+    const proj = path.join(process.env.REPOS_DIR!, "linky");
+    fs.mkdirSync(proj);
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), "vk-elsewhere-"));
+    fs.symlinkSync(elsewhere, path.join(proj, ".verksted"));
+
+    const res = await upload("linky", "a.png", Buffer.from("x"));
+    expect(res.statusCode).toBe(403);
+    // mkdir -p followed the link before anything noticed; what matters is that
+    // no uploaded byte was written on the other side of it.
+    expect(fs.readdirSync(path.join(elsewhere, "uploads"))).toEqual([]);
+  });
+
   it("404s on an unknown project", async () => {
     const res = await upload("nope", "a.png", Buffer.from("x"));
     expect(res.statusCode).toBe(404);
@@ -447,6 +485,17 @@ describe("POST /api/projects/:name/git/discard", () => {
     const res = await post("/api/projects/gitops/git/discard", { paths: ["../demo/a.txt"] });
     expect(res.statusCode).toBe(403);
     expect(fs.existsSync(path.join(process.env.REPOS_DIR!, "demo", "a.txt"))).toBe(true);
+  });
+
+  it("unlinks an untracked symlink rather than deleting what it points at", async () => {
+    const gitops = path.join(process.env.REPOS_DIR!, "gitops");
+    fs.writeFileSync(path.join(gitops, "keep.txt"), "precious");
+    fs.symlinkSync(path.join(gitops, "keep.txt"), path.join(gitops, "link.txt"));
+
+    const res = await post("/api/projects/gitops/git/discard", { paths: ["link.txt"] });
+    expect(res.statusCode).toBe(200);
+    expect(fs.existsSync(path.join(gitops, "link.txt"))).toBe(false);
+    expect(fs.readFileSync(path.join(gitops, "keep.txt"), "utf8")).toBe("precious");
   });
 });
 
@@ -529,5 +578,89 @@ describe("POST /api/projects/:name/replace", () => {
   it("404s an unknown project", async () => {
     const res = await post({ q: "x", replace: "y" }, "ghost");
     expect(res.statusCode).toBe(404);
+  });
+});
+
+/**
+ * A repo is somebody else's code, and several git config keys are a command
+ * git runs. Inside a session that is the agent's business; when the *backend*
+ * runs git — the hub's status per repo, the diff endpoint, a commit from the
+ * UI — it is this process, root, with the pod's environment, executing what a
+ * clone put in .git/config.
+ */
+describe("git the backend runs itself", () => {
+  const post = (url: string, payload: object) => app.inject({ method: "POST", url, payload });
+  let repo: string;
+  const ran = (name: string) => fs.existsSync(path.join(repo, `${name}.ran`));
+
+  beforeAll(() => {
+    repo = path.join(process.env.REPOS_DIR!, "hostile");
+    fs.mkdirSync(path.join(repo, "evilhooks"), { recursive: true });
+    const spy = (name: string) => {
+      const file = path.join(repo, `${name}.sh`);
+      fs.writeFileSync(file, `#!/bin/sh\ntouch "${path.join(repo, `${name}.ran`)}"\nexit 0\n`, {
+        mode: 0o755,
+      });
+      return file;
+    };
+    const hook = path.join(repo, "evilhooks", "commit-msg");
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch "${path.join(repo, "hook.ran")}"\nexit 0\n`, {
+      mode: 0o755,
+    });
+
+    const g = (...args: string[]) => execFileSync("git", ["-C", repo, ...args]);
+    g("init", "-b", "main");
+    fs.writeFileSync(path.join(repo, "a.txt"), "one\n");
+    fs.writeFileSync(path.join(repo, ".gitattributes"), "*.txt diff=evil\n");
+    g("add", "-A");
+    g("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init");
+    g("config", "core.fsmonitor", spy("fsmonitor"));
+    g("config", "core.hooksPath", path.join(repo, "evilhooks"));
+    g("config", "diff.external", spy("external"));
+    g("config", "diff.evil.textconv", spy("textconv"));
+    fs.writeFileSync(path.join(repo, "a.txt"), "two\n");
+  });
+
+  it("does not run core.fsmonitor when it reads the repo's status", async () => {
+    const res = await app.inject({ url: "/api/projects/hostile/git" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().files).toContainEqual({ path: "a.txt", status: "M", staged: false });
+    expect(ran("fsmonitor")).toBe(false);
+  });
+
+  it("does not run a diff driver the repo names", async () => {
+    const res = await app.inject({ url: "/api/projects/hostile/diff?path=a.txt" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().diff).toContain("+two");
+    expect(ran("external")).toBe(false);
+    expect(ran("textconv")).toBe(false);
+  });
+
+  it("does not run the repo's hooks when it commits", async () => {
+    expect((await post("/api/projects/hostile/git/stage", { paths: ["a.txt"] })).statusCode).toBe(
+      200,
+    );
+    const res = await post("/api/projects/hostile/git/commit", { message: "second" });
+    expect(res.statusCode).toBe(200);
+    expect(ran("hook")).toBe(false);
+    expect(execFileSync("git", ["-C", repo, "log", "-1", "--format=%s"]).toString().trim()).toBe(
+      "second",
+    );
+  });
+
+  /**
+   * The shipped commit-msg hook is what keeps AI attribution out of the
+   * history, and hooks are off here — so the route does that part itself.
+   */
+  it("strips AI attribution from the message it commits", async () => {
+    fs.writeFileSync(path.join(repo, "a.txt"), "three\n");
+    await post("/api/projects/hostile/git/stage", { paths: ["a.txt"] });
+    const res = await post("/api/projects/hostile/git/commit", {
+      message:
+        "fix: a thing\n\nCo-authored-by: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_x\n",
+    });
+    expect(res.statusCode).toBe(200);
+    const message = execFileSync("git", ["-C", repo, "log", "-1", "--format=%B"]).toString();
+    expect(message.trim()).toBe("fix: a thing");
   });
 });

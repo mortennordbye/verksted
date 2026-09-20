@@ -91,10 +91,10 @@ export default async function settingsRoutes(app: FastifyInstance) {
         if (!settings.VAR_KEY_RE.test(key)) {
           return reply.code(400).send({ error: `invalid variable name: ${key}` });
         }
-        if (settings.BLOCKED_KEYS.has(key)) {
-          return reply
-            .code(400)
-            .send({ error: `${key} is not allowed (it overrides subscription auth)` });
+        if (settings.blockedKey(key)) {
+          return reply.code(400).send({
+            error: `${key} is not allowed: it would redirect agent auth or change what a session runs`,
+          });
         }
       }
       const stored = await settings.readVars();
@@ -124,7 +124,7 @@ export default async function settingsRoutes(app: FastifyInstance) {
    */
   app.post<{ Params: { key: string } }>("/api/settings/vars/:key/reveal", async (req, reply) => {
     const { key } = req.params;
-    if (!settings.VAR_KEY_RE.test(key) || settings.BLOCKED_KEYS.has(key)) {
+    if (!settings.VAR_KEY_RE.test(key) || settings.blockedKey(key)) {
       return reply.code(404).send({ error: "not found" });
     }
     const value = (await settings.readVars())[key];

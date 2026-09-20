@@ -72,9 +72,45 @@ export const SOURCE_KEYS = [
 ];
 const SOURCE_ONLY = new Set(SOURCE_KEYS);
 
-// ANTHROPIC_API_KEY silently overrides Claude Max subscription auth and bills
-// per token — never storable, never injected.
-export const BLOCKED_KEYS = new Set(["ANTHROPIC_API_KEY"]);
+/**
+ * Vars the settings page refuses outright: never stored, never injected.
+ *
+ * ANTHROPIC_API_KEY silently overrides Claude Max subscription auth and bills
+ * per token, and blocking that one name only ever blocked the spelling.
+ * ANTHROPIC_AUTH_TOKEN is the same override under another, and
+ * ANTHROPIC_BASE_URL is worse than either: it sends the subscription's bearer
+ * and every prompt to whoever owns the host. The family goes, and with it the
+ * two flags that reroute the CLI to another provider.
+ *
+ * The second group is not about billing. Every var here is handed to each new
+ * tmux session, and these decide which binary runs before a program's own code
+ * does — a loader preload, an interpreter's startup file, the transport git
+ * shells out to. An agent controls its own shell anyway; what this stops is a
+ * write to the settings file quietly redirecting every *future* session, the
+ * person's own included.
+ */
+const BLOCKED_PREFIXES = ["ANTHROPIC_", "LD_"];
+const BLOCKED_EXACT = new Set([
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "PATH",
+  "SHELL",
+  "NODE_OPTIONS",
+  "BASH_ENV",
+  "ENV",
+  "PYTHONPATH",
+  "PYTHONSTARTUP",
+  "PERL5LIB",
+  "RUBYOPT",
+  "GIT_SSH_COMMAND",
+  "GIT_SSH",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_PROXY_COMMAND",
+]);
+
+export function blockedKey(key: string): boolean {
+  return BLOCKED_EXACT.has(key) || BLOCKED_PREFIXES.some((p) => key.startsWith(p));
+}
 
 export const VAR_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
@@ -207,7 +243,7 @@ export async function setSchedulesPaused(paused: boolean): Promise<void> {
 export async function agentEnv(): Promise<Record<string, string>> {
   const vars = await readVars();
   for (const key of Object.keys(vars)) {
-    if (BLOCKED_KEYS.has(key) || SOURCE_ONLY.has(key)) delete vars[key];
+    if (blockedKey(key) || SOURCE_ONLY.has(key)) delete vars[key];
   }
   return vars;
 }
@@ -248,7 +284,7 @@ export async function execEnv(): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const key of EXEC_KEYS) {
     const value = vars[key];
-    if (value !== undefined && !BLOCKED_KEYS.has(key)) out[key] = value;
+    if (value !== undefined && !blockedKey(key)) out[key] = value;
   }
   return out;
 }

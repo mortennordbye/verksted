@@ -16,8 +16,16 @@ import type {
   UploadedFile,
 } from "../../../shared/api.js";
 import { refreshTopic } from "../events.js";
-import { branchOf, git, gitError, gitRaw, parsePorcelainZ } from "../git.js";
-import { repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
+import {
+  GIT_NO_REPO_CODE,
+  NO_REPO_DIFF_CODE,
+  branchOf,
+  git,
+  gitError,
+  gitRaw,
+  parsePorcelainZ,
+} from "../git.js";
+import { leafInsideRepos, repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
 import { ReplaceTimeout, runReplace } from "../replace.js";
 
@@ -71,6 +79,82 @@ function contentEtag(buf: Buffer): string {
 async function etagOnDisk(abs: string): Promise<string | null> {
   const buf = await fs.readFile(abs).catch(() => null);
   return buf ? contentEtag(buf) : null;
+}
+
+/**
+ * Write bytes to a path, or answer false because a symlink is sitting there.
+ *
+ * The scoping above resolves the directory and stops at the leaf, which is
+ * where a clone can plant `notes -> /data/settings.json` or `x -> .git/config`
+ * — the second being command execution in this process, since git then runs
+ * whatever core.fsmonitor says on the hub's next refresh. O_NOFOLLOW rather
+ * than an lstat first: the kernel decides, so there is no window between the
+ * check and the write for the link to appear in.
+ */
+async function writeNoFollow(abs: string, body: Buffer): Promise<boolean> {
+  const { O_WRONLY, O_CREAT, O_TRUNC, O_NOFOLLOW } = fs.constants;
+  let fh;
+  try {
+    fh = await fs.open(abs, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o666);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ELOOP") return false;
+    throw err;
+  }
+  try {
+    await fh.writeFile(body);
+  } finally {
+    await fh.close();
+  }
+  return true;
+}
+
+/**
+ * The commit-msg hook's work, done here instead.
+ *
+ * GIT_NO_REPO_CODE turns hooks off for git the backend runs, because a cloned
+ * repo's .husky/commit-msg is the repo's code and this process is root with the
+ * cluster's environment. The shipped hook was also the thing that kept AI
+ * attribution out of the history, and that is not something to lose: one
+ * `Co-authored-by: Claude` was enough for GitHub to list an agent among the
+ * contributors, and undoing it meant rewriting 47 commits. Same three rules as
+ * runtime/git-hooks/commit-msg, which still runs for commits made in a session.
+ */
+function stripAttribution(message: string): string {
+  return message
+    .split("\n")
+    .filter(
+      (l) =>
+        !/^claude-session:/i.test(l) &&
+        !/^co-authored-by:.*claude/i.test(l) &&
+        !/^generated with.*claude/i.test(l),
+    )
+    .join("\n")
+    .replace(/\s+$/, "");
+}
+
+/**
+ * The environment the backend's own commit runs in.
+ *
+ * process.env here is the pod's: GH_TOKEN, the ServiceAccount token, every
+ * credential the deployment was started with. A commit needs none of it — git
+ * on the PATH, HOME for the global config, the locale, and whoever is
+ * committing. execEnv() adds the identity from the settings page on top.
+ */
+function commitEnv(): NodeJS.ProcessEnv {
+  const keep = [
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+  ];
+  return Object.fromEntries(
+    keep.map((k) => [k, process.env[k]]).filter(([, v]) => v !== undefined),
+  );
 }
 
 async function modifiedPaths(repoDir: string): Promise<Set<string>> {
@@ -138,7 +222,13 @@ const UPLOAD_DIR = ".verksted/uploads";
  */
 async function excludeUploads(repoDir: string): Promise<void> {
   try {
-    const { stdout } = await exec("git", ["-C", repoDir, "rev-parse", "--git-common-dir"]);
+    const { stdout } = await exec("git", [
+      ...GIT_NO_REPO_CODE,
+      "-C",
+      repoDir,
+      "rev-parse",
+      "--git-common-dir",
+    ]);
     const file = path.resolve(repoDir, stdout.trim(), "info", "exclude");
     const cur = await fs.readFile(file, "utf8").catch(() => "");
     if (cur.split("\n").includes(".verksted/")) return;
@@ -315,19 +405,20 @@ export default async function fileRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      let dir: string;
       let rel: string;
+      let abs: string;
       try {
         rel = repoRelPath(req.query.path);
         // The file itself may not exist yet; its directory must, and the
-        // realpath check on the directory defeats symlink escapes.
-        dir = resolveInsideRepos(req.params.name, path.dirname(rel));
+        // realpath check on the directory defeats symlink escapes. The leaf is
+        // left unresolved on purpose — writeNoFollow refuses a symlink there
+        // rather than writing through it.
+        abs = leafInsideRepos(req.params.name, rel);
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
       const body = req.body;
       if (!Buffer.isBuffer(body)) return reply.code(415).send({ error: "raw body required" });
-      const abs = path.join(dir, path.basename(rel));
 
       // Optional precondition: a client that read the file and sends back its
       // etag gets a 412 instead of silently overwriting whatever the agent
@@ -343,7 +434,9 @@ export default async function fileRoutes(app: FastifyInstance) {
         }
       }
 
-      await fs.writeFile(abs, body);
+      if (!(await writeNoFollow(abs, body))) {
+        return reply.code(403).send({ error: "denied" });
+      }
       return { path: rel, bytes: body.length, etag: contentEtag(body) };
     },
   );
@@ -386,8 +479,20 @@ export default async function fileRoutes(app: FastifyInstance) {
         .replace(/\.(\d+)Z$/, "$1");
       const rel = `${UPLOAD_DIR}/${stamp}-${safe}`;
       await fs.mkdir(path.join(repoDir, UPLOAD_DIR), { recursive: true });
+      // Resolved after the mkdir, not before it: a repo that ships .verksted as
+      // a symlink has just had "uploads" created wherever it points, and this
+      // is what notices. The directory is the app's own, so an escape here is a
+      // broken repo rather than a request to honour.
+      let dir: string;
+      try {
+        dir = resolveInsideRepos(req.params.name, UPLOAD_DIR);
+      } catch {
+        return reply.code(403).send({ error: "denied" });
+      }
       await excludeUploads(repoDir);
-      await fs.writeFile(path.join(repoDir, rel), body);
+      if (!(await writeNoFollow(path.join(dir, `${stamp}-${safe}`), body))) {
+        return reply.code(403).send({ error: "denied" });
+      }
       return { path: rel };
     },
   );
@@ -420,7 +525,16 @@ export default async function fileRoutes(app: FastifyInstance) {
       try {
         let { stdout } = await exec(
           "git",
-          ["-C", repoDir, "diff", ...(req.query.staged ? ["--cached"] : []), "--", rel],
+          [
+            ...GIT_NO_REPO_CODE,
+            "-C",
+            repoDir,
+            "diff",
+            ...NO_REPO_DIFF_CODE,
+            ...(req.query.staged ? ["--cached"] : []),
+            "--",
+            rel,
+          ],
           opts,
         );
         if (!stdout && !req.query.staged) {
@@ -428,7 +542,17 @@ export default async function fileRoutes(app: FastifyInstance) {
           // new-file diff (--no-index exits 1 when the files differ).
           stdout = await exec(
             "git",
-            ["-C", repoDir, "diff", "--no-index", "--", "/dev/null", rel],
+            [
+              ...GIT_NO_REPO_CODE,
+              "-C",
+              repoDir,
+              "diff",
+              ...NO_REPO_DIFF_CODE,
+              "--no-index",
+              "--",
+              "/dev/null",
+              rel,
+            ],
             opts,
           )
             .then((r) => r.stdout)
@@ -495,7 +619,9 @@ export default async function fileRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: "denied" });
       }
       try {
-        await exec("git", ["-C", repoDir, "add", "--", ...paths], { env: GIT_ENV });
+        await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, "add", "--", ...paths], {
+          env: GIT_ENV,
+        });
       } catch (err) {
         req.log.error(err, "git add failed");
         return reply.code(409).send({ error: "stage failed" });
@@ -517,15 +643,34 @@ export default async function fileRoutes(app: FastifyInstance) {
         return reply.code(403).send({ error: "denied" });
       }
       try {
-        await exec("git", ["-C", repoDir, "restore", "--staged", "--", ...paths], { env: GIT_ENV });
+        await exec(
+          "git",
+          [...GIT_NO_REPO_CODE, "-C", repoDir, "restore", "--staged", "--", ...paths],
+          {
+            env: GIT_ENV,
+          },
+        );
       } catch {
         try {
           // restore needs HEAD; on a repo with no commits everything staged is
           // an addition, which rm --cached undoes (-f: file may have been
           // modified since staging; --cached never touches the working tree).
-          await exec("git", ["-C", repoDir, "rm", "--cached", "-f", "-q", "-r", "--", ...paths], {
-            env: GIT_ENV,
-          });
+          await exec(
+            "git",
+            [
+              ...GIT_NO_REPO_CODE,
+              "-C",
+              repoDir,
+              "rm",
+              "--cached",
+              "-f",
+              "-q",
+              "-r",
+              "--",
+              ...paths,
+            ],
+            { env: GIT_ENV },
+          );
         } catch (err) {
           req.log.error(err, "git unstage failed");
           return reply.code(409).send({ error: "unstage failed" });
@@ -550,13 +695,13 @@ export default async function fileRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const repoDir = repoDirOr404(reply, req.params.name);
       if (!repoDir) return;
-      const message = req.body.message.trim();
+      const message = stripAttribution(req.body.message.trim());
       if (!message) return reply.code(400).send({ error: "empty commit message" });
       try {
         // Commits the index only (no -a) — exactly what the UI staged.
         // execEnv so GIT_AUTHOR_*/GIT_COMMITTER_* from the settings page apply.
-        await exec("git", ["-C", repoDir, "commit", "-m", message], {
-          env: { ...process.env, ...(await execEnv()) },
+        await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, "commit", "-m", message], {
+          env: { ...commitEnv(), ...(await execEnv()) },
         });
       } catch (err) {
         const out = String((err as { stdout?: string }).stdout ?? "");
@@ -894,10 +1039,15 @@ export default async function fileRoutes(app: FastifyInstance) {
           (x === "?" ? untracked : tracked).push(p);
         }
         for (const p of untracked) {
-          await fs.rm(resolveInsideRepos(req.params.name, p), { force: true });
+          // The leaf unresolved, so an untracked symlink is unlinked itself
+          // rather than resolved and its target deleted — "discard this new
+          // file" must never remove the file it happens to point at.
+          await fs.rm(leafInsideRepos(req.params.name, p), { force: true });
         }
         if (tracked.length > 0) {
-          await exec("git", ["-C", repoDir, "restore", "--", ...tracked], { env: GIT_ENV });
+          await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, "restore", "--", ...tracked], {
+            env: GIT_ENV,
+          });
         }
       } catch (err) {
         req.log.error(err, "git discard failed");

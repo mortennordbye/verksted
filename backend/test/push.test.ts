@@ -112,7 +112,15 @@ describe("POST /api/push/send", () => {
     // A notification renders outside anything this app controls, so an absolute
     // link in one is a phishing link wearing verksted's name. Path-only, and a
     // protocol-relative "//evil.example" is a link off-site too.
-    for (const url of ["https://evil.example", "//evil.example", "javascript:alert(1)", "evil"]) {
+    // "/\\evil.example" is the one that slipped through: it reads as a path,
+    // and URL parsing takes the backslash for the second slash of an authority.
+    for (const url of [
+      "https://evil.example",
+      "//evil.example",
+      "/\\evil.example",
+      "javascript:alert(1)",
+      "evil",
+    ]) {
       const res = await app.inject({
         method: "POST",
         url: "/api/push/send",

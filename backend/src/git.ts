@@ -9,6 +9,32 @@ import type {
 } from "../../shared/api.js";
 
 /**
+ * Config a repo must not get to choose for git the *backend* runs.
+ *
+ * Both of these are commands git starts on the repo's say-so, out of a
+ * .git/config that an agent session writes to freely and a file endpoint could
+ * reach through a symlink. core.fsmonitor runs on any status or diff, and the
+ * hub runs status per repo on every refresh; a hook runs on commit, pull, push
+ * and checkout. Either one is the backend's own process — root, with the
+ * cluster's environment — executing whatever a cloned repo put there.
+ *
+ * Agents keep their hooks: inside a session the shipped commit-msg hook is what
+ * strips AI attribution, and the repo's own hooks are the project's. This is
+ * only about git the server runs on the repo's behalf. Where that server does
+ * something a hook used to cover, it does it itself — see the commit route.
+ */
+export const GIT_NO_REPO_CODE = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"];
+
+/**
+ * The same two for the diff family, where they are flags rather than config: a
+ * diff driver named by .gitattributes runs its textconv command on the content
+ * it is about to show, and diff.external replaces the diff itself with one.
+ * Neither can be said as `-c` — an empty diff.external is a command git tries
+ * to run and dies on — so every command that prints a diff passes these.
+ */
+export const NO_REPO_DIFF_CODE = ["--no-textconv", "--no-ext-diff"];
+
+/**
  * Raw stdout, untrimmed. Porcelain -z output can legitimately begin with a
  * space — " M path" is "modified in the worktree" — and trimming it would shift
  * every field of the first entry by one character.
@@ -18,7 +44,7 @@ export async function gitRaw(
   args: string[],
   opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
 ): Promise<string> {
-  const { stdout } = await exec("git", ["-C", repoDir, ...args], {
+  const { stdout } = await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, ...args], {
     env: opts.env,
     // Without these, execFile's 1 MB default silently truncates and kills the
     // call, and every caller reads that as "clean" or "no files" — a wrong UI
@@ -185,7 +211,9 @@ export async function changesIn(
     range,
   ]);
   const lines = log ? log.split("\n") : [];
-  const files = parseNumstatZ(await gitRaw(repoDir, ["diff", "--numstat", "-z", range]));
+  const files = parseNumstatZ(
+    await gitRaw(repoDir, ["diff", "--numstat", "-z", ...NO_REPO_DIFF_CODE, range]),
+  );
   return {
     commits: lines.slice(0, MAX_COMMITS).map((l) => {
       const [sha, subject] = l.split("\0");
@@ -215,7 +243,13 @@ export async function rangeDiff(
 ): Promise<{ diff: string; truncated: boolean }> {
   // quotePath=false so a non-ASCII path arrives spelled the way the -z file
   // list spells it; the reader matches the two against each other.
-  const out = await gitRaw(repoDir, ["-c", "core.quotePath=false", "diff", `${from}..${to}`]);
+  const out = await gitRaw(repoDir, [
+    "-c",
+    "core.quotePath=false",
+    "diff",
+    ...NO_REPO_DIFF_CODE,
+    `${from}..${to}`,
+  ]);
   if (out.length <= MAX_PATCH_BYTES) return { diff: out, truncated: false };
   const boundary = out.lastIndexOf("\ndiff --git ", MAX_PATCH_BYTES);
   return {
@@ -232,7 +266,7 @@ export async function fileDiffIn(
   to: string,
   relPath: string,
 ): Promise<string> {
-  return gitRaw(repoDir, ["diff", `${from}..${to}`, "--", relPath], {
+  return gitRaw(repoDir, ["diff", ...NO_REPO_DIFF_CODE, `${from}..${to}`, "--", relPath], {
     env: { ...process.env, GIT_LITERAL_PATHSPECS: "1" },
   });
 }

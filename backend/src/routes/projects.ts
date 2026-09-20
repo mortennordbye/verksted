@@ -4,7 +4,7 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
-import { git, worktreeParent } from "../git.js";
+import { GIT_NO_REPO_CODE, git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import { WorktreeError, addWorktree, listProjects } from "../projects-store.js";
 import * as store from "../sessions-store.js";
@@ -105,7 +105,7 @@ export default async function projectRoutes(app: FastifyInstance) {
       }
       await fs.mkdir(dir);
       try {
-        await exec("git", ["-C", dir, "init", "-b", "main"]);
+        await exec("git", [...GIT_NO_REPO_CODE, "-C", dir, "init", "-b", "main"]);
       } catch (err) {
         req.log.error(err, "init failed");
         // Same reason as the clone above: an empty dir 409s every retry.
@@ -181,7 +181,13 @@ export default async function projectRoutes(app: FastifyInstance) {
     if (parent) {
       // Drop the stale worktree registration in the main repo, if it remains.
       try {
-        await exec("git", ["-C", resolveInsideRepos(parent), "worktree", "prune"]);
+        await exec("git", [
+          ...GIT_NO_REPO_CODE,
+          "-C",
+          resolveInsideRepos(parent),
+          "worktree",
+          "prune",
+        ]);
       } catch {
         // main repo gone or broken — nothing to prune
       }

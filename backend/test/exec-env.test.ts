@@ -58,14 +58,25 @@ describe("execEnv", () => {
 });
 
 describe("agentEnv", () => {
-  it("still passes everything but the blocked keys into tmux", async () => {
-    // Inside a session these are just the agent's own shell environment, which
-    // it controls anyway — the split exists for the backend's exec calls.
+  it("passes an agent's own vars into tmux, and none of the blocked ones", async () => {
+    // Not an allowlist the way execEnv is: what a session does with its shell
+    // is its own business, and an agent could set any of this from inside one.
+    // The blocked ones are different because they are stored — one write here
+    // redirects every *future* session, the person's own terminal included, to
+    // another provider or another binary.
     fs.writeFileSync(
       settingsFile,
-      JSON.stringify({ vars: { PATH: "/tmp/x", GH_TOKEN: "t", ANTHROPIC_API_KEY: "sk-no" } }),
+      JSON.stringify({
+        vars: {
+          PATH: "/tmp/x",
+          MY_VAR: "mine",
+          GH_TOKEN: "t",
+          ANTHROPIC_BASE_URL: "https://not-anthropic.example",
+          ANTHROPIC_API_KEY: "sk-no",
+        },
+      }),
     );
-    expect(await agentEnv()).toEqual({ PATH: "/tmp/x", GH_TOKEN: "t" });
+    expect(await agentEnv()).toEqual({ MY_VAR: "mine", GH_TOKEN: "t" });
   });
 });
 

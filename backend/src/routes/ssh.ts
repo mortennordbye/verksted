@@ -46,6 +46,14 @@ async function dropFromConfig(name: string): Promise<void> {
   await fs.writeFile(config, kept, { mode: 0o600 });
 }
 
+/** Whether a key of this name is already installed. */
+async function taken(name: string): Promise<boolean> {
+  return fs
+    .access(keyPath(name))
+    .then(() => true)
+    .catch(() => false);
+}
+
 async function keyEntry(name: string): Promise<SshKey> {
   const publicKey = (await fs.readFile(`${keyPath(name)}.pub`, "utf8")).trim();
   const fingerprint = await exec("ssh-keygen", ["-lf", `${keyPath(name)}.pub`])
@@ -93,16 +101,25 @@ export default async function sshRoutes(app: FastifyInstance) {
       }
       await ensureSshDir();
       const file = keyPath(name);
-      // ssh requires a trailing newline and 0600 on private keys.
-      await fs.writeFile(file, `${material}\n`, { mode: 0o600 });
+      // Generate has always answered 409 here; import wrote first and asked
+      // nothing, so re-using a name replaced a working key — and a paste that
+      // then failed validation deleted it, leaving the agent with no key at all
+      // and nothing on screen to say which one went.
+      if (await taken(name)) return reply.code(409).send({ error: "key already exists" });
+      // Validated where a failure costs nothing, then moved into place. ssh
+      // requires a trailing newline and 0600 on private keys.
+      const tmp = `${file}.${process.pid}.tmp`;
+      await fs.writeFile(tmp, `${material}\n`, { mode: 0o600 });
+      let publicHalf: string;
       try {
-        const { stdout } = await exec("ssh-keygen", ["-y", "-P", "", "-f", file]);
-        await fs.writeFile(`${file}.pub`, stdout, { mode: 0o644 });
+        publicHalf = (await exec("ssh-keygen", ["-y", "-P", "", "-f", tmp])).stdout;
       } catch (err) {
-        await fs.rm(file, { force: true });
+        await fs.rm(tmp, { force: true });
         req.log.info(err, "ssh key rejected");
         return reply.code(400).send({ error: "invalid or passphrase-protected key" });
       }
+      await fs.rename(tmp, file);
+      await fs.writeFile(`${file}.pub`, publicHalf, { mode: 0o644 });
       await ensureConfig(name);
       return reply.code(201).send(await keyEntry(name));
     },
@@ -131,12 +148,7 @@ export default async function sshRoutes(app: FastifyInstance) {
       }
       await ensureSshDir();
       const file = keyPath(name);
-      try {
-        await fs.access(file);
-        return reply.code(409).send({ error: "key already exists" });
-      } catch {
-        // free
-      }
+      if (await taken(name)) return reply.code(409).send({ error: "key already exists" });
       const comment = (req.body.comment ?? "verksted").replace(/[^\w@.: -]/g, "");
       await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", file]);
       await ensureConfig(name);

@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { createHandlerBoundToURL, precacheAndRoute } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
+import { appPath } from "./app-path";
 
 // The app's service worker. It does what the generated one did — precache the
 // built assets, fall back to the SPA shell for navigations — plus the one thing
@@ -55,7 +56,10 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data as { url?: string } | null)?.url ?? "/";
+  const url = appPath(
+    (event.notification.data as { url?: unknown } | null)?.url,
+    self.location.origin,
+  );
   event.waitUntil(
     (async () => {
       // Reuse an open window when there is one — an installed PWA has exactly

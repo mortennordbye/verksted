@@ -50,6 +50,32 @@ export function resolveInsideRepos(
 }
 
 /**
+ * Where a leaf the client names lives: its directory resolved the usual way,
+ * the last component joined on without being resolved.
+ *
+ * What writes and deletes want, rather than resolveInsideRepos. The file need
+ * not exist yet, and where one does, a symlink standing in its place must be
+ * the thing acted on and not whatever it points at: a cloned repo shipping
+ * `notes -> /data/settings.json` otherwise turns a write inside the project
+ * into a write the scoping above has already approved. Refusing the symlink
+ * outright is the caller's job (O_NOFOLLOW, or lstat before the write) —
+ * this only keeps the path lexical so there is something to refuse.
+ */
+export function leafInsideRepos(
+  projectName: string,
+  relPath: string,
+  reposDir = env.REPOS_DIR,
+): string {
+  const rel = repoRelPath(relPath);
+  const base = path.basename(rel);
+  // "." and ".." name the directory, not a leaf in it; ".git" is out of bounds
+  // whole, the way it is for every component resolveInsideRepos walks (in a
+  // linked worktree it is a file, and writing it repoints the checkout).
+  if (base === "." || base === ".." || base === ".git") throw new PathDeniedError();
+  return path.join(resolveInsideRepos(projectName, path.dirname(rel), reposDir), base);
+}
+
+/**
  * The same discipline for a root that is not the repos: a path from a client
  * or a model resolves to a real path inside `root`, or is denied. No `.git`
  * rule, since the roots this serves hold documents rather than checkouts.
