@@ -812,9 +812,17 @@ export async function chair(): Promise<CouncilMember> {
     model: config.model,
     effort: config.effort,
     tools: TOOL_INVENTORY.map((t) => t.name),
-    // The web is a specialist's: the chair reads the bench, the calendar and
-    // the feed, and a page it could fetch would be the way any of that leaves.
-    web: false,
+    // Every tool there is, the web included. The council is for judgement and
+    // for a subject somebody else knows better — it is not where a capability
+    // the chair lacks is kept. Routing a lookup through an advisor cost a model
+    // call and a turn to say "I will ask Sophia", and left the chair unable to
+    // answer the follow-up, never having seen the page itself.
+    //
+    // What makes that safe is not a missing tool. It is that a turn holds the
+    // web or the person's own things and never both: reading the mail closes
+    // the browser for the rest of that turn, and a turn that has already
+    // fetched something is refused the read. See assistant-taint.ts.
+    web: true,
     colour: "amber",
     face: "raccoon",
     // The chair keeps the per-device voice the settings page already sets.
