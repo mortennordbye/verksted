@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { useTempDataDirs } from "./data-dirs.js";
 
 /**
  * The one path a browser has to prove: the built app boots, routes, talks to
@@ -29,6 +30,7 @@ let base: string;
 let reposDir: string;
 let sessionsDir: string;
 let feedDir: string;
+let dataDir: string;
 /** Anything the browser logged as an error, or any request that failed. */
 const problems: string[] = [];
 
@@ -99,6 +101,7 @@ beforeAll(async () => {
   process.env.FEED_DIR = feedDir;
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
+  dataDir = useTempDataDirs("vk-e2e-data-");
   const schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
   process.env.SCHEDULES_DIR = schedulesDir;
 
@@ -216,7 +219,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
   await app?.close();
-  for (const dir of [reposDir, sessionsDir, feedDir]) {
+  for (const dir of [reposDir, sessionsDir, feedDir, dataDir]) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import globals from "globals";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import jsxA11y from "eslint-plugin-jsx-a11y";
@@ -25,9 +26,6 @@ export default tseslint.config(
       // program for them. shared/ is type-checked by both workspaces already.
       "shared/**",
       "eslint.config.js",
-      // Shipped into the image and run by node there, not built by either
-      // workspace — so no tsconfig project covers it.
-      "runtime/**",
       // Same as shared/: type-checked by the backend's tsconfig (which includes
       // it), but the project service resolves a file to its *nearest* config
       // and there is none here, so the type-aware rules have no program.
@@ -65,6 +63,23 @@ export default tseslint.config(
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
     },
+  },
+  {
+    // What ships inside the image and runs under node there: the assistant's
+    // MCP server. Not built by either workspace, so no tsconfig project covers
+    // it and the type-aware rules have nothing to read — which is why it was
+    // ignored entirely, and why 1,288 lines of the file that decides what a
+    // tool may do got no lint at all. The syntactic rules do not need a
+    // program, and they are most of what a review of this file would catch.
+    //
+    // Types are the half still missing here: `// @ts-check` with JSDoc imports
+    // from shared/api.ts is tracked in BACKLOG.md.
+    files: ["runtime/**/*.mjs"],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: { projectService: false, project: null },
+    },
+    extends: [tseslint.configs.disableTypeChecked],
   },
   {
     files: ["frontend/**/*.{ts,tsx}"],

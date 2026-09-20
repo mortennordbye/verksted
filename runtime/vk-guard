@@ -115,10 +115,17 @@ old_ifs=$IFS
 IFS=$nl
 for seg in $(printf '%s' "$flat" | tr ';|&' "$nl"); do
   IFS=$old_ifs
+  # Splitting on whitespace is the point: the segment is a command line, and
+  # these are its words.
+  # shellcheck disable=SC2086
   set -- $seg
   [ $# -eq 0 ] && continue
   case "$1" in
     cd)
+      # Not if-then-else, and deliberately so: everything that is not a cd to a
+      # path inside the tree — no argument, `cd -`, a path that resolves out —
+      # falls through to the same deny.
+      # shellcheck disable=SC2015
       [ $# -ge 2 ] && [ "$2" != "-" ] && inside "$2" || deny "stay in the worktree; do not cd out of it"
       ;;
     rm)
@@ -171,6 +178,9 @@ if [ "$stage" = gate ]; then
   if has '(^|[;&|(] *)gh pr merge'; then
     n=$(printf '%s' "$flat" | sed -n 's/.*gh pr merge \([0-9][0-9]*\).*/\1/p')
     [ -n "$n" ] || deny "merge by pull request number"
+    # Same shape as the cd above: a merge missing either flag denies, and so
+    # does one missing both.
+    # shellcheck disable=SC2015
     has "gh pr merge $n [^;&|]*--squash" && has "gh pr merge $n [^;&|]*--auto" || deny "a merge is --squash --auto or nothing"
     view=$(gh pr view "$n" --json labels,headRefName --jq '[.headRefName, (.labels[].name)] | join(" ")' 2>/dev/null) || deny "could not read pull request #$n"
     case " $view " in

@@ -17,7 +17,6 @@ DATA_DIR=${VK_DATA_DIR:-/data}
 # beside the data it came from, which is all a laptop or `make run` can offer.
 BACKUP_DIR=${VK_BACKUP_DIR:-$DATA_DIR/backups}
 MIN_FREE_KB=10485760
-DEFAULT_KEEP=7
 # When set, an archive is encrypted with it and carries a .enc suffix.
 #
 # Deliberately opt-in, and deliberately not defaulted to anything: an archive
@@ -144,6 +143,9 @@ doctor() {
 
   cluster
 
+  # Counting entries, not handling names: the two numbers are all this probe
+  # compares, and `ls -A` is the same command on both sides of it.
+  # shellcheck disable=SC2012
   here=$(ls -A . 2>/dev/null | wc -l | tr -d ' ')
   there=$(docker run --rm -v "$PWD:/probe" "$PROBE_IMAGE" ls -A /probe 2>/dev/null | wc -l | tr -d ' ')
   echo "bind-mount probe this container sees $here entries here, the daemon sees $there"
@@ -236,6 +238,10 @@ auto_name() {
 # directory is not ours to delete.
 prune() {
   n=0
+  # Newest first is the whole point, and `find` has no portable way to sort.
+  # The names are this script's own and match the glob above, so there is
+  # nothing awkward in them.
+  # shellcheck disable=SC2012
   ls -1t "$1"/verksted-????????-??????*.tar.gz "$1"/verksted-????????-??????*.tar.gz.enc \
     2>/dev/null | while read -r f; do
     n=$((n + 1))

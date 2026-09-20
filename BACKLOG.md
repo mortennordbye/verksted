@@ -255,22 +255,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/git.ts` (`MAX_COMMITS`, `MAX_FILES`,
   `MAX_PATCH_BYTES`), `frontend/src/components/ReviewOverlay.tsx`
 
-## The browser smoke test is not in CI
-
-- **What:** `make e2e` builds the frontend and drives the real app in a real
-  chromium (hub, project, inbox, a finished run's changes and its diff). CI does
-  not run it — the test job runs lint, `npm test` and the frontend build, none
-  of which opens a browser, so the one check that would catch a bundle that does
-  not render is the one nobody runs unattended.
-- **Why deferred:** The image build and the chromium download are what make it
-  expensive on a runner, and the job that would host it is the same one the
-  "run CI through the containers" entry below is about. Doing both at once
-  means measuring one change.
-- **Unblocked by:** Deciding that entry, then adding a step that runs
-  `npx vite build frontend && npx vitest run --config e2e/vitest.config.ts`
-  inside the dev image.
-- **Where:** `.github/workflows/ci.yml`, `e2e/smoke.test.ts`, `Makefile` (`e2e`)
-
 ## The screens have one smoke path and one component test between them
 
 - **What:** `e2e/smoke.test.ts` proves the app boots and the review path works;
@@ -496,6 +480,40 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
   runner against the present `npm ci` path.
 - **Where:** `.github/workflows/ci.yml` (the `test` job)
+
+## The shipped runtime files are linted but not type-checked
+
+- **What:** `runtime/verksted-mcp.mjs` is 1,645 lines that destructure backend
+  responses blindly. eslint and shellcheck now cover `runtime/`, which was the
+  bigger gap, but nothing checks that a field the server reads off a response is
+  a field the response has. The audit calls this A-30; the same finding names
+  casts at `routes/assistant.ts` and `routes/memory.ts`.
+- **Why deferred:** `// @ts-check` with JSDoc imports from `shared/api.ts` is
+  the cheap version and it is still a pass over the whole file, with an unknown
+  number of findings — a separate change from wiring the linters up, which is
+  what was asked for here.
+- **Unblocked by:** Running `npx tsc --noEmit --allowJs --checkJs` over the file
+  once to see the size of it. If it is large, the same work is the natural
+  moment to take the MCP SDK (see the entry above), which brings its own types.
+- **Where:** `runtime/verksted-mcp.mjs`, `eslint.config.js` (the `runtime/**`
+  block), `shared/api.ts`
+
+## The image is scanned but carries no SBOM or provenance
+
+- **What:** CI now fails a push when trivy finds a fixable CRITICAL in the
+  image, and files everything HIGH and above under code scanning. What it does
+  not produce is a bill of materials or a signed statement of how the image was
+  built, so "which image had that package" can only be answered by re-scanning
+  whatever is still in the registry.
+- **Why deferred:** Scanning answers the question that was actually being asked
+  (is there a known hole in what is running). An SBOM is for answering it
+  backwards, after an advisory lands, and it is only worth its keep with
+  retention to go with it — which GHCR has none of here (O-17).
+- **Unblocked by:** An advisory that has to be traced to a specific deployed
+  tag, or deciding the GHCR retention question. `docker/build-push-action`
+  takes `sbom: true` and `provenance: mode=max`, so the change itself is two
+  lines.
+- **Where:** `.github/workflows/ci.yml` (the `image` job)
 
 ## Assistant M1: open the assistant's conversation in a terminal
 
