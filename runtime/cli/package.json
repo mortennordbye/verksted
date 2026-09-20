@@ -1,0 +1,10 @@
+{
+  "name": "verksted-agent-clis",
+  "private": true,
+  "//": "Not a package and not installed from here. The Dockerfile reads these pins and installs them globally into the image. They live in a manifest rather than on the RUN line so dependabot can see them: a new agent CLI now arrives as a pull request that CI has run, instead of appearing in whatever the next rebuild happened to resolve. Dependabot's npm updater treats a manifest with no lockfile as exact pins to bump, which is what these are.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.278",
+    "@openai/codex": "0.155.1",
+    "@playwright/mcp": "0.0.79"
+  }
+}
