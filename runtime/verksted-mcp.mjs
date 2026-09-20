@@ -139,6 +139,19 @@ const proposeMemory = (a) =>
     ...(a.source ? { source: a.source } : {}),
   });
 
+/**
+ * Which kind a schedule is, asked before anything is changed about it.
+ *
+ * A session schedule starts an agent with a shell on the pod, so creating,
+ * changing or running one is the same thing start_session is a card for. An
+ * assistant schedule runs the chair, which can change nothing, and stays
+ * direct. Unknown is treated as a session: the closed answer.
+ */
+const scheduleKind = (id) =>
+  call("GET", "/api/schedules")
+    .then((list) => (list ?? []).find((s) => s.id === id)?.kind ?? "session")
+    .catch(() => "session");
+
 /** File a card for the person to tap; the reply says so and no more. */
 const propose = (action, why) =>
   call("POST", "/api/proposals", { action, ...(why ? { why } : {}) }).then(
@@ -646,7 +659,7 @@ const TOOLS = [
   {
     name: "create_schedule",
     description:
-      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
+      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something, and it files a card rather than creating anything — nothing runs until the person taps it. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
     inputSchema: {
       type: "object",
       properties: {
@@ -668,28 +681,43 @@ const TOOLS = [
           description:
             "assistant kind only: do not run at all on a day when no session ended. Set it for anything that looks back over what happened, so a quiet day costs nothing.",
         },
+        why: { type: "string", description: "one line for the card, when this files one" },
       },
       required: ["name", "cron", "prompt"],
     },
     run: (a) =>
-      call("POST", "/api/schedules", {
-        name: a.name,
-        ...(a.kind ? { kind: a.kind } : {}),
-        ...(a.project ? { project: a.project } : {}),
-        ...(a.skipWhenIdle === undefined ? {} : { skipWhenIdle: a.skipWhenIdle }),
-        cron: a.cron,
-        prompt: a.prompt,
-        ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
-        ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
-      }).then(
-        (s) =>
-          `created ${s.id} "${s.name}", next run ${s.enabled === false ? "never (disabled)" : local(s.nextRunAt)}`,
-      ),
+      (a.kind ?? "session") === "session"
+        ? // A timer that starts an agent with a shell, holding whatever prompt
+          // was written into it: the same thing start_session files a card for.
+          propose(
+            {
+              kind: "schedule_put",
+              name: a.name,
+              ...(a.project ? { project: a.project } : {}),
+              cron: a.cron,
+              prompt: a.prompt,
+              ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+              ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
+            },
+            a.why,
+          )
+        : call("POST", "/api/schedules", {
+            name: a.name,
+            kind: a.kind,
+            ...(a.skipWhenIdle === undefined ? {} : { skipWhenIdle: a.skipWhenIdle }),
+            cron: a.cron,
+            prompt: a.prompt,
+            ...(a.enabled === undefined ? {} : { enabled: a.enabled }),
+            ...(a.jitterMinutes === undefined ? {} : { jitterMinutes: a.jitterMinutes }),
+          }).then(
+            (s) =>
+              `created ${s.id} "${s.name}", next run ${s.enabled === false ? "never (disabled)" : local(s.nextRunAt)}`,
+          ),
   },
   {
     name: "update_schedule",
     description:
-      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation.",
+      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation. Changing a session schedule files a card, since its prompt is what an unattended agent will be given; changing one of your own applies straight away.",
     inputSchema: {
       type: "object",
       properties: {
@@ -699,33 +727,47 @@ const TOOLS = [
         prompt: { type: "string" },
         enabled: { type: "boolean" },
         jitterMinutes: { type: "integer" },
+        why: { type: "string", description: "one line for the card, when this files one" },
       },
       required: ["id"],
     },
-    run: (a) => {
-      const { id, ...patch } = a;
+    run: async (a) => {
+      const { id, why, ...patch } = a;
       for (const k of Object.keys(patch)) if (patch[k] === undefined) delete patch[k];
-      return call("PATCH", `/api/schedules/${encodeURIComponent(id)}`, patch).then(
-        (s) =>
-          `updated ${s.id} "${s.name}", next run ${s.enabled ? local(s.nextRunAt) : "never (disabled)"}`,
-      );
+      if ((await scheduleKind(id)) === "session") {
+        // Changing the prompt of a session schedule is writing the instructions
+        // an unattended agent will be given, so it goes the same way as making
+        // one. Pausing it is in here too: one card rather than a rule about
+        // which fields are the dangerous ones.
+        return propose({ kind: "schedule_put", id, ...patch }, why);
+      }
+      const s = await call("PATCH", `/api/schedules/${encodeURIComponent(id)}`, patch);
+      return `updated ${s.id} "${s.name}", next run ${s.enabled ? local(s.nextRunAt) : "never (disabled)"}`;
     },
   },
   {
     name: "run_schedule",
     description:
-      "Run a schedule now, without waiting for its cron. Refuses when its previous run is still open, and says so.",
+      "Run a schedule now, without waiting for its cron. A session schedule files a card, since running it starts an agent; one of your own runs straight away. Refuses when its previous run is still open, and says so.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string" } },
+      properties: {
+        id: { type: "string" },
+        why: { type: "string", description: "one line for the card, when this files one" },
+      },
       required: ["id"],
     },
-    run: (a) =>
-      call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`).then((r) =>
-        // An assistant schedule starts no session: what it said is the result,
-        // and it was said by you, a moment ago, in a conversation of its own.
-        r.reply ? `it ran and said: ${r.reply}` : `started ${r.id} (${r.agent}) in ${r.project}`,
-      ),
+    run: async (a) => {
+      // Running a session schedule now is start_session with no timer in front
+      // of it, so it is the card start_session is.
+      if ((await scheduleKind(a.id)) === "session") {
+        return propose({ kind: "run_schedule", id: a.id }, a.why);
+      }
+      const r = await call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`);
+      // An assistant schedule starts no session: what it said is the result,
+      // and it was said by you, a moment ago, in a conversation of its own.
+      return r.reply ? `it ran and said: ${r.reply}` : `started ${r.id}`;
+    },
   },
   {
     name: "delete_schedule",

@@ -1256,7 +1256,26 @@ export type ProposalAction =
       title?: string;
       prompt?: string;
     }
-  | { kind: "desk_session"; title: string; ask: string };
+  | { kind: "desk_session"; title: string; ask: string }
+  /**
+   * A session schedule is start_session on a timer, and the prompt in it is
+   * whatever was written there — so creating or changing one, or running one
+   * now, reaches the same shell the card above stands in front of. An
+   * assistant schedule runs the chair itself, which can change nothing, and
+   * stays direct.
+   */
+  | {
+      kind: "schedule_put";
+      /** Absent creates; present changes that schedule. */
+      id?: string;
+      name?: string;
+      project?: string;
+      cron?: string;
+      prompt?: string;
+      enabled?: boolean;
+      jitterMinutes?: number;
+    }
+  | { kind: "run_schedule"; id: string };
 
 export interface FeedItem {
   /** `<source>:<the source's own id>`. */

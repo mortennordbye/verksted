@@ -22,6 +22,8 @@ beforeAll(async () => {
   process.env.SETTINGS_FILE = path.join(dir, "settings.json");
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
+  // A session schedule names a repo, and the route resolves it inside here.
+  fs.mkdirSync(path.join(process.env.REPOS_DIR, "demo"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
   process.env.PUSH_FILE = path.join(dir, "push.json");
   process.env.STATIC_DIR = "";
@@ -138,6 +140,61 @@ describe("a proposal", () => {
     // off something the assistant read can be seen before it runs.
     expect(item.detail).toContain("Update the lockfile and open a PR.");
     expect(item.action).toMatchObject({ kind: "start_session", project: "demo", agent: "claude" });
+  });
+
+  /**
+   * A-02: a session schedule is start_session on a timer, holding whatever
+   * prompt was written into it, and it reached that shell with no card at all
+   * while starting one session needed a tap.
+   */
+  it("shows a schedule whole before it exists, and makes it on the tap", async () => {
+    expect((await propose({ kind: "schedule_put", project: "demo" })).statusCode).toBe(400);
+
+    const ok = await propose(
+      {
+        kind: "schedule_put",
+        name: "nightly tidy",
+        project: "demo",
+        cron: "0 3 * * *",
+        prompt: "Tidy the merged branches.",
+      },
+      "the branch list is long",
+    );
+    expect(ok.statusCode).toBe(201);
+    const item = ok.json();
+    expect(item.title).toBe('Schedule "nightly tidy" in demo, 0 3 * * *');
+    expect(item.detail).toContain("Tidy the merged branches.");
+
+    const done = await app.inject({ method: "POST", url: `/api/proposals/${item.id}/do` });
+    expect(done.statusCode).toBe(200);
+    expect(done.json().did).toMatch(/^created schedule /);
+    const made = (await app.inject({ method: "GET", url: "/api/schedules" })).json();
+    expect(made.map((s: { name: string }) => s.name)).toContain("nightly tidy");
+  });
+
+  it("changes one on the tap, and says which", async () => {
+    const created = (
+      await app.inject({
+        method: "POST",
+        url: "/api/schedules",
+        payload: {
+          name: "to change",
+          kind: "session",
+          project: "demo",
+          cron: "0 4 * * *",
+          prompt: "old",
+        },
+      })
+    ).json();
+
+    const { id } = (await propose({ kind: "schedule_put", id: created.id, prompt: "new" })).json();
+    const done = await app.inject({ method: "POST", url: `/api/proposals/${id}/do` });
+
+    expect(done.statusCode).toBe(200);
+    const after = (await app.inject({ method: "GET", url: "/api/schedules" }))
+      .json()
+      .find((s: { id: string }) => s.id === created.id);
+    expect(after.prompt).toBe("new");
   });
 
   it("says what a desk session would be asked, before anyone taps", async () => {

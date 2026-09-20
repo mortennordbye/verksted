@@ -34,6 +34,14 @@ const REPLIES: Record<string, unknown> = {
   "PUT /api/memory/invoices": { slug: "invoices" },
   "PUT /api/council/uriel/memory/rates": { slug: "rates" },
   "POST /api/assistant/turn/private": { browsing: "closed" },
+  // Which kind a schedule is, which the three schedule tools ask before
+  // changing anything about it.
+  "GET /api/schedules": [
+    { id: "sch-1a2b3c4d", kind: "session", name: "nightly", project: "demo" },
+    { id: "sch-assistant", kind: "assistant", name: "morning" },
+  ],
+  "POST /api/schedules": { id: "sch-new", name: "morning", kind: "assistant", enabled: true },
+  "POST /api/schedules/sch-assistant/run": { reply: "ok: nothing needs you" },
   "DELETE /api/sessions/vk-demo-1": { id: "vk-demo-1", report: "ok: done" },
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
@@ -650,6 +658,74 @@ describe("requests that carry a safety decision", () => {
     expect(JSON.parse(seen[0].body)).toMatchObject({
       action: { kind: "start_session", project: "demo", agent: "claude", prompt: "look around" },
     });
+  });
+
+  /**
+   * A-02. start_session is a card because a session is an agent with a shell on
+   * the pod. A session schedule is the same shell on a timer, and run-now is
+   * the same shell with no timer at all — and all three reached it directly.
+   */
+  it("proposes a session schedule rather than creating one", async () => {
+    seen = [];
+
+    await callTool("create_schedule", {
+      name: "nightly tidy",
+      project: "demo",
+      cron: "0 3 * * *",
+      prompt: "tidy the branches",
+    });
+
+    expect(seen[0].url).toBe("/api/proposals");
+    expect(JSON.parse(seen[0].body).action).toEqual({
+      kind: "schedule_put",
+      name: "nightly tidy",
+      project: "demo",
+      cron: "0 3 * * *",
+      prompt: "tidy the branches",
+    });
+  });
+
+  it("proposes a change to one, prompt and pause alike", async () => {
+    seen = [];
+
+    await callTool("update_schedule", { id: "sch-1a2b3c4d", prompt: "tidy harder" });
+
+    expect(seen.at(-1)!.url).toBe("/api/proposals");
+    expect(JSON.parse(seen.at(-1)!.body).action).toEqual({
+      kind: "schedule_put",
+      id: "sch-1a2b3c4d",
+      prompt: "tidy harder",
+    });
+  });
+
+  it("proposes running one now, which is a session with no timer in front of it", async () => {
+    seen = [];
+
+    await callTool("run_schedule", { id: "sch-1a2b3c4d" });
+
+    expect(seen.at(-1)!.url).toBe("/api/proposals");
+    expect(JSON.parse(seen.at(-1)!.body).action).toEqual({
+      kind: "run_schedule",
+      id: "sch-1a2b3c4d",
+    });
+  });
+
+  it("creates and runs a schedule of its own directly, which can change nothing", async () => {
+    // The chair on a timer: no repo, no session, no way to change anything.
+    // Carding these would be asking permission to answer a question.
+    seen = [];
+
+    await callTool("create_schedule", {
+      name: "morning",
+      kind: "assistant",
+      cron: "0 7 * * *",
+      prompt: "what needs me?",
+    });
+    await callTool("run_schedule", { id: "sch-assistant" });
+
+    expect(seen[0].url).toBe("/api/schedules");
+    expect(JSON.parse(seen[0].body).kind).toBe("assistant");
+    expect(seen.at(-1)!.url).toBe("/api/schedules/sch-assistant/run");
   });
 
   it("proposes a desk session the same way", async () => {
