@@ -222,6 +222,13 @@ export interface UsageSummary {
   /** How the last thirty days' finished sessions signed off, or ended. */
   outcomes: { ok: number; attention: number; failed: number; done: number };
   plan: PlanUsage | null;
+  /**
+   * Why `plan` is null, when it is. A refused token, an endpoint that has
+   * changed shape and a pod with no token at all all end in the same missing
+   * plan, and they want opposite things done about them — so the reason
+   * travels beside the absence rather than being swallowed by it.
+   */
+  planError: string | null;
 }
 
 /** One commit made while a session held the repo. */

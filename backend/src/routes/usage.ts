@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { planHistory, planUsage } from "../plan.js";
+import { planError, planHistory, planUsage } from "../plan.js";
 import { archivedSessions, listSessions } from "../sessions-store.js";
 import { summarize } from "../usage.js";
 
@@ -25,6 +25,6 @@ export default async function usageRoutes(app: FastifyInstance) {
       ...plan,
       history: await planHistory(now - 7 * 24 * 60 * 60_000),
     };
-    return summarize([...sessions, ...archived], now, withHistory);
+    return summarize([...sessions, ...archived], now, withHistory, planError());
   });
 }
