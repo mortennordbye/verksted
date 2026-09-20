@@ -81,14 +81,20 @@ const UNATTENDED = process.env.VK_UNATTENDED === "1";
  * A filter, not a contract: a name here that is not a tool is ignored. The
  * backend rejects a typo when the member is saved, which is where a person can
  * see it.
+ *
+ * Set and empty is a member that may call none of them, which is not the same
+ * as unset. Read as a truthy string, "" fell through to "no filter" and handed
+ * an advisor with no tools at all every tool there is — the backend leaves the
+ * whole server out in that case now, and this is the other half of saying so.
  */
-const ALLOW = process.env.VK_TOOLS
-  ? new Set(
-      process.env.VK_TOOLS.split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-    )
-  : null;
+const ALLOW =
+  process.env.VK_TOOLS === undefined
+    ? null
+    : new Set(
+        process.env.VK_TOOLS.split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+      );
 
 /**
  * Which advisor this server is running for, if it is running for one.

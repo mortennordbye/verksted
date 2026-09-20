@@ -564,8 +564,11 @@ export function reloadSchedules(log: Logger): Promise<void> {
  * One cheap turn, on the floor settings from the environment rather than the
  * chair's own, over the day's conversation handed in as text: the turn reads
  * nothing and writes nothing itself, which is what makes it safe to run with
- * nobody watching. A day with no conversation costs nothing, and counts
- * against the same ceiling as every other unattended turn.
+ * nobody watching — and is now the argv rather than a claim, since a turn with
+ * a job of its own is spawned with no built-ins, no allow list and an MCP
+ * config holding no servers (see `own` in assistant.ts). A day with no
+ * conversation costs nothing, and counts against the same ceiling as every
+ * other unattended turn.
  */
 export async function runJournal(log: Logger, day = journal.today()): Promise<boolean> {
   const said = journal.material(await saidOn(day), day);

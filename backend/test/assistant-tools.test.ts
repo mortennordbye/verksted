@@ -348,6 +348,13 @@ describe("one advisor's tools", () => {
     expect(names).not.toContain("merge_pr");
   });
 
+  it("offers nothing to a member named with an empty list", async () => {
+    // Set and empty is not the same as unset. Read as a truthy string, "" fell
+    // through to "no filter" and handed an advisor with no verksted tools at
+    // all every tool there is.
+    expect(await list({ VK_TOOLS: "" })).toEqual([]);
+  });
+
   it("ignores a name that is not a tool", async () => {
     // A filter, not a contract. The typo is caught when the member is saved,
     // which is where somebody can see it; here it must not take the run down.
