@@ -36,7 +36,7 @@ jobs:
       # closes an advisory, but only via a PAT that has to be created, scoped
       # and rotated by hand. Security fixes are patch or minor releases in
       # practice, so the semver gate already covers them.
-      - uses: dependabot/fetch-metadata@v3
+      - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
         id: meta
 
       - if: steps.meta.outputs.update-type != 'version-update:semver-major'

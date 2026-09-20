@@ -6,7 +6,8 @@
     "frontend"
   ],
   "scripts": {
-    "lint": "npm run lint --workspaces && eslint . && npm run format:check",
+    "lint": "npm run lint --workspaces && eslint . && npm run lint:shell && npm run format:check",
+    "lint:shell": "shellcheck runtime/vk runtime/vk-guard runtime/vk-signoff runtime/git-hooks/*",
     "test": "npm test --workspaces",
     "build": "npm run build --workspaces",
     "format": "prettier --write .",
@@ -18,6 +19,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
     "prettier": "^3.9.6",
     "typescript-eslint": "^8.70.0"
   },

@@ -1,0 +1,45 @@
+# Static analysis for the JavaScript and TypeScript in this repo.
+#
+# The suites prove behaviour and eslint proves style; neither looks for the
+# shapes this finds — a path built from a request parameter, a sink reached by
+# unvalidated input, a regex that backtracks. This app has no in-app auth by
+# design, so the input validation *is* the security boundary, and the boundary
+# had nothing watching it.
+#
+# Free on a public repository. The weekly run exists because the analysis
+# itself improves between pushes: a query added upstream finds things in code
+# nobody has touched.
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Monday early, so a new query's findings are waiting rather than landing
+    # in the middle of a working day.
+    - cron: "17 5 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          languages: javascript-typescript
+          # The default query pack plus the security ones that are off by
+          # default because they are noisier. On a codebase this size the extra
+          # noise is a few findings to read, not a backlog.
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        with:
+          category: "/language:javascript-typescript"
