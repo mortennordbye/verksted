@@ -5,6 +5,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { useTempDataDirs } from "./data-dirs.js";
 
 /**
  * Killing and deleting a session from the session screen.
@@ -23,6 +24,7 @@ let page: Page;
 let base: string;
 let reposDir: string;
 let sessionsDir: string;
+let dataDir: string;
 
 function seedSession(id: string) {
   fs.writeFileSync(
@@ -53,6 +55,7 @@ beforeAll(async () => {
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-act-sched-"));
+  dataDir = useTempDataDirs("vk-act-data-");
   process.env.STATIC_DIR = dist;
   const { buildApp } = await import("../backend/src/app.js");
   app = await buildApp({ logger: false });
@@ -68,7 +71,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await browser?.close();
   await app?.close();
-  for (const dir of [reposDir, sessionsDir]) {
+  for (const dir of [reposDir, sessionsDir, dataDir]) {
     if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 });
