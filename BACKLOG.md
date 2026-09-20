@@ -1011,3 +1011,24 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   and her recall; leaving it on keeps her able to look up a rate or a price.
 - **Where:** `backend/src/council-store.ts` (`SEEDS`), and the member file at
   `$COUNCIL_DIR/ariel.json` on the pod, which the settings page edits.
+
+## The tool log is written and nothing reads it
+
+- **What:** Every call the assistant makes that changes something is appended to
+  `/data/assistant/tool-log/<day>.jsonl` with its arguments in full (A-31), and
+  the only way to read it is a shell on the pod. The audit asks for the log as
+  the base for two things that are not here: an undo — replaying a move or a
+  relabel backwards, a trash directory for deleted ICS files, label and rule
+  snapshots — and an answer on screen to "what did it do last night".
+- **Why deferred:** The record has to exist before either can be built, and it
+  is the half that cannot be added after the fact: a night that was not logged
+  stays unlogged. What to show and what can be put back are separate decisions,
+  and undo needs a per-tool inverse rather than a reader.
+- **Unblocked by:** Deciding where it is read. A day's lines behind the inbox,
+  or a tool the chair itself can call to answer the question — the second is a
+  policy decision, since it would let a turn read what earlier turns did.
+  Nothing prunes the directory either: one line per changing call is small, but
+  retention belongs with the sweeper the audit's root cause 4 describes.
+- **Where:** `backend/src/tool-log.ts`, `POST /api/assistant/turn/tool` in
+  `backend/src/routes/assistant.ts`, `recordCall` in
+  `runtime/verksted-mcp.mjs`.

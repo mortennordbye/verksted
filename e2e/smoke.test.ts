@@ -634,6 +634,27 @@ describe("the app in a real browser", () => {
     }
   });
 
+  /**
+   * S-02. This screen used to post its query string to the intake on mount:
+   * a GET that performs a POST, so any page the person had open could put
+   * twenty thousand characters in their inbox, attributed to them, for the
+   * next triage turn to read. The tap is the fix, and only a browser can
+   * show that nothing left the page before it.
+   */
+  it("shows what was shared and sends nothing until it is tapped", async () => {
+    const filed = () => fs.readdirSync(feedDir).filter((n) => n.startsWith("intake_"));
+    await page.goto(`${base}/share?title=Renewal&text=the+domain+renews+on+the+3rd`, {
+      waitUntil: "networkidle",
+    });
+
+    await page.getByText("the domain renews on the 3rd").waitFor({ timeout: 15_000 });
+    expect(filed()).toEqual([]);
+
+    await page.getByRole("button", { name: "send to inbox" }).click();
+    await page.waitForURL("**/runs");
+    expect(filed()).toHaveLength(1);
+  });
+
   it("did all of that without a console error or a failed request", () => {
     expect(problems).toEqual([]);
   });

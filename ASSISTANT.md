@@ -87,6 +87,41 @@ person said it in the chat, but that is weaker than a card. They are marked
 `irreversible` in the table and a test pins the set at exactly three, so a
 fourth cannot join quietly. BACKLOG has what to do about them.
 
+### The arguments
+
+The tool server checks a call against the tool's own `inputSchema` before it
+runs: required arguments present, declared types held to, and anything the
+schema does not name refused rather than dropped. The table above is a set of
+filters on which tool may be called, and a filter only means something while a
+tool stays on its own endpoint — `fetch` normalises `..`, so a run id of
+`../../../schedules/<id>/run?x=` used to turn a CI re-run into a schedule run.
+An undeclared argument is refused rather than stripped because `update_schedule`
+forwards everything it was not asked for as a patch, and because a model whose
+argument vanishes is not told that what it asked for did not happen.
+
+### The tool log
+
+Every call whose `effect` is not `read` is appended to
+`/data/assistant/tool-log/<day>.jsonl` as it finishes: the turn, the speaker,
+whether anybody was reading, the tool, its arguments in full, and what came
+back. The tool server posts it (`POST /api/assistant/turn/tool`); the turn, the
+speaker and the unattended flag come from the environment the backend wrote,
+never from anything a model says.
+
+What the thread keeps of a tool call is its name and eighty characters of one
+argument, which answers "it moved some mail" and nothing further — not which
+mail, not where to, and nothing a person could put back. This is the record
+that can.
+
+Reads are left out on purpose. This assistant reads the mail, the documents and
+the calendar all day, and a record of that is a second copy of the person's
+life rather than an audit trail.
+
+It is written after the call rather than before, so the line carries what came
+back. That means a call that cannot be recorded has already happened, and
+refusing it then would be a lie: the model is told instead, in its own answer,
+where a person will see it.
+
 ## The rule that makes reading their mail safe
 
 The chair reads the mail, the documents, the calendar and the inbox. It also

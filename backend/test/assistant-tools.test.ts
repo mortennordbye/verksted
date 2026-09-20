@@ -389,23 +389,32 @@ describe("one advisor's tools", () => {
 
   it("does not let a tool argument decide whose memory is written", async () => {
     // The id comes from the environment. A model that names somebody else, or
-    // asks for a project scope, changes nothing about where this lands.
-    seen = [];
-    await rpc(
-      {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: {
-          name: "remember",
-          arguments: { slug: "x", text: "y", scope: "Homelab", member: "chair" },
+    // asks for a project scope, changes nothing about where this lands — and
+    // since A-10 it does not get that far: a member's schema carries neither
+    // argument, so the call is refused rather than quietly stripped.
+    const remember = (args: object) =>
+      rpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "remember", arguments: args },
         },
-      },
-      { VK_MEMBER: "uriel", VK_TOOLS: "remember" },
-    );
+        { VK_MEMBER: "uriel", VK_TOOLS: "remember" },
+      );
+    seen = [];
 
+    const res = (await remember({ slug: "x", text: "y", scope: "Homelab", member: "chair" })) as {
+      result: { content: { text: string }[] };
+    };
+
+    expect(res.result.content[0].text).toContain("no such argument");
+    expect(seen).toEqual([]);
+
+    // And the same call with only what it may name still lands in this
+    // member's own store.
+    await remember({ slug: "x", text: "y" });
     expect(seen[0]?.url).toBe("/api/council/uriel/memory/x");
-    expect(seen[0]?.body).not.toContain("Homelab");
   });
 
   it("adds a council member as the create-only call, not as an overwrite", async () => {
@@ -760,5 +769,170 @@ describe("requests that carry a safety decision", () => {
     // actually refuses it, and this keeps the request arriving in one piece.
     expect(seen[0].method).toBe("GET");
     expect(seen[0].url).toBe("/api/projects/demo/diff?path=..%2F..%2Fetc%2Fpasswd");
+  });
+});
+
+/**
+ * A-10. The schemas were documentation for the model and nothing else: whatever
+ * arrived was handed to the tool, and several tools put an argument in a path.
+ * The filters above — what an unattended turn may do, what one advisor may do —
+ * only mean anything while each tool is confined to its own endpoint.
+ */
+describe("arguments, before the tool sees them", () => {
+  const errorOf = (res: Record<string, unknown>) =>
+    (res.result as { content?: { text?: string }[] })?.content?.[0]?.text ?? "";
+
+  it("refuses a run id that would turn a re-run into something else", async () => {
+    seen = [];
+
+    // fetch normalises "..", so this used to POST /api/schedules/<id>/run —
+    // a tool an unattended turn is not offered, reached through one it is.
+    const res = await callTool("ci_rerun", {
+      project: "demo",
+      id: "../../../schedules/sch-1a2b3c4d/run?x=",
+    });
+
+    expect(errorOf(res)).toContain("id must be an integer");
+    expect(seen).toEqual([]);
+  });
+
+  it("refuses an argument the tool never declared", async () => {
+    // Dropped rather than refused would be worse than either: update_schedule
+    // forwards everything it was not asked for as a patch, and a model whose
+    // argument vanishes is not told that what it asked for did not happen.
+    seen = [];
+
+    const res = await callTool("update_schedule", {
+      id: "sch-assistant",
+      prompt: "tidy harder",
+      vars: { GH_TOKEN: "x" },
+    });
+
+    expect(errorOf(res)).toContain("no such argument: vars");
+    expect(seen).toEqual([]);
+  });
+
+  it("refuses a missing required argument and a value outside its enum", async () => {
+    seen = [];
+
+    expect(errorOf(await callTool("ci_log", { project: "demo" }))).toContain("id is required");
+    expect(
+      errorOf(await callTool("ci_rerun", { project: "demo", id: 4, action: "delete" })),
+    ).toContain("action must be one of");
+    expect(seen).toEqual([]);
+  });
+
+  it("checks the arguments before the read that closes the browser", async () => {
+    // A call this server will not make must not cost the turn a capability:
+    // the chair holds the browser for the rest of the turn either way.
+    seen = [];
+
+    const [res] = await rpcTurn(
+      [
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "mail_read", arguments: { uid: "4; drop" } },
+        },
+      ],
+      { VK_TURN: "turn-args" },
+    );
+
+    expect(errorOf(res)).toContain("uid must be an integer");
+    expect(seen).toEqual([]);
+  });
+
+  it("takes the arguments a tool does declare", async () => {
+    seen = [];
+
+    await callTool("ci_rerun", { project: "demo", id: 42, action: "cancel" });
+
+    expect(seen[0].url).toBe("/api/projects/demo/runs/42/cancel");
+  });
+});
+
+/**
+ * A-31. What the thread keeps of a tool call is its name and eighty characters
+ * of one argument. That answers "it moved some mail" and nothing else: not
+ * which mail, not where to, and nothing a person could put back.
+ */
+describe("the tool log", () => {
+  const log = (name: string, args: object = {}, env: Record<string, string> = {}) =>
+    rpc(
+      { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+      {
+        VK_TURN: "turn-log",
+        ...env,
+      },
+    );
+
+  it("writes a call that changed something, with its arguments in full", async () => {
+    seen = [];
+
+    await log("pause_schedules", { paused: true });
+
+    // After the call, not before: the line carries what came back.
+    const record = seen.find((r) => r.url === "/api/assistant/turn/tool");
+    expect(record).toBeDefined();
+    expect(JSON.parse(record!.body)).toMatchObject({
+      turn: "turn-log",
+      speaker: "chair",
+      unattended: false,
+      tool: "pause_schedules",
+      effect: "reversible",
+      args: { paused: true },
+      ok: true,
+      result: "schedules are paused",
+    });
+  });
+
+  it("names the advisor whose turn it was, and whether anybody was reading", async () => {
+    seen = [];
+
+    await log(
+      "propose_memory",
+      { slug: "invoices", text: "Kari pays on the 20th." },
+      {
+        VK_MEMBER: "uriel",
+        VK_TOOLS: "propose_memory",
+        VK_UNATTENDED: "1",
+      },
+    );
+
+    expect(JSON.parse(seen.at(-1)!.body)).toMatchObject({ speaker: "uriel", unattended: true });
+  });
+
+  it("writes a call that failed, which is the half worth keeping", async () => {
+    seen = [];
+    failNext.add("POST /api/proposals");
+
+    await log("end_session", { id: "vk-demo-1", why: "it finished" });
+
+    expect(JSON.parse(seen.at(-1)!.body)).toMatchObject({ tool: "end_session", ok: false });
+  });
+
+  it("writes nothing for a read", async () => {
+    // A personal assistant reads the mail and the calendar all day. A record of
+    // that is a second copy of the person's life, not an audit trail.
+    seen = [];
+
+    await log("status");
+
+    expect(seen.map((r) => r.url)).not.toContain("/api/assistant/turn/tool");
+  });
+
+  it("tells the model when a call could not be recorded", async () => {
+    // By then the call has happened, so refusing it would be a lie — but a
+    // silent hole in the log is worse. The one place a person sees it is the
+    // answer the assistant writes.
+    seen = [];
+    failNext.add("POST /api/assistant/turn/tool");
+
+    const res = (await log("pause_schedules", { paused: true })) as {
+      result: { content: { text: string }[] };
+    };
+
+    expect(res.result.content[0].text).toContain("not written to the tool log");
   });
 });

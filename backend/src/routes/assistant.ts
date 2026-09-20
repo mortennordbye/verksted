@@ -11,6 +11,7 @@ import type {
 import * as assistant from "../assistant.js";
 import { env } from "../env.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
+import * as toolLog from "../tool-log.js";
 import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
 import * as tts from "../tts.js";
 import { MAX_TEXT } from "../tts.js";
@@ -254,6 +255,60 @@ export default async function assistantRoutes(app: FastifyInstance) {
     async (req) => {
       await writeAssistantConfig(req.body as Parameters<typeof writeAssistantConfig>[0]);
       return readAssistantConfig();
+    },
+  );
+
+  /**
+   * One tool call that changed something, as the tool server finishes it.
+   *
+   * Said by the MCP server, not by a model: the turn, the speaker and whether
+   * anybody was reading all come from the environment the backend wrote, and
+   * the tool and its effect come from the policy table the server holds. What
+   * a model decides is the arguments, which is exactly what is worth keeping.
+   *
+   * Reads never arrive here (see tool-log.ts). A failure to record is the
+   * caller's to report — by then the call has already happened, and answering
+   * an error would only have the model do it a second time.
+   */
+  app.post<{
+    Body: {
+      turn: string;
+      speaker: string;
+      unattended: boolean;
+      tool: string;
+      effect: string;
+      args?: Record<string, unknown>;
+      ok: boolean;
+      result?: string;
+    };
+  }>(
+    "/api/assistant/turn/tool",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["turn", "speaker", "unattended", "tool", "effect", "ok"],
+          additionalProperties: false,
+          properties: {
+            turn: { type: "string", maxLength: 100 },
+            speaker: { type: "string", maxLength: 100 },
+            unattended: { type: "boolean" },
+            tool: { type: "string", maxLength: 100 },
+            effect: { type: "string", maxLength: 40 },
+            args: { type: "object" },
+            ok: { type: "boolean" },
+            result: { type: "string", maxLength: 4000 },
+          },
+        },
+      },
+    },
+    async (req) => {
+      await toolLog.record({
+        ...req.body,
+        args: req.body.args ?? {},
+        result: req.body.result ?? "",
+      });
+      return { recorded: true };
     },
   );
 
