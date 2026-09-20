@@ -106,7 +106,46 @@ export function planError(): string | null {
   return lastError;
 }
 
+/**
+ * When it is worth asking again after the account said no.
+ *
+ * The minute-long memo in front of this means a pod with the hub open asks
+ * about fifteen hundred times a day, for ever, and when the answer became
+ * "too many requests" it went on asking at exactly that rate. A limit is not
+ * something to wait out by knocking: on 2026-09-20 the pod had been sitting
+ * on an HTTP 429 with no idea it was making it worse, the meters blank the
+ * whole time and the week-window guard in front of the nightly runs reading
+ * nothing.
+ *
+ * Doubling from five minutes to an hour, honouring `Retry-After` when the
+ * account names a time itself, and cleared by the first answer that works.
+ */
+const BACKOFF_MIN_MS = 5 * 60_000;
+const BACKOFF_MAX_MS = 60 * 60_000;
+let backoffMs = BACKOFF_MIN_MS;
+let notBefore = 0;
+
+/** Seconds, or an HTTP date, or nothing: all three become a moment to wait until. */
+function retryAfter(header: string | null, now: number): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1_000;
+  const at = Date.parse(header);
+  return Number.isFinite(at) && at > now ? at : null;
+}
+
+/** "in 4 minutes", for a reason a person reads rather than a timestamp. */
+function inWords(ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  return minutes === 1 ? "in a minute" : `in ${minutes} minutes`;
+}
+
+// No parameters: ttlCache calls what it memoizes with the cache key, so a
+// `now = Date.now()` default would be handed "" and compare as zero — and the
+// wait below would never be over.
 async function fetchPlan(): Promise<PlanUsage | null> {
+  const now = Date.now();
+  if (now < notBefore) return null;
   const token = await oauthToken();
   if (!token) {
     lastError = "no token: none on the settings page, and no login on the volume";
@@ -117,6 +156,16 @@ async function fetchPlan(): Promise<PlanUsage | null> {
       headers: { authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
       signal: AbortSignal.timeout(10_000),
     });
+    if (res.status === 429) {
+      // What the account asks for, else the backoff, and the backoff doubles
+      // whether or not it was the one used: a limit that keeps being hit wants
+      // asking about less often either way.
+      const until = retryAfter(res.headers.get("retry-after"), now) ?? now + backoffMs;
+      backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+      notBefore = until;
+      lastError = `the account is rate-limiting this read (HTTP 429); trying again ${inWords(until - now)}`;
+      return null;
+    }
     if (!res.ok) {
       lastError =
         res.status === 401 || res.status === 403
@@ -128,6 +177,9 @@ async function fetchPlan(): Promise<PlanUsage | null> {
     // A 200 this cannot read is the endpoint having moved, not a credential
     // problem, and the two want opposite things done about them.
     lastError = plan ? null : "the account answered in a shape this cannot read";
+    // An answer at all means the limit has cleared, so the next one that does
+    // not starts over at five minutes rather than at the hour this climbed to.
+    if (plan) backoffMs = BACKOFF_MIN_MS;
     return plan;
   } catch (err) {
     lastError = `could not reach the account: ${err instanceof Error ? err.message : "unknown"}`;
