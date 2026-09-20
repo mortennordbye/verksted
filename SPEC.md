@@ -263,8 +263,9 @@ typed into the sessions that ended that day — only your own words, never model
 output or tool results — and proposes facts worth keeping. They wait in the
 inbox and reach no session until you keep one. That gate is not optional;
 ASSISTANT.md says why at length. A day when no session ended is skipped before
-anything is spawned, so a quiet day costs nothing, and twelve unattended turns a
-day is a hard ceiling across every schedule.
+anything is spawned, so a quiet day costs nothing, and sixty unattended turns a
+day is a hard ceiling across every schedule — a backstop rather than a budget,
+since a busy day is twenty or thirty small triage calls.
 
 Two house rules go into the global memory file of claude and codex beside the
 sandbox note (agy's equivalent file is still unverified — see BACKLOG), so they
