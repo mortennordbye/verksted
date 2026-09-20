@@ -6,7 +6,8 @@
     "frontend"
   ],
   "scripts": {
-    "lint": "npm run lint --workspaces && eslint . && npm run lint:shell && npm run format:check",
+    "lint": "npm run lint --workspaces && eslint . && npm run lint:runtime && npm run lint:shell && npm run format:check",
+    "lint:runtime": "tsc --noEmit -p tsconfig.runtime.json",
     "lint:shell": "shellcheck runtime/vk runtime/vk-guard runtime/vk-signoff runtime/git-hooks/*",
     "test": "npm test --workspaces",
     "build": "npm run build --workspaces",
