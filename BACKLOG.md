@@ -969,3 +969,45 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/browser.ts` (`launch`, the assistant's fixed id and
   port), `backend/src/assistant.ts` (`mcpConfig`, the browser wrapper),
   `backend/src/origin.ts`, and the Deployment in `mortennordbye/Homelab`.
+
+## A member's tools are narrowed on read with nothing to say so
+
+- **What:** A member that reads the web has anything private taken off its tool
+  list when the file is read (`readMember` in `backend/src/council-store.ts`),
+  and nothing on the settings page says it happened. On the pod, Ariel and
+  Sophia both have the web on, so both are down to `list_memories, remember,
+forget` — their own notebooks — and `recall` is gone from each. The checkbox
+  is still ticked in the file and the panel still draws the member as holding
+  it. Somebody wondering why an advisor cannot recall anything has no way to
+  find out but reading this repo.
+- **Why deferred:** The dropping itself is right, and the alternative is worse:
+  refusing the file outright makes the advisor vanish from the roster instead of
+  being narrowed, which is what happened the first time. Saying so is a field on
+  the wire and a row on a screen, which is a different piece of work from the
+  rule.
+- **Unblocked by:** Wanting to see it. `GET /api/council` would carry the names
+  it dropped alongside the ones it kept, and the panel would draw them struck
+  through with "not beside the web" — the same shape the blocked-owner list
+  already uses. The settings page refuses the pairing on save, so this is only
+  about files written before a tool was marked private, or edited by hand.
+- **Where:** `backend/src/council-store.ts` (`readMember`, `PRIVATE_TOOLS`),
+  `backend/src/routes/council.ts` (`GET /api/council`, `/api/council/tools`),
+  `frontend/src/components/CouncilPanel.tsx`, `shared/api.ts`
+  (`CouncilMember`).
+
+## Whether the money advisor should read the web at all
+
+- **What:** Ariel's remit is the money, read from headroom, and her headroom
+  server is granted separately from her verksted tools. Her seed keeps the web
+  off; the member on the pod has it on, which costs her every private tool
+  including `recall` (see the entry above) and buys her a page she has no remit
+  to fetch. Sophia is the one whose whole remit is the web. The same question
+  applies to the seed: `status` is not private and Ariel's seed holds it, but
+  the member on the pod does not, so the two have drifted.
+- **Why deferred:** It is a decision about what that advisor is for, not a bug,
+  and it is one tap on the settings page either way. Changing the seed would not
+  touch the member already on the volume — seeding never rewrites one.
+- **Unblocked by:** Deciding. Turning her web off gives her back the bench state
+  and her recall; leaving it on keeps her able to look up a rate or a price.
+- **Where:** `backend/src/council-store.ts` (`SEEDS`), and the member file at
+  `$COUNCIL_DIR/ariel.json` on the pod, which the settings page edits.
