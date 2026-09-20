@@ -27,6 +27,7 @@ import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { ASSISTANT_CDP_PORT } from "./browser.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
+import { noteTool } from "./assistant-taint.js";
 import * as journal from "./journal-store.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
@@ -1073,7 +1074,7 @@ async function turn(o: {
   // after the process exits: the model produces its first sentence while the
   // tools it wants are still running, and waiting for the exit was the slowest
   // part of a turn by a distance.
-  const state = newStreamState();
+  const state = newStreamState((name) => noteTool(turnId, name));
   let lastLive = "";
   // Whether *this* turn recorded anything. A count of the lines in the thread
   // file would answer a different question now that a meeting has several
@@ -1160,8 +1161,8 @@ function policyFor(
 ): Pick<Speaker, "builtins" | "allowed" | "denied" | "tools"> {
   const web = member.web ? ["WebFetch", "WebSearch"] : [];
   const headroom = member.id === HEADROOM_MEMBER || member.chair === true;
-  // The chair's alone: Sophia and Ariel already reach the web read-only
-  // (WebFetch/WebSearch above) for their own remit, and stay that way — asked
+  // Driving a browser is the chair's alone. The advisors read the web for the
+  // question put to them (WebFetch/WebSearch above) and stay that way: asked
   // for input, not given a second way to act on it.
   const browser = member.chair ? ["mcp__browser"] : [];
   return {

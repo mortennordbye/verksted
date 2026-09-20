@@ -168,18 +168,21 @@ describe("the roster", () => {
   });
 
   /**
-   * The chair reads the mail and the documents itself now, so the old rule that
-   * kept them off it is gone. What has to hold in its place is the pair that
-   * made that safe: it has no web tools, so nothing it reads has a way out, and
-   * a session is a card rather than a thing it starts.
+   * The chair holds every tool there is, the web included: the council is for
+   * judgement and for a subject somebody else knows better, not for keeping a
+   * capability away from it. What holds in place of the old rule is that a turn
+   * holds the web or the person's own things and never both — see
+   * assistant-taint.ts — and that a session is a card rather than a thing it
+   * starts.
    */
-  it("hands the chair the mail and the documents, and no way out for either", async () => {
+  it("hands the chair every tool, the web with them", async () => {
     const chair = await store.chair();
 
     expect(chair.tools).toContain("mail_read");
     expect(chair.tools).toContain("docs_search");
     expect(chair.tools).toContain("calendar_today");
-    expect(chair.web).toBe(false);
+    expect(chair.tools.sort()).toEqual(store.TOOL_INVENTORY.map((t) => t.name).sort());
+    expect(chair.web).toBe(true);
   });
 
   it("seeds nobody who can change anything outside their own head", async () => {

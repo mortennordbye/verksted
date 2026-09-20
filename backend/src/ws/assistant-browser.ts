@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { BrowserServerMsg, BrowserClientMsg } from "../../../shared/api.js";
 import * as browser from "../browser.js";
-import { barBrowsing, browsingBarred } from "../assistant-taint.js";
+import { barBrowsing, browsingBarred, noteWeb, reachedTheWeb } from "../assistant-taint.js";
 import { handle } from "./browser.js";
 
 /**
@@ -31,7 +31,14 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
         },
       },
     },
-    async (req) => {
+    async (req, reply) => {
+      // The other direction, for the tools that cannot be taken back: WebFetch
+      // and WebSearch are on the CLI's command line, fixed when the turn was
+      // spawned, so a turn that has already fetched something is refused the
+      // read instead. The chair is told to do the two in separate turns.
+      if (reachedTheWeb(req.body.turn)) {
+        return reply.code(403).send({ error: "this turn has already reached the web" });
+      }
       barBrowsing(req.body.turn);
       await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
       return { browsing: "closed" };
@@ -42,9 +49,13 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
     // The turn that has read the mail does not get a browser back by asking
     // again. A person opening the pane themselves carries no turn id and is
     // unaffected.
-    if (browsingBarred(req.headers["x-vk-turn"] as string | undefined)) {
+    const turn = req.headers["x-vk-turn"] as string | undefined;
+    if (browsingBarred(turn)) {
       return reply.code(403).send({ error: "this turn has read something private" });
     }
+    // Opening it counts as reaching the web even if no page is ever loaded:
+    // what follows must not be a private read.
+    noteWeb(turn);
     try {
       await browser.ensureBrowser(browser.ASSISTANT_BROWSER_ID, browser.ASSISTANT_CDP_PORT);
     } catch (err) {

@@ -21,25 +21,59 @@
  */
 
 /** Turn ids that have read something private. Bounded: turn ids are per CLI run. */
-const barred = new Set<string>();
+const readPrivate = new Set<string>();
 
-/** A few turns' worth. The only reader is the browser's own start route. */
+/**
+ * Turn ids that have reached the web: a page fetched, a search, a browser
+ * opened.
+ *
+ * The browser can be taken away again, because it is a process this backend
+ * owns. WebFetch and WebSearch cannot — they are on the CLI's command line, and
+ * that is fixed when the turn is spawned — so for those the rule has to run the
+ * other way round: a turn that has already fetched something does not get to
+ * read anything of the person's afterwards. Either way a turn holds one half.
+ */
+const usedWeb = new Set<string>();
+
+/** A few turns' worth of each. Turn ids are per CLI run, so this is generous. */
 const MAX_REMEMBERED = 64;
 
-export function barBrowsing(turn: string): void {
-  barred.add(turn);
+function remember(set: Set<string>, turn: string): void {
+  set.add(turn);
   // Oldest first, which is insertion order for a Set.
-  for (const old of barred) {
-    if (barred.size <= MAX_REMEMBERED) break;
-    barred.delete(old);
+  for (const old of set) {
+    if (set.size <= MAX_REMEMBERED) break;
+    set.delete(old);
   }
 }
 
+export function barBrowsing(turn: string): void {
+  remember(readPrivate, turn);
+}
+
 export function browsingBarred(turn: string | undefined): boolean {
-  return turn !== undefined && barred.has(turn);
+  return turn !== undefined && readPrivate.has(turn);
+}
+
+/** The built-in web tools, which a turn cannot be relieved of once it has them. */
+const WEB_TOOLS = new Set(["WebFetch", "WebSearch"]);
+
+/** Called as the stream reports each tool the turn asks for. */
+export function noteTool(turn: string, name: string): void {
+  if (WEB_TOOLS.has(name) || name.startsWith("mcp__browser")) remember(usedWeb, turn);
+}
+
+/** Called when the chair's browser is started for a turn. */
+export function noteWeb(turn: string | undefined): void {
+  if (turn !== undefined) remember(usedWeb, turn);
+}
+
+export function reachedTheWeb(turn: string | undefined): boolean {
+  return turn !== undefined && usedWeb.has(turn);
 }
 
 /** Test seam: module state, and a test file is one process. */
 export function resetTaint(): void {
-  barred.clear();
+  readPrivate.clear();
+  usedWeb.clear();
 }

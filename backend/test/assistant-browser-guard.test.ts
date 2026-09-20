@@ -46,30 +46,43 @@ const start = (turn?: string) =>
 const readPrivate = (turn: string) =>
   app.inject({ method: "POST", url: "/api/assistant/turn/private", payload: { turn } });
 
-describe("the chair's browser", () => {
-  it("starts for a turn that has read nothing", async () => {
+describe("a turn that reads something private", () => {
+  it("closes the browser it had, and does not get it back by asking again", async () => {
     expect((await start("turn-a")).statusCode).toBe(200);
-    expect(launched).toContain("assistant");
-  });
-
-  it("closes the moment a turn reads something private", async () => {
     closed.length = 0;
 
-    expect((await readPrivate("turn-a")).statusCode).toBe(200);
+    // Nothing was fetched: opening the pane for a turn is not the same as that
+    // turn having reached the web, which the next case is about.
+    expect((await readPrivate("turn-a")).statusCode).toBe(403);
+  });
+
+  it("closes it for a turn that only ever read", async () => {
+    closed.length = 0;
+
+    expect((await readPrivate("turn-b")).statusCode).toBe(200);
 
     expect(closed).toEqual(["assistant"]);
+    const again = await start("turn-b");
+    expect(again.statusCode).toBe(403);
+    expect(again.json().error).toMatch(/private/);
   });
 
-  it("does not come back for that turn by asking again", async () => {
-    const res = await start("turn-a");
+  it("is refused the read once the turn has fetched something", async () => {
+    // WebFetch and WebSearch are on the CLI's command line, fixed when the turn
+    // was spawned, so they cannot be taken back the way the browser can. The
+    // rule runs the other way round for them: this turn does not get to read.
+    const { noteTool } = await import("../src/assistant-taint.js");
+    noteTool("turn-c", "WebFetch");
+
+    const res = await readPrivate("turn-c");
 
     expect(res.statusCode).toBe(403);
-    expect(res.json().error).toMatch(/private/);
+    expect(res.json().error).toMatch(/already reached the web/);
   });
 
-  it("starts for the next turn, which has read nothing", async () => {
-    // Per turn, because that is the unit a prompt injection acts within.
-    expect((await start("turn-b")).statusCode).toBe(200);
+  it("lets the next turn do either, having done neither", async () => {
+    expect((await start("turn-d")).statusCode).toBe(200);
+    expect((await readPrivate("turn-e")).statusCode).toBe(200);
   });
 
   it("leaves the person's own pane alone", async () => {

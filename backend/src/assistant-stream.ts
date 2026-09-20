@@ -90,10 +90,18 @@ export interface StreamState {
    * every keystroke to the volume would be a lot of NFS for nothing.
    */
   live: string;
+  /**
+   * Called the moment a tool is asked for, rather than when the entry carrying
+   * it completes. Used to notice that a turn has fetched something: what that
+   * costs it has to be decided before the next tool call, not after the model
+   * has finished writing the sentence around it.
+   */
+  onTool?: (name: string) => void;
 }
 
-export function newStreamState(): StreamState {
+export function newStreamState(onTool?: (name: string) => void): StreamState {
   return {
+    ...(onTool ? { onTool } : {}),
     conversationId: null,
     error: null,
     pendingTools: [],
@@ -134,6 +142,7 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
     for (const b of blocks) {
       if (b.type === "tool_use" && typeof b.name === "string") {
         state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
+        state.onTool?.(b.name);
         if (b.id) state.toolNames.set(b.id, b.name);
       }
     }
