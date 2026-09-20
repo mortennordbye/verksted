@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 
 let app: FastifyInstance;
@@ -173,5 +173,39 @@ describe("POST /api/push/test", () => {
     // send fails, and the point of this route is that it says so.
     expect(res.json()).toMatchObject({ devices: 1, sent: 0, failed: 1 });
     expect(res.json().error).toBeTruthy();
+  });
+});
+
+/**
+ * R-16 from the audit. A kill during a subscribe truncated the file, and any
+ * read failure was taken as "no identity yet": the keypair was regenerated,
+ * every subscription was dropped, and each device stopped receiving pushes
+ * with nothing on any screen to say so.
+ */
+describe("a damaged push.json", () => {
+  it("is not taken for an empty one", async () => {
+    await app.inject({ method: "POST", url: "/api/push", payload: { sub: sub(9), label: "x" } });
+    const keptKey = stored().vapid.publicKey;
+    // Truncated the way a killed write leaves it, and read with a cold cache.
+    fs.writeFileSync(pushFile, JSON.stringify({ vapid: { publicKey: keptKey } }).slice(0, 30));
+    // A fresh module registry, so the store reads the file rather than its
+    // in-process cache — which is the state a restarted pod is in.
+    vi.resetModules();
+    const store = await import("../src/push-store.js");
+
+    await expect(store.publicKey()).rejects.toThrow();
+    expect(fs.readFileSync(pushFile, "utf8")).not.toContain("privateKey");
+  });
+
+  it("is written whole or not at all", async () => {
+    fs.writeFileSync(pushFile, JSON.stringify({ vapid: { publicKey: "p", privateKey: "s" } }));
+    vi.resetModules();
+    const store = await import("../src/push-store.js");
+
+    await store.subscribe(sub(1), "phone");
+
+    expect(stored().subs).toHaveLength(1);
+    expect(fs.statSync(pushFile).mode & 0o777).toBe(0o600);
+    expect(fs.readdirSync(path.dirname(pushFile)).filter((f) => f.endsWith(".tmp"))).toEqual([]);
   });
 });

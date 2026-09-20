@@ -44,12 +44,17 @@ export interface Session {
    */
   usage: SessionUsage | null;
   /**
-   * Seconds since the session's pane last printed anything; null once it has
-   * ended, and null while tmux cannot be asked. What it answers is the question
-   * a status alone cannot: whether a running session is working or finished
-   * hours ago and left its pane at a shell.
+   * When the session's pane last printed anything; null once it has ended, and
+   * null while tmux cannot be asked. What it answers is the question a status
+   * alone cannot: whether a running session is working or finished hours ago
+   * and left its pane at a shell.
+   *
+   * A timestamp rather than the seconds since it, which is what this was: the
+   * seconds changed on every tick, so every session's JSON differed from the
+   * last one every three seconds and the event stream's change test never held
+   * — the whole session history went out to every client, forever.
    */
-  idleSeconds: number | null;
+  lastActivityAt: string | null;
   /** How far a person has got reading what it did. */
   review: ReviewSummary;
   /**
@@ -1488,4 +1493,10 @@ export interface BackupStatus {
   /** Result of the last run this process started, if any. */
   lastError: string | null;
   lastFinishedAt: string | null;
+  /**
+   * Nothing has been written for two days, read off the archives themselves.
+   * The two fields above are this process's memory, so a restart cleared them
+   * however long it had been.
+   */
+  stale: boolean;
 }

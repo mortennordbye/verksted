@@ -22,6 +22,10 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sess-"));
   process.env.STATIC_DIR = "";
   delete process.env.PUBLIC_URL;
+  // These routes build their redirect URI from the request's Host, which is
+  // why PUBLIC_URL is unset here. A name still has to be one this deployment
+  // answers for (see origin.ts), so say so the other way.
+  process.env.ALLOWED_ORIGINS = "https://verksted.local.bigd.no";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
   google = await import("../src/google-auth.js");

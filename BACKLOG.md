@@ -877,3 +877,48 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   under the Mail tab, the same shape as the blocked-owners list.
 - **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
   `backend/src/routes/sources.ts` (`/api/mail/rules`).
+
+## Agent credentials still travel in the tmux command line
+
+- **What:** A session's environment reaches tmux as `-e KEY=VALUE` arguments
+  (`envArgs` in `backend/src/tmux.ts`, built from every settings var in
+  `sessions-store.ts`), so GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN are readable in
+  `/proc/<pid>/cmdline` for the life of the client, and again on every attach
+  (`ws/attach.ts`). The half that left the pod — the 500 body and the log line a
+  failed launch produced — is fixed: `exec.ts` redacts the assignments in the
+  error, and `app.ts` answers 5xx with nothing but "internal error". This is
+  S-03 in `FABLE-AUDIT-2026-09-19.md`.
+- **Why deferred:** It buys nothing on its own. Every session runs as the same
+  uid as the backend, so a process that can read another's cmdline can equally
+  `cat /data/settings.json` and get the same values with less effort. Moving the
+  secrets to a 0600 file the pane sources and deletes also touches how every
+  session, shell companion, restore and attach is launched, which is a lot of
+  moving parts for a boundary that is not one yet.
+- **Unblocked by:** Privilege separation on the pod — agents (and the assistant's
+  chromium) as an unprivileged user that cannot read the backend's files. That
+  is what turns both this and the proposal "tap" into real boundaries; it is
+  root cause 1 in the audit, and S-04(c), S-05 and S-08 wait on the same change.
+- **Where:** `backend/src/tmux.ts` (`envArgs`, `newSession`),
+  `backend/src/sessions-store.ts` (`launchAgent`), `backend/src/ws/attach.ts`,
+  `backend/src/exec.ts` (the redaction that stands in meanwhile).
+
+## The event stream still sends the whole session history
+
+- **What:** `/api/events` publishes `listSessions()` in full, and nothing prunes
+  session metadata — 145 sessions on the pod today, 144 of them finished months
+  of runs ago. It is no longer sent every three seconds (R-06 is fixed: an
+  unchanged session now serialises identically, so the change test holds), but
+  every real change to any one session still pushes the whole list to every open
+  client.
+- **Why deferred:** The churn was the bug worth chasing; the payload only costs
+  something when something actually happened, which is a handful of times a
+  minute at worst. Scoping the stream to live-plus-recent means deciding what
+  the hub's "all sessions" list reads instead, which is a screen change, not a
+  stream change.
+- **Unblocked by:** Retention. Archiving metadata for sessions that ended more
+  than ninety days ago into a monthly JSONL relieves this, the meta scan behind
+  every `listSessions` (R-07) and the sidecar files that accumulate with them
+  (R-08) in one change. R-01 no longer waits on it.
+- **Where:** `backend/src/events.ts` (`SOURCES.sessions`),
+  `backend/src/sessions-store.ts` (`readAll`, `listSessions`),
+  `backend/src/maintenance.ts` (where a retention sweep belongs).

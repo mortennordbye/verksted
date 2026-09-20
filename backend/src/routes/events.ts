@@ -1,9 +1,16 @@
 import type { FastifyInstance } from "fastify";
 import { subscribe } from "../events.js";
 
-/** Idle keep-alive. A comment line is a no-op to EventSource, and stops an
- *  intermediary deciding a quiet connection is a dead one. */
-const PING_MS = 25_000;
+/**
+ * Idle keep-alive, and the client's proof that the stream is still delivering.
+ *
+ * A named event rather than the comment line this was: a comment keeps an
+ * intermediary from dropping a quiet connection, but EventSource never surfaces
+ * it, so the client had nothing to tell "nothing has changed" apart from "this
+ * connection is dead" and gave up on the stream eight seconds after every open.
+ * The topics are published only on change, and on a quiet bench that is never.
+ */
+const PING_MS = 10_000;
 
 export default async function eventRoutes(app: FastifyInstance) {
   /**
@@ -43,17 +50,21 @@ export default async function eventRoutes(app: FastifyInstance) {
     });
     // Client-side reconnect delay, in place of EventSource's 3s default.
     reply.raw.write("retry: 2000\n\n");
+    // At once, so a client that connects to a bench where nothing is happening
+    // knows the stream works without waiting out a whole ping interval.
+    const ping = () => reply.raw.write("event: ping\ndata: {}\n\n");
+    ping();
 
     const detach = subscribe((topic, json) => {
       reply.raw.write(`event: ${topic}\ndata: ${json}\n\n`);
     });
 
-    const ping = setInterval(() => reply.raw.write(": ping\n\n"), PING_MS);
-    ping.unref?.();
+    const pings = setInterval(ping, PING_MS);
+    pings.unref?.();
     open.add(reply.raw);
 
     const close = () => {
-      clearInterval(ping);
+      clearInterval(pings);
       open.delete(reply.raw);
       detach();
     };

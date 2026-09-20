@@ -253,7 +253,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             : {
                 ...rest,
                 kind: "session",
-                project: project ?? drafted ?? projects?.[0]?.name,
+                // `||`, not `??`: the draft's project starts as "", which is
+                // what the select shows the first repo for. A schedule added
+                // without touching that select posted an empty project and the
+                // backend refused it.
+                project: project || drafted || projects?.[0]?.name,
                 ...(stage ? { stage } : {}),
               },
         ),

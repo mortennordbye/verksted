@@ -20,8 +20,16 @@ type Topic = "sessions" | "projects";
 
 const TOPICS: Topic[] = ["sessions", "projects"];
 
-/** A stream that connects but says nothing this long is not working. */
-const SILENCE_MS = 8_000;
+/**
+ * A stream that connects but says nothing this long is not working.
+ *
+ * Longer than the server's ping interval with room for one lost ping. The
+ * topics are published only on change, so on a quiet bench a ping is the only
+ * thing that arrives — and this timer used to be armed once at open and never
+ * again, which meant the stream reported itself unhealthy eight seconds after
+ * every connect and usePoll went back to polling with the stream still open.
+ */
+const SILENCE_MS = 25_000;
 
 const latest = new Map<Topic, unknown>();
 const listeners = new Set<() => void>();
@@ -39,6 +47,13 @@ function setHealthy(next: boolean): void {
   announce();
 }
 
+/** Anything arriving is the stream working; the clock starts again from it. */
+function heard(): void {
+  clearTimeout(silence);
+  silence = setTimeout(() => setHealthy(false), SILENCE_MS);
+  setHealthy(true);
+}
+
 function open(): void {
   if (source || typeof EventSource === "undefined") return;
   source = new EventSource("/api/events");
@@ -49,10 +64,12 @@ function open(): void {
       } catch {
         return; // not something this app sent
       }
-      setHealthy(true);
+      heard();
       announce();
     });
   }
+  // The server's keep-alive: nothing has changed, and the stream is delivering.
+  source.addEventListener("ping", heard);
   // EventSource reconnects itself; this only records that right now it is not
   // delivering, which is what puts usePoll back on its own timer meanwhile.
   source.addEventListener("error", () => setHealthy(false));

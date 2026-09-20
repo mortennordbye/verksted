@@ -68,3 +68,38 @@ describe("agentEnv", () => {
     expect(await agentEnv()).toEqual({ PATH: "/tmp/x", GH_TOKEN: "t" });
   });
 });
+
+/**
+ * A failed launch used to publish the pod's credentials: execFile puts the
+ * whole argv in the message it rejects with, and a session's environment
+ * reaches tmux as `-e KEY=VALUE`. Fastify answered with that message and pino
+ * logged it.
+ */
+describe("a failed command's own error", () => {
+  it("keeps the assignments in it but not their values", async () => {
+    const { exec } = await import("../src/exec.js");
+
+    // A binary that runs and fails: an argv this long only reaches the error
+    // message when the process itself exited non-zero.
+    const err = await exec("false", [
+      "new-session",
+      "-e",
+      "GH_TOKEN=ghp_secret",
+      "-e",
+      "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-secret",
+      "-e",
+      "VK_PROMPT=fix the build",
+    ]).then(
+      () => null,
+      (e: Error & { cmd?: string }) => e,
+    );
+
+    expect(err).not.toBeNull();
+    expect(err!.message).not.toContain("ghp_secret");
+    expect(err!.message).not.toContain("sk-ant-secret");
+    expect(err!.message).toContain("GH_TOKEN=***");
+    // What is not a secret stays readable: this is the error somebody has to
+    // debug a broken launch from.
+    expect(err!.message).toContain("VK_PROMPT=fix the build");
+  });
+});

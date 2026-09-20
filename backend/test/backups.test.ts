@@ -73,6 +73,7 @@ beforeAll(async () => {
   process.env.STATIC_DIR = "";
   process.env.VK_BACKUP_DIR = backupDir;
   process.env.VK_BACKUP_KEEP = "2";
+  process.env.FEED_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-feed-"));
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
 });
@@ -98,6 +99,13 @@ describe("GET /api/backups", () => {
     // The whole reason for the NFS mount: /data/... is the failure this flags.
     const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
     expect(body.offVolume).toBe(true);
+  });
+
+  // lastError and lastFinishedAt are this process's memory, so a redeployed pod
+  // reported nothing wrong however long it had been since anything was written.
+  it("calls an empty directory stale, whatever this process remembers", async () => {
+    const body = (await app.inject({ method: "GET", url: "/api/backups" })).json();
+    expect(body.stale).toBe(true);
   });
 });
 
@@ -224,6 +232,74 @@ describe("POST /api/backups", () => {
       expect(body.archives).toHaveLength(2);
       const sums = fs.readdirSync(backupDir).filter((f) => f.endsWith(".sha256"));
       expect(sums).toHaveLength(2);
+    },
+    SETTLES,
+  );
+});
+
+/**
+ * R-02 and R-03 from the audit: the nightly run was a 24h interval from boot,
+ * so a pod redeployed several times a day never reached it — there was no
+ * archive at all for the two busiest days of the month — and a failure was one
+ * line in a log nobody reads.
+ */
+describe("the nightly run", () => {
+  it(
+    "takes one on boot when the newest archive is older than a day",
+    async () => {
+      for (const f of fs.readdirSync(backupDir)) fs.rmSync(path.join(backupDir, f));
+      const store = await import("../src/backups-store.js");
+
+      const job = store.startNightly(silent);
+      await settle();
+
+      expect(fs.readdirSync(backupDir).filter((f) => f.endsWith(".tar.gz"))).toHaveLength(1);
+      expect((await store.status()).stale).toBe(false);
+      job?.stop();
+    },
+    SETTLES,
+  );
+
+  it(
+    "does not take another one when there is a fresh archive",
+    async () => {
+      const store = await import("../src/backups-store.js");
+      const before = fs.readdirSync(backupDir).length;
+
+      const job = store.startNightly(silent);
+      await settle();
+
+      expect(fs.readdirSync(backupDir)).toHaveLength(before);
+      job?.stop();
+    },
+    SETTLES,
+  );
+
+  it(
+    "puts a failure where it will be seen, not only in the log",
+    async () => {
+      const store = await import("../src/backups-store.js");
+      const feed = await import("../src/feed-store.js");
+      // A `vk` that fails, ahead of the real one on PATH. exec resolves the
+      // name per call, so this is enough to fail exactly one run.
+      const broken = fs.mkdtempSync(path.join(os.tmpdir(), "vk-broken-"));
+      fs.writeFileSync(path.join(broken, "vk"), "#!/bin/sh\necho 'no space left' >&2\nexit 1\n", {
+        mode: 0o755,
+      });
+      const path0 = process.env.PATH;
+      process.env.PATH = `${broken}:${path0}`;
+
+      try {
+        expect(store.start(0, silent)).toBe(true);
+        await settle();
+      } finally {
+        process.env.PATH = path0;
+      }
+
+      expect((await store.status()).lastError).toMatch(/Command failed/);
+      const item = await feed.get("bench:backup");
+      expect(item?.title).toBe("backup failed");
+      expect(item?.urgency).toBe("attention");
     },
     SETTLES,
   );

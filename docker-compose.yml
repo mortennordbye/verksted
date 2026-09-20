@@ -22,7 +22,11 @@ services:
         required: false
     ports:
       # Host ports overridable when 8080/5173 are taken by something else.
-      - "${VK_BACKEND_PORT:-8080}:8080"
+      # Bound to loopback: the app has no in-app auth and admits requests that
+      # carry no Origin, so published on 0.0.0.0 it hands anyone on the laptop's
+      # network a root shell with the .env credentials in it. VK_BIND=0.0.0.0
+      # for deliberate LAN use, testing on a phone being the real one.
+      - "${VK_BIND:-127.0.0.1}:${VK_BACKEND_PORT:-8080}:8080"
     volumes:
       - .:/app
       - node_modules_root:/app/node_modules
@@ -36,7 +40,7 @@ services:
       target: dev
     command: npm run dev --workspace frontend
     ports:
-      - "${VK_FRONTEND_PORT:-5173}:5173"
+      - "${VK_BIND:-127.0.0.1}:${VK_FRONTEND_PORT:-5173}:5173"
     volumes:
       - .:/app
       - node_modules_root:/app/node_modules

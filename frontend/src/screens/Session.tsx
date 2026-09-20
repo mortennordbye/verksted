@@ -1153,10 +1153,13 @@ export default function Session() {
 
       {file && (
         <div
-          // Presentational: clicking away duplicates Escape, Back and the ✕.
+          // Presentational: clicking away duplicates Escape, Back and the ✕ —
+          // through the same closeFile, which asks before throwing away an
+          // unsaved edit. This used to drop the file outright, so a mistimed
+          // tap next to the dialog lost whatever had been typed into it.
           role="presentation"
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
-          onClick={(e) => e.target === e.currentTarget && setFile(null)}
+          onClick={(e) => e.target === e.currentTarget && void closeFile()}
         >
           <div
             role="dialog"
