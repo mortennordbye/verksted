@@ -2,6 +2,13 @@
 # without a PR. Weekly rather than daily: this is one person's homelab, and a
 # daily drip is noise that gets ignored.
 #
+# Every ecosystem waits seven days before offering a release. Most of what a
+# compromised npm package does, it does in the first days after publication,
+# and what lands here lands on a pod holding every credential this homelab has.
+# Nothing is given up by waiting a week for a routine bump — and nothing
+# security-related is delayed by it either, for the reason in the next
+# paragraph: advisories do not come through this file.
+#
 # Nothing here schedules security updates. Those are a repository setting
 # ("Dependabot security updates"), they ignore this file's interval, and they
 # arrive as soon as an advisory matches the lockfile. This file only shapes the
@@ -17,6 +24,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     groups:
       # One PR for the routine bumps; anything major still arrives on its own.
@@ -30,10 +39,46 @@ updates:
       - dependency-name: "@types/node"
         update-types: [version-update:semver-major]
 
+  # The agent CLIs the image installs globally. A manifest with no lockfile, so
+  # what dependabot bumps is the pin itself. These are the three programs the
+  # whole product runs on, and until now which version shipped was decided by
+  # whichever build first cached that layer.
+  - package-ecosystem: npm
+    directory: /runtime/cli
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      agent-clis:
+        update-types: [minor, patch]
+
+  # The text-to-speech worker's python environment.
+  - package-ecosystem: pip
+    directory: /runtime
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      kokoro-minor-and-patch:
+        update-types: [minor, patch]
+
+  # The dind sidecar the dev stack runs against. Same image family as the pod's,
+  # and it was the one pinned version in this repo nothing watched.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       docker-minor-and-patch:
         update-types: [minor, patch]
@@ -54,6 +99,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 7
     groups:
       # Action majors are usually a runner-version bump and little else, but
       # they are still majors, so they stay out of the group and out of

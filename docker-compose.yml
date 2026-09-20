@@ -51,8 +51,12 @@ services:
 
   # Docker daemon for the sessions (agents building/running containers).
   # Privileged is inherent to dind; in prod this becomes a pod sidecar.
+  #
+  # Tag and digest, like every FROM in the Dockerfile, and now watched by
+  # dependabot's docker-compose ecosystem — this was the one pinned version in
+  # the repo that no updater could see.
   dind:
-    image: docker:29-dind
+    image: docker:29-dind@sha256:3f3c01aaaebf7cce837356b688b7c059a4749f10bd7660dec7c58fc454a283f0
     privileged: true
     environment:
       # Plain tcp on 2375, pod/compose-network only — no TLS cert dance.

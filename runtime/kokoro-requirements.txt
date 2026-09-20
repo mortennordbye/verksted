@@ -1,0 +1,9 @@
+# The text-to-speech worker's python environment (runtime/vk-say.py), installed
+# into /opt/kokoro/venv by the Dockerfile.
+#
+# A file rather than three arguments on the RUN line so dependabot's pip
+# ecosystem can see them: pinned this exactly, these three were invisible to
+# every updater and moved only when somebody remembered.
+kokoro-onnx==0.5.0
+onnxruntime==1.28.0
+numpy==2.5.2

@@ -469,6 +469,24 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/routes/files.ts` (the replace route),
   `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
 
+## The antigravity CLI is the one thing in the image with no version to pin
+
+- **What:** claude, codex and the playwright MCP server are pinned in
+  `runtime/cli/package.json` and bumped by dependabot. `agy` is not: its
+  installer takes no version argument, serves whatever is current, and the
+  binary it drops self-updates in the background while a session runs. So
+  neither "which version is in the image" nor "which version is running" is a
+  question this repo can answer, and a bad release reaches the pod the moment
+  it is published.
+- **Why deferred:** There is nothing upstream to pin to — no versioned
+  installer path, no release artifact with a checksum, and no documented flag
+  to hold a version. Working around it means hosting a copy of the binary,
+  which is a worse problem than the one it solves.
+- **Unblocked by:** Antigravity publishing versioned downloads, or a flag that
+  turns the self-updater off — then the same treatment as uv (a versioned
+  installer URL and a version assertion after it).
+- **Where:** `Dockerfile` (the `agy` block at the end of the `base` stage)
+
 ## Run CI through the containers, not on the runner
 
 - **What:** CI still does `npm ci` on the GitHub runner, so node-pty is compiled
