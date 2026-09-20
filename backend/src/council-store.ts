@@ -35,130 +35,512 @@ export const MEMBER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 export const CHAIR_ID = "chair";
 
 /**
- * Every verksted tool, and whether it is the chair's alone.
+ * Every verksted tool, and what it is.
  *
- * A copy of what `runtime/verksted-mcp.mjs` offers, because that file is baked
- * into the image at a path the backend build does not import from. The copy is
- * kept honest by a test that drives the real server's tools/list and compares
- * the two — reaching into the .mjs from here would be a parser this repo would
- * then maintain forever.
+ * A copy of the policy table in `runtime/verksted-mcp.mjs`, because that file
+ * is baked into the image at a path the backend build does not import from.
+ * The copy is kept honest by a test that drives the real server's tools/list
+ * and compares every field of it against this, so a decision made there and
+ * not here fails rather than drifting — reaching into the .mjs from here would
+ * be a parser this repo would then maintain forever.
  *
- * `chairOnly` is where an irreversible thing lives. Starting a session, merging
- * a PR, ending one, changing a schedule, pushing the phone: those are the ones
- * worth regretting, and a council of read-only advisors keeps "the assistant
- * delegates, it does not execute" true of all of them rather than only of the
- * one that was here first.
+ * What each field means is written out beside the table it comes from. The two
+ * this file acts on: `chairOnly`, which no member may be given whatever its
+ * file asks for, and `private`, which no member may hold beside the web.
  *
- * `remember` and `forget` are the exception, and the reason is blast radius
- * rather than trust. For the chair they write the bench's memory, which is
- * carried into every session in every repo; for an advisor the MCP server
- * routes them to that advisor's own store, which nothing outside its own next
- * turn ever reads. An advisor that cannot keep anything has to be told the same
- * thing every morning, which is the problem this whole store exists to solve.
+ * `remember` and `forget` are private but not the chair's alone, and the reason
+ * is blast radius rather than trust. For the chair they write the bench's
+ * memory, which is carried into every session in every repo; for an advisor the
+ * MCP server routes them to that advisor's own store, which nothing outside its
+ * own next turn ever reads. An advisor that cannot keep anything has to be told
+ * the same thing every morning, which is the problem this whole store exists to
+ * solve.
  */
-export const TOOL_INVENTORY: { name: string; chairOnly: boolean }[] = [
-  { name: "status", chairOnly: false },
-  { name: "read_session_output", chairOnly: false },
-  { name: "repo_status", chairOnly: false },
-  { name: "cluster_status", chairOnly: false },
-  { name: "start_session", chairOnly: true },
-  { name: "end_session", chairOnly: true },
-  { name: "desk_session", chairOnly: true },
-  { name: "list_prs", chairOnly: false },
-  { name: "pr_detail", chairOnly: false },
-  { name: "merge_pr", chairOnly: true },
-  { name: "ci_runs", chairOnly: false },
-  { name: "ci_log", chairOnly: false },
-  { name: "ci_rerun", chairOnly: true },
-  { name: "list_schedules", chairOnly: false },
-  { name: "create_schedule", chairOnly: true },
-  { name: "update_schedule", chairOnly: true },
-  { name: "run_schedule", chairOnly: true },
-  { name: "delete_schedule", chairOnly: true },
-  { name: "pause_schedules", chairOnly: true },
-  { name: "notify", chairOnly: true },
-  { name: "council_add", chairOnly: true },
-  { name: "person_note", chairOnly: true },
-  { name: "propose", chairOnly: true },
-  { name: "feed", chairOnly: false },
-  { name: "feed_done", chairOnly: true },
-  { name: "brief_material", chairOnly: false },
-  { name: "loops", chairOnly: false },
-  { name: "open_loop", chairOnly: true },
-  { name: "close_loop", chairOnly: true },
-  // Mail and documents are text written by strangers, which is the shape a
-  // prompt injection takes. The chair reads them anyway, because routing every
-  // lookup through an advisor cost a model call and a turn to say "I will ask
-  // Uriel" and left the chair unable to answer the follow-up, having never seen
-  // the thing itself.
-  //
-  // What made that unsafe was never the reading: it was that the chair could
-  // start a session, which is an agent with a shell on the pod holding gh,
-  // kubectl and git. That is now a card the person taps, so the worst a
-  // poisoned document can reach is a card. The other half of the old rule still
-  // holds by itself — the chair has no web tools at all, so there is nothing
-  // for anything it reads to leave through.
-  { name: "mail_recent", chairOnly: false },
-  { name: "mail_search", chairOnly: false },
-  { name: "mail_read", chairOnly: false },
-  { name: "mail_folders", chairOnly: false },
-  { name: "mail_move", chairOnly: false },
-  // Undone by the opposite relabel, the same reason mail_move needs no asking.
-  { name: "mail_relabel", chairOnly: false },
-  { name: "mail_labels", chairOnly: false },
-  { name: "mail_rules", chairOnly: false },
-  { name: "docs_catalogue", chairOnly: false },
-  { name: "docs_search", chairOnly: false },
-  { name: "docs_list", chairOnly: false },
-  { name: "docs_read", chairOnly: false },
-  { name: "calendar_today", chairOnly: false },
-  { name: "calendar_upcoming", chairOnly: false },
-  { name: "calendar_search", chairOnly: false },
-  // Writes with no undo, taken on the person's word in the chat, which only
-  // the chair hears directly.
-  { name: "calendar_add", chairOnly: true },
-  { name: "calendar_update", chairOnly: true },
-  { name: "calendar_delete", chairOnly: true },
-  // A filter acts on every mail from then on rather than once, which is why
-  // it needs the person's own word in the chat like the calendar writes
-  // above, not an advisor's judgment.
-  { name: "mail_rule_create", chairOnly: true },
-  { name: "mail_rule_delete", chairOnly: true },
-  // Takes the label off every message at once, and no call puts it back.
-  { name: "mail_label_delete", chairOnly: true },
-  { name: "repo_diff", chairOnly: false },
-  { name: "recent_prompts", chairOnly: false },
-  { name: "propose_memory", chairOnly: false },
-  { name: "recall", chairOnly: false },
-  { name: "list_memories", chairOnly: false },
-  { name: "remember", chairOnly: false },
-  { name: "forget", chairOnly: false },
+export interface ToolPolicy {
+  name: string;
+  /** May run on a turn nobody is reading. */
+  unattended: boolean;
+  /** Never offered to an advisor, whatever its file asks for. */
+  chairOnly: boolean;
+  /** Reads something of the person's; may not sit beside the web. */
+  private: boolean;
+  /** Returns text somebody outside this bench wrote. */
+  outside: boolean;
+  effect: "read" | "reversible" | "card" | "irreversible";
+}
+
+export const TOOL_INVENTORY: ToolPolicy[] = [
+  {
+    name: "status",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "read_session_output",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "repo_status",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "cluster_status",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "repo_diff",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "list_prs",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "list_schedules",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "ci_runs",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "pr_detail",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "ci_log",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "start_session",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "desk_session",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "end_session",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "merge_pr",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "propose",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "ci_rerun",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "create_schedule",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "update_schedule",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "run_schedule",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "delete_schedule",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "pause_schedules",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "notify",
+    unattended: true,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "feed",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "feed_done",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "brief_material",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "loops",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "open_loop",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "close_loop",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "mail_recent",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "mail_search",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "mail_read",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "mail_folders",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "mail_labels",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "mail_rules",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "mail_move",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "mail_relabel",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "mail_rule_create",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "mail_rule_delete",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "irreversible",
+  },
+  {
+    name: "mail_label_delete",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "irreversible",
+  },
+  {
+    name: "docs_catalogue",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "docs_search",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "docs_list",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "docs_read",
+    unattended: false,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "calendar_today",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "calendar_upcoming",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "calendar_search",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "calendar_add",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "calendar_update",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "calendar_delete",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "irreversible",
+  },
+  {
+    name: "recall",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: true,
+    effect: "read",
+  },
+  {
+    name: "recent_prompts",
+    unattended: true,
+    chairOnly: false,
+    private: true,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "list_memories",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "propose_memory",
+    unattended: true,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
+    name: "remember",
+    unattended: false,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "forget",
+    unattended: false,
+    chairOnly: false,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "person_note",
+    unattended: false,
+    chairOnly: true,
+    private: true,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "council_add",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
 ];
 
 const TOOL_NAMES = new Set(TOOL_INVENTORY.map((t) => t.name));
 const CHAIR_ONLY = new Set(TOOL_INVENTORY.filter((t) => t.chairOnly).map((t) => t.name));
 /**
- * Tools that read something private, which no member may hold together with
- * the web: a page it fetches is how a prompt injection would carry the
- * private thing out. Enforced here, not in a prompt.
+ * Tools that read something of the person's, which no member may hold together
+ * with the web: a page it fetches is how a prompt injection would carry the
+ * private thing out.
+ *
+ * Read off the table rather than listed again. The hand-kept version of this
+ * named the mail and the documents and stopped there, so the advisor seeded
+ * with the web also held `recall` — which searches every conversation the chair
+ * ever had, mail and documents it quoted included.
  */
-export const PRIVATE_TOOLS = new Set([
-  "mail_recent",
-  "mail_search",
-  "mail_read",
-  "mail_folders",
-  "mail_move",
-  "mail_relabel",
-  "mail_labels",
-  "mail_rules",
-  "mail_rule_create",
-  "mail_rule_delete",
-  "mail_label_delete",
-  "docs_catalogue",
-  "docs_search",
-  "docs_list",
-  "docs_read",
-]);
+export const PRIVATE_TOOLS = new Set(TOOL_INVENTORY.filter((t) => t.private).map((t) => t.name));
 
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
 const FACES: CouncilFace[] = ["owl", "fox", "bear", "cat", "robot", "raccoon"];
@@ -333,7 +715,10 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
     ].join("\n"),
     model: "sonnet",
     effort: "low",
-    tools: ["recall", "list_memories", "remember", "forget"],
+    // No recall: it searches every conversation the chair has had, and this is
+    // the one member that can fetch a page. That pairing is the whole of what
+    // the persona above promises, and it used to be promised rather than kept.
+    tools: ["list_memories", "remember", "forget"],
     web: true,
     colour: "sky",
     face: "robot",
@@ -400,10 +785,17 @@ async function readMember(id: string): Promise<CouncilMember | null> {
   try {
     const raw = await fs.readFile(filePath(id), "utf8");
     const parsed = JSON.parse(raw) as CouncilMember;
+    // The web/private pairing is dropped rather than refused here, which is the
+    // one rule that tightens over time: a tool marked private today was held
+    // quite legitimately by a member saved yesterday, and refusing the file
+    // would make that advisor vanish from the roster instead of narrowing it.
+    // The settings page still refuses the pairing outright, where somebody can
+    // see why.
+    const tools = (parsed.tools ?? []).filter((t) => parsed.web !== true || !PRIVATE_TOOLS.has(t));
     // Validated on the way out too: a file edited by hand is the same input as
     // a form post, and a torn or wrong one should read as a missing member
     // rather than take a request down.
-    return validate({ ...parsed, id });
+    return validate({ ...parsed, tools, id });
   } catch {
     return null;
   }

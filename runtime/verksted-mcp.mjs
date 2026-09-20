@@ -156,10 +156,133 @@ const targetOf = (a) => ({
   ...(a.every === true ? { every: true } : {}),
 });
 
+/**
+ * What each tool is, as data.
+ *
+ * This used to be four lists and a good deal of prose: an `unattended` flag
+ * beside each tool below, a `chairOnly` column in the backend's copy of the
+ * names, a `PRIVATE_TOOLS` set beside that which nothing ever checked, and
+ * reversibility explained in tool descriptions and in the persona — where it
+ * was advice rather than a rule. A model that did not take the advice met
+ * nothing at all.
+ *
+ * One table, and the backend reads it back out of `tools/list` (`_meta`), so
+ * its copy cannot drift from this one:
+ *
+ * - `unattended`: may run on a turn nobody is reading. Absent means no, so a
+ *   tool added without a thought decides "no" by itself.
+ * - `chairOnly`: never offered to an advisor, whatever its file asks for.
+ * - `private`: reads something of the person's. No member may hold one of
+ *   these and the web at once; the chair holds both halves, so reading one is
+ *   what shuts its browser for the rest of the turn.
+ * - `outside`: returns text somebody outside this bench wrote. That is the
+ *   injection surface, and a turn that has touched it can only propose a
+ *   memory, not write one.
+ * - `effect`: what a call does.
+ *     read          nothing changes.
+ *     reversible    changes something a later call can change back.
+ *     card          files a proposal; nothing happens until the person taps.
+ *     irreversible  changes something that cannot be put back, with no card.
+ *                   There are three. They are named in BACKLOG.md and pinned
+ *                   by a test, so the number can only go down.
+ */
+const POLICY = {
+  // The bench's own state: nothing of the person's in any of it.
+  status: { unattended: true, effect: "read" },
+  read_session_output: { unattended: true, effect: "read" },
+  repo_status: { unattended: true, effect: "read" },
+  cluster_status: { unattended: true, effect: "read" },
+  repo_diff: { unattended: true, effect: "read" },
+  list_prs: { unattended: true, effect: "read" },
+  list_schedules: { unattended: true, effect: "read" },
+  ci_runs: { unattended: true, effect: "read" },
+
+  // Written by whoever opened the pull request, or by whatever broke the build.
+  pr_detail: { unattended: true, outside: true, effect: "read" },
+  ci_log: { unattended: true, outside: true, effect: "read" },
+
+  // A session is an agent with a shell on the pod holding gh, kubectl and git.
+  // The tap is what stands between that and anything the chair has read.
+  start_session: { chairOnly: true, effect: "card" },
+  desk_session: { chairOnly: true, effect: "card" },
+  end_session: { chairOnly: true, effect: "card" },
+  merge_pr: { chairOnly: true, effect: "card" },
+  propose: { chairOnly: true, effect: "card" },
+  ci_rerun: { chairOnly: true, effect: "reversible" },
+
+  // A session schedule is start_session on a timer, and the prompt in it is
+  // whatever was written there. Run-now is start_session with no timer at all.
+  create_schedule: { chairOnly: true, effect: "card" },
+  update_schedule: { chairOnly: true, effect: "card" },
+  run_schedule: { chairOnly: true, effect: "card" },
+  delete_schedule: { chairOnly: true, effect: "card" },
+  pause_schedules: { chairOnly: true, effect: "reversible" },
+  notify: { unattended: true, chairOnly: true, effect: "reversible" },
+
+  // The inbox and the open loops: the person's working state, and the feed
+  // carries the subject lines strangers wrote.
+  feed: { unattended: true, private: true, outside: true, effect: "read" },
+  feed_done: { chairOnly: true, private: true, effect: "reversible" },
+  brief_material: { unattended: true, private: true, outside: true, effect: "read" },
+  loops: { unattended: true, private: true, effect: "read" },
+  open_loop: { chairOnly: true, private: true, effect: "reversible" },
+  close_loop: { chairOnly: true, private: true, effect: "reversible" },
+
+  // Mail. Every read of it is somebody else's words.
+  mail_recent: { private: true, outside: true, effect: "read" },
+  mail_search: { private: true, outside: true, effect: "read" },
+  mail_read: { private: true, outside: true, effect: "read" },
+  mail_folders: { unattended: true, private: true, effect: "read" },
+  mail_labels: { unattended: true, private: true, effect: "read" },
+  mail_rules: { unattended: true, private: true, effect: "read" },
+  mail_move: { private: true, effect: "reversible" },
+  mail_relabel: { private: true, effect: "reversible" },
+  // A filter acts on every mail from then on rather than once, which is why it
+  // takes the person's own word in the chat; it can be removed again after.
+  mail_rule_create: { chairOnly: true, private: true, effect: "reversible" },
+  // A rule's definition goes with it, and a label comes off every message at
+  // once. Neither has a call that puts it back.
+  mail_rule_delete: { chairOnly: true, private: true, effect: "irreversible" },
+  mail_label_delete: { chairOnly: true, private: true, effect: "irreversible" },
+
+  // The documents: the person's own share, and text nobody here wrote.
+  docs_catalogue: { private: true, outside: true, effect: "read" },
+  docs_search: { private: true, outside: true, effect: "read" },
+  docs_list: { private: true, outside: true, effect: "read" },
+  docs_read: { private: true, outside: true, effect: "read" },
+
+  // The calendar. An invitation is written by whoever sent it.
+  calendar_today: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_upcoming: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_search: { unattended: true, private: true, outside: true, effect: "read" },
+  calendar_add: { chairOnly: true, private: true, effect: "reversible" },
+  calendar_update: { chairOnly: true, private: true, effect: "reversible" },
+  // Nothing puts a deleted event back, a whole series least of all.
+  calendar_delete: { chairOnly: true, private: true, effect: "irreversible" },
+
+  // What the bench remembers, and what it has been told about the person.
+  // Searches every conversation the chair ever had, whoever is asking — mail
+  // and documents it quoted along with them.
+  recall: { unattended: true, private: true, outside: true, effect: "read" },
+  recent_prompts: { unattended: true, private: true, effect: "read" },
+  // Not private, because for an advisor these are its own notebook: the MCP
+  // server routes them to that member's store, and nothing outside its next
+  // turn reads it. They are the bench's memory only for the chair, which is
+  // covered by the rule about what a turn that has read outside text may write.
+  list_memories: { unattended: true, effect: "read" },
+  propose_memory: { unattended: true, effect: "card" },
+  remember: { effect: "reversible" },
+  forget: { effect: "reversible" },
+  person_note: { chairOnly: true, private: true, effect: "reversible" },
+  council_add: { chairOnly: true, effect: "reversible" },
+};
+
+/** A tool's policy, or the closed default for one nobody has classified. */
+const policyOf = (name) => POLICY[name] ?? { effect: "irreversible" };
+
 const TOOLS = [
   {
     name: "status",
-    unattended: true,
     description:
       "The whole workbench in one call: every repo, every session and what the scheduled runs did. Use this first for anything like 'what needs me' or 'what is running' — it answers in one round trip what three separate lookups would take three.",
     inputSchema: { type: "object", properties: {} },
@@ -206,7 +329,6 @@ const TOOLS = [
   },
   {
     name: "read_session_output",
-    unattended: true,
     description:
       "The last lines a live session printed. Use this to answer 'what is it doing' or 'why did it stop' without attaching a terminal.",
     inputSchema: {
@@ -221,7 +343,6 @@ const TOOLS = [
   },
   {
     name: "repo_status",
-    unattended: true,
     description:
       "Which files are changed in one repo, and whether each change is staged or untracked. Read-only. Use this to answer 'why is X dirty' rather than starting a session to run git for you.",
     inputSchema: {
@@ -245,7 +366,6 @@ const TOOLS = [
   },
   {
     name: "cluster_status",
-    unattended: true,
     description:
       "The Kubernetes cluster this workbench runs in: nodes, pods that are not healthy, ArgoCD sync state, Kargo stages and promotions, and recent warnings. Read-only. Use it when an answer depends on the cluster rather than on this box — a merged PR that has not appeared, a deploy that says it finished, an app that is down. It reports the shape of the problem; a session with kubectl is where you go digging.",
     inputSchema: { type: "object", properties: {} },
@@ -308,7 +428,6 @@ const TOOLS = [
   },
   {
     name: "list_prs",
-    unattended: true,
     description:
       "Open pull requests in a repo, with their checks and review state. This is how you answer 'anything to merge' — dependabot bumps that are green and patch-level are the case worth raising unprompted.",
     inputSchema: {
@@ -337,7 +456,6 @@ const TOOLS = [
   },
   {
     name: "pr_detail",
-    unattended: true,
     description:
       "One pull request in full: its description, comments and changed files, and optionally the diff. Read this before recommending a merge — a patch-level bump is judged by looking at it.",
     inputSchema: {
@@ -399,7 +517,6 @@ const TOOLS = [
   },
   {
     name: "ci_runs",
-    unattended: true,
     description:
       "Workflow runs for a repo, newest first — or one run's jobs when you pass an id. 'Did it build' is answerable from here without opening anything.",
     inputSchema: {
@@ -439,7 +556,6 @@ const TOOLS = [
   },
   {
     name: "ci_log",
-    unattended: true,
     description:
       "The log of a run's failing jobs — the failing steps only, not the whole build. Use it to say why something went red rather than that it did.",
     inputSchema: {
@@ -478,7 +594,6 @@ const TOOLS = [
   },
   {
     name: "list_schedules",
-    unattended: true,
     description: "The recurring prompts: what runs, when it next fires, and how the last run went.",
     inputSchema: { type: "object", properties: {} },
     run: async () => {
@@ -607,7 +722,6 @@ const TOOLS = [
   },
   {
     name: "notify",
-    unattended: true,
     description:
       "Push a message to the user's phone. For when something wants them and they are not reading the chat: a scheduled run failed, a session has been blocked for an hour, main went red. Never for the answer to what they just asked — they are already looking at it — and never twice for the same thing.",
     inputSchema: {
@@ -640,7 +754,6 @@ const TOOLS = [
     description:
       "What has arrived lately that is not done: GitHub notifications, the maintainer's queue, runs that signed off, proposals waiting for review, sessions waiting on the person. One line each, newest first, attention first. Read it when asked what is new or what needs them; status covers the bench itself.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: async () => {
       const items = (await call("GET", "/api/feed")).filter((i) => i.state !== "done");
       const rank = { attention: 0, new: 1, quiet: 2 };
@@ -671,7 +784,6 @@ const TOOLS = [
     description:
       "Everything a briefing reads, in one call: what arrived since the last look, the open loops, what is running or waiting, and the last few days' journal. Reach for it first on a briefing and do not follow it with lookups it already answered.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: () => call("GET", "/api/feed/material").then((r) => r.text),
   },
   {
@@ -679,7 +791,6 @@ const TOOLS = [
     description:
       "The open loops: what the person owes and is owed, due first. One line each with the slug, so one can be closed by name.",
     inputSchema: { type: "object", properties: {} },
-    unattended: true,
     run: async () => {
       const open = (await call("GET", "/api/loops")).filter((l) => l.state === "open");
       return rows(
@@ -752,7 +863,6 @@ const TOOLS = [
   },
   {
     name: "mail_folders",
-    unattended: true,
     description:
       "Where a message can be put: every mailbox on the server, with the role the server gives it (junk, trash, archive, all, sent, drafts). Read this before mail_move and send back a path from it exactly — on Gmail the junk folder is called [Gmail]/Spam and archiving means moving to the one whose role is all.",
     inputSchema: { type: "object", properties: {} },
@@ -803,7 +913,6 @@ const TOOLS = [
   },
   {
     name: "mail_labels",
-    unattended: true,
     description:
       "The account's own labels, for naming one in mail_rule_create. Gmail only — this and the two rule tools use the Gmail API, not IMAP, so they answer 'not signed in' on any other provider.",
     inputSchema: { type: "object", properties: {} },
@@ -811,7 +920,6 @@ const TOOLS = [
   },
   {
     name: "mail_rules",
-    unattended: true,
     description:
       "The filters already set on the account: what each one matches and what it does to a match. Read this before mail_rule_create so you do not add one that is already there.",
     inputSchema: { type: "object", properties: {} },
@@ -898,14 +1006,12 @@ const TOOLS = [
   },
   {
     name: "calendar_today",
-    unattended: true,
     description: "What is on the calendar today: time, title, place or link.",
     inputSchema: { type: "object", properties: {} },
     run: async () => rows(await call("GET", "/api/calendar/today"), eventLine),
   },
   {
     name: "calendar_upcoming",
-    unattended: true,
     description: "The calendar for the next days (seven unless asked otherwise, up to sixty).",
     inputSchema: { type: "object", properties: { days: { type: "integer" } } },
     run: async (a) =>
@@ -913,7 +1019,6 @@ const TOOLS = [
   },
   {
     name: "calendar_search",
-    unattended: true,
     description: "Find an event over the next ninety days by words in its title, place or notes.",
     inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
     run: async (a) =>
@@ -1038,7 +1143,6 @@ const TOOLS = [
   },
   {
     name: "repo_diff",
-    unattended: true,
     description:
       "The actual change in one file of one repo, as a diff. repo_status says which files moved; this says what moved in them, which is what answers 'what did that session do' without opening a terminal.",
     inputSchema: {
@@ -1066,7 +1170,6 @@ const TOOLS = [
   },
   {
     name: "recent_prompts",
-    unattended: true,
     description:
       "What the user typed into sessions that ended in the last `hours` (default 24). Only their own words: no model replies, no tool output, no file contents. This is the material for learning how they work — corrections, preferences, how a repo is meant to be handled. One call covers every session, so do not ask per session.",
     inputSchema: {
@@ -1085,7 +1188,6 @@ const TOOLS = [
   },
   {
     name: "propose_memory",
-    unattended: true,
     description:
       "Propose a fact for the review queue. It is NOT remembered: it waits on the inbox until the user keeps or drops it, and reaches no session before then. This is the only way to record something they did not tell you directly in this conversation. Propose only what would change how a future agent acts, write it as an instruction, and say in `source` which session it came from. Do not propose something already remembered.",
     inputSchema: {
@@ -1110,7 +1212,6 @@ const TOOLS = [
   },
   {
     name: "recall",
-    unattended: true,
     description:
       "Search what was said in earlier conversations with this person. Your own long-term recall: every thread is kept, and this is the only way back into one — you cannot read them as files. Use it when they refer to something decided before ('what did we say about the promotion'), or when a thread has been started fresh and the subject is not new. The current conversation is not searched, because you are already in it.",
     inputSchema: {
@@ -1127,7 +1228,6 @@ const TOOLS = [
   },
   {
     name: "list_memories",
-    unattended: true,
     description: MEMBER
       ? "What you alone have been told and kept. What the whole bench knows is already in your instructions; this is only yours."
       : "Everything currently remembered about how this person works.",
@@ -1205,8 +1305,20 @@ const TOOLS = [
  * The two filters intersect rather than override: an advisor named in VK_TOOLS
  * that fired from a schedule still loses everything that changes anything.
  */
+/**
+ * Which tools exist for this process, both halves read off POLICY.
+ *
+ * chairOnly is enforced here as well as at the moment a member is saved: the
+ * member file is hand-editable on the volume, and a tool that reaches a shell
+ * must not depend on a settings page having refused it earlier.
+ */
 const offered = () =>
-  TOOLS.filter((t) => (!UNATTENDED || t.unattended) && (!ALLOW || ALLOW.has(t.name)));
+  TOOLS.filter((t) => {
+    const p = policyOf(t.name);
+    if (UNATTENDED && !p.unattended) return false;
+    if (MEMBER && p.chairOnly) return false;
+    return !ALLOW || ALLOW.has(t.name);
+  });
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -1235,10 +1347,13 @@ async function handle(msg) {
       jsonrpc: "2.0",
       id: msg.id,
       result: {
+        // _meta carries the policy table: the backend reads it back rather
+        // than keeping a second copy of these decisions in its own source.
         tools: offered().map(({ name, description, inputSchema }) => ({
           name,
           description,
           inputSchema,
+          _meta: { verksted: policyOf(name) },
         })),
       },
     });

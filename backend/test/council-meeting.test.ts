@@ -156,6 +156,35 @@ describe("a meeting of one", () => {
     expect(config.mcpServers.browser).toBeUndefined();
   });
 
+  /**
+   * A-07: the private half of the rule was a list beside the tool names that
+   * nothing checked, and it named the mail and the documents and stopped. The
+   * seeded web advisor therefore held `recall`, which searches every
+   * conversation the chair has had — mail and documents it quoted included.
+   */
+  it("takes a private tool off the advisor that reads the web, whatever its file says", async () => {
+    // Written straight to the volume, the way a member edited by hand or saved
+    // before a tool was marked private would be — the settings page refuses
+    // this pairing, and that refusal is not what is under test here.
+    const file = path.join(councilDir, "sophia.json");
+    const before = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ ...JSON.parse(before), tools: ["recall", "list_memories", "status"] }),
+    );
+    fake.reply("claude", "-p", { stdout: run("convene: sophia") });
+    whenAsked("Sophia", "Found nothing relevant.");
+
+    await say("look this up for me");
+
+    const [argv] = callsFor("Sophia");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
+      mcpServers: { verksted: { env: Record<string, string> } };
+    };
+    expect(config.mcpServers.verksted.env.VK_TOOLS).toBe("list_memories,status");
+    fs.writeFileSync(file, before);
+  });
+
   it("still closes a meeting of two, which is where synthesis happens", async () => {
     fake.reply("claude", "-p", { stdout: run("convene: michael, raphael") });
     whenAsked("Michael", "The cluster is green.");

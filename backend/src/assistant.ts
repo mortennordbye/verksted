@@ -1147,7 +1147,8 @@ function policyFor(
       ...(headroom ? ["mcp__headroom"] : []),
     ],
     // The chair keeps every tool, so it is offered the server unfiltered; an
-    // advisor is offered exactly what its file names.
+    // advisor is offered exactly what its file names — which council-store has
+    // already taken anything private out of, if this member reads the web.
     tools: member.chair ? null : member.tools,
     denied: [
       ...DENIED_TOOLS,

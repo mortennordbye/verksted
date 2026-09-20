@@ -366,18 +366,62 @@ describe("one advisor's tools", () => {
     expect(JSON.stringify(res)).toContain("added Ledger (@ledger)");
   });
 
-  it("gives the backend's inventory the same names this server offers", async () => {
-    // The backend keeps its own copy of these names, because this file is baked
+  it("gives the backend's inventory the same policy this server offers", async () => {
+    // The backend keeps its own copy of this table, because this file is baked
     // into the image at a path the build does not import from. This is the test
-    // that keeps the copy honest — the settings page's checkboxes and the
-    // write-time validation are both built on it.
+    // that keeps the copy honest — the settings page's checkboxes, the
+    // write-time validation and which tools may sit beside the web are all
+    // built on it, and every one of them is wrong if it drifts.
     const { TOOL_INVENTORY } = await import("../src/council-store.js");
 
-    // As a member with no filter, since the mail tools exist only for one.
-    const all = (await list({ VK_MEMBER: "uriel" })).sort();
-    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual(all);
-    // And the chair's view is the inventory minus what is a member's alone.
-    expect(TOOL_INVENTORY.map((t) => t.name).sort()).toEqual((await list({})).sort());
+    const res = (await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })) as {
+      result: { tools: { name: string; _meta?: { verksted?: Record<string, unknown> } }[] };
+    };
+    const served = res.result.tools
+      .map((t) => ({
+        name: t.name,
+        unattended: t._meta?.verksted?.unattended === true,
+        chairOnly: t._meta?.verksted?.chairOnly === true,
+        private: t._meta?.verksted?.private === true,
+        outside: t._meta?.verksted?.outside === true,
+        effect: t._meta?.verksted?.effect,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    expect([...TOOL_INVENTORY].sort((a, b) => a.name.localeCompare(b.name))).toEqual(served);
+  });
+
+  it("offers an advisor nothing that is the chair's alone, whatever its file says", async () => {
+    // Enforced here as well as at the moment a member is saved: a member is a
+    // JSON file on the volume somebody can edit by hand, and a tool that
+    // reaches a shell must not depend on a settings page having refused it.
+    const names = await list({ VK_MEMBER: "uriel", VK_TOOLS: "status,start_session,merge_pr" });
+
+    expect(names).toEqual(["status"]);
+  });
+
+  it("names three tools that cannot be undone, and no more", async () => {
+    // The point of writing the effect down: this set is what BACKLOG tracks,
+    // and a tool added without a card joins it rather than passing unnoticed.
+    const { TOOL_INVENTORY } = await import("../src/council-store.js");
+
+    expect(TOOL_INVENTORY.filter((t) => t.effect === "irreversible").map((t) => t.name)).toEqual([
+      "mail_rule_delete",
+      "mail_label_delete",
+      "calendar_delete",
+    ]);
+  });
+
+  it("keeps the web away from everything private", async () => {
+    // The seeded web advisor held `recall` while this list named only the mail
+    // and the documents, so it could search every conversation the chair ever
+    // had — mail and documents it had quoted included.
+    const { PRIVATE_TOOLS } = await import("../src/council-store.js");
+
+    for (const name of ["recall", "feed", "brief_material", "loops", "recent_prompts"]) {
+      expect(PRIVATE_TOOLS.has(name), name).toBe(true);
+    }
+    expect(PRIVATE_TOOLS.has("status")).toBe(false);
   });
 });
 
