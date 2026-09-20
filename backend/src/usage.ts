@@ -215,6 +215,7 @@ export function summarize(
   sessions: Session[],
   now = Date.now(),
   plan: PlanUsage | null = null,
+  planError: string | null = null,
 ): UsageSummary {
   const measured = sessions.filter(
     (s): s is Session & { usage: SessionUsage; endedAt: string } => !!s.usage && !!s.endedAt,
@@ -311,5 +312,8 @@ export function summarize(
     months: [...byMonth.values()],
     outcomes,
     plan,
+    // Only when there is an absence to explain: a plan that read fine carries
+    // no stale reason from whenever it last did not.
+    planError: plan ? null : planError,
   };
 }

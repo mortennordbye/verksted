@@ -87,17 +87,50 @@ export async function oauthToken(now = Date.now()): Promise<string | undefined> 
   }
 }
 
+/**
+ * Why the last read of the plan came back with nothing.
+ *
+ * Every way this can fail used to end at the same `null`, and the hub answers
+ * a null plan by hiding the meters — so a token the account had stopped
+ * accepting, an endpoint that had changed shape under an undocumented read,
+ * and a pod with no token at all were one silence. On 2026-09-20 the pod had
+ * been in that silence long enough that the week-window guard in front of the
+ * unattended runs had nothing to read and had quietly stopped guarding.
+ *
+ * Never the token, never the body: a status and a short reason, which is all
+ * that is needed to tell those three apart.
+ */
+let lastError: string | null = null;
+
+export function planError(): string | null {
+  return lastError;
+}
+
 async function fetchPlan(): Promise<PlanUsage | null> {
   const token = await oauthToken();
-  if (!token) return null;
+  if (!token) {
+    lastError = "no token: none on the settings page, and no login on the volume";
+    return null;
+  }
   try {
     const res = await fetch(USAGE_URL, {
       headers: { authorization: `Bearer ${token}`, "anthropic-beta": "oauth-2025-04-20" },
       signal: AbortSignal.timeout(10_000),
     });
-    if (!res.ok) return null;
-    return parsePlan(await res.json());
-  } catch {
+    if (!res.ok) {
+      lastError =
+        res.status === 401 || res.status === 403
+          ? `the account refused the token (HTTP ${res.status}): it has expired or been revoked`
+          : `the account answered HTTP ${res.status}`;
+      return null;
+    }
+    const plan = parsePlan(await res.json());
+    // A 200 this cannot read is the endpoint having moved, not a credential
+    // problem, and the two want opposite things done about them.
+    lastError = plan ? null : "the account answered in a shape this cannot read";
+    return plan;
+  } catch (err) {
+    lastError = `could not reach the account: ${err instanceof Error ? err.message : "unknown"}`;
     return null;
   }
 }

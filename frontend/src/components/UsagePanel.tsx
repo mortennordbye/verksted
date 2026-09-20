@@ -330,7 +330,9 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
   if (!usage) return null;
   const month = usage.windows.find((w) => w.days === 30) ?? usage.windows.at(-1);
   const any = usage.windows.some((w) => w.sessions > 0);
-  if (!usage.plan && !any) return null;
+  // A plan that could not be read is worth saying even on a bench that has
+  // run nothing: it is the meters' absence that needs explaining.
+  if (!usage.plan && !any && !usage.planError) return null;
   const monthTotal = month ? total(month.tokens) : 0;
   const prompt = month ? month.tokens.input + month.tokens.cacheRead + month.tokens.cacheWrite : 0;
   const cacheRate = prompt > 0 && month ? (month.tokens.cacheRead / prompt) * 100 : null;
@@ -338,6 +340,14 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
 
   return (
     <>
+      {!usage.plan && usage.planError && (
+        <div
+          role="status"
+          className="mt-4 border-t border-line pt-4 font-mono text-xs text-wait"
+        >
+          Plan meters unavailable — {usage.planError}
+        </div>
+      )}
       {usage.plan && (
         <div className="mt-4 border-t border-line pt-4">
           <div className="grid grid-cols-2 gap-x-6 gap-y-4">
