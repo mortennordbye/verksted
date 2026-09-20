@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../shared/api.js";
-import { shouldNotify, transitions } from "../src/notifier.js";
+import { shouldNotify, startNotifier, transitions } from "../src/notifier.js";
+
+// The timer case below drives startNotifier itself; the rest of the file is
+// about the two pure functions and does not reach either of these.
+const listSessions = vi.fn<() => Promise<Session[]>>();
+vi.mock("../src/sessions-store.js", () => ({ listSessions: () => listSessions() }));
+vi.mock("../src/push-store.js", () => ({
+  deviceCount: async () => 1,
+  send: async () => [],
+}));
 
 function s(id: string, status: Session["status"]): Session {
   return {
@@ -67,5 +76,36 @@ describe("notifier transitions", () => {
       [s("a", "running"), s("b", "done"), s("new", "waiting")],
     );
     expect(out).toEqual([]);
+  });
+});
+
+/**
+ * R-10: the poll had no in-flight guard. The session list is O(history) and can
+ * take longer than the five seconds between ticks, and a second pass would
+ * compare against the same `prev` as the first — the same session ending twice
+ * on the phone, while both passes read the whole volume.
+ */
+describe("the notifier's own timer", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("starts no pass while one is still running", async () => {
+    vi.useFakeTimers();
+    let finish: (sessions: Session[]) => void = () => {};
+    listSessions.mockReturnValue(
+      new Promise<Session[]>((resolve) => {
+        finish = resolve;
+      }),
+    );
+    startNotifier({ warn: vi.fn() });
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(listSessions).toHaveBeenCalledTimes(1);
+
+    finish([]);
+    listSessions.mockResolvedValue([]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(listSessions).toHaveBeenCalledTimes(2);
   });
 });

@@ -637,12 +637,19 @@ const CALENDAR_EVERY_MS = 15 * 60_000;
 /** The timers, for the sources that are not on this volume. */
 export function startPollers(log: Logger): void {
   const every = (ms: number, name: string, fn: () => Promise<number>) => {
+    // A source that is slow or hung must not have a second pass started on top
+    // of it: two passes over the same inbox file the same items twice.
+    let running = false;
     const tick = async () => {
+      if (running) return;
+      running = true;
       try {
         const n = await fn();
         if (n) log.info(`feed: ${n} item(s) from ${name}`);
       } catch (err) {
         log.warn(err, `${name} poll failed`);
+      } finally {
+        running = false;
       }
     };
     void tick();

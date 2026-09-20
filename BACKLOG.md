@@ -1120,3 +1120,40 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `backend/src/ws/attach.ts` (the `resize` branch of the message
   handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
   the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
+
+## The list no longer re-reads the volume, but it still walks it, and GETs still write
+
+- **What:** R-07, R-10 and R-31 are done: a pass over the session list stats
+  each meta and report rather than reading and parsing them, a transcript is
+  summed off a stream instead of in one uninterrupted pass, no poller starts a
+  pass on top of one already running, and a malformed meta costs its own row
+  instead of the whole list. What is left of the audit's root cause 4 is the
+  structural half. The walk is still over everything that ever ran (145
+  sessions on the pod, one stat each, several times a minute) rather than over
+  what is still live, because nothing prunes session metadata or its `.report`,
+  `.exit` and `.conv` sidecars (R-08). And the writing still happens inside
+  reads: `GET /api/sessions` stamps ends and measures, `GET /api/usage`
+  backfills 25 metas, `GET /api/feed` runs `pollBench` and lifts snoozes, so
+  what the volume does depends on who is polling (R-33). R-09's stale-snapshot
+  write comes out of the same thing: the sweep no longer resurrects a session
+  deleted while it was being stamped, but its read-modify-write still does not
+  hold the id for the whole of it, so a review mark saved during a sweep can
+  still be lost. The queue that fixes that now exists and is used by every
+  write in the schedules store (`serial.ts`, R-11); adopting it for session
+  metadata means moving the sweep first, or every list waits behind a write.
+- **Why deferred:** Both want one background sweeper, and it is a bigger piece
+  than any of the findings it closes: the list's sweep has to move without the
+  UI losing the "a session that just died reads as done" latency it has now,
+  and around twenty tests call `listSessions` expecting the sweep to have
+  happened by the time it returns. Retention is a policy call on top of that —
+  how long history stays readable on the hub, and whether old runs are archived
+  into a monthly file or dropped — not something to pick while refactoring.
+- **Unblocked by:** Agreeing the retention window, then doing root cause 4 as
+  its own piece: one background job that sweeps, measures and backfills, GET
+  handlers that only read, an archive step for metas ended more than N days
+  ago, and cached liveness so the per-session routes stop spawning `tmux ls`
+  twice.
+- **Where:** `backend/src/sessions-store.ts` (`readAll`, `listSessions` and its
+  sweep, `reapFinishedSessions`), `backend/src/routes/usage.ts`
+  (`backfillUsage` on a GET), `backend/src/pollers.ts` (`pollBench` on
+  `GET /api/feed`), `backend/src/maintenance.ts`, `backend/src/events.ts`.

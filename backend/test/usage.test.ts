@@ -1,7 +1,8 @@
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../shared/api.js";
 
 /**
@@ -121,6 +122,32 @@ describe("usageOf", () => {
 
     const u = await usage.usageOf(path.join(reposDir, "demo"), CONV);
     expect(u).toMatchObject({ output: 17, cacheRead: 300, turns: 2 });
+  });
+
+  /**
+   * R-10: this runs inside the list sweep, which is a GET any poll can land
+   * on. Reading the whole transcript and parsing it in one pass held the event
+   * loop — every terminal websocket on the pod with it — for as long as that
+   * took, and a busy session's transcript is tens of megabytes. What is pinned
+   * here is the mechanism rather than a duration: the file is read as a stream,
+   * so no pass over it is one uninterrupted piece of work, and the sum is the
+   * same as it ever was.
+   */
+  it("reads a transcript a line at a time, never the whole file at once", async () => {
+    const lines: string[] = [];
+    for (let i = 0; i < 12_000; i++) {
+      lines.push(assistant(`m${i}`, { input: 1, output: 1, read: 1, write: 1 }));
+    }
+    writeTranscript("demo", lines);
+
+    const readFile = vi.spyOn(fsp, "readFile");
+    try {
+      const u = await usage.usageOf(path.join(reposDir, "demo"), CONV);
+      expect(u).toMatchObject({ turns: 12_000, input: 12_000, cacheRead: 12_000 });
+      expect(readFile).not.toHaveBeenCalled();
+    } finally {
+      readFile.mockRestore();
+    }
   });
 
   it("is null when there is no transcript, and zero when it has no answers", async () => {
