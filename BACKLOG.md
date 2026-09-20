@@ -922,3 +922,50 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/events.ts` (`SOURCES.sessions`),
   `backend/src/sessions-store.ts` (`readAll`, `listSessions`),
   `backend/src/maintenance.ts` (where a retention sweep belongs).
+
+## Three assistant tools change something that cannot be put back
+
+- **What:** `mail_rule_delete`, `mail_label_delete` and `calendar_delete` are
+  the only tools whose effect is neither read, reversible nor a card. A Gmail
+  filter's definition goes with the filter, a label comes off every message it
+  was on at once, and nothing puts a deleted event back — a whole series least
+  of all. They are the chair's alone, so the person said it in the chat, but
+  that is a weaker thing than a card showing what is about to go. This is A-08
+  in `FABLE-AUDIT-2026-09-19.md`.
+- **Why deferred:** Each needs a proposal kind of its own — a wire type, a
+  validator, a description, an executor and a card row — and the branch that
+  found them had already added two for the schedules. The effect is written
+  down in the policy table meanwhile, and a test pins the set at exactly these
+  three, so a fourth cannot join them quietly.
+- **Unblocked by:** Wanting any of the three to be undoable, or simply doing the
+  work. The cheaper half is worth doing first: write the deleted ICS to a trash
+  directory before `deleteCalendarObject`, and log every mail move and relabel
+  to an append-only file, which is what an undo would be replayed from.
+- **Where:** `runtime/verksted-mcp.mjs` (the POLICY table and the three tools),
+  `backend/src/routes/proposals.ts` (`ACTION`, `describe`, `validateAction`,
+  `execute`), `shared/api.ts` (`ProposalAction`),
+  `frontend/src/components/ProposalCard.tsx`, `backend/src/calendar.ts`
+  (`remove`), `backend/src/gmail.ts`.
+
+## The assistant's chromium can still reach the pod's own API
+
+- **What:** A turn that has read something of the person's loses its browser for
+  the rest of the turn, which closes the exfiltration path A-01 named. What is
+  not closed is the other half of that finding: the chair's chromium runs on the
+  pod, so it can open `http://127.0.0.1:<PORT>/` and any cluster-internal
+  address, and from a page on the app's own origin every fetch is same-origin.
+  A turn that has read nothing private could be talked into driving the browser
+  at `/api/settings/vars/:key/reveal` or `POST /api/proposals/:id/do`.
+- **Why deferred:** There is no clean way to fence it from where the backend
+  sits. Chromium's `--host-resolver-rules` only covers names, and the addresses
+  that matter here are literals, which skip the resolver entirely. The controls
+  that do work are a deny proxy in front of that browser, or a NetworkPolicy —
+  and the second is the same change as the rest of the privilege separation
+  work, which is where this belongs.
+- **Unblocked by:** Privilege separation on the pod (root cause 1 in the audit):
+  agents and the assistant's chromium under their own unix user, with egress
+  limited by a NetworkPolicy. A per-boot secret on `do`, `reveal` and session
+  creation is the cheaper half and closes the named routes on its own.
+- **Where:** `backend/src/browser.ts` (`launch`, the assistant's fixed id and
+  port), `backend/src/assistant.ts` (`mcpConfig`, the browser wrapper),
+  `backend/src/origin.ts`, and the Deployment in `mortennordbye/Homelab`.
