@@ -16,6 +16,13 @@ import { createInterface } from "node:readline";
 
 const API = process.env.VK_API ?? "http://127.0.0.1:8080";
 
+/**
+ * What went wrong, out of a catch binding that may hold anything at all. A
+ * rejected fetch carries an Error, but a thrown string reads as "undefined"
+ * when a message is taken off it unasked.
+ */
+const reason = (err) => (err instanceof Error ? err.message : String(err));
+
 async function call(method, path, body) {
   const res = await fetch(`${API}${path}`, {
     method,
@@ -107,7 +114,8 @@ const ALLOW =
  * the same reason VK_UNATTENDED is not something a prompt can ask for.
  */
 const MEMBER = process.env.VK_MEMBER || null;
-const mine = (path) => `/api/council/${encodeURIComponent(MEMBER)}${path}`;
+// Every caller is behind an `if (MEMBER)`, which a closure cannot narrow.
+const mine = (path) => `/api/council/${encodeURIComponent(/** @type {string} */ (MEMBER))}${path}`;
 
 /**
  * This run of the CLI, named by the backend that spawned it.
@@ -1515,7 +1523,7 @@ async function recordCall(tool, args, ok, result) {
     });
     return "";
   } catch (err) {
-    return `\n(not written to the tool log: ${err.message})`;
+    return `\n(not written to the tool log: ${reason(err)})`;
   }
 }
 
@@ -1577,7 +1585,7 @@ async function handle(msg) {
       return send({
         jsonrpc: "2.0",
         id: msg.id,
-        result: { content: [{ type: "text", text: `failed: ${err.message}` }], isError: true },
+        result: { content: [{ type: "text", text: `failed: ${reason(err)}` }], isError: true },
       });
     }
     const policy = policyOf(tool.name);
@@ -1593,7 +1601,7 @@ async function handle(msg) {
           id: msg.id,
           result: {
             content: [
-              { type: "text", text: `failed: could not close the browser first: ${err.message}` },
+              { type: "text", text: `failed: could not close the browser first: ${reason(err)}` },
             ],
             isError: true,
           },
@@ -1621,7 +1629,7 @@ async function handle(msg) {
           content: [
             {
               type: "text",
-              text: `failed: ${err.message}${await recordCall(tool, args, false, err.message)}`,
+              text: `failed: ${reason(err)}${await recordCall(tool, args, false, reason(err))}`,
             },
           ],
           isError: true,

@@ -499,22 +499,25 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   runner against the present `npm ci` path.
 - **Where:** `.github/workflows/ci.yml` (the `test` job)
 
-## The shipped runtime files are linted but not type-checked
+## The runtime is type-checked, but its responses are still untyped
 
-- **What:** `runtime/verksted-mcp.mjs` is 1,645 lines that destructure backend
-  responses blindly. eslint and shellcheck now cover `runtime/`, which was the
-  bigger gap, but nothing checks that a field the server reads off a response is
-  a field the response has. The audit calls this A-30; the same finding names
-  casts at `routes/assistant.ts` and `routes/memory.ts`.
-- **Why deferred:** `// @ts-check` with JSDoc imports from `shared/api.ts` is
-  the cheap version and it is still a pass over the whole file, with an unknown
-  number of findings — a separate change from wiring the linters up, which is
-  what was asked for here.
-- **Unblocked by:** Running `npx tsc --noEmit --allowJs --checkJs` over the file
-  once to see the size of it. If it is large, the same work is the natural
-  moment to take the MCP SDK (see the entry above), which brings its own types.
-- **Where:** `runtime/verksted-mcp.mjs`, `eslint.config.js` (the `runtime/**`
-  block), `shared/api.ts`
+- **What:** `npm run lint:runtime` now type-checks `runtime/**/*.mjs` as
+  JavaScript, which closed the A-30 finding's first half. What it checks is
+  what the file itself says: `call()` returns `any`, so every field read off a
+  backend response is still unchecked, and the 16 casts in
+  `routes/assistant.ts` and `routes/memory.ts` — the other half of A-30 — are
+  untouched. `noImplicitAny` is off in `tsconfig.runtime.json` for the same
+  reason.
+- **Why deferred:** Typing the responses means JSDoc `import("../shared/api.js")`
+  on `call()` and a type per route it touches, which is a pass over all 1,645
+  lines and a decision about how much of `shared/api.ts` the MCP server should
+  depend on. The check being there at all is what stops the next blind
+  destructure; the rest is cleanup with a known shape.
+- **Unblocked by:** Deciding whether the MCP server takes the official SDK (the
+  entry above), which brings its own types and would make this moot, or stays
+  hand-rolled and gets JSDoc types of its own.
+- **Where:** `runtime/verksted-mcp.mjs` (`call`, `reason`), `tsconfig.runtime.json`,
+  `backend/src/routes/assistant.ts`, `backend/src/routes/memory.ts`, `shared/api.ts`
 
 ## The image is scanned but carries no SBOM or provenance
 

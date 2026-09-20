@@ -1,0 +1,24 @@
+// The files shipped into the image but built by nobody: verksted-mcp.mjs is
+// 1,645 lines of plain JS that destructures backend responses, and until this
+// existed nothing checked that a field it reads off a response is a field the
+// response has (A-30 in the audit). Checked as JavaScript — no build step, no
+// types to write out — so the cost is JSDoc where an inference cannot reach.
+//
+// noImplicitAny is off on purpose: annotating every parameter of a file that
+// is deliberately untyped would be the whole pass, and the value here is the
+// property checks. Run by `npm run lint:runtime`.
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true
+  },
+  "include": ["runtime/**/*.mjs"]
+}
