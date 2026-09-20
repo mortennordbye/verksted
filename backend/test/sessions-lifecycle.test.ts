@@ -201,6 +201,29 @@ describe("liveness when tmux answers", () => {
     expect((await store.listSessions())[0].work).toBeNull();
   });
 
+  /**
+   * R-06: a live session used to carry the seconds since its pane last
+   * printed, worked out at the moment of asking. Every read of the list
+   * therefore differed from the last, so the event stream's "only send what
+   * changed" test never held once and the whole session history went out to
+   * every client every three seconds.
+   */
+  it("says the same thing twice about a session that has done nothing", async () => {
+    writeMeta("vk-demo-1");
+    tmuxList.mockResolvedValue(["vk-demo-1"]);
+    // Once each, so the fixed activity does not outlive this case: the shared
+    // stub derives it from the clock, which is the whole point here.
+    const pane = [{ name: "vk-demo-1", activity: 1_760_000_000, panePid: 1 }];
+    tmuxDetail.mockResolvedValueOnce(pane).mockResolvedValueOnce(pane);
+
+    const first = JSON.stringify(await store.listSessions());
+    await new Promise((r) => setTimeout(r, 25));
+    const second = JSON.stringify(await store.listSessions());
+
+    expect(second).toBe(first);
+    expect(JSON.parse(first)[0].lastActivityAt).toBe("2025-10-09T08:53:20.000Z");
+  });
+
   it("reaps a shell companion left behind by a dead agent session", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue(["vk-demo-1-shell"]);
