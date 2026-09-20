@@ -413,13 +413,24 @@ async function writeReview(id: string, change: ReviewChange): Promise<SessionRev
   };
 }
 
+/**
+ * The ports that are actually spoken for: a session's chromium is closed when
+ * the session ends, so only sessions that have not ended hold one. Counting
+ * every meta on disk retired a port per session for good, and the pool is 200
+ * wide — a pod that starts nine sessions a night stops being able to start any
+ * after three weeks, with `createSession` throwing on the way in.
+ */
+function usedCdpPorts(metas: Meta[]): Set<number> {
+  return new Set(metas.filter((m) => !m.endedAt && m.cdpPort).map((m) => m.cdpPort!));
+}
+
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
 export async function cdpPortFor(id: string): Promise<number | null> {
   if (!SESSION_ID_RE.test(id)) return null;
   try {
     const meta: Meta = JSON.parse(await fs.readFile(metaPath(id), "utf8"));
     if (!meta.cdpPort) {
-      meta.cdpPort = nextCdpPort(new Set((await readAll()).map((m) => m.cdpPort!).filter(Boolean)));
+      meta.cdpPort = nextCdpPort(usedCdpPorts(await readAll()));
       await writeMeta(meta);
     }
     return meta.cdpPort;
@@ -449,8 +460,11 @@ export async function listSessions(project?: string): Promise<Session[]> {
       m.work = done.work;
       m.endCommit = done.endCommit;
       m.usage = await captureUsage(m);
-      await writeMeta(m);
+      // Before the meta says ended, because that is what frees its CDP port for
+      // the next session: a chromium still holding the port would make that
+      // session's browser fail to bind.
       await closeBrowser(m.id);
+      await writeMeta(m);
     }
     // A shell companion must not outlive its agent session.
     if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
@@ -737,7 +751,7 @@ export function createSession(
       title: opts.title?.trim() || `${agent}-${seq}`,
       createdAt: new Date().toISOString(),
       endedAt: null,
-      cdpPort: nextCdpPort(new Set(metas.map((m) => m.cdpPort!).filter(Boolean))),
+      cdpPort: nextCdpPort(usedCdpPorts(metas)),
       // Read after the sync above, so the branch the app just fast-forwarded is
       // the baseline and only what the session does counts against it.
       startCommit: await headCommit(projectDir),

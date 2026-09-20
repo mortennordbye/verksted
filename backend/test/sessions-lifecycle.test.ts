@@ -245,6 +245,30 @@ describe("createSession", () => {
     expect(new Set(ports).size).toBe(2);
   });
 
+  // The pool is 200 wide and metadata is never pruned. Counting every meta on
+  // disk retired a port per session, so creation stopped for good a few weeks
+  // in — the pod was 145 sessions into that when the audit found it.
+  it("hands an ended session's cdp port to the next one", async () => {
+    for (const [i, id] of ["vk-demo-1", "vk-demo-2", "vk-demo-3"].entries()) {
+      writeMeta(id, { endedAt: "2026-01-02T00:00:00.000Z", cdpPort: 9222 + i });
+    }
+    tmuxList.mockResolvedValue([]);
+
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+
+    // The stub hands out 9222 + used.size, so this is "none of the three count".
+    expect(readMetaFile("vk-demo-4").cdpPort).toBe(9222);
+  });
+
+  it("keeps a live session's cdp port to itself", async () => {
+    writeMeta("vk-demo-1", { cdpPort: 9222 });
+    tmuxList.mockResolvedValue(["vk-demo-1"]);
+
+    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+
+    expect(readMetaFile("vk-demo-2").cdpPort).toBe(9223);
+  });
+
   // A tmux session with no metadata is invisible in the UI and never reaped —
   // only kubectl exec would find it.
   it("leaves no metadata behind when the agent fails to start", async () => {
