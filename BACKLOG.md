@@ -1006,6 +1006,32 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   port), `backend/src/assistant.ts` (`mcpConfig`, the browser wrapper),
   `backend/src/origin.ts`, and the Deployment in `mortennordbye/Homelab`.
 
+## An unattended run can still reach the backend it runs under
+
+- **What:** `vk-guard` now denies `curl`, `wget`, `nc` and friends aimed at
+  `127.0.0.1`, `localhost`, `::1` or `0.0.0.0`, which is the near half of
+  S-04(b) in `FABLE-AUDIT-2026-09-19.md`. The far half is untouched: the guard
+  reads command lines, so anything that reaches the backend without spelling
+  the address out — the ingress hostname, a script the run wrote and then ran,
+  a fetch inside a node process, the session's own playwright MCP — still gets
+  an unauthenticated API, because `origin.ts` accepts a request that carries no
+  Origin at all. `POST /api/projects/<p>/sessions` with `autoPermissions: true`
+  starts an agent that has no guard on it.
+- **Why deferred:** The fix is on the backend's side, not the guard's: a
+  per-boot secret, handed only to the HTML served through the ingress, required
+  on the routes that create sessions, reveal settings values and run a
+  proposal. That is a real change to how the frontend authenticates every
+  mutating call, and it lands next to the same routes root cause 1 will move
+  behind a second unix user, so doing it twice would be the waste.
+- **Unblocked by:** Deciding the shape of the per-boot secret (a header the
+  built index.html carries, or a cookie set on first load through the ingress)
+  and whether it applies to every mutating route or only the handful that
+  matter. Privilege separation makes it redundant for the unattended stages but
+  not for the assistant's browser, so it is worth having either way.
+- **Where:** `backend/src/origin.ts` (the no-Origin path), `runtime/vk-guard`
+  (the loopback rule, and the comment that says what it cannot do),
+  `backend/src/routes/sessions.ts`, `routes/settings.ts`, `routes/proposals.ts`.
+
 ## A member's tools are narrowed on read with nothing to say so
 
 - **What:** A member that reads the web has anything private taken off its tool
