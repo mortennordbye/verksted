@@ -249,7 +249,7 @@ describe("createSession", () => {
       ["vk-demo-1", "vk-demo-2", "vk-demo-3", "vk-demo-4", "vk-demo-5"].sort(),
     );
     // And each one is on disk, rather than the last writer winning.
-    expect(fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".json"))).toHaveLength(5);
+    expect(fs.readdirSync(sessionsDir).filter((f) => f.startsWith("vk-"))).toHaveLength(5);
   });
 
   it("records where the repo was, as the stick to measure the session against", async () => {
@@ -299,7 +299,7 @@ describe("createSession", () => {
     await expect(
       store.createSession("demo", path.join(reposDir, "demo"), "claude"),
     ).rejects.toThrow();
-    expect(fs.readdirSync(sessionsDir).filter((f) => f.endsWith(".json"))).toHaveLength(0);
+    expect(fs.readdirSync(sessionsDir).filter((f) => f.startsWith("vk-"))).toHaveLength(0);
   });
 
   it("keeps allocating ids after a failed create", async () => {

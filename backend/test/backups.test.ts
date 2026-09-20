@@ -57,6 +57,28 @@ async function settle(timeoutMs = 120_000): Promise<void> {
   }
 }
 
+/**
+ * The same, for a backup nothing asked for directly.
+ *
+ * `startNightly` decides whether to catch up after an async read of the
+ * archive directory, and does not wait for the answer — so a poll that lands
+ * before that decision sees nothing running and `settle` returns at once. The
+ * assertion then ran against a backup that started moments later, and the next
+ * test found it: two archives where it expected none. Rare on a laptop, which
+ * is why it reached CI to fail there.
+ *
+ * A window that passes with nothing started is the answer for the test that
+ * expects nothing to start, so this waits rather than throwing.
+ */
+async function settleBoot(startsWithin = 5_000): Promise<void> {
+  const until = Date.now() + startsWithin;
+  while (Date.now() < until) {
+    if ((await app.inject({ method: "GET", url: "/api/backups" })).json().running) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  await settle();
+}
+
 beforeAll(async () => {
   backupDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bk-out-"));
   dataDir = fixture();
@@ -251,7 +273,7 @@ describe("the nightly run", () => {
       const store = await import("../src/backups-store.js");
 
       const job = store.startNightly(silent);
-      await settle();
+      await settleBoot();
 
       expect(fs.readdirSync(backupDir).filter((f) => f.endsWith(".tar.gz"))).toHaveLength(1);
       expect((await store.status()).stale).toBe(false);
@@ -267,7 +289,7 @@ describe("the nightly run", () => {
       const before = fs.readdirSync(backupDir).length;
 
       const job = store.startNightly(silent);
-      await settle();
+      await settleBoot();
 
       expect(fs.readdirSync(backupDir)).toHaveLength(before);
       job?.stop();

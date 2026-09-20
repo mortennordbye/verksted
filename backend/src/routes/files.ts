@@ -879,6 +879,27 @@ export default async function fileRoutes(app: FastifyInstance) {
     regex: { type: "boolean" },
   };
 
+  /**
+   * What rg printed, as far as the screen will show: `path:line:text`, capped
+   * at 300. Separate from the call because the same lines have to be read back
+   * out of a run that was cut short.
+   */
+  const hitsIn = (stdout: string): SearchHit[] => {
+    const hits: SearchHit[] = [];
+    for (const line of stdout.split("\n")) {
+      if (hits.length >= 300) break;
+      const m = /^(.+?):(\d+):(.*)$/.exec(line);
+      if (m) {
+        hits.push({
+          path: m[1].replace(/^\.\//, ""),
+          line: Number(m[2]),
+          text: m[3].trim().slice(0, 200),
+        });
+      }
+    }
+    return hits;
+  };
+
   app.get<{ Params: { name: string }; Querystring: { q: string } & SearchFlags }>(
     "/api/projects/:name/search",
     {
@@ -912,23 +933,21 @@ export default async function fileRoutes(app: FastifyInstance) {
           ],
           { cwd: repoDir, timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
         );
-        const hits: SearchHit[] = [];
-        for (const line of stdout.split("\n")) {
-          if (hits.length >= 300) break;
-          const m = /^(.+?):(\d+):(.*)$/.exec(line);
-          if (m) {
-            hits.push({
-              path: m[1].replace(/^\.\//, ""),
-              line: Number(m[2]),
-              text: m[3].trim().slice(0, 200),
-            });
-          }
-        }
-        return hits;
+        return hitsIn(stdout);
       } catch (err) {
-        const code = (err as { code?: number }).code;
+        const code = (err as { code?: number | string }).code;
         if (code === 1) return []; // rg: no matches
         if (code === 2) return reply.code(400).send({ error: "invalid pattern" });
+        // A query that matches half the repo fills the buffer, and one that
+        // walks a huge tree hits the timeout. Both kill rg with whatever it had
+        // already written still in hand, and the first 300 of those lines are
+        // the answer anyway — the list is capped at 300 on a good day too. A
+        // 500 was the one outcome that told the person nothing (R-32).
+        const partial = (err as { stdout?: string }).stdout;
+        if (partial) {
+          req.log.warn({ code }, "search truncated");
+          return hitsIn(partial);
+        }
         req.log.error(err, "search failed");
         return reply.code(500).send({ error: "search failed" });
       }

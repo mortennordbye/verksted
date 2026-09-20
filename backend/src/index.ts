@@ -65,24 +65,43 @@ process.on("unhandledRejection", (reason) => {
 // app first lets in-flight requests finish and websockets close cleanly, rather
 // than every phone seeing a dropped socket on a rolling restart.
 let shuttingDown = false;
-for (const sig of ["SIGTERM", "SIGINT"] as const) {
-  process.on(sig, () => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    void app
-      .close()
-      .catch((err: unknown) => app.log.error({ err }, "shutdown failed"))
-      .finally(() => {
-        killAll();
-        stopVoice();
-        process.exit(0);
-      });
-    // Kubernetes sends SIGKILL after its grace period regardless; this just
-    // makes sure a wedged close does not hold chromium processes open.
-    setTimeout(() => {
-      killAll();
-      stopVoice();
-      process.exit(0);
-    }, 8_000).unref();
-  });
+function shutdown(code: number): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const done = () => {
+    killAll();
+    stopVoice();
+    process.exit(code);
+  };
+  void app
+    .close()
+    .catch((err: unknown) => app.log.error({ err }, "shutdown failed"))
+    .finally(done);
+  // Kubernetes sends SIGKILL after its grace period regardless; this just
+  // makes sure a wedged close does not hold chromium processes open.
+  setTimeout(done, 8_000).unref();
 }
+
+for (const sig of ["SIGTERM", "SIGINT"] as const) {
+  process.on(sig, () => shutdown(0));
+}
+
+/**
+ * A synchronous throw nobody caught (R-23).
+ *
+ * Without a handler Node prints and exits at once, and tmux runs in this
+ * container: the pane, the agent and its working state go with the process,
+ * and only claude sessions can be restored. One throw from an event handler —
+ * `pty.resize` on a terminal that has just closed is the known candidate —
+ * cost a night's unattended work.
+ *
+ * It still exits, because a process that has thrown out of a listener is in a
+ * state nothing here can reason about, and k8s restarting it is the recovery.
+ * What this adds is the door on the way out: websockets closed rather than
+ * dropped, chromium children killed rather than orphaned, and a log line
+ * saying what happened. Non-zero, so a crash loop is visible as one.
+ */
+process.on("uncaughtException", (err) => {
+  app.log.error({ err }, "uncaught exception, shutting down");
+  shutdown(1);
+});
