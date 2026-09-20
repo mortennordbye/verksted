@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fastify/helmet": "^13.1.1",
     "@fastify/static": "^10.0.0",
     "@fastify/websocket": "^11.0.0",
     "croner": "^10.0.1",

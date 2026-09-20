@@ -1,9 +1,15 @@
 import fs from "node:fs";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
+import helmet from "@fastify/helmet";
 import { env } from "./env.js";
-import { isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js";
+import { hostAllowed, isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js";
 import projectRoutes from "./routes/projects.js";
 import sessionRoutes from "./routes/sessions.js";
 import fileRoutes from "./routes/files.js";
@@ -53,23 +59,97 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
           },
   });
 
-  // Deny cross-origin state changes and websocket upgrades before any route
-  // sees them; see origin.ts for why this stands in for CORS.
-  app.addHook("onRequest", async (req, reply) => {
-    if (!needsOriginCheck(req) || originAllowed(req)) return;
-    req.log.warn({ origin: req.headers.origin }, "blocked cross-origin request");
-
+  /**
+   * A refused request the browser is waiting on. A websocket handshake needs
+   * the socket closed by hand: the client is waiting for a 101 and the
+   * connection never enters keep-alive, so a plain reply would leave it
+   * half-open until the OS gives up — a free socket leak for anything that
+   * keeps trying.
+   */
+  const refuse = (req: FastifyRequest, reply: FastifyReply, why: string) => {
     if (isWebsocketUpgrade(req)) {
-      // A refused handshake needs the socket closed by hand. The client is
-      // waiting for a 101 and the connection never enters keep-alive, so a
-      // plain reply would leave it half-open until the OS gives up — a free
-      // socket leak for anything that keeps trying.
       req.raw.socket.end(
         "HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
       );
       return reply.hijack();
     }
-    return reply.code(403).send({ error: "origin not allowed" });
+    return reply.code(403).send({ error: why });
+  };
+
+  // Every request, read or write: the name it was addressed to has to be one
+  // this deployment answers for, or the origin check below is satisfied by DNS
+  // rebinding. See origin.ts.
+  app.addHook("onRequest", async (req, reply) => {
+    if (hostAllowed(req)) return;
+    req.log.warn({ host: req.headers.host }, "blocked request for an unknown host");
+    return refuse(req, reply, "host not allowed");
+  });
+
+  // Deny cross-origin state changes and websocket upgrades before any route
+  // sees them; see origin.ts for why this stands in for CORS.
+  app.addHook("onRequest", async (req, reply) => {
+    if (!needsOriginCheck(req) || originAllowed(req)) return;
+    req.log.warn({ origin: req.headers.origin }, "blocked cross-origin request");
+    return refuse(req, reply, "origin not allowed");
+  });
+
+  /**
+   * One error shape, and nothing internal in it.
+   *
+   * Without a handler here Fastify answers a thrown error with its message:
+   * `createSession` rejecting reports `Command failed: tmux new-session ... -e
+   * GH_TOKEN=ghp_...` straight to the client, and every route that awaits a
+   * child process is the same story. 4xx keeps its message — a schema
+   * rejection is about the request, and the client shows it — while 5xx says
+   * only that something broke and the detail stays in the log.
+   */
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status >= 500) {
+      req.log.error({ err }, "request failed");
+      return reply.code(status).send({ error: "internal error" });
+    }
+    return reply.code(status).send({ error: err.message });
+  });
+
+  /**
+   * Security headers. frame-ancestors is the one that matters most: without it
+   * any page can frame the app invisibly and steer taps onto "do", "force
+   * push" or "delete project" — no cookie needed, because there is no auth to
+   * carry. The CSP is the second layer under the markdown image rule (C-04):
+   * a reply written after reading a mail cannot carry what it read out in an
+   * image URL. 'unsafe-inline' for styles is xterm, which writes its own.
+   */
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "img-src": ["'self'", "data:", "blob:"],
+        "media-src": ["'self'", "data:", "blob:"],
+        "font-src": ["'self'", "data:"],
+        "connect-src": ["'self'", "ws:", "wss:"],
+        "worker-src": ["'self'", "blob:"],
+        "frame-ancestors": ["'none'"],
+        "base-uri": ["'self'"],
+        "form-action": ["'self'"],
+        "object-src": ["'none'"],
+        // The app is served over http inside the pod; the ingress terminates
+        // TLS in front of it, so upgrading requests would break `make run`.
+        "upgrade-insecure-requests": null,
+      },
+    },
+    // A cross-site page could otherwise embed /api/docs/raw as an image and
+    // learn that a document exists and how big it is.
+    crossOriginResourcePolicy: { policy: "same-origin" },
+    // The pane streams a session's browser; COEP would break nothing today but
+    // it also gains nothing here, and it blocks cross-origin images outright.
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: "no-referrer" },
+    hsts: env.PUBLIC_URL.startsWith("https://")
+      ? { maxAge: 15_552_000, includeSubDomains: true }
+      : false,
   });
 
   await app.register(websocket);

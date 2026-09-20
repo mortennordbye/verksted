@@ -34,4 +34,4 @@ build: ## production image
 	docker build --target runtime -t verksted .
 
 run: ## run the production image locally (needs .env, see .env.example); VK_PORT overrides 8080
-	docker run --rm -it -p $${VK_PORT:-8080}:8080 --env-file .env -v verksted-data:/data verksted
+	docker run --rm -it -p $${VK_BIND:-127.0.0.1}:$${VK_PORT:-8080}:8080 --env-file .env -v verksted-data:/data verksted
