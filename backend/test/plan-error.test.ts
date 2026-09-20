@@ -98,3 +98,88 @@ describe("why the plan could not be read", () => {
     expect(mod.planError()).not.toContain("secret-body-contents");
   });
 });
+
+/**
+ * A minute-long memo in front of this read means a pod with the hub open asks
+ * about fifteen hundred times a day. When the account started answering "too
+ * many requests", it went on asking at exactly that rate — which is how a
+ * limit stays tripped. The pod sat on an HTTP 429 for long enough that the
+ * meters were blank and the week-window guard in front of the nightly runs
+ * had nothing to read.
+ */
+describe("when the account says there have been too many requests", () => {
+  it("says so, and says when it will try again", async () => {
+    const mod = await read();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("", { status: 429 })),
+    );
+    expect(await mod.planUsage()).toBeNull();
+    expect(mod.planError()).toMatch(/rate-limiting/);
+    expect(mod.planError()).toMatch(/trying again in \d+ minutes/);
+  });
+
+  it("stops asking until the wait is over, rather than asking on every poll", async () => {
+    const mod = await read();
+    const fetchMock = vi.fn(async () => new Response("", { status: 429 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.useFakeTimers();
+    try {
+      await mod.planUsage();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Past the memo, so the read is attempted again — but not past the wait.
+      vi.advanceTimersByTime(90_000);
+      expect(await mod.planUsage()).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      // Past the wait: one more ask, and no more than one.
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(await mod.planUsage()).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits as long as the account asks it to", async () => {
+    const mod = await read();
+    const fetchMock = vi.fn(
+      async () => new Response("", { status: 429, headers: { "retry-after": "1800" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await mod.planUsage();
+    expect(mod.planError()).toMatch(/trying again in 30 minutes/);
+  });
+
+  it("starts the wait over once a read works again", async () => {
+    const mod = await read();
+    let status = 429;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        status === 429 ? new Response("", { status: 429 }) : Response.json(OK_BODY),
+      ),
+    );
+    vi.useFakeTimers();
+    try {
+      await mod.planUsage();
+      // Two refusals in a row take the wait from five minutes to ten.
+      vi.advanceTimersByTime(6 * 60_000);
+      await mod.planUsage();
+      expect(mod.planError()).toMatch(/in 10 minutes/);
+
+      status = 200;
+      vi.advanceTimersByTime(11 * 60_000);
+      expect(await mod.planUsage()).toMatchObject({ week: { percent: 40 } });
+
+      // …and the next refusal is five minutes again, not twenty.
+      status = 429;
+      vi.advanceTimersByTime(90_000);
+      await mod.planUsage();
+      expect(mod.planError()).toMatch(/in 5 minutes/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
