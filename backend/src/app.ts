@@ -131,7 +131,9 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
         "font-src": ["'self'", "data:"],
         "connect-src": ["'self'", "ws:", "wss:"],
         "worker-src": ["'self'", "blob:"],
-        "frame-ancestors": ["'none'"],
+        // 'self', not 'none': the document viewer frames /api/docs/raw to let
+        // the browser draw a PDF. Cross-site framing is what this is for.
+        "frame-ancestors": ["'self'"],
         "base-uri": ["'self'"],
         "form-action": ["'self'"],
         "object-src": ["'none'"],

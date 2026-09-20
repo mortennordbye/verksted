@@ -124,7 +124,8 @@ describe("origin check on mutating requests", () => {
  * every request the page makes — this is what stops it.
  */
 describe("host check", () => {
-  const get = (host: string, url = "/api/health") => app.inject({ method: "GET", url, headers: { host } });
+  const get = (host: string, url = "/api/health") =>
+    app.inject({ method: "GET", url, headers: { host } });
 
   it("refuses a name this deployment was never told about", async () => {
     const res = await get("evil.example:8080");
@@ -178,7 +179,9 @@ describe("security headers", () => {
       headers: { host: "pod:8080" },
     });
     const csp = String(res.headers["content-security-policy"]);
-    expect(csp).toContain("frame-ancestors 'none'");
+    // 'self' rather than 'none' only because the document viewer frames
+    // /api/docs/raw for a PDF; a page anywhere else still cannot.
+    expect(csp).toContain("frame-ancestors 'self'");
     expect(csp).toContain("img-src 'self' data: blob:");
     expect(csp).toContain("default-src 'self'");
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
