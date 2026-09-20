@@ -156,6 +156,28 @@ export async function upsert(seen: Seen): Promise<{ item: FeedItem; changed: boo
   return { item, changed: true };
 }
 
+/**
+ * File something whose version does not move when it happens again (R-19).
+ *
+ * The rule above is the right one for a source that numbers its events: a mail
+ * keeps its uid for ever, so an equal version has to mean "the same mail, leave
+ * it as the person left it". Two sources here have no such number — a session
+ * waiting for an answer is filed as `waiting`, a poller that cannot reach its
+ * source as the error it got — and for those an equal version meant the second
+ * time never came back: the item was `done` from the first time and stayed
+ * there. A session that stopped to ask twice was invisible the second time.
+ *
+ * The version moves when, and only when, the item had been finished with, so
+ * nothing churns while the same thing is still going on.
+ */
+export async function refile(seen: Seen): Promise<{ item: FeedItem; changed: boolean }> {
+  const existing = await get(seen.id);
+  if (existing?.state === "done" && existing.version === seen.version) {
+    return upsert({ ...seen, version: `${seen.version}#${Date.now()}` });
+  }
+  return upsert(seen);
+}
+
 /** The feed as the screen reads it: newest first, snoozes that are over lifted. */
 export async function list(): Promise<FeedItem[]> {
   const now = new Date().toISOString();

@@ -194,7 +194,10 @@ Three decisions hold it up:
   would grow without bound, since every turn carries the whole history. A
   briefing is a standing question with no yesterday in it.
 - **Beside the chat, not in front of it.** Its own guard, so a schedule firing
-  while you are typing neither refuses you nor is refused.
+  while you are typing neither refuses you nor is refused. Two of these wait
+  for each other rather than one failing: they are minutes apart by design, and
+  a 07:00 briefing that met triage mid-flight used to be reported as a broken
+  run and pushed to the phone at high priority.
 - **Read and notify, nothing else.** The MCP server offers only the tools
   marked `unattended`, so a tool that changes something is absent from
   `tools/list` rather than merely unapproved. The web goes too: fetching a page
@@ -208,8 +211,11 @@ nothing, and that is now the command line rather than a claim. Triage is handed
 raw mail subject lines to sort, which is exactly why.
 
 A broken run cannot push hourly: a ceiling counts unattended turns per day
-across every schedule, and a schedule whose previous run is still open is
-skipped rather than queued.
+across every schedule — in the bench's own day, not UTC, and a turn that
+produced nothing is not charged — and a schedule whose previous run is still
+open is skipped rather than queued. Above 95% of the week's plan window the
+clock stops spending it altogether: a tick records why it declined and starts
+nothing. Pressing "run now" is somebody asking, and is subject to neither.
 
 ## The chat itself
 

@@ -13,12 +13,13 @@ import * as feed from "./feed-store.js";
 import * as journal from "./journal-store.js";
 import * as loops from "./loops-store.js";
 import { announce } from "./notifier.js";
+import { planUsage } from "./plan.js";
 import { readProfile } from "./profile-store.js";
 import { readAssistantConfig } from "./settings-store.js";
 import type { FeedUrgency } from "../../shared/api.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
-import { claimIssue, pickIssue, readContract, stagePrompt } from "./maintainer.js";
+import { claimIssue, pickIssue, readContract, releaseIssue, stagePrompt } from "./maintainer.js";
 import { resolveInsideRepos } from "./paths.js";
 import { addWorktree, removeWorktree } from "./projects-store.js";
 import * as schedules from "./schedules-store.js";
@@ -89,7 +90,11 @@ let unattendedToday = 0;
  * halfway has already spent the expensive half and has nothing to show for it.
  */
 function overDailyCeiling(n = 1): boolean {
-  const day = new Date().toISOString().slice(0, 10);
+  // The bench's own day, not UTC (R-15): a ceiling keyed on the UTC date reset
+  // at 01:00 or 02:00 Oslo time, in the middle of the night these runs happen
+  // in, so the small hours were charged to the day that was ending and the
+  // backstop covered two halves of two days rather than one day.
+  const day = journal.today();
   if (day !== unattendedDay) {
     unattendedDay = day;
     unattendedToday = 0;
@@ -108,6 +113,42 @@ function overDailyCeiling(n = 1): boolean {
  */
 function refundCeiling(n: number): void {
   unattendedToday = Math.max(0, unattendedToday - n);
+}
+
+/**
+ * How full the week's window may be before the clock stops spending it.
+ *
+ * The ceiling above counts what this process started, which says nothing about
+ * the account it is spent against: the same subscription serves the laptop and
+ * claude.ai. At 95% a night's work is borrowed from the person's own morning,
+ * and the stage that starts anyway meets the wall mid-run.
+ */
+const PLAN_WEEK_LIMIT = 95;
+
+/**
+ * The subscription's own answer, as a refusal or null (R-15).
+ *
+ * Not being able to read it is not a refusal. The endpoint is undocumented and
+ * `planUsage` already answers null for anything it does not recognise, so a
+ * bench that stopped running its nights whenever a lookup failed would fail
+ * far more often, and for the wrong reason.
+ */
+async function planSpent(): Promise<string | null> {
+  const plan = await planUsage().catch(() => null);
+  if (!plan || plan.week.percent < PLAN_WEEK_LIMIT) return null;
+  return `the week's plan window is ${plan.week.percent}% spent`;
+}
+
+/**
+ * Both guards in front of a turn nobody asked for: what is left of the week,
+ * and what this day has already started. Reserves the ceiling when it answers
+ * null, exactly as `overDailyCeiling` does on its own.
+ */
+async function unattendedBlocked(n = 1): Promise<string | null> {
+  const spent = await planSpent();
+  if (spent) return spent;
+  if (overDailyCeiling(n)) return `${MAX_UNATTENDED_PER_DAY} unattended turns already ran today`;
+  return null;
 }
 
 interface Logger {
@@ -130,8 +171,20 @@ const LEARNING_CRON = "50 23 * * *";
 export const CATALOGUE_PER_NIGHT = 8;
 /** How far ahead a date in a document is worth a loop. */
 const LOOP_HORIZON_DAYS = 180;
-/** Cancels for jitter waits in flight, so a reload doesn't leave one hanging. */
-const waits = new Set<() => void>();
+/**
+ * Cancels for jitter waits in flight, by the schedule each belongs to.
+ *
+ * By schedule rather than in one heap (R-12): a reload runs on every create,
+ * patch and delete, and it used to cancel every wait there was. `fire` has
+ * already stamped the schedule by then, so the run did not happen, no run
+ * record was written and `catchUp` ignored the tick — editing schedule A at
+ * 02:05 lost B's night with nothing anywhere to say so. Only a schedule that
+ * is no longer there to run loses its wait now, and losing it is recorded.
+ *
+ * A schedule cannot hold two: croner's `protect` skips a tick whose
+ * predecessor is still going, and a wait is part of that predecessor.
+ */
+const waits = new Map<string, () => void>();
 
 function reason(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -139,25 +192,24 @@ function reason(err: unknown): string {
 
 /**
  * Sleep a random slice of the schedule's jitter window. Resolves false when a
- * reload cancelled the wait — the schedule changed under it, so the run that
- * was waiting is no longer the one to start.
+ * reload cancelled the wait — the schedule is gone or disabled, so the run that
+ * was waiting is no longer one to start.
  */
-function jitter(minutes: number): Promise<boolean> {
+function jitter(id: string, minutes: number): Promise<boolean> {
   if (minutes <= 0) return Promise.resolve(true);
   return new Promise((resolve) => {
     const timer = setTimeout(
       () => {
-        waits.delete(cancel);
+        waits.delete(id);
         resolve(true);
       },
       Math.random() * minutes * 60_000,
     );
-    const cancel = () => {
+    waits.set(id, () => {
       clearTimeout(timer);
-      waits.delete(cancel);
+      waits.delete(id);
       resolve(false);
-    };
-    waits.add(cancel);
+    });
   });
 }
 
@@ -271,12 +323,26 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
     log.warn({ schedule: id }, `schedule ${id} skipped: daily unattended ceiling reached`);
     return null;
   }
-  const { text, failed, turns } = await runUnattended(
-    schedule.prompt,
-    schedule.member,
-    schedule.convenes,
-  );
-  refundCeiling(reserved - turns);
+  let text: string;
+  let failed: boolean;
+  let turns: number;
+  try {
+    ({ text, failed, turns } = await runUnattended(
+      schedule.prompt,
+      schedule.member,
+      schedule.convenes,
+    ));
+  } catch (err) {
+    // The reservation is the whole of what this run was going to cost, and a
+    // turn that never started cost none of it. Leaking it here charged a
+    // collision to the day's ceiling and starved the runs behind it.
+    refundCeiling(reserved);
+    throw err;
+  }
+  // A turn that produced nothing is not charged either (R-15): an expired
+  // login fails every run, and a ceiling spent on failures takes the morning
+  // briefing down with it on the day somebody would notice.
+  refundCeiling(failed || !text ? reserved : reserved - turns);
   if (failed || !text) {
     const error = text || "the turn produced nothing";
     // The turn broke rather than the schedule deciding not to run: an expired
@@ -369,22 +435,40 @@ async function stageRun(id: string, schedule: Schedule, log: Logger): Promise<Ru
   }
   const wt = await addWorktree(schedule.project, `maint/${issue.number}`);
   // Claimed only once the worktree exists: a failed add leaves it queued.
-  await claimIssue(repoDir, issue.number);
-  const prompt = await stagePrompt(
-    stage,
-    { project: schedule.project, dir: wt.dir, contract },
-    schedule.prompt,
-    issue,
-  );
-  const session = await createSession(wt.name, wt.dir, "claude", {
-    title: `${schedule.name} · #${issue.number}`,
-    prompt: prompt + REPORT_CONTRACT,
-    unattended: stage,
-    issue: issue.number,
-  });
-  await schedules.recordRun(id, { sessionId: session.id });
-  log.info(`schedule ${id} started build session ${session.id} for #${issue.number}`);
-  return { session };
+  let claimed = false;
+  try {
+    await claimIssue(repoDir, issue.number);
+    claimed = true;
+    const prompt = await stagePrompt(
+      stage,
+      { project: schedule.project, dir: wt.dir, contract },
+      schedule.prompt,
+      issue,
+    );
+    const session = await createSession(wt.name, wt.dir, "claude", {
+      title: `${schedule.name} · #${issue.number}`,
+      prompt: prompt + REPORT_CONTRACT,
+      unattended: stage,
+      issue: issue.number,
+    });
+    await schedules.recordRun(id, { sessionId: session.id });
+    log.info(`schedule ${id} started build session ${session.id} for #${issue.number}`);
+    return { session };
+  } catch (err) {
+    // Nothing is running in it, so both halves go back (R-14). Left as they
+    // were, a transient `gh` or tmux failure took the queue with it for good:
+    // the issue stayed in-progress with nobody on it, and the directory it was
+    // claimed for made every later night fail on the same worktree.
+    await removeWorktree(wt.name).catch((e: unknown) =>
+      log.warn(e, `could not remove ${wt.name} after a failed build start`),
+    );
+    if (claimed) {
+      await releaseIssue(repoDir, issue.number).catch((e: unknown) =>
+        log.warn(e, `could not put #${issue.number} back on the queue`),
+      );
+    }
+    throw err;
+  }
 }
 
 async function launch(id: string, log: Logger): Promise<RunOutcome | null> {
@@ -452,13 +536,26 @@ let watcher: NodeJS.Timeout | undefined;
  * free of per-run state so a restart changes nothing about it.
  */
 export async function watchUnattended(log: Logger, now = Date.now()): Promise<void> {
-  for (const s of await listSessions()) {
+  const sessions = await listSessions();
+  // The working trees somebody is in right now. A build's worktree is named
+  // for its issue (`<repo>--maint-<number>`), so an issue put back in the
+  // queue is built in a directory with the name the finished session still
+  // carries — and this sweep, which runs every thirty seconds forever, would
+  // force-remove it under the live run (R-04).
+  const held = new Set(sessions.filter((s) => s.status !== "done").map((s) => s.project));
+  for (const s of sessions) {
     if (!s.unattended) continue;
     if (s.status === "done") {
       // A build's worktree has done its job once the session is over and
       // everything in it reached the remote; what is left is the pull request.
       // One with unpushed or uncommitted work is left for a person to read.
-      if (s.unattended === "build" && s.work && s.work.dirty === 0 && !s.work.unpushed) {
+      if (
+        s.unattended === "build" &&
+        s.work &&
+        s.work.dirty === 0 &&
+        !s.work.unpushed &&
+        !held.has(s.project)
+      ) {
         await removeWorktree(s.project)
           .then(() => log.info(`removed worktree ${s.project} after ${s.id}`))
           .catch(() => {
@@ -573,8 +670,9 @@ export function reloadSchedules(log: Logger): Promise<void> {
 export async function runJournal(log: Logger, day = journal.today()): Promise<boolean> {
   const said = journal.material(await saidOn(day), day);
   if (!said.trim()) return false;
-  if (overDailyCeiling(1)) {
-    log.warn({ day }, `journal for ${day} skipped: daily unattended ceiling reached`);
+  const blocked = await unattendedBlocked();
+  if (blocked) {
+    log.warn({ day }, `journal for ${day} skipped: ${blocked}`);
     return false;
   }
   const { name } = await readAssistantConfig();
@@ -584,6 +682,7 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
     systemPrompt: journalPrompt(name),
   });
   if (failed || !text.trim()) {
+    refundCeiling(1);
     log.warn({ day }, `journal for ${day} failed: ${text || "the turn produced nothing"}`);
     return false;
   }
@@ -647,8 +746,9 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   const items = await feed.untriaged();
   if (!items.length) return 0;
   if (!force && now - lastTriage < TRIAGE_EVERY_MS) return 0;
-  if (overDailyCeiling(1)) {
-    log.warn({}, "triage skipped: daily unattended ceiling reached");
+  const blocked = await unattendedBlocked();
+  if (blocked) {
+    log.warn({}, `triage skipped: ${blocked}`);
     return 0;
   }
   lastTriage = now;
@@ -667,6 +767,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
     systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
   });
   if (failed) {
+    refundCeiling(1);
     log.warn({}, `triage failed: ${text || "the turn produced nothing"}`);
     return 0;
   }
@@ -756,8 +857,9 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
   if (extracted || skipped) log.info(`docs: ${extracted} extracted, ${skipped} skipped`);
   const batch = await docs.uncatalogued(CATALOGUE_PER_NIGHT);
   if (!batch.length) return 0;
-  if (overDailyCeiling(1)) {
-    log.warn({}, "catalogue skipped: daily unattended ceiling reached");
+  const blocked = await unattendedBlocked();
+  if (blocked) {
+    log.warn({}, `catalogue skipped: ${blocked}`);
     return 0;
   }
   const { name } = await readAssistantConfig();
@@ -768,6 +870,7 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
     systemPrompt: cataloguePrompt(name),
   });
   if (failed) {
+    refundCeiling(1);
     log.warn({}, `catalogue failed: ${text || "the turn produced nothing"}`);
     return 0;
   }
@@ -825,8 +928,9 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
     (i) => (i.state === "done" && !i.did) || i.state === "snoozed" || i.urgency === "attention",
   );
   if (signal.length < 2) return 0;
-  if (overDailyCeiling(1)) {
-    log.warn({ day }, `learning for ${day} skipped: daily unattended ceiling reached`);
+  const blocked = await unattendedBlocked();
+  if (blocked) {
+    log.warn({ day }, `learning for ${day} skipped: ${blocked}`);
     return 0;
   }
   const { name } = await readAssistantConfig();
@@ -844,6 +948,7 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
     systemPrompt: learningPrompt(name, await sortingRules()),
   });
   if (failed) {
+    refundCeiling(1);
     log.warn({ day }, `learning failed: ${text || "the turn produced nothing"}`);
     return 0;
   }
@@ -888,8 +993,18 @@ async function rebuild(log: Logger): Promise<void> {
   learningJob = new Cron(LEARNING_CRON, { protect: true, timezone: env.TZ }, () => {
     void runLearning(log).catch((err) => log.warn(err, "learning failed"));
   });
-  for (const cancel of [...waits]) cancel();
-  for (const schedule of await schedules.listSchedules()) {
+  const stored = await schedules.listSchedules();
+  // Only the waits whose schedule is no longer one to run: the rest are ticks
+  // that have already been stamped, and cancelling them loses a night in
+  // silence. What a wait resumes into re-reads the schedule from the store, so
+  // a wait that survives an edit runs the edited version.
+  const live = new Set(stored.filter((s) => s.enabled).map((s) => s.id));
+  for (const [id, cancel] of [...waits]) {
+    if (live.has(id)) continue;
+    cancel();
+    log.info(`schedule ${id} dropped the tick it was waiting out: it is gone or disabled`);
+  }
+  for (const schedule of stored) {
     if (!schedule.enabled) continue;
     try {
       // protect: croner skips a tick whose predecessor is still running — which
@@ -910,8 +1025,15 @@ async function rebuild(log: Logger): Promise<void> {
   log.info(`scheduler: ${jobs.size} active schedule(s)`);
 }
 
-/** One firing of a timer: everything a tick does once the clock has spoken. */
-async function fire(schedule: Schedule, log: Logger): Promise<void> {
+/**
+ * One firing of a timer: everything a tick does once the clock has spoken.
+ *
+ * Exported for the same reason as `skipForIdle` and `missedTick`: what happens
+ * here — the pause switch, the plan window, the jitter wait and what a reload
+ * does to it — is otherwise only reachable by waiting for a real minute to
+ * pass. Nothing but a timer and a catch-up calls it.
+ */
+export async function fire(schedule: Schedule, log: Logger): Promise<void> {
   // Stamped first, and regardless of what the checks below decide. Every one of
   // them is the schedule declining on purpose, and a boot that could not tell
   // those from a tick nobody was up for would re-run them.
@@ -929,7 +1051,27 @@ async function fire(schedule: Schedule, log: Logger): Promise<void> {
     log.info(`schedule ${schedule.id} skipped: nothing ended in the last day`);
     return;
   }
-  if (await jitter(schedule.jitterMinutes)) await runSchedule(schedule.id, log);
+  // The clock does not spend the last of the week (R-15). A stage session
+  // draws on the same subscription as a briefing, so this is in front of both
+  // — and in front of the jitter, since the answer will not have improved an
+  // hour later.
+  const spent = await planSpent();
+  if (spent) {
+    await schedules.recordRun(schedule.id, { error: `blocked: ${spent}` });
+    log.warn({ schedule: schedule.id }, `schedule ${schedule.id} blocked: ${spent}`);
+    return;
+  }
+  if (!(await jitter(schedule.id, schedule.jitterMinutes))) {
+    // Stamped before the wait, so without a record this tick is accounted for
+    // and invisible at once: the run list would show a night that simply is
+    // not there.
+    await schedules.recordRun(schedule.id, {
+      error: "cancelled while waiting out its jitter",
+    });
+    log.info(`schedule ${schedule.id} cancelled while waiting out its jitter`);
+    return;
+  }
+  await runSchedule(schedule.id, log);
 }
 
 /**

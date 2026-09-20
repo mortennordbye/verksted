@@ -625,6 +625,25 @@ function speakingIn(threadId: string): string[] {
  */
 let unattendedRunning = false;
 
+/**
+ * The queue behind that boolean (R-13).
+ *
+ * Two unattended turns must not run at once, but the second one used to be
+ * thrown at: a 07:00 briefing that met triage mid-flight was reported as a
+ * broken run with a high-priority push, and learning at 23:50 could swallow
+ * the 23:55 journal for the day. None of these is urgent to the minute — they
+ * are minutes apart by design — so waiting for the one in front is the right
+ * answer, and it is also the honest one: the run happens and the record says
+ * what it said.
+ *
+ * Bounded, because a turn that hangs must not let the ten-minute triage stack
+ * a night's worth of waiting turns behind it. Past the bound the caller is
+ * refused, which is where it started.
+ */
+let unattendedQueue: Promise<unknown> = Promise.resolve();
+let unattendedWaiting = 0;
+const MAX_UNATTENDED_WAITING = 3;
+
 type Listener = (thread: AssistantThread) => void;
 
 /** Subscribe to the thread's changes; returns the unsubscribe. */
@@ -1834,7 +1853,7 @@ async function memberSystemPrompt(member: CouncilMember): Promise<string> {
  * whose usual answer is "ok: nothing needs you", and the daily ceiling counts
  * turns rather than meetings.
  */
-export async function runUnattended(
+export function runUnattended(
   prompt: string,
   memberId = "",
   mayConvene = false,
@@ -1846,6 +1865,27 @@ export async function runUnattended(
    */
   own: { model: string; effort: string; systemPrompt: string } | null = null,
 ): Promise<{ text: string; failed: boolean; turns: number }> {
+  if (unattendedWaiting >= MAX_UNATTENDED_WAITING) {
+    return Promise.reject(new Error("too many unattended turns are already waiting"));
+  }
+  unattendedWaiting++;
+  const run = () => unattendedTurn(prompt, memberId, mayConvene, own);
+  // Both arms: the turn in front failing is not this one's business.
+  const mine = unattendedQueue.then(run, run);
+  unattendedQueue = mine.catch(() => {});
+  return mine.finally(() => {
+    unattendedWaiting--;
+  });
+}
+
+async function unattendedTurn(
+  prompt: string,
+  memberId: string,
+  mayConvene: boolean,
+  own: { model: string; effort: string; systemPrompt: string } | null,
+): Promise<{ text: string; failed: boolean; turns: number }> {
+  // The queue above is what keeps this to one at a time; this is the invariant
+  // saying so, and nothing should ever reach it.
   if (unattendedRunning) throw new Error("an unattended turn is still running");
   const conversationId = randomUUID();
   const config = await readAssistantConfig();

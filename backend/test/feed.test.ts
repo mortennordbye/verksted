@@ -207,6 +207,54 @@ describe("the pollers", () => {
     expect(over).toEqual(["bench:wait:vk-demo-2"]);
   });
 
+  /**
+   * R-19. A waiting session's version is the word "waiting", and an equal
+   * version is the same event — which is right for a mail, whose uid never
+   * changes, and wrong here: the second question was invisible because the
+   * item was still done from the first.
+   */
+  it("brings a session that asks a second time back to the inbox", async () => {
+    const asking = {
+      id: "vk-demo-9",
+      project: "demo",
+      title: "tidy",
+      status: "waiting",
+      report: "may I push?",
+    } as never;
+
+    await feed.refile(pollers.sessionItems([asking]).seen[0]);
+    expect((await feed.get("bench:wait:vk-demo-9"))!.state).toBe("new");
+
+    // Answered: the session is running again and the item is finished with.
+    await feed.resolve("bench:wait:vk-demo-9", "answered");
+    expect((await feed.get("bench:wait:vk-demo-9"))!.state).toBe("done");
+
+    // And it stops to ask something else.
+    await feed.refile(pollers.sessionItems([asking]).seen[0]);
+    const again = (await feed.get("bench:wait:vk-demo-9"))!;
+    expect(again.state).toBe("new");
+    expect(again.urgency).toBe("attention");
+  });
+
+  it("leaves an item that is still going alone, however often it is filed", async () => {
+    // The other half: while the same thing is still happening the version must
+    // not move, or every pass would mark the row unread and re-triage it.
+    const asking = {
+      id: "vk-demo-8",
+      project: "demo",
+      title: "tidy",
+      status: "waiting",
+      report: null,
+    } as never;
+
+    await feed.refile(pollers.sessionItems([asking]).seen[0]);
+    await feed.setState("bench:wait:vk-demo-8", "snoozed", "2099-01-01T00:00:00.000Z");
+    const { changed } = await feed.refile(pollers.sessionItems([asking]).seen[0]);
+
+    expect(changed).toBe(false);
+    expect((await feed.get("bench:wait:vk-demo-8"))!.state).toBe("snoozed");
+  });
+
   it("reads a notification into a page a person can open", () => {
     const [pr] = pollers.notificationItems([
       {

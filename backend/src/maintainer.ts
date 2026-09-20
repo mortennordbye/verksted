@@ -118,6 +118,27 @@ export async function claimIssue(repoDir: string, number: number): Promise<void>
   ]);
 }
 
+/**
+ * Put it back: the build claimed it and then could not start (R-14).
+ *
+ * Without this an issue claimed by a run that died between the label and the
+ * session stays in-progress with nobody on it, its worktree stays on the
+ * volume, and every later night fails on the same directory. Nothing else ever
+ * moves a label back to queued — the stages only ever move forward — so this
+ * exists for the failure alone.
+ */
+export async function releaseIssue(repoDir: string, number: number): Promise<void> {
+  await gh(repoDir, [
+    "issue",
+    "edit",
+    String(number),
+    "--remove-label",
+    QUEUE_LABELS.inProgress,
+    "--add-label",
+    QUEUE_LABELS.queued,
+  ]);
+}
+
 /** Everything on the queue, for the inbox: queued, in progress, blocked. */
 async function readQueue(repoDir: string, project: string): Promise<MaintainerIssue[]> {
   const out: MaintainerIssue[] = [];
