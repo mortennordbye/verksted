@@ -125,9 +125,15 @@ describe("usePoll over the stream", () => {
     await act(async () => {
       latest().emit("sessions", [session("vk-demo-1")]);
     });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(30_000);
-    });
+    // The server's ping, at the rate it sends it. Advancing straight through
+    // thirty seconds is what hid F-01: the stream is only healthy for as long
+    // as something keeps arriving, and on a quiet bench a ping is all there is.
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        latest().emit("ping", {});
+      });
+    }
 
     // Six intervals would have passed. The stream is healthy, so none of them
     // cost a request.
@@ -161,10 +167,29 @@ describe("usePoll over the stream", () => {
     vi.useFakeTimers();
     renderHook(() => usePoll<Session[]>("/api/sessions", 5_000));
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(9_000);
+      await vi.advanceTimersByTimeAsync(26_000);
     });
 
     expect(streamHealthy()).toBe(false);
+  });
+
+  // F-01: the silence timer was armed once, at open, and never again — so a
+  // stream that was working perfectly reported itself dead a few seconds in,
+  // and every screen went back to polling with the connection still open.
+  it("stays healthy on pings alone, which is all a quiet bench sends", async () => {
+    vi.useFakeTimers();
+    renderHook(() => usePoll<Session[]>("/api/sessions", 5_000));
+    await act(async () => {
+      latest().emit("ping", {});
+    });
+
+    for (let i = 0; i < 6; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+        latest().emit("ping", {});
+      });
+      expect(streamHealthy()).toBe(true);
+    }
   });
 
   it("leaves a path it does not serve polling as before", async () => {

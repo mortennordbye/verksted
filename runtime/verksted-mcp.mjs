@@ -47,8 +47,10 @@ const local = (iso) =>
  * once it is long enough to mean something: a session that last spoke a minute
  * ago is simply working, and a column of "idle 0m" teaches nothing.
  */
-const idle = (seconds) => {
-  if (seconds === null || seconds < 30 * 60) return "";
+const idle = (lastActivityAt) => {
+  if (!lastActivityAt) return "";
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(lastActivityAt)) / 1000));
+  if (!Number.isFinite(seconds) || seconds < 30 * 60) return "";
   const hours = Math.floor(seconds / 3600);
   return hours ? `  idle ${hours}h` : `  idle ${Math.floor(seconds / 60)}m`;
 };
@@ -182,7 +184,7 @@ const TOOLS = [
         ),
         "",
         "LIVE SESSIONS",
-        rows(live, (s) => `${s.id}  ${s.agent}  ${s.status}  ${s.title}${idle(s.idleSeconds)}`),
+        rows(live, (s) => `${s.id}  ${s.agent}  ${s.status}  ${s.title}${idle(s.lastActivityAt)}`),
         "",
         // Finished sessions matter only for what they concluded, and only
         // recently: the rest is history the user can open the inbox for.

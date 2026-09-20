@@ -320,6 +320,35 @@ describe("the app in a real browser", () => {
     expect(await smallButtons()).toEqual([]);
   });
 
+  /**
+   * F-04: the ✕, Escape and Back all asked before throwing away an unsaved
+   * edit, and a tap on the backdrop — the easiest of the four to hit by
+   * accident on a phone — dropped the file outright.
+   */
+  it("asks before a tap beside the file viewer throws away an edit", async () => {
+    await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByText("readme.md").first().click();
+
+    const viewer = page.getByRole("dialog", { name: "readme.md" });
+    await viewer.getByRole("button", { name: "edit" }).click();
+    await viewer.getByRole("textbox", { name: "readme.md (editing)" }).fill("typed, not saved\n");
+
+    // The backdrop: the corner of the screen the dialog does not cover.
+    await page.mouse.click(8, 8);
+
+    // The confirm has one button, the one that goes through with it; every
+    // other way out means no. Escape here is "no", and the edit is still there.
+    await page.getByText("Discard the changes to this file?").waitFor({ timeout: 15_000 });
+    await page.keyboard.press("Escape");
+
+    await expect
+      .poll(() => viewer.getByRole("textbox", { name: "readme.md (editing)" }).inputValue(), {
+        timeout: 15_000,
+      })
+      .toContain("typed, not saved");
+  });
+
   it("reads the whole run in one scroll, and remembers what was read", async () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: /review all/ }).click();

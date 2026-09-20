@@ -263,7 +263,7 @@ async function toSession(
     work: meta.work ?? null,
     usage: meta.usage ?? null,
     status,
-    idleSeconds: activity ? Math.max(0, Math.round(Date.now() / 1000 - activity.activity)) : null,
+    lastActivityAt: activity ? new Date(activity.activity * 1000).toISOString() : null,
     report,
     outcome: reportOutcome(report, live),
     // A count, not the paths: this rides on every row of every list, and the

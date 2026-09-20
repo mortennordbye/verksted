@@ -59,6 +59,20 @@ describe("GET /api/events", () => {
     await reader.cancel();
   });
 
+  /**
+   * The keep-alive used to be a comment line, which EventSource never surfaces
+   * — so a client had no way to tell "nothing has changed" from "this
+   * connection is dead", and gave up on the stream seconds after every open.
+   */
+  it("says hello at once, as an event the client can hear", async () => {
+    const res = await fetch(`${base}/api/events`, { signal: AbortSignal.timeout(5_000) });
+    const reader = res.body!.getReader();
+    const { value } = await reader.read();
+
+    expect(new TextDecoder().decode(value)).toContain("event: ping");
+    await reader.cancel();
+  });
+
   it("does not hold shutdown open", async () => {
     const res = await fetch(`${base}/api/events`, { signal: AbortSignal.timeout(5_000) });
     void res.body!.getReader().read();
