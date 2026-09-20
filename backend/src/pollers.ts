@@ -282,10 +282,22 @@ export function calendarItems(events: CalendarEvent[], now = Date.now()): Seen[]
     }));
 }
 
-/** File what a source says now, and end what it no longer says. */
-async function apply(seen: Seen[], over: string[] = [], why = "over"): Promise<number> {
+/**
+ * File what a source says now, and end what it no longer says.
+ *
+ * `repeats` is for the sources whose version is a constant rather than an
+ * event number — see feed.refile. Off by default: for everything else an equal
+ * version is the same event, and that is what keeps a read mail read.
+ */
+async function apply(
+  seen: Seen[],
+  over: string[] = [],
+  why = "over",
+  repeats = false,
+): Promise<number> {
   let changed = 0;
-  for (const s of seen) if ((await feed.upsert(s)).changed) changed++;
+  const file = repeats ? feed.refile : feed.upsert;
+  for (const s of seen) if ((await file(s)).changed) changed++;
   for (const id of over) await feed.resolve(id, why);
   return changed;
 }
@@ -374,7 +386,9 @@ export async function pollBench(): Promise<number> {
     listProposals(),
   ]);
   const { seen, over } = sessionItems(sessions);
-  let changed = await apply(seen, over, "answered");
+  // A session that stops to ask a second time is a second event, although
+  // `waiting` is all its version ever says.
+  let changed = await apply(seen, over, "answered", true);
   // A deleted session is not in the list at all, so sessionItems never sees it
   // end, and its row stayed on "needs you" for a session that was gone.
   const known = new Set(sessions.map((s) => `bench:wait:${s.id}`));
@@ -582,7 +596,9 @@ async function pollSource(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(err, `${name} unavailable`);
-    await feed.upsert({
+    // Refiled, not upserted: the same failure after a spell of working is the
+    // source breaking again, and its version is the message either way.
+    await feed.refile({
       id: `${name}:poller`,
       source: name,
       at: new Date().toISOString(),

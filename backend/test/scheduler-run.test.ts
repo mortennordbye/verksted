@@ -27,6 +27,16 @@ let store: typeof import("../src/schedules-store.js");
 
 const log = { info: () => {}, warn: () => {} };
 
+/**
+ * What the account says is left of the subscription. Null is what the pod
+ * answers when it cannot read it, which is what every test but one wants.
+ */
+let plan: { week: { percent: number } } | null = null;
+vi.mock("../src/plan.js", async () => ({
+  ...(await vi.importActual<typeof import("../src/plan.js")>("../src/plan.js")),
+  planUsage: () => Promise.resolve(plan),
+}));
+
 /** A cron that cannot fire during the run: every launch here is "run now". */
 const CRON = "17 4 1 1 *";
 
@@ -581,6 +591,66 @@ describe("a schedule that runs the build stage", () => {
     expect(branches).toContain("maint/44");
   });
 
+  /**
+   * R-04. The sweep above runs every thirty seconds, forever, over every done
+   * build session there has ever been — and a worktree is named for its issue,
+   * so an issue put back on the queue is built in a directory an old finished
+   * session still carries the name of. It was force-removed under the live run.
+   */
+  it("leaves the worktree alone while a session is working in it", async () => {
+    queued([{ number: 45, title: "x", tier: "auto" }]);
+    const first = await stageSchedule("", "demo", "build");
+    const done = await sessionFrom(first.id);
+    const dir = path.join(reposDir, "demo--maint-45");
+    fs.writeFileSync(path.join(sessionsDir, `${done!.id}.exit`), "0");
+    fs.writeFileSync(path.join(sessionsDir, `${done!.id}.report`), "ok: PR #9 opened\n");
+    // The issue was relabelled `queued` and tonight's run is in the recreated
+    // worktree: same project name, a live session in it.
+    const live = {
+      ...(JSON.parse(
+        fs.readFileSync(path.join(sessionsDir, `${done!.id}.json`), "utf8"),
+      ) as object),
+      id: "vk-demo--maint-45-2",
+    };
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo--maint-45-2.json"), JSON.stringify(live));
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows("vk-demo--maint-45-2") });
+
+    await scheduler.watchUnattended(log);
+
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  /**
+   * R-14. The claim and the session are two calls with nothing between them:
+   * a transient `gh` or tmux failure left the issue in-progress with nobody on
+   * it and a worktree on the volume, and every later night failed on the same
+   * directory. The queue wedged on one bad night.
+   */
+  it("puts the issue back and removes the worktree when the session cannot start", async () => {
+    queued([{ number: 46, title: "x", tier: "auto" }]);
+    const s = await stageSchedule("", "demo", "build");
+    // A registered reply outlives a reset, so this one is put back by hand.
+    fake.reply("tmux", "new-session", { code: 1, stderr: "no server" });
+    try {
+      expect(await scheduler.runSchedule(s.id, log)).toBeNull();
+    } finally {
+      fake.reply("tmux", "new-session", {});
+    }
+
+    expect(fs.existsSync(path.join(reposDir, "demo--maint-46"))).toBe(false);
+    expect(fake.subcommand("gh", "issue")).toContainEqual([
+      "issue",
+      "edit",
+      "46",
+      "--remove-label",
+      "in-progress",
+      "--add-label",
+      "queued",
+    ]);
+    // And the break is on the schedule, not swallowed.
+    expect((await store.getSchedule(s.id))!.lastError).toBeTruthy();
+  });
+
   it("runs the gate in the repo itself, with its own prompt", async () => {
     const s = await stageSchedule("", "demo", "gate");
 
@@ -857,6 +927,40 @@ describe("a schedule that runs the assistant", () => {
     expect(overflow).toBeNull();
     expect((await store.getSchedule(s.id))!.lastError).toContain("already ran today");
     expect(fake.argvFor("claude")).toHaveLength(60);
+  });
+
+  /**
+   * R-13. Two unattended turns must not run at once, and the second one used
+   * to be thrown at: a 07:00 briefing that met triage mid-flight was recorded
+   * as a broken run and pushed to the phone at high priority, with its share
+   * of the day's ceiling still reserved. They are minutes apart by design, so
+   * waiting for the one in front is both cheaper and true.
+   */
+  it("queues a second unattended turn behind the first instead of failing it", async () => {
+    const a = await assistantSchedule("what needs me today?");
+    const b = await store.createSchedule({
+      name: "evening",
+      kind: "assistant",
+      project: "",
+      cron: CRON,
+      prompt: "anything left?",
+    });
+
+    // Slow enough to still be running when the second fires, which is the
+    // whole of the collision. beforeEach puts the instant reply back.
+    fake.reply("claude", "-p", { stdout: reply("ok: nothing needs you."), delayMs: 300 });
+    const running = scheduler.runSchedule(a.id, log);
+    while (fake.argvFor("claude").length === 0) await new Promise((r) => setTimeout(r, 10));
+
+    const second = await scheduler.runSchedule(b.id, log);
+    const first = await running;
+
+    expect(first).toEqual({ reply: "ok: nothing needs you." });
+    expect(second).toEqual({ reply: "ok: nothing needs you." });
+    // Both really ran, one after the other, and neither was recorded as broken.
+    expect(fake.argvFor("claude")).toHaveLength(2);
+    expect((await store.getSchedule(a.id))!.lastError).toBeNull();
+    expect((await store.getSchedule(b.id))!.lastError).toBeNull();
   });
 
   it("keeps its threads out of the ones recall searches", async () => {
@@ -1177,5 +1281,85 @@ describe("reloadSchedules", () => {
 
     expect(scheduledJobs).toHaveLength(2);
     expect(warnings).toEqual([]);
+  });
+
+  /**
+   * R-15. The ceiling counts what this process started, which says nothing
+   * about the account it is spent against — the laptop and claude.ai draw on
+   * the same window. A week at 95% launched every stage anyway, and the first
+   * sign was a session meeting the wall mid-run.
+   */
+  it("does not spend the last of the week's plan on a tick nobody asked for", async () => {
+    const s = await schedule("check the open PRs");
+    plan = { week: { percent: 96 } };
+
+    try {
+      await scheduler.fire((await store.getSchedule(s.id))!, log);
+    } finally {
+      plan = null;
+    }
+
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+    expect((await store.getSchedule(s.id))!.lastError).toContain("96% spent");
+    // Stamped all the same: the tick happened and declined, and a boot that
+    // could not tell that from a tick nobody was up for would re-run it.
+    expect((await store.getSchedule(s.id))!.lastFiredAt).toBeTruthy();
+  });
+
+  it("runs the same tick when the week has room", async () => {
+    const s = await schedule("check the open PRs");
+    plan = { week: { percent: 40 } };
+
+    try {
+      await scheduler.fire((await store.getSchedule(s.id))!, log);
+    } finally {
+      plan = null;
+    }
+
+    expect(fake.subcommand("tmux", "new-session")).toHaveLength(1);
+  });
+
+  /**
+   * R-12. A reload runs on every create, patch and delete, and it used to
+   * cancel every jitter wait in flight. `fire` has already stamped the
+   * schedule by then, so the run did not happen, nothing was recorded and the
+   * catch-up ignored the tick: editing one schedule at 02:05 lost another's
+   * night with nothing anywhere to say so.
+   */
+  it("keeps a waiting schedule's tick through an unrelated reload", async () => {
+    // The whole jitter window, so the wait is still in flight when the reload
+    // lands. Nothing waits it out: the test ends it by disabling the schedule.
+    vi.spyOn(Math, "random").mockReturnValue(1);
+    const waiting = await store.createSchedule({
+      name: "nightly",
+      project: "demo",
+      cron: CRON,
+      prompt: "tidy",
+      jitterMinutes: 10,
+    });
+    const other = await schedule("check the open PRs");
+    const tick = scheduler.fire((await store.getSchedule(waiting.id))!, log);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Somebody edits the other schedule.
+    await store.updateSchedule(other.id, { prompt: "check the failing runs" });
+    await scheduler.reloadSchedules(log);
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Still waiting: no run recorded, nothing started.
+    expect((await store.getSchedule(waiting.id))!.lastError).toBeNull();
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+
+    // And the wait it does drop — its schedule is no longer one to run — is
+    // recorded rather than vanishing.
+    await store.updateSchedule(waiting.id, { enabled: false });
+    await scheduler.reloadSchedules(log);
+    await tick;
+
+    expect((await store.getSchedule(waiting.id))!.lastError).toBe(
+      "cancelled while waiting out its jitter",
+    );
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+    vi.mocked(Math.random).mockRestore();
   });
 });
