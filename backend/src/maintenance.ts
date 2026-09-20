@@ -1,5 +1,7 @@
-import { exec } from "./exec.js";
 import fs from "node:fs/promises";
+import { Cron } from "croner";
+import { env } from "./env.js";
+import { exec } from "./exec.js";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
 import { archiveOldSessions, backfillUsage, reapFinishedSessions } from "./sessions-store.js";
 
@@ -35,6 +37,12 @@ interface Logger {
 
 const REAP_AFTER_MS = 15 * 60_000;
 const PRUNE_EVERY_MS = 24 * 60 * 60_000;
+/**
+ * When the daily catch-up runs, where the pod is. Past the nightly backup at
+ * 03:30 and past the maintainer's stages, so a measurement is not competing
+ * for the volume with the thing copying it.
+ */
+const HOUSEKEEPING_CRON = "20 5 * * *";
 /** The session sweep's own tick. Its threshold is hours; this need not be fine. */
 const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
 
@@ -45,7 +53,10 @@ const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
  *   connection, hence the > 1 threshold. They relaunch on demand.
  * - end sessions whose agent has exited and left an idle pane behind, which
  *   otherwise read as running for good (see reapFinishedSessions).
- * - prune old docker build debris daily so agent images don't fill the volume.
+ * - prune old docker build debris so agent images don't fill the volume. Still
+ *   on a 24-hour interval from boot, which on a pod redeployed several times a
+ *   day means rarely: the other half of R-02, and harmless in a way the two
+ *   below are not, since nothing is lost by a prune that waits.
  * - measure the sessions that ended before there was a measurement at all. A
  *   few at a time, and it finds nothing once they all carry one: every path
  *   that ends a session measures it there and then. It ran on GET /api/usage
@@ -74,7 +85,16 @@ export function startMaintenance(log: Logger): void {
     }
   }, SESSION_SWEEP_EVERY_MS);
 
-  setInterval(async () => {
+  // At a fixed hour, and once on the way up — not every 24 hours from boot.
+  // This pod is redeployed several times on a busy day, and a timer counting
+  // 24 hours from a start that keeps being restarted never reaches the end of
+  // them: the jobs would read as scheduled and never once run (R-02, which is
+  // how the nightly backup came to skip the two busiest days of a fortnight).
+  //
+  // Safe to repeat on every boot, which is what makes the catch-up simple:
+  // both jobs ask the volume what still needs doing, and a pod that starts ten
+  // times finds nothing to do nine of them.
+  const catchUp = async (): Promise<void> => {
     try {
       const n = await backfillUsage();
       if (n) log.info(`measured ${n} session(s) that ended before measurement existed`);
@@ -82,9 +102,11 @@ export function startMaintenance(log: Logger): void {
       // would carry that gap into the archive, where nothing measures it again.
       await archiveOldSessions(log);
     } catch (err) {
-      log.warn(err, "usage backfill failed");
+      log.warn(err, "usage backfill and retirement failed");
     }
-  }, PRUNE_EVERY_MS);
+  };
+  new Cron(HOUSEKEEPING_CRON, { protect: true, timezone: env.TZ }, () => void catchUp());
+  void catchUp();
 
   setInterval(async () => {
     try {
