@@ -253,7 +253,9 @@ export async function updateSchedule(
 
 export async function deleteSchedule(id: string): Promise<boolean> {
   return await edits(id, async () => {
-    if (!(await readStored(id))) return false;
+    // readStored answers null for an id that is not a generated one, but the
+    // rm below builds a path of its own and says so for itself.
+    if (!SCHEDULE_ID_RE.test(id) || !(await readStored(id))) return false;
     await fs.rm(filePath(id), { force: true });
     return true;
   });

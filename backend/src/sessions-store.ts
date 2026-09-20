@@ -193,14 +193,19 @@ async function exists(file: string): Promise<boolean> {
 async function cached<T>(
   held: Map<string, Held<T>>,
   id: string,
-  file: string,
-  read: () => Promise<T>,
+  toPath: (id: string) => string,
+  read: (file: string) => Promise<T>,
 ): Promise<T | null> {
+  // The id is checked here, and the path built from it here, rather than taken
+  // from the caller: this is the one place in the module that turns a session
+  // id into a file to open, so it is the place the check belongs.
+  if (!SESSION_ID_RE.test(id)) return null;
+  const file = toPath(id);
   try {
     const { size, mtimeMs } = await fs.stat(file);
     const hit = held.get(id);
     if (hit && hit.size === size && hit.mtimeMs === mtimeMs) return hit.value;
-    const value = await read();
+    const value = await read(file);
     held.set(id, { size, mtimeMs, value });
     return value;
   } catch {
@@ -217,9 +222,8 @@ export function resetSessionCache(): void {
 
 /** The run's own verdict, first line only; null when it wrote none. */
 export async function readReport(id: string): Promise<string | null> {
-  if (!SESSION_ID_RE.test(id)) return null;
-  return await cached(reportCache, id, reportPath(id), async () => {
-    const first = (await fs.readFile(reportPath(id), "utf8")).trim().split("\n")[0]?.trim();
+  return await cached(reportCache, id, reportPath, async (file) => {
+    const first = (await fs.readFile(file, "utf8")).trim().split("\n")[0]?.trim();
     return first ? first.slice(0, 300) : null;
   });
 }
@@ -302,9 +306,8 @@ function isMeta(value: unknown): value is Meta {
 }
 
 async function readMeta(id: string): Promise<Meta | null> {
-  if (!SESSION_ID_RE.test(id)) return null;
-  const meta = await cached(metaCache, id, metaPath(id), async () => {
-    const parsed: unknown = JSON.parse(await fs.readFile(metaPath(id), "utf8"));
+  const meta = await cached(metaCache, id, metaPath, async (file) => {
+    const parsed: unknown = JSON.parse(await fs.readFile(file, "utf8"));
     if (!isMeta(parsed)) throw new Error(`${id}: not session metadata`);
     return parsed;
   });
