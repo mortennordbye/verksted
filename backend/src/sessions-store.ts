@@ -1124,10 +1124,11 @@ export async function archiveOldSessions(log: Logger): Promise<number> {
     if (!Number.isFinite(endedAt) || endedAt > cutoff) continue;
     const row = await toSession(meta, false, null);
     await fs.mkdir(archiveDir(), { recursive: true });
-    await fs.appendFile(
-      path.join(archiveDir(), `${meta.endedAt!.slice(0, 7)}.jsonl`),
-      `${JSON.stringify(row)}\n`,
-    );
+    // The month from the timestamp, never from the string it was parsed out
+    // of. `Date.parse` takes "3/14/2026" as readily as an ISO date, and the
+    // first seven characters of that are a path of their own.
+    const month = new Date(endedAt).toISOString().slice(0, 7);
+    await fs.appendFile(path.join(archiveDir(), `${month}.jsonl`), `${JSON.stringify(row)}\n`);
     // The metadata first: it is what the session is listed from, so once it is
     // gone the session is retired whatever happens to the rest.
     for (const file of [metaPath, statePath, convPath, reportPath, exitPath]) {

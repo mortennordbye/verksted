@@ -809,6 +809,17 @@ describe("retiring old sessions", () => {
     expect(fs.existsSync(path.join(sessionsDir, "vk-demo-1.report"))).toBe(false);
   });
 
+  it("files by the month the date means, not by the first seven characters of it", async () => {
+    // Date.parse takes this as readily as an ISO date, and "3/14/20" is a path
+    // of directories that are not there rather than a month.
+    writeMeta("vk-demo-1", { endedAt: "3/14/2026" });
+
+    expect(await store.archiveOldSessions(log)).toBe(1);
+
+    expect(fs.readdirSync(archiveDir())).toEqual(["2026-03.jsonl"]);
+    expect((await store.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-1"]);
+  });
+
   it("counts a row written twice by an interrupted pass once", async () => {
     const endedAt = "2026-03-14T02:00:00.000Z";
     writeMeta("vk-demo-1", { endedAt });
