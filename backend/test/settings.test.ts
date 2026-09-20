@@ -151,6 +151,50 @@ describe("PUT /api/settings", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  /**
+   * Blocking that one name blocked the spelling. Each of these is the same
+   * override under another (ANTHROPIC_BASE_URL sends the subscription bearer
+   * and every prompt to whoever owns the host), or decides which binary a
+   * session runs before the program it names gets a say.
+   */
+  it("rejects the rest of the family, and the loader and interpreter vars", async () => {
+    for (const key of [
+      "ANTHROPIC_AUTH_TOKEN",
+      "ANTHROPIC_BASE_URL",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "LD_PRELOAD",
+      "PATH",
+      "NODE_OPTIONS",
+      "GIT_SSH_COMMAND",
+    ]) {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        payload: { vars: { [key]: "x" } },
+      });
+      expect(res.statusCode, key).toBe(400);
+    }
+    // the ones that look like them and are ordinary credentials
+    for (const key of ["CLAUDE_CODE_OAUTH_TOKEN", "GH_TOKEN"]) {
+      const res = await app.inject({
+        method: "PUT",
+        url: "/api/settings",
+        payload: { vars: { [key]: "x" } },
+      });
+      expect(res.statusCode, key).toBe(200);
+    }
+  });
+
+  it("keeps a blocked var out of a session even if the file already held one", async () => {
+    const stored = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    stored.vars = { ...stored.vars, LD_PRELOAD: "/tmp/evil.so", MY_VAR: "fine" };
+    fs.writeFileSync(settingsFile, JSON.stringify(stored));
+    const { agentEnv } = await import("../src/settings-store.js");
+    const env = await agentEnv();
+    expect(env.LD_PRELOAD).toBeUndefined();
+    expect(env.MY_VAR).toBe("fine");
+  });
+
   it("rejects malformed keys", async () => {
     const res = await app.inject({
       method: "PUT",

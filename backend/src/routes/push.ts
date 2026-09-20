@@ -107,7 +107,11 @@ export default async function pushRoutes(app: FastifyInstance) {
           properties: {
             title: { type: "string", minLength: 1, maxLength: 100 },
             body: { type: "string", minLength: 1, maxLength: 500 },
-            url: { type: "string", maxLength: 200, pattern: "^/[^/].*$|^/$" },
+            // A path in this app and nothing else. "//host" was already
+            // refused; "/\host" was not, and URL parsing reads a backslash
+            // there as the second slash — so the tap left for somebody else's
+            // site with verksted's name on the notification.
+            url: { type: "string", maxLength: 200, pattern: "^/(?![/\\\\])" },
           },
         },
       },

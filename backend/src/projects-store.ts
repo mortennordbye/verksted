@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Project } from "../../shared/api.js";
 import { env } from "./env.js";
 import { exec } from "./exec.js";
-import { branchOf, git, worktreeParent } from "./git.js";
+import { GIT_NO_REPO_CODE, branchOf, git, worktreeParent } from "./git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "./paths.js";
 import * as store from "./sessions-store.js";
 
@@ -89,7 +89,9 @@ export async function addWorktree(
   }
   try {
     // Existing branch (local, or unique remote match via git's DWIM).
-    await exec("git", ["-C", repoDir, "worktree", "add", dir, branch], { timeout: 60_000 });
+    await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, "worktree", "add", dir, branch], {
+      timeout: 60_000,
+    });
   } catch (err) {
     const stderr = String((err as { stderr?: string }).stderr ?? "");
     if (stderr.includes("already checked out") || stderr.includes("already used by worktree")) {
@@ -97,9 +99,13 @@ export async function addWorktree(
     }
     try {
       // New branch from HEAD.
-      await exec("git", ["-C", repoDir, "worktree", "add", "-b", branch, dir], {
-        timeout: 60_000,
-      });
+      await exec(
+        "git",
+        [...GIT_NO_REPO_CODE, "-C", repoDir, "worktree", "add", "-b", branch, dir],
+        {
+          timeout: 60_000,
+        },
+      );
     } catch {
       throw new WorktreeError(502, "could not create worktree (does the repo have a commit?)");
     }
@@ -116,6 +122,8 @@ export async function removeWorktree(name: string): Promise<void> {
   const parent = await worktreeParent(dir);
   if (!parent) throw new WorktreeError(400, "not a worktree");
   const parentDir = resolveInsideRepos(parent);
-  await exec("git", ["-C", parentDir, "worktree", "remove", "--force", dir], { timeout: 60_000 });
-  await exec("git", ["-C", parentDir, "worktree", "prune"]);
+  await exec("git", [...GIT_NO_REPO_CODE, "-C", parentDir, "worktree", "remove", "--force", dir], {
+    timeout: 60_000,
+  });
+  await exec("git", [...GIT_NO_REPO_CODE, "-C", parentDir, "worktree", "prune"]);
 }

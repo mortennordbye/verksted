@@ -74,6 +74,33 @@ describe("SSH keys", () => {
     expect(res.json().publicKey.split(" ").slice(0, 2)).toEqual(expectedPub.split(" ").slice(0, 2));
   });
 
+  /**
+   * Import used to write first and ask nothing: the same name replaced a
+   * working key, and a paste that then failed validation deleted it — the
+   * agent lost the key it had, with nothing on screen to say which one.
+   */
+  it("409s an import over an existing name and leaves the key it has", async () => {
+    const before = fs.readFileSync(path.join(sshDir, "pasted"), "utf8");
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ssh-keys",
+      payload: { name: "pasted", privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nnope\n" },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(fs.readFileSync(path.join(sshDir, "pasted"), "utf8")).toBe(before);
+    expect(fs.existsSync(path.join(sshDir, "pasted.pub"))).toBe(true);
+  });
+
+  it("leaves nothing behind when a paste fails validation", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ssh-keys",
+      payload: { name: "halfway", privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nnope\n" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(fs.readdirSync(sshDir).filter((f) => f.startsWith("halfway"))).toEqual([]);
+  });
+
   it("rejects garbage and passphrase-less validation failures", async () => {
     const res = await app.inject({
       method: "POST",
