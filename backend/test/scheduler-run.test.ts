@@ -24,6 +24,7 @@ let sessionsDir: string;
 let schedulesDir: string;
 let scheduler: typeof import("../src/scheduler.js");
 let store: typeof import("../src/schedules-store.js");
+let sessions: typeof import("../src/sessions-store.js");
 
 const log = { info: () => {}, warn: () => {} };
 
@@ -145,6 +146,7 @@ beforeAll(async () => {
   process.env.STATIC_DIR = "";
   scheduler = await import("../src/scheduler.js");
   store = await import("../src/schedules-store.js");
+  sessions = await import("../src/sessions-store.js");
 });
 
 afterAll(() => {
@@ -319,8 +321,9 @@ describe("runSchedule", () => {
     // committed nothing is the case this is for.
     const s = await schedule("check the open PRs");
     const session = await sessionFrom(s.id);
-    // Its tmux session is gone, so the next list sweep ends it and measures.
+    // Its tmux session is gone, so the sweep ends it and measures what it left.
     fake.reply("tmux", "ls", { stdout: "" });
+    await sessions.sweepSessions();
 
     const run = (await store.listRuns()).find((r) => r.sessionId === session!.id);
 
@@ -575,6 +578,9 @@ describe("a schedule that runs the build stage", () => {
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.report`), "ok: PR #9 opened\n");
     fake.reply("tmux", "ls", { stdout: "" });
+    // The end and its measurements are the sweep's, and the watch reads them:
+    // a worktree is only removed once the work in it is known to be clean.
+    await sessions.sweepSessions();
 
     await scheduler.watchUnattended(log);
 

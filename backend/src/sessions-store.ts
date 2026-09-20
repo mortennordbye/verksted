@@ -411,18 +411,53 @@ async function captureUsage(meta: Meta): Promise<SessionUsage | null> {
 }
 
 /**
+ * One chain per session for everything that changes its metadata.
+ *
+ * Every change is read-modify-write over the whole record, and they overlap:
+ * the sweep spends git calls and a transcript read working out how a run went
+ * while a thumb ticks files off a review of it. Run beside each other, the
+ * sweep writes the meta it read before the marks existed and they are gone.
+ *
+ * The read belongs inside the queue, which is what `updateMeta` is for.
+ */
+const metaWrites = keyedQueue();
+
+/**
+ * Read one session's metadata, change it, write it back, holding the id for
+ * all three. Null when there is no such session, or when it was deleted while
+ * the change was being worked out: a DELETE is deliberately not queued behind
+ * this, because the sweep can hold a session for as long as its transcript
+ * takes to read and nobody should wait that long to remove a row.
+ */
+async function updateMeta<T>(
+  id: string,
+  change: (meta: Meta) => Promise<T> | T,
+): Promise<T | null> {
+  return await metaWrites(id, async () => {
+    const meta = await readMeta(id);
+    if (!meta) return null;
+    const result = await change(meta);
+    if (!(await exists(metaPath(id)))) return null;
+    await writeMeta(meta);
+    return result;
+  });
+}
+
+/**
  * Measure the sessions that finished before usage was measured at all, a few
- * at a time. Called from the usage route, so the dashboard fills in on its
- * own; once every old session carries a measurement this finds nothing.
+ * at a time. Runs in the daily maintenance pass; once every old session carries
+ * a measurement this finds nothing. Every path that ends a session measures it
+ * there and then, so this is only ever a catch-up for history.
  */
 export async function backfillUsage(limit = 25): Promise<number> {
   let n = 0;
-  for (const meta of await readAll()) {
-    if (!meta.endedAt) continue;
+  for (const stale of await readAll()) {
+    if (!stale.endedAt) continue;
     // Measured already, unless before prices were kept: then once more.
-    if (meta.usage === null || meta.usage?.costUsd !== undefined) continue;
-    meta.usage = await captureUsage(meta);
-    await writeMeta(meta);
+    if (stale.usage === null || stale.usage?.costUsd !== undefined) continue;
+    await updateMeta(stale.id, async (meta) => {
+      meta.usage = await captureUsage(meta);
+    });
     if (++n >= limit) break;
   }
   return n;
@@ -461,40 +496,29 @@ export async function getReview(id: string): Promise<SessionReview> {
  * another — a night's work is judged on a phone and finished at a desk.
  */
 export async function setReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
-  return await reviewWrites(id, () => writeReview(id, change));
+  // The same chain every other change to this meta runs on. The marks arrive
+  // in bursts, four files ticked off as fast as a thumb moves, and they land
+  // while the sweep may be working out how the run went.
+  return await updateMeta(id, (meta) => {
+    if (change.file) {
+      const kept = (meta.reviewed ?? []).filter((p) => p !== change.file!.path);
+      // A range shows at most MAX_FILES files, so anything approaching this is
+      // a client inventing paths rather than a person reading a big night's
+      // work.
+      meta.reviewed = change.file.read ? [...kept, change.file.path].slice(-1000) : kept;
+    }
+    if (change.verdict !== undefined) meta.verdict = change.verdict;
+    return {
+      files: meta.reviewed ?? [],
+      reviewed: meta.reviewed?.length ?? 0,
+      verdict: meta.verdict ?? null,
+    };
+  });
 }
 
 interface ReviewChange {
   file?: { path: string; read: boolean };
   verdict?: ReviewVerdict | null;
-}
-
-/**
- * In-flight review writes, one chain per session.
- *
- * Every write is read-modify-write on a single metadata file, and the actions
- * that produce them arrive in bursts — ticking four files off as fast as a
- * thumb moves. Run concurrently they all read the same meta and the last to
- * finish wins, so three of those four marks vanish.
- */
-const reviewWrites = keyedQueue();
-
-async function writeReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
-  const meta = await readMeta(id);
-  if (!meta) return null;
-  if (change.file) {
-    const kept = (meta.reviewed ?? []).filter((p) => p !== change.file!.path);
-    // A range shows at most MAX_FILES files, so anything approaching this is a
-    // client inventing paths rather than a person reading a big night's work.
-    meta.reviewed = change.file.read ? [...kept, change.file.path].slice(-1000) : kept;
-  }
-  if (change.verdict !== undefined) meta.verdict = change.verdict;
-  await writeMeta(meta);
-  return {
-    files: meta.reviewed ?? [],
-    reviewed: meta.reviewed?.length ?? 0,
-    verdict: meta.verdict ?? null,
-  };
 }
 
 /**
@@ -510,17 +534,13 @@ function usedCdpPorts(metas: Meta[]): Set<number> {
 
 /** The session's reserved browser CDP port, assigned lazily for pre-existing metas. */
 export async function cdpPortFor(id: string): Promise<number | null> {
-  if (!SESSION_ID_RE.test(id)) return null;
-  try {
-    const meta: Meta = JSON.parse(await fs.readFile(metaPath(id), "utf8"));
-    if (!meta.cdpPort) {
-      meta.cdpPort = nextCdpPort(usedCdpPorts(await readAll()));
-      await writeMeta(meta);
-    }
+  // Queued with every other change to this meta: two panes opened at once used
+  // to read the same record, pick the same free port, and write over each
+  // other, leaving two sessions pointed at one chromium.
+  return await updateMeta(id, async (meta) => {
+    meta.cdpPort ??= nextCdpPort(usedCdpPorts(await readAll()));
     return meta.cdpPort;
-  } catch {
-    return null;
-  }
+  });
 }
 
 export async function listSessions(project?: string): Promise<Session[]> {
@@ -528,42 +548,66 @@ export async function listSessions(project?: string): Promise<Session[]> {
   const metas = (await readAll()).filter((m) => !project || m.project === project);
   const out: Session[] = [];
   for (const m of metas) {
-    // tmux could not be asked. Report the last known state and sweep nothing:
-    // ending every session here would be wrong the moment tmux comes back, and
-    // it would fire a "finished" push per session on every poll until it does.
+    // tmux could not be asked: report the last known state rather than calling
+    // every session done, which would be wrong the moment tmux comes back.
     if (live === null) {
       const wasLive = !m.endedAt;
       out.push(await toSession(m, wasLive, wasLive ? await readState(m.id) : null));
       continue;
     }
-    // Sweep: a session whose tmux died without going through DELETE gets its
-    // end stamped the first time anyone lists it.
-    if (!m.endedAt && !live.has(m.id)) {
-      m.endedAt = new Date().toISOString();
-      const done = await captureWork(m);
-      m.work = done.work;
-      m.endCommit = done.endCommit;
-      m.usage = await captureUsage(m);
-      // Before the meta says ended, because that is what frees its CDP port for
-      // the next session: a chromium still holding the port would make that
-      // session's browser fail to bind.
-      await closeBrowser(m.id);
-      // Stamping an end takes git calls and a transcript read, and a DELETE can
-      // land in the middle of them. Writing this snapshot back blind would put
-      // the removed session's metadata on the volume again and the row would
-      // reappear on the next tick — so the write only happens if the file is
-      // still there to be written. (R-09's other half, a read-modify-write that
-      // holds the id for the whole of it, waits on the sweeper: BACKLOG.)
-      if (await exists(metaPath(m.id))) await writeMeta(m);
-    }
-    // A shell companion must not outlive its agent session.
-    if (!live.has(m.id) && live.has(`${m.id}-shell`)) {
-      await killQuietly(`${m.id}-shell`);
-    }
     const alive = live.get(m.id);
     out.push(await toSession(m, !!alive, alive ? await readState(m.id) : null, alive));
   }
   return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/**
+ * Stamp the end of every session whose tmux is gone, and reap the shells left
+ * behind by one.
+ *
+ * What the list says about a session has never come from here: `status` is
+ * decided by whether tmux has it, so a session that died a second ago already
+ * reads as done. What this writes down is the rest — when it ended, what the
+ * repo had to show for it, what it cost — measured once, at the end, because
+ * the repo keeps moving and the next session's commits must not join this row.
+ *
+ * It used to run inside `listSessions`, which made it a write inside a GET:
+ * git calls and a transcript read on whichever poll happened to arrive first,
+ * so what the volume did depended on who was looking. It is a background job
+ * now and the list only reads.
+ */
+export async function sweepSessions(): Promise<string[]> {
+  const live = await liveNames();
+  // tmux could not be asked. Sweep nothing: ending every session here would
+  // fire a "finished" push per session on every tick until tmux comes back.
+  if (live === null) return [];
+  const ended: string[] = [];
+  for (const seen of await readAll()) {
+    if (!seen.endedAt && !live.has(seen.id)) {
+      // Through updateMeta, which re-reads inside the queue: working out how
+      // the run went takes git calls and a transcript read, and a review saved
+      // in the middle of that must not be written over by the snapshot this
+      // started from. It answers null when a DELETE got there first.
+      const stamped = await updateMeta(seen.id, async (meta) => {
+        meta.endedAt = new Date().toISOString();
+        const done = await captureWork(meta);
+        meta.work = done.work;
+        meta.endCommit = done.endCommit;
+        meta.usage = await captureUsage(meta);
+        // Before the meta says ended, because that is what frees its CDP port
+        // for the next session: a chromium still holding the port would make
+        // that session's browser fail to bind.
+        await closeBrowser(meta.id);
+        return true;
+      });
+      if (stamped) ended.push(seen.id);
+    }
+    // A shell companion must not outlive its agent session.
+    if (!live.has(seen.id) && live.has(`${seen.id}-shell`)) {
+      await killQuietly(`${seen.id}-shell`);
+    }
+  }
+  return ended;
 }
 
 export async function getSession(id: string): Promise<Session | null> {
@@ -943,19 +987,23 @@ export async function endSession(id: string): Promise<Session | null> {
   await killQuietly(`${id}-shell`);
   await closeBrowser(id);
   const endedAt = session.endedAt ?? new Date().toISOString();
-  // Patch the stored metadata rather than rebuilding it from Session, which has
-  // had cdpPort stripped by toSession. Rebuilding dropped the reserved port on
-  // every end, so the pool leaked until nextCdpPort ran out and threw a bare 500.
-  const stored = await readMeta(id);
-  // Already measured when the list sweep stamped this session's end; ending an
-  // ended session must not re-measure it against a repo that has moved on.
-  let work = stored?.work ?? null;
-  let endCommit = stored?.endCommit ?? null;
-  if (stored && !stored.work) ({ work, endCommit } = await captureWork(stored));
-  let usage = stored?.usage ?? null;
-  if (stored && stored.usage === undefined) usage = await captureUsage(stored);
-  if (stored) await writeMeta({ ...stored, endedAt, work, endCommit, usage });
-  return { ...session, endedAt, work, usage, status: "done" };
+  // Patched through updateMeta rather than rebuilt from Session, which has had
+  // cdpPort stripped by toSession. Rebuilding dropped the reserved port on
+  // every end, so the pool leaked until nextCdpPort ran out and threw a bare
+  // 500. Queued, because the sweep may be stamping this very session.
+  const measured = await updateMeta(id, async (meta) => {
+    meta.endedAt = endedAt;
+    // Already measured when the sweep stamped this session's end; ending an
+    // ended session must not re-measure it against a repo that has moved on.
+    if (!meta.work) {
+      const done = await captureWork(meta);
+      meta.work = done.work;
+      meta.endCommit = done.endCommit;
+    }
+    if (meta.usage === undefined) meta.usage = await captureUsage(meta);
+    return { work: meta.work ?? null, usage: meta.usage ?? null };
+  });
+  return { ...session, endedAt, ...(measured ?? { work: null, usage: null }), status: "done" };
 }
 
 /**
@@ -1032,6 +1080,91 @@ export async function reapFinishedSessions(log: Logger): Promise<string[]> {
     log.info(`ended ${meta.id}: its agent had exited, pane idle ${idleHours}h`);
   }
   return ended;
+}
+
+/**
+ * How long a finished session stays a file of its own in the sessions
+ * directory.
+ *
+ * Everything that reads sessions walks that directory: the sweeper every five
+ * seconds, the notifier every five, the scheduler twice a minute, and every
+ * list. Nothing prunes it, so the walk grows with everything that ever ran —
+ * a pod three years old would be stepping over thousands of finished runs to
+ * find the two that are live.
+ *
+ * Three months is well past the point where a run is something anyone opens,
+ * and comfortably past the thirty days the usage page breaks down by project.
+ */
+export const RETAIN_DAYS = 90;
+
+function archiveDir(): string {
+  return path.join(env.SESSIONS_DIR, "archive");
+}
+
+/**
+ * Retire the sessions that ended long enough ago, keeping what they cost.
+ *
+ * Archived, not deleted. The row itself is small and the usage page adds up
+ * every month there has ever been, so throwing it away would make last year
+ * read as a year of nothing. What goes is the per-session file and its
+ * sidecars — the verdict, the exit code, the conversation id, the read marks —
+ * which is what the walk is made of. The transcript is not here at all: it
+ * lives in the agent's own home directory and is untouched by this.
+ *
+ * Written before the metadata is removed, and read back deduplicated by id, so
+ * a crash between the two costs a repeated row rather than a lost one.
+ */
+export async function archiveOldSessions(log: Logger): Promise<number> {
+  const cutoff = Date.now() - RETAIN_DAYS * 24 * 60 * 60_000;
+  let n = 0;
+  for (const meta of await readAll()) {
+    const endedAt = meta.endedAt ? Date.parse(meta.endedAt) : NaN;
+    // Not finished, or not finished long enough ago. An unparseable endedAt is
+    // not evidence of age, and this removes files.
+    if (!Number.isFinite(endedAt) || endedAt > cutoff) continue;
+    const row = await toSession(meta, false, null);
+    await fs.mkdir(archiveDir(), { recursive: true });
+    // The month from the timestamp, never from the string it was parsed out
+    // of. `Date.parse` takes "3/14/2026" as readily as an ISO date, and the
+    // first seven characters of that are a path of their own.
+    const month = new Date(endedAt).toISOString().slice(0, 7);
+    await fs.appendFile(path.join(archiveDir(), `${month}.jsonl`), `${JSON.stringify(row)}\n`);
+    // The metadata first: it is what the session is listed from, so once it is
+    // gone the session is retired whatever happens to the rest.
+    for (const file of [metaPath, statePath, convPath, reportPath, exitPath]) {
+      await fs.rm(file(meta.id), { force: true });
+    }
+    n++;
+  }
+  if (n) log.info(`archived ${n} session(s) that ended more than ${RETAIN_DAYS} days ago`);
+  return n;
+}
+
+/**
+ * The sessions that have been retired, as they were when they were.
+ *
+ * Only the usage page asks: it adds up every month there has ever been, and
+ * those totals are the one thing that would quietly change if history simply
+ * stopped at ninety days.
+ */
+export async function archivedSessions(): Promise<Session[]> {
+  const files = await fs.readdir(archiveDir()).catch(() => [] as string[]);
+  const byId = new Map<string, Session>();
+  for (const f of files.filter((f) => f.endsWith(".jsonl"))) {
+    const text = await fs.readFile(path.join(archiveDir(), f), "utf8").catch(() => "");
+    for (const line of text.split("\n")) {
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line) as Session;
+        // Last write wins, and a row repeated by a crash mid-retirement counts
+        // once rather than twice.
+        if (row?.id) byId.set(row.id, row);
+      } catch {
+        // One unreadable line is one session's row, not the whole archive.
+      }
+    }
+  }
+  return [...byId.values()];
 }
 
 /** End the session (tmux + shell companion) and remove it from history. */

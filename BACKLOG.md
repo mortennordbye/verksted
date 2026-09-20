@@ -1121,6 +1121,54 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
   the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
 
+## The feed is still filed from the GET that reads it
+
+- **What:** Most of the audit's root cause 4 has landed: the session sweep is a
+  background job and the list only reads, the usage backfill moved to the daily
+  maintenance pass, sessions that ended more than `RETAIN_DAYS` ago are retired
+  into a monthly archive, and every change to a session's metadata runs on one
+  chain per session. The feed is the part that did not move. `GET /api/feed`
+  still runs `pollBench`, which files and resolves items and lifts snoozes, so
+  opening the inbox is what makes the inbox correct (R-33). The same GET reads
+  the whole feed directory at least five times and the session list twice, with
+  no coalescing, and nothing ages out an item that never reached `done` (R-20).
+- **Why deferred:** The comment on `pollBench` gives the reason it is there:
+  running it per open is also what makes the feed correct in a test with no
+  timers. Moving it to the sweeper means either accepting that a brand new
+  waiting session shows up a tick late, or teaching the tests to drive the
+  filing themselves, and the feed's tests are the ones that would have to say
+  which. That is a piece of work with its own shape, not a line to move.
+- **Unblocked by:** Deciding the inbox can be a tick behind. Then file from the
+  sweeper's pass, have the route read, pass one `feed.list()` through
+  `pollBench` instead of re-reading per section, and age out quiet items the
+  way the daily sweep ages out done ones.
+- **Where:** `backend/src/pollers.ts` (`pollBench`, `sessionItems`,
+  `supersededRuns`), `backend/src/routes/feed.ts`, `backend/src/feed-store.ts`,
+  `backend/src/sweeper.ts`, `backend/test/feed.test.ts`.
+
+## The resize race and the browser bridge are still untested
+
+- **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —
+  detach never kills, a shell pane gets its companion session, an unknown
+  session is refused, the client cap holds — which was O-24. Two things it
+  does not reach. The guard around `pty.resize` on a terminal whose process
+  has gone (R-23) is the one throw known to be able to take the backend down
+  and every agent with it, and `ws/browser.ts` is driven by no test at all.
+  The `uncaughtException` handler that closes the app before exiting is
+  bootstrap wiring in `index.ts` and is not reachable from a test either.
+- **Why deferred:** The exit race is inherently timing-dependent: `pty.onExit`
+  closes the socket, so a resize has to land in the same tick as the exit to
+  reach the throw at all. A test that waits for the exit tests nothing, and
+  one that races it is flaky. Writing that honestly is its own piece of work —
+  most likely a unit test of the message handler over a pty stub rather than
+  another end-to-end case.
+- **Unblocked by:** Deciding that a stubbed pty is worth it for this one path
+  (the rest of the bridge is better tested for real, as it now is), or finding
+  a way to make node-pty throw on demand.
+- **Where:** `backend/src/ws/attach.ts` (the `resize` branch of the message
+  handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
+  the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
+
 ## The list no longer re-reads the volume, but it still walks it, and GETs still write
 
 - **What:** R-07, R-10 and R-31 are done: a pass over the session list stats

@@ -1,7 +1,7 @@
 import { exec } from "./exec.js";
 import fs from "node:fs/promises";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
-import { reapFinishedSessions } from "./sessions-store.js";
+import { archiveOldSessions, backfillUsage, reapFinishedSessions } from "./sessions-store.js";
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -46,6 +46,12 @@ const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
  * - end sessions whose agent has exited and left an idle pane behind, which
  *   otherwise read as running for good (see reapFinishedSessions).
  * - prune old docker build debris daily so agent images don't fill the volume.
+ * - measure the sessions that ended before there was a measurement at all. A
+ *   few at a time, and it finds nothing once they all carry one: every path
+ *   that ends a session measures it there and then. It ran on GET /api/usage
+ *   before, where it read up to 25 transcripts on somebody opening a page.
+ * - retire the sessions that ended months ago, so the directory every reader
+ *   walks stays about what is live rather than about everything that ever ran.
  */
 export function startMaintenance(log: Logger): void {
   const idleSince = new Map<string, number>();
@@ -67,6 +73,18 @@ export function startMaintenance(log: Logger): void {
       log.warn(err, "session sweep failed");
     }
   }, SESSION_SWEEP_EVERY_MS);
+
+  setInterval(async () => {
+    try {
+      const n = await backfillUsage();
+      if (n) log.info(`measured ${n} session(s) that ended before measurement existed`);
+      // After the backfill, not before: a session retired with no measurement
+      // would carry that gap into the archive, where nothing measures it again.
+      await archiveOldSessions(log);
+    } catch (err) {
+      log.warn(err, "usage backfill failed");
+    }
+  }, PRUNE_EVERY_MS);
 
   setInterval(async () => {
     try {
