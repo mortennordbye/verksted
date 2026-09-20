@@ -728,6 +728,55 @@ function serialized<T>(fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/**
+ * The highest sequence number each project has ever used (R-05).
+ *
+ * The metadata on disk cannot answer this: a purged session takes its number
+ * with it, and the next create mints the same id again. The id is the join key
+ * between the metadata, tmux, the transcript, the usage file and the feed —
+ * `bench:wait:<id>` — and a schedule's run history stores it too. So a purged
+ * scheduled run followed by an interactive session with the recycled id had
+ * the scheduler reading that night's run as "still open", and a day later
+ * writing "failed: never signed off" into somebody's live session and ending
+ * it.
+ *
+ * One small file beside the metadata, written inside the create queue, so the
+ * numbers only ever go up. `readAll` skips it: it is not `<session id>.json`.
+ */
+function seqPath(): string {
+  return path.join(env.SESSIONS_DIR, "seq.json");
+}
+
+async function highWater(): Promise<Record<string, number>> {
+  try {
+    return JSON.parse(await fs.readFile(seqPath(), "utf8")) as Record<string, number>;
+  } catch {
+    // No file yet, or one written before this existed: the metadata on disk is
+    // the floor, which is exactly what the old behaviour used on its own.
+    return {};
+  }
+}
+
+async function nextSeq(project: string, metas: Meta[]): Promise<number> {
+  const mark = (await highWater())[project];
+  const onDisk = metas
+    .filter((m) => m.project === project)
+    .reduce((max, m) => Math.max(max, Number(m.id.split("-").at(-1))), 0);
+  return Math.max(Number.isFinite(mark) ? Number(mark) : 0, onDisk) + 1;
+}
+
+/**
+ * Written once the session is really running, not when the number is minted:
+ * a create that failed to launch leaves nothing behind that could collide, and
+ * a bench that burned a number on every failed tmux would be a worse record
+ * than the one it replaces.
+ */
+async function markSeq(project: string, seq: number): Promise<void> {
+  const high = await highWater();
+  if ((high[project] ?? 0) >= seq) return;
+  await writeJsonAtomic(seqPath(), { ...high, [project]: seq });
+}
+
 export function createSession(
   project: string,
   projectDir: string,
@@ -740,10 +789,7 @@ export function createSession(
     // UI: it is a no-op on a worktree or a dirty tree, and the user has to know.
     const sync = await syncDefaultBranch(projectDir, extraEnv);
     const metas = await readAll();
-    const seq =
-      metas
-        .filter((m) => m.project === project)
-        .reduce((max, m) => Math.max(max, Number(m.id.split("-").at(-1))), 0) + 1;
+    const seq = await nextSeq(project, metas);
     const meta: Meta = {
       id: `vk-${project}-${seq}`,
       project,
@@ -757,7 +803,8 @@ export function createSession(
       startCommit: await headCommit(projectDir),
       ...(opts.unattended ? { unattended: opts.unattended } : {}),
     };
-    // A purged session's id can be reused; drop any stale state from it.
+    // Belt and braces beside the high-water mark above: a file left by a
+    // session that shared this id before the mark existed.
     await fs.rm(statePath(meta.id), { force: true });
     await fs.rm(convPath(meta.id), { force: true });
     await fs.rm(reportPath(meta.id), { force: true });
@@ -777,6 +824,7 @@ export function createSession(
       await fs.rm(metaPath(meta.id), { force: true });
       throw err;
     }
+    await markSeq(project, seq);
     return { ...(await toSession(meta, true, null)), sync };
   });
 }

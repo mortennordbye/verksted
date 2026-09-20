@@ -138,7 +138,15 @@ export default async function attachRoutes(app: FastifyInstance) {
         }
         enqueue(() => pty.write(msg.data));
       } else if (msg.t === "resize") {
-        pty.resize(clamp(msg.cols, 2, 500, 80), clamp(msg.rows, 2, 300, 24));
+        try {
+          pty.resize(clamp(msg.cols, 2, 500, 80), clamp(msg.rows, 2, 300, 24));
+        } catch (err) {
+          // node-pty throws on a pty whose process has already gone, and a
+          // phone rotating as its session ends is exactly that race. Thrown
+          // from a socket listener it reaches nothing but the process itself
+          // (R-23), which on this pod is every agent in every tmux session.
+          req.log.warn({ err }, "resize on a closed terminal");
+        }
       } else if (msg.t === "scroll") {
         const lines = clamp(msg.lines, -500, 500, 0);
         if (lines === 0) return;

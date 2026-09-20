@@ -122,4 +122,27 @@ describe("POST /api/projects/:name/sessions", () => {
     expect(res.statusCode).toBe(400);
     expect(fake.subcommand("tmux", "new-session")).toEqual([]);
   });
+
+  /**
+   * R-05. The id is the join key between the metadata, tmux, the transcript,
+   * the usage file, `bench:wait:<id>` in the feed and a schedule's run
+   * history — and it was max+1 over the metadata that still existed, so a
+   * purge handed the number straight back. A purged scheduled run followed by
+   * an interactive session with the recycled id had the scheduler reading that
+   * night's run as "still open", and a day later writing "failed: never signed
+   * off" into a live session and ending it.
+   */
+  it("does not hand a purged session's id to the next one", async () => {
+    const id = (await create({ agent: "claude" })).json<{ id: string }>().id;
+    const seq = Number(id.split("-").at(-1));
+
+    // Purged: every file it had is gone, which is what the delete route does.
+    for (const f of fs.readdirSync(sessionsDir)) {
+      if (f.startsWith(id)) fs.rmSync(path.join(sessionsDir, f));
+    }
+
+    const next = (await create({ agent: "claude" })).json<{ id: string }>().id;
+
+    expect(next).toBe(`vk-demo-${seq + 1}`);
+  });
 });
