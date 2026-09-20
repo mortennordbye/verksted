@@ -517,7 +517,7 @@ const TOOLS = [
       required: ["project", "number"],
     },
     run: async (a) => {
-      const base = `/api/projects/${encodeURIComponent(a.project)}/prs/${a.number}`;
+      const base = `/api/projects/${encodeURIComponent(a.project)}/prs/${encodeURIComponent(a.number)}`;
       const p = await call("GET", base);
       const out = [
         `#${p.number}  ${p.title}  [${p.headRefName} -> ${p.baseRefName}]  checks:${p.checks}`,
@@ -588,7 +588,7 @@ const TOOLS = [
             `${r.title.slice(0, 60)}  ${local(r.createdAt)}`,
         );
       }
-      const r = await call("GET", `${base}/${a.id}`);
+      const r = await call("GET", `${base}/${encodeURIComponent(a.id)}`);
       return [
         `${r.id}  ${r.conclusion || r.status}  ${r.workflow}  [${r.branch}]  ${r.url}`,
         "",
@@ -613,7 +613,10 @@ const TOOLS = [
       required: ["project", "id"],
     },
     run: (a) =>
-      call("GET", `/api/projects/${encodeURIComponent(a.project)}/runs/${a.id}/log`).then((r) =>
+      call(
+        "GET",
+        `/api/projects/${encodeURIComponent(a.project)}/runs/${encodeURIComponent(a.id)}/log`,
+      ).then((r) =>
         r.log ? `${r.log}${r.truncated ? "\n(truncated)" : ""}` : "no failing job logs on that run",
       ),
   },
@@ -631,7 +634,7 @@ const TOOLS = [
       required: ["project", "id"],
     },
     run: (a) => {
-      const base = `/api/projects/${encodeURIComponent(a.project)}/runs/${a.id}`;
+      const base = `/api/projects/${encodeURIComponent(a.project)}/runs/${encodeURIComponent(a.id)}`;
       const action = a.action ?? "rerun";
       if (action === "cancel") {
         return call("POST", `${base}/cancel`).then(() => `cancelled run ${a.id}`);
@@ -1414,6 +1417,108 @@ const offered = () =>
     return !ALLOW || ALLOW.has(t.name);
   });
 
+/**
+ * One argument against what its tool said it takes.
+ *
+ * Flat schemas only, which is all this file has: a type, an optional enum, and
+ * for an array the type of its items.
+ */
+function checkValue(name, value, prop) {
+  if (prop.enum && !prop.enum.includes(value)) {
+    throw new Error(`${name} must be one of: ${prop.enum.join(", ")}`);
+  }
+  const bad = () =>
+    new Error(`${name} must be ${"aeiou".includes(prop.type[0]) ? "an" : "a"} ${prop.type}`);
+  switch (prop.type) {
+    case "string":
+      if (typeof value !== "string") throw bad();
+      break;
+    case "integer":
+      if (!Number.isSafeInteger(value)) throw bad();
+      break;
+    case "number":
+      if (typeof value !== "number" || !Number.isFinite(value)) throw bad();
+      break;
+    case "boolean":
+      if (typeof value !== "boolean") throw bad();
+      break;
+    case "array":
+      if (!Array.isArray(value)) throw bad();
+      if (prop.items) for (const item of value) checkValue(`each ${name}`, item, prop.items);
+      break;
+    // A property declared by its enum alone, which the enum above has covered.
+    default:
+      break;
+  }
+}
+
+/**
+ * The arguments of a call, before the tool sees them.
+ *
+ * The schemas were documentation for the model and nothing else: `tools/call`
+ * handed `arguments` straight to `run()`, and several tools put one of them in
+ * a path. `fetch` normalises "..", so a `ci_rerun` asked for run id
+ * `../../../schedules/<id>/run?x=` posted to a schedule instead — and the two
+ * filters above, which decide what an unattended turn or an advisor may do,
+ * are only meaningful while each tool is confined to its own endpoint.
+ *
+ * An undeclared argument is refused rather than dropped, because
+ * `update_schedule` forwards everything it was not asked for as a patch.
+ */
+function checkArgs(schema, args) {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) {
+    throw new Error("arguments must be an object");
+  }
+  for (const name of schema.required ?? []) {
+    if (args[name] === undefined) throw new Error(`${name} is required`);
+  }
+  for (const [name, value] of Object.entries(args)) {
+    if (value === undefined) continue;
+    const prop = schema.properties?.[name];
+    if (!prop) throw new Error(`no such argument: ${name}`);
+    checkValue(name, value, prop);
+  }
+}
+
+/**
+ * What a call that changed something did, written where it can be read back.
+ *
+ * The thread keeps a tool's name and eighty characters of one argument, which
+ * answers "it moved some mail" and nothing more: not which mail, not where to,
+ * and nothing a person could put back. This sends the whole call to the
+ * backend's tool log (backend/src/tool-log.ts) as it finishes.
+ *
+ * Afterwards rather than before, so the line carries what came back — which
+ * means a call that cannot be recorded has already happened, and refusing it
+ * now would be a lie. The model is told instead, in the one place a person
+ * will see it: its own answer.
+ *
+ * Reads are left out on purpose. This assistant reads the mail, the documents
+ * and the calendar all day, and a record of that is a second copy of the
+ * person's life rather than an audit trail.
+ */
+async function recordCall(tool, args, ok, result) {
+  const policy = policyOf(tool.name);
+  // No turn is no assistant run: the backend writes VK_TURN for every one of
+  // them, so what is left is this server started by hand or by a test.
+  if (policy.effect === "read" || !TURN) return "";
+  try {
+    await call("POST", "/api/assistant/turn/tool", {
+      turn: TURN,
+      speaker: MEMBER ?? "chair",
+      unattended: UNATTENDED,
+      tool: tool.name,
+      effect: policy.effect,
+      args,
+      ok,
+      result: String(result).slice(0, 4000),
+    });
+    return "";
+  } catch (err) {
+    return `\n(not written to the tool log: ${err.message})`;
+  }
+}
+
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
 }
@@ -1462,6 +1567,19 @@ async function handle(msg) {
         error: { code: -32601, message: `no such tool: ${msg.params?.name}` },
       });
     }
+    const args = msg.params.arguments ?? {};
+    try {
+      checkArgs(tool.inputSchema, args);
+    } catch (err) {
+      // Before anything else the call would cause, including the browser the
+      // private rule closes: a call this server will not make must not cost
+      // the turn a capability.
+      return send({
+        jsonrpc: "2.0",
+        id: msg.id,
+        result: { content: [{ type: "text", text: `failed: ${err.message}` }], isError: true },
+      });
+    }
     const policy = policyOf(tool.name);
     if (policy.private && TURN) {
       // Before the answer, never after: between reading the mail and the
@@ -1484,14 +1602,13 @@ async function handle(msg) {
     }
     if (policy.outside) readOutside = true;
     try {
-      const result = await tool.run(msg.params.arguments ?? {});
+      const result = await tool.run(args);
+      const text = typeof result === "string" ? result : JSON.stringify(result);
       return send({
         jsonrpc: "2.0",
         id: msg.id,
         result: {
-          content: [
-            { type: "text", text: typeof result === "string" ? result : JSON.stringify(result) },
-          ],
+          content: [{ type: "text", text: `${text}${await recordCall(tool, args, true, text)}` }],
         },
       });
     } catch (err) {
@@ -1500,7 +1617,15 @@ async function handle(msg) {
       return send({
         jsonrpc: "2.0",
         id: msg.id,
-        result: { content: [{ type: "text", text: `failed: ${err.message}` }], isError: true },
+        result: {
+          content: [
+            {
+              type: "text",
+              text: `failed: ${err.message}${await recordCall(tool, args, false, err.message)}`,
+            },
+          ],
+          isError: true,
+        },
       });
     }
   }

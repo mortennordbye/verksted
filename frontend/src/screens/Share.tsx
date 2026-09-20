@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../api";
 import TopBar from "../components/TopBar";
@@ -8,32 +8,41 @@ import PageHeader from "../components/PageHeader";
  * Where the share sheet lands.
  *
  * The manifest's share target points here with title, text and url in the
- * query; this posts them to the intake and goes to the inbox, where the item
- * is, so the whole thing is one tap from another app. Kept on screen only as
- * long as the post takes, and says so if it failed rather than leaving a
- * blank page with a question mark in the URL.
+ * query, and this shows what arrived and sends it on a tap.
+ *
+ * The tap is the point (S-02). Posting on mount made this a GET that performs
+ * a POST: any page the person had open could navigate a tab here, or frame it,
+ * and up to twenty thousand characters would land in the inbox attributed to
+ * them, where the next triage turn reads it. Framing is refused now
+ * (frame-ancestors, S-06) and the API's own origin check means nothing else
+ * can post to the intake — but a plain navigation still costs nothing, and the
+ * screen showing what it is about to send is what makes the item true.
  */
 export default function Share() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const [failed, setFailed] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const title = params.get("title") ?? "";
+  const text = params.get("text") ?? "";
+  const url = params.get("url") ?? "";
   const body = {
-    ...(params.get("title") ? { title: params.get("title") } : {}),
-    ...(params.get("text") ? { text: params.get("text") } : {}),
-    ...(params.get("url") ? { url: params.get("url") } : {}),
+    ...(title ? { title } : {}),
+    ...(text ? { text } : {}),
+    ...(url ? { url } : {}),
   };
   const empty = Object.keys(body).length === 0;
-  const error = failed ?? (empty ? "nothing was shared" : null);
 
-  useEffect(() => {
-    if (empty) return;
+  const send = () => {
+    setSending(true);
+    setFailed(null);
     api("/api/intake", { method: "POST", body: JSON.stringify(body) })
       .then(() => navigate("/runs", { replace: true }))
-      .catch((e: Error) => setFailed(e.message));
-    // The query is the whole input, and it does not change under a mounted
-    // screen: the share sheet opens a fresh one each time.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+      .catch((e: Error) => {
+        setFailed(e.message);
+        setSending(false);
+      });
+  };
 
   return (
     <>
@@ -42,20 +51,39 @@ export default function Share() {
         <PageHeader
           icon="inbox"
           label="Share"
-          title={error ? "Could not take it in" : "Taking it in…"}
+          title={empty ? "Nothing was shared" : "Send this to the inbox?"}
           sub={
-            error ? (
-              <span className="text-[12.5px] text-fail">{error}</span>
-            ) : (
-              "Sending it to the inbox, where it lands as an item."
-            )
+            empty
+              ? "The share sheet passed no title, text or link."
+              : "It lands as an item from you, and the next triage turn reads it."
           }
         />
-        {error && (
-          <Link to="/" className="inline-block text-sm text-accent hover:underline">
-            back to today
-          </Link>
+        {!empty && (
+          <>
+            <div className="rounded-xl border border-line bg-surface px-4 py-3.5">
+              {title && <div className="text-[14px] font-semibold">{title}</div>}
+              {text && (
+                <div className="mt-1 max-h-[45vh] overflow-y-auto whitespace-pre-wrap break-words text-[13.5px] text-muted">
+                  {text}
+                </div>
+              )}
+              {url && (
+                <div className="mt-2 break-all font-mono text-[12.5px] text-accent">{url}</div>
+              )}
+            </div>
+            <button
+              onClick={send}
+              disabled={sending}
+              className="tap mt-4 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            >
+              {sending ? "sending…" : "send to inbox"}
+            </button>
+          </>
         )}
+        {failed && <div className="mt-3 text-[12.5px] text-fail">{failed}</div>}
+        <Link to="/" className="mt-4 inline-block text-sm text-accent hover:underline">
+          back to today
+        </Link>
       </main>
     </>
   );
