@@ -1,5 +1,7 @@
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import readline from "node:readline";
 import type {
   PlanUsage,
   Session,
@@ -81,41 +83,60 @@ interface Entry {
   };
 }
 
-/** Sum one transcript file into `into`, once per API message. */
+/**
+ * Sum one transcript file into `into`, once per API message.
+ *
+ * A line at a time off a stream rather than the whole file at once. A busy
+ * session's transcript runs to tens of megabytes, and reading one whole held
+ * the file, the split array and every parsed line at the same moment while a
+ * single uninterrupted pass over all of it blocked the event loop — every
+ * terminal websocket on the pod with it — for as long as it took. This is
+ * called from the list sweep the moment a session is first seen finished,
+ * which is a GET anyone's poll can land on.
+ */
 async function addFile(file: string, into: SessionUsage, seen: Set<string>): Promise<boolean> {
-  let raw: string;
+  const input = createReadStream(file, "utf8");
+  const lines = readline.createInterface({ input, crlfDelay: Infinity });
   try {
-    raw = await fs.readFile(file, "utf8");
-  } catch {
-    return false;
-  }
-  for (const line of raw.split("\n")) {
-    if (!line) continue;
-    let entry: Entry;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
+    for await (const line of lines) {
+      if (!line) continue;
+      let entry: Entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      add(entry, line, into, seen);
     }
-    const usage = entry.type === "assistant" ? entry.message?.usage : undefined;
-    if (!usage) continue;
-    const key = entry.message?.id ?? entry.requestId ?? entry.uuid ?? line;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const one = {
-      input: usage.input_tokens ?? 0,
-      output: usage.output_tokens ?? 0,
-      cacheRead: usage.cache_read_input_tokens ?? 0,
-      cacheWrite: usage.cache_creation_input_tokens ?? 0,
-    };
-    into.input += one.input;
-    into.output += one.output;
-    into.cacheRead += one.cacheRead;
-    into.cacheWrite += one.cacheWrite;
-    into.turns += 1;
-    into.costUsd = (into.costUsd ?? 0) + priceOf(entry.message?.model, one);
+  } catch {
+    // No such transcript, or it went away mid-read.
+    return false;
+  } finally {
+    lines.close();
+    input.destroy();
   }
   return true;
+}
+
+/** One transcript line's usage, counted once per API message. */
+function add(entry: Entry, line: string, into: SessionUsage, seen: Set<string>): void {
+  const usage = entry.type === "assistant" ? entry.message?.usage : undefined;
+  if (!usage) return;
+  const key = entry.message?.id ?? entry.requestId ?? entry.uuid ?? line;
+  if (seen.has(key)) return;
+  seen.add(key);
+  const one = {
+    input: usage.input_tokens ?? 0,
+    output: usage.output_tokens ?? 0,
+    cacheRead: usage.cache_read_input_tokens ?? 0,
+    cacheWrite: usage.cache_creation_input_tokens ?? 0,
+  };
+  into.input += one.input;
+  into.output += one.output;
+  into.cacheRead += one.cacheRead;
+  into.cacheWrite += one.cacheWrite;
+  into.turns += 1;
+  into.costUsd = (into.costUsd ?? 0) + priceOf(entry.message?.model, one);
 }
 
 /**

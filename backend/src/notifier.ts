@@ -101,7 +101,13 @@ interface Logger {
  */
 export function startNotifier(log: Logger): void {
   let prev: Map<string, Status> | null = null;
+  // The session list can take longer than the interval on a long history. A
+  // second pass on top of the first would read it all over again, and the two
+  // would compare against the same `prev` and push the same transition twice.
+  let running = false;
   setInterval(async () => {
+    if (running) return;
+    running = true;
     try {
       // Nothing subscribed and no ntfy topic: stay idle, and re-seed rather
       // than fire a backlog of transitions at whoever subscribes later.
@@ -122,6 +128,8 @@ export function startNotifier(log: Logger): void {
       prev = new Map(sessions.map((s) => [s.id, s.status]));
     } catch (err) {
       log.warn(err, "notifier poll failed");
+    } finally {
+      running = false;
     }
   }, 5_000);
 }

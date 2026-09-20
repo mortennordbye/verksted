@@ -5,6 +5,7 @@ import { Cron } from "croner";
 import type { MaintainerStage, Schedule, ScheduleRun, Session } from "../../shared/api.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
+import { keyedQueue } from "./serial.js";
 import { listSessions, readReport } from "./sessions-store.js";
 
 /** Generated ids only — nothing from a client is ever used as a filename. */
@@ -135,6 +136,21 @@ async function write(s: Stored): Promise<void> {
   await writeJsonAtomic(filePath(s.id), s);
 }
 
+/**
+ * One chain per schedule for everything that changes one.
+ *
+ * Every change here is read-modify-write over the whole record, and they
+ * arrive from two directions at once: the scheduler stamps a firing and then
+ * records what the run did, while the UI patches the same schedule from a
+ * phone. Overlapping, the last write wins and takes a whole field's history
+ * with it — a run record erased by an edit saved a moment later,
+ * `lastFiredAt` going backwards so a boot re-runs a tick, `lastSessionId`
+ * reverting to a finished session so the next night reads a run as still open
+ * and starts a second agent in the same working tree. A delete is in the chain
+ * too, or a stamp that read the file first writes it back afterwards.
+ */
+const edits = keyedQueue();
+
 async function readStored(id: string): Promise<Stored | null> {
   if (!SCHEDULE_ID_RE.test(id)) return null;
   try {
@@ -226,17 +242,23 @@ export async function updateSchedule(
     >
   >,
 ): Promise<Schedule | null> {
-  const stored = await readStored(id);
-  if (!stored) return null;
-  const next = { ...stored, ...patch };
-  await write(next);
-  return toWire(next);
+  return await edits(id, async () => {
+    const stored = await readStored(id);
+    if (!stored) return null;
+    const next = { ...stored, ...patch };
+    await write(next);
+    return await toWire(next);
+  });
 }
 
 export async function deleteSchedule(id: string): Promise<boolean> {
-  if (!(await readStored(id))) return false;
-  await fs.rm(filePath(id), { force: true });
-  return true;
+  return await edits(id, async () => {
+    // readStored answers null for an id that is not a generated one, but the
+    // rm below builds a path of its own and says so for itself.
+    if (!SCHEDULE_ID_RE.test(id) || !(await readStored(id))) return false;
+    await fs.rm(filePath(id), { force: true });
+    return true;
+  });
 }
 
 /**
@@ -247,9 +269,11 @@ export async function deleteSchedule(id: string): Promise<boolean> {
  * occurrence after this stamp that is already in the past is a tick nobody ran.
  */
 export async function stampFired(id: string): Promise<void> {
-  const stored = await readStored(id);
-  if (!stored) return;
-  await write({ ...stored, lastFiredAt: new Date().toISOString() });
+  await edits(id, async () => {
+    const stored = await readStored(id);
+    if (!stored) return;
+    await write({ ...stored, lastFiredAt: new Date().toISOString() });
+  });
 }
 
 /** Stamp the outcome of a run: the session it started, or why it started none. */
@@ -257,16 +281,18 @@ export async function recordRun(
   id: string,
   result: { sessionId?: string; reply?: string; error?: string; broke?: boolean },
 ): Promise<void> {
-  const stored = await readStored(id);
-  if (!stored) return;
-  const run: StoredRun = {
-    at: new Date().toISOString(),
-    sessionId: result.sessionId ?? null,
-    error: result.error ?? null,
-    ...(result.broke ? { broke: true } : {}),
-    reply: result.reply ?? null,
-  };
-  await write({ ...stored, runs: [run, ...(stored.runs ?? [])].slice(0, MAX_RUNS) });
+  await edits(id, async () => {
+    const stored = await readStored(id);
+    if (!stored) return;
+    const run: StoredRun = {
+      at: new Date().toISOString(),
+      sessionId: result.sessionId ?? null,
+      error: result.error ?? null,
+      ...(result.broke ? { broke: true } : {}),
+      reply: result.reply ?? null,
+    };
+    await write({ ...stored, runs: [run, ...(stored.runs ?? [])].slice(0, MAX_RUNS) });
+  });
 }
 
 /**
@@ -315,18 +341,20 @@ function verdictKey(outcome: string, said: string): string {
  * says something else; Recent runs still lists it, because the run happened.
  */
 export async function dismissRun(id: string, at: string): Promise<boolean> {
-  const stored = await readStored(id);
-  const run = stored?.runs?.find((r) => r.at === at);
-  if (!stored || !run) return false;
-  const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
-  const session = run.sessionId
-    ? (await listSessions()).find((s) => s.id === run.sessionId)
-    : undefined;
-  await write({
-    ...stored,
-    dismissedVerdict: verdictKey(outcome(run, report, session), report ?? run.error ?? ""),
+  return await edits(id, async () => {
+    const stored = await readStored(id);
+    const run = stored?.runs?.find((r) => r.at === at);
+    if (!stored || !run) return false;
+    const report = run.reply ?? (run.sessionId ? await readReport(run.sessionId) : null);
+    const session = run.sessionId
+      ? (await listSessions()).find((s) => s.id === run.sessionId)
+      : undefined;
+    await write({
+      ...stored,
+      dismissedVerdict: verdictKey(outcome(run, report, session), report ?? run.error ?? ""),
+    });
+    return true;
   });
-  return true;
 }
 
 /**

@@ -340,6 +340,42 @@ describe("the store's own guards", () => {
     expect((await store.listRuns(100)).filter((r) => r.scheduleId === id)).toHaveLength(20);
   });
 
+  /**
+   * R-11: every change is read-modify-write over the whole record, and they
+   * arrive from two directions — the scheduler stamping a firing and recording
+   * what the run did, the UI patching the same schedule from a phone. Run
+   * beside each other, the last write won and took a whole field's history with
+   * it: the run record the night had just written, gone under an edit that had
+   * read the file a moment before it.
+   */
+  it("loses no run record to an edit saved at the same moment", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "race", project: "demo", cron: CRON, prompt: "x" })).json().id;
+
+    await Promise.all([
+      store.recordRun(id, { sessionId: "vk-demo-30" }),
+      store.updateSchedule(id, { name: "renamed while it ran" }),
+      store.stampFired(id),
+      store.recordRun(id, { sessionId: "vk-demo-31" }),
+    ]);
+
+    const after = (await store.getSchedule(id))!;
+    expect(after.name).toBe("renamed while it ran");
+    expect(after.lastFiredAt).not.toBeNull();
+    const runs = (await store.listRuns(100)).filter((r) => r.scheduleId === id);
+    expect(runs.map((r) => r.sessionId).sort()).toEqual(["vk-demo-30", "vk-demo-31"]);
+  });
+
+  it("does not let a stamp put back a schedule that was deleted under it", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "gone", project: "demo", cron: CRON, prompt: "x" })).json().id;
+
+    await Promise.all([store.stampFired(id), store.deleteSchedule(id)]);
+
+    expect(await store.getSchedule(id)).toBeNull();
+    expect(fs.existsSync(path.join(schedulesDir, `${id}.json`))).toBe(false);
+  });
+
   it("previews when a pattern would fire, before anything is saved", async () => {
     const res = await app.inject({ url: "/api/schedules/preview?cron=0%208%20*%20*%201-5" });
     expect(res.statusCode).toBe(200);

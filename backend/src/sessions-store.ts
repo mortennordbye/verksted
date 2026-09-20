@@ -16,6 +16,7 @@ import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
 import { headCommit, syncDefaultBranch, workSince } from "./git.js";
 import { resolveInsideRepos } from "./paths.js";
+import { keyedQueue } from "./serial.js";
 import { agentEnv } from "./settings-store.js";
 import * as tmux from "./tmux.js";
 import { usageOf } from "./usage.js";
@@ -150,15 +151,83 @@ export async function agentExited(id: string): Promise<number | null> {
   }
 }
 
-/** The run's own verdict, first line only; null when it wrote none. */
-export async function readReport(id: string): Promise<string | null> {
+/**
+ * The last read of each session's metadata and of the verdict beside it.
+ *
+ * The list is O(history) and nearly everything asks for it: the event watcher
+ * every three seconds, the notifier every five, the scheduler's two watchers
+ * twice a minute, and every GET of the feed, the usage page or the project
+ * list. Each of those read and parsed every `<id>.json` on the volume and the
+ * `<id>.report` next to it — on the pod that is 145 sessions, close to three
+ * hundred reads off NFS, to answer "nothing has changed".
+ *
+ * A finished session's files never move again, so size and mtime settle it: a
+ * hit costs one stat and no parse, which leaves the reading proportional to
+ * what is still moving. The walk itself is still over the whole directory —
+ * making that proportional to live sessions means retention, which the backlog
+ * holds. Nothing has to be invalidated, because the test is against the file
+ * and not against a clock: a meta written by this process, by `vk restore` or
+ * by hand is picked up the same way, and a purged one falls out on the next
+ * pass.
+ */
+interface Held<T> {
+  size: number;
+  mtimeMs: number;
+  value: T;
+}
+
+const metaCache = new Map<string, Held<Meta>>();
+const reportCache = new Map<string, Held<string | null>>();
+
+async function exists(file: string): Promise<boolean> {
+  return await fs
+    .stat(file)
+    .then(() => true)
+    .catch(() => false);
+}
+
+/**
+ * Read a file through its cache. Null means the file could not be read at all,
+ * which is an answer here — no metadata, no verdict — and never an error.
+ */
+async function cached<T>(
+  held: Map<string, Held<T>>,
+  id: string,
+  suffix: string,
+  read: (file: string) => Promise<T>,
+): Promise<T | null> {
+  // Checked and joined here rather than handed in already built: this is the
+  // one place in the module that turns a session id into a file to open, so it
+  // is where the check belongs. Taking the path from the caller would also put
+  // the check in one function and the open in another, which is a shape no
+  // reader — and no scanner — can see the safety of.
   if (!SESSION_ID_RE.test(id)) return null;
+  const file = path.join(env.SESSIONS_DIR, `${id}${suffix}`);
   try {
-    const first = (await fs.readFile(reportPath(id), "utf8")).trim().split("\n")[0]?.trim();
-    return first ? first.slice(0, 300) : null;
+    const { size, mtimeMs } = await fs.stat(file);
+    const hit = held.get(id);
+    if (hit && hit.size === size && hit.mtimeMs === mtimeMs) return hit.value;
+    const value = await read(file);
+    held.set(id, { size, mtimeMs, value });
+    return value;
   } catch {
+    held.delete(id);
     return null;
   }
+}
+
+/** Forget every cached read. For tests, which rewrite these files in place. */
+export function resetSessionCache(): void {
+  metaCache.clear();
+  reportCache.clear();
+}
+
+/** The run's own verdict, first line only; null when it wrote none. */
+export async function readReport(id: string): Promise<string | null> {
+  return await cached(reportCache, id, ".report", async (file) => {
+    const first = (await fs.readFile(file, "utf8")).trim().split("\n")[0]?.trim();
+    return first ? first.slice(0, 300) : null;
+  });
 }
 
 async function readState(id: string): Promise<string | null> {
@@ -191,14 +260,20 @@ export async function readConv(id: string): Promise<string | null> {
 async function readAll(): Promise<Meta[]> {
   const files = await fs.readdir(env.SESSIONS_DIR);
   const metas: Meta[] = [];
+  const present = new Set<string>();
   // Only <session-id>.json files are metadata; the dir also holds .state
   // files and claude-hooks.json.
   for (const f of files.filter((f) => f.endsWith(".json") && SESSION_ID_RE.test(f.slice(0, -5)))) {
-    try {
-      metas.push(JSON.parse(await fs.readFile(path.join(env.SESSIONS_DIR, f), "utf8")));
-    } catch {
-      // Skip unreadable/corrupt metadata rather than failing the whole list.
-    }
+    const id = f.slice(0, -5);
+    present.add(id);
+    // Skip unreadable/corrupt metadata rather than failing the whole list.
+    const meta = await readMeta(id);
+    if (meta) metas.push(meta);
+  }
+  // A purged session must not keep its entry: this is the one pass that knows
+  // the whole set, and nothing else would ever drop it.
+  for (const held of [metaCache, reportCache]) {
+    for (const id of held.keys()) if (!present.has(id)) held.delete(id);
   }
   return metas;
 }
@@ -211,13 +286,36 @@ async function writeMeta(meta: Meta): Promise<void> {
   await writeJsonAtomic(metaPath(meta.id), meta);
 }
 
+/**
+ * Whether a parsed file is metadata at all.
+ *
+ * `JSON.parse` is happy with `{}`, and an empty or half-written object used to
+ * travel all the way to the sort at the end of the list, where an undefined
+ * `createdAt` threw — taking `/api/sessions`, the event stream, the notifier,
+ * the scheduler's watch and the project list down together, on every tick,
+ * until someone deleted the file by hand. One bad file costs its own row now,
+ * the same as one that will not parse.
+ */
+function isMeta(value: unknown): value is Meta {
+  const m = value as Partial<Meta> | null;
+  return (
+    !!m &&
+    typeof m === "object" &&
+    typeof m.id === "string" &&
+    typeof m.project === "string" &&
+    typeof m.createdAt === "string"
+  );
+}
+
 async function readMeta(id: string): Promise<Meta | null> {
-  if (!SESSION_ID_RE.test(id)) return null;
-  try {
-    return JSON.parse(await fs.readFile(metaPath(id), "utf8")) as Meta;
-  } catch {
-    return null;
-  }
+  const meta = await cached(metaCache, id, ".json", async (file) => {
+    const parsed: unknown = JSON.parse(await fs.readFile(file, "utf8"));
+    if (!isMeta(parsed)) throw new Error(`${id}: not session metadata`);
+    return parsed;
+  });
+  // A copy per caller: the held object is shared, and the list sweep, the
+  // review and the usage backfill all assign to the meta they were handed.
+  return meta && { ...meta };
 }
 
 /**
@@ -363,20 +461,7 @@ export async function getReview(id: string): Promise<SessionReview> {
  * another — a night's work is judged on a phone and finished at a desk.
  */
 export async function setReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
-  // Wait for this session's previous write, whether it worked or not: what
-  // matters is only that no two of them read the file at the same moment.
-  const queued = (reviewWrites.get(id) ?? Promise.resolve()).then(
-    () => writeReview(id, change),
-    () => writeReview(id, change),
-  );
-  reviewWrites.set(id, queued);
-  try {
-    return await queued;
-  } finally {
-    // Last one out clears the entry, so the map does not keep a key per session
-    // for the life of the process.
-    if (reviewWrites.get(id) === queued) reviewWrites.delete(id);
-  }
+  return await reviewWrites(id, () => writeReview(id, change));
 }
 
 interface ReviewChange {
@@ -390,10 +475,9 @@ interface ReviewChange {
  * Every write is read-modify-write on a single metadata file, and the actions
  * that produce them arrive in bursts — ticking four files off as fast as a
  * thumb moves. Run concurrently they all read the same meta and the last to
- * finish wins, so three of those four marks vanish. Chaining is enough here:
- * this is one person reviewing one run, not a contended resource.
+ * finish wins, so three of those four marks vanish.
  */
-const reviewWrites = new Map<string, Promise<SessionReview | null>>();
+const reviewWrites = keyedQueue();
 
 async function writeReview(id: string, change: ReviewChange): Promise<SessionReview | null> {
   const meta = await readMeta(id);
@@ -464,7 +548,13 @@ export async function listSessions(project?: string): Promise<Session[]> {
       // the next session: a chromium still holding the port would make that
       // session's browser fail to bind.
       await closeBrowser(m.id);
-      await writeMeta(m);
+      // Stamping an end takes git calls and a transcript read, and a DELETE can
+      // land in the middle of them. Writing this snapshot back blind would put
+      // the removed session's metadata on the volume again and the row would
+      // reappear on the next tick — so the write only happens if the file is
+      // still there to be written. (R-09's other half, a read-modify-write that
+      // holds the id for the whole of it, waits on the sweeper: BACKLOG.)
+      if (await exists(metaPath(m.id))) await writeMeta(m);
     }
     // A shell companion must not outlive its agent session.
     if (!live.has(m.id) && live.has(`${m.id}-shell`)) {

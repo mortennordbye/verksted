@@ -1,5 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,6 +102,10 @@ beforeEach(() => {
   gitHead.mockResolvedValue("start0");
   gitWork.mockResolvedValue(WORK);
   for (const f of fs.readdirSync(sessionsDir)) fs.rmSync(path.join(sessionsDir, f));
+  // The store keeps its last read of each file, keyed by size and mtime. These
+  // cases write the same ids over and over within the same few milliseconds,
+  // which is not something the volume ever does.
+  store.resetSessionCache();
 });
 
 /**
@@ -222,6 +227,94 @@ describe("liveness when tmux answers", () => {
 
     expect(second).toBe(first);
     expect(JSON.parse(first)[0].lastActivityAt).toBe("2025-10-09T08:53:20.000Z");
+  });
+
+  /**
+   * R-07: the list is O(history) and nearly everything asks for it — the event
+   * watcher every three seconds, the notifier every five, the scheduler twice
+   * a minute, and every GET of the feed, the usage page or the project list.
+   * Each of those used to read and parse every meta on the volume and every
+   * report beside it, on a pod holding 145 sessions, to answer "nothing has
+   * changed".
+   */
+  it("reads nothing off the volume for a history that has not moved", async () => {
+    for (const id of ["vk-demo-1", "vk-demo-2", "vk-demo-3"]) {
+      writeMeta(id, { endedAt: "2026-01-02T00:00:00.000Z" });
+      fs.writeFileSync(path.join(sessionsDir, `${id}.report`), `ok: ${id} finished\n`);
+    }
+    tmuxList.mockResolvedValue([]);
+    const first = await store.listSessions();
+    expect(first).toHaveLength(3);
+
+    const readFile = vi.spyOn(fsp, "readFile");
+    try {
+      expect(await store.listSessions()).toEqual(first);
+      expect(readFile).not.toHaveBeenCalled();
+    } finally {
+      readFile.mockRestore();
+    }
+  });
+
+  it("picks up a meta rewritten under it", async () => {
+    writeMeta("vk-demo-1", { title: "first" });
+    tmuxList.mockResolvedValue([]);
+    expect((await store.listSessions())[0].title).toBe("first");
+
+    writeMeta("vk-demo-1", { title: "rewritten by hand" });
+    expect((await store.listSessions())[0].title).toBe("rewritten by hand");
+  });
+
+  /**
+   * R-31: `JSON.parse` accepts `{}`, and an empty meta travelled to the sort at
+   * the end of the list, where `createdAt.localeCompare` threw. That took the
+   * list, the event stream, the notifier, the scheduler's watch and the project
+   * list down with it, every tick, until the file was removed by hand.
+   */
+  it("loses one malformed meta rather than the whole list", async () => {
+    writeMeta("vk-demo-1");
+    fs.writeFileSync(metaFile("vk-demo-2"), "{}");
+    fs.writeFileSync(metaFile("vk-demo-3"), "null");
+    fs.writeFileSync(metaFile("vk-demo-4"), "{ not json");
+    tmuxList.mockResolvedValue([]);
+
+    const sessions = await store.listSessions();
+    expect(sessions.map((s) => s.id)).toEqual(["vk-demo-1"]);
+    expect(await store.getSession("vk-demo-2")).toBeNull();
+  });
+
+  it("picks up a verdict the agent writes after the last pass", async () => {
+    writeMeta("vk-demo-1");
+    tmuxList.mockResolvedValue(["vk-demo-1"]);
+    expect((await store.listSessions())[0].report).toBeNull();
+
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.report"), "attention: needs you\n");
+    expect((await store.listSessions())[0].report).toBe("attention: needs you");
+  });
+
+  /**
+   * R-09: stamping an end is a read, several git calls, a transcript read and
+   * then a write. A DELETE that lands between the read and the write had its
+   * session put back on the volume by the sweep, and the row the user had just
+   * removed was on the hub again three seconds later.
+   */
+  it("does not put a session back that was deleted while it was being stamped", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxList.mockResolvedValue([]);
+    let finishMeasuring: () => void = () => {};
+    gitWork.mockImplementation(
+      () =>
+        new Promise<SessionWork>((resolve) => {
+          finishMeasuring = () => resolve(WORK);
+        }),
+    );
+
+    const listing = store.listSessions();
+    await vi.waitFor(() => expect(gitWork).toHaveBeenCalled());
+    fs.rmSync(metaFile("vk-demo-1"));
+    finishMeasuring();
+    await listing;
+
+    expect(fs.existsSync(metaFile("vk-demo-1"))).toBe(false);
   });
 
   it("reaps a shell companion left behind by a dead agent session", async () => {
