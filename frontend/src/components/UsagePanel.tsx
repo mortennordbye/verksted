@@ -341,10 +341,7 @@ export default function UsagePanel({ usage }: { usage: UsageSummary | null }) {
   return (
     <>
       {!usage.plan && usage.planError && (
-        <div
-          role="status"
-          className="mt-4 border-t border-line pt-4 font-mono text-xs text-wait"
-        >
+        <div role="status" className="mt-4 border-t border-line pt-4 font-mono text-xs text-wait">
           Plan meters unavailable — {usage.planError}
         </div>
       )}
