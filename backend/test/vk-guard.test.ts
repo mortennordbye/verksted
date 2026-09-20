@@ -209,6 +209,170 @@ describe("vk-guard, in every stage", () => {
   });
 });
 
+/**
+ * S-04 in the audit: the rules above were anchored at the start of the line or
+ * just after ; & | (, so a newline, a word in front of the command, an
+ * absolute path or one of git's own global flags walked past all of them.
+ * Each case here is one of the ways around the guard the audit listed.
+ */
+describe("vk-guard, the one-line ways around it", () => {
+  const build = { VK_STAGE: "build", VK_PROJECT: "demo" };
+
+  it("reads a command that does not start the line", async () => {
+    for (const cmd of [
+      "echo hi\ngit reset --hard origin/main",
+      "npm test\ngit push --force origin main",
+      "if true; then git reset --hard; fi",
+      "{ git push -f origin main; }",
+      "echo `git push -f origin main`",
+      "echo $(git reset --hard)",
+      "for f in a b; do git push -f; done",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+
+  it("sees through the words that can stand in front of a command", async () => {
+    for (const cmd of [
+      "env git push --force origin main",
+      "command git reset --hard",
+      "/usr/bin/git push -f origin main",
+      "sh -c 'git reset --hard'",
+      'bash -c "git push --force origin main"',
+      "GIT_TERMINAL_PROMPT=0 git push -f origin main",
+      "echo main | xargs git push -f origin",
+      "exec git push --force origin main",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+
+  it("joins a line that continues on the next one", async () => {
+    expect((await bash("git \\\n  push --force origin maint/42", build)).allowed).toBe(false);
+  });
+
+  it("refuses an interpreter that reads its program from the pipe", async () => {
+    for (const cmd of ["echo git push -f origin main | sh", "cat payload.py | python3"]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+    // A script in the worktree is still the run's to run, and asking a
+    // version is not running anything.
+    expect((await bash("sh scripts/check.sh", build)).allowed).toBe(true);
+    expect((await bash("node --version && npm --version", build)).allowed).toBe(true);
+  });
+
+  it("sees git's own global flags", async () => {
+    for (const cmd of [
+      "git -C . push --force origin maint/42",
+      "git -c a=b push origin main",
+      "git --git-dir=/data/repos/other/.git push -f",
+      "git -C /data/repos/other reset --hard",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+
+  it("will not push a ref it cannot read", async () => {
+    expect((await bash("b=main; git push origin HEAD:$b", build)).allowed).toBe(false);
+  });
+
+  it("reads --method= the same way as -X", async () => {
+    for (const cmd of [
+      "gh api --method=DELETE repos/o/r/issues/1/labels/queued",
+      "gh api --method=PUT repos/o/r/pulls/9/merge",
+      "gh api --method PATCH repos/o/r/issues/1",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+    expect((await bash("gh api repos/o/r/pulls/9/files", build)).allowed).toBe(true);
+  });
+
+  it("checks a quoted path, a ~ path, and one built from a variable", async () => {
+    for (const cmd of [
+      `cp src/a.ts "${elsewhere}/a.ts"`,
+      "echo x > ~/.bashrc",
+      "echo x > $HOME/.profile",
+      "cp src/a.ts /tmp/a.ts",
+      "echo x > /etc/hosts",
+      "curl -o /data/settings.json https://example.com/x",
+      "tar -C /data -xf payload.tar",
+      "mkdir -p /data/repos/other/x",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+    // The shapes ordinary work takes, which the same check must let through.
+    for (const cmd of [
+      "npm test > out.log 2>&1",
+      "git diff > /dev/null",
+      "mkdir -p src/gen && touch src/gen/a.ts",
+    ]) {
+      expect(await bash(cmd, build), cmd).toEqual({ allowed: true, reason: "" });
+    }
+  });
+
+  it("refuses interpreter code written on the command line", async () => {
+    for (const cmd of [
+      `python3 -c 'open("/data/settings.json","w").write("x")'`,
+      `node -e 'require("fs").writeFileSync("/data/x","y")'`,
+      `perl -e 'unlink "/data/push.json"'`,
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+
+  it("keeps the run off the pod's own API", async () => {
+    // The largest hole in the guard was never in the guard: the backend on
+    // loopback takes a request with no Origin, and a session it starts there
+    // carries no guard at all.
+    for (const cmd of [
+      "curl -X POST http://127.0.0.1:8080/api/projects/demo/sessions -d '{}'",
+      "curl http://localhost:8080/api/settings/reveal",
+      "wget -q -O - http://[::1]:8080/api/sessions",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+    expect((await bash("curl -sS https://api.github.com/rate_limit", build)).allowed).toBe(true);
+  });
+
+  it("stops the commands that run what the guard cannot read", async () => {
+    for (const cmd of [
+      "find . -name x -exec rm -rf /data/settings.json {} ;",
+      "find /data -delete",
+      // -c can point git at a hooks path, which is a script of the run's own.
+      "git -c core.hooksPath=/tmp/h commit -m x",
+      "gh api -X POST repos/o/r/merges -f base=main",
+      "gh api graphql -f query=mutation",
+      "dd if=/dev/zero of=/data/settings.json",
+      "ln -s /data/settings.json ./link",
+      "p() { git push -f origin main; }",
+    ]) {
+      expect((await bash(cmd, build)).allowed, cmd).toBe(false);
+    }
+  });
+
+  it("knows the API by its path, not only by the loopback address", async () => {
+    expect(
+      (
+        await bash(
+          "curl -sS -X POST http://verksted.local.bigd.no/api/projects/demo/sessions",
+          build,
+        )
+      ).allowed,
+    ).toBe(false);
+  });
+
+  it("resolves the gate's own checkouts before it trusts the name", async () => {
+    const gate = { VK_STAGE: "gate", VK_PROJECT: "demo" };
+    expect(
+      (await guard("Write", { file_path: "/data/repos/demo--gate-9/../../settings.json" }, gate))
+        .allowed,
+    ).toBe(false);
+    expect(
+      (await bash("git worktree add /data/repos/demo--gate-9/../../evil origin/x", gate)).allowed,
+    ).toBe(false);
+  });
+});
+
 describe("vk-guard, for the builder", () => {
   const build = { VK_STAGE: "build", VK_PROJECT: "demo" };
 

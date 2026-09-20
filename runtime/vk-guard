@@ -14,6 +14,12 @@
 #   VK_WORKTREE  the one directory the run may change
 #   VK_REPORT_FILE  the one file outside it the run must write
 #
+# What it is not: a sandbox. It reads command lines, so a run that puts its
+# work one step away — a script it wrote and then ran, a program that opens a
+# file itself, a variable holding the branch name — is past it. The boundary
+# that holds is a uid of its own (S-04(c) in the audit); this is the fence
+# that stops the one-line ways over it, and every one it stops is a test.
+#
 # Tested by backend/test/vk-guard.test.ts. POSIX sh; jq is in the image.
 set -u
 
@@ -33,16 +39,23 @@ allow() {
   exit 0
 }
 
-# Whether a path — absolute, ~-relative or relative to the worktree — resolves
-# inside the worktree (or is the report file). Resolved through the filesystem
-# where it exists, so a symlink out of the tree is caught; lexically otherwise.
-inside() {
+# What a path — absolute, ~-relative or relative to the worktree — actually
+# points at. Resolved through the filesystem where it exists, so a symlink out
+# of the tree is caught; collapsed lexically otherwise, so that a path which
+# does not exist yet still cannot climb out with "..".
+resolved() {
   case "$1" in
     /*) p=$1 ;;
     "~"*) p=${HOME:-/nonexistent}${1#"~"} ;;
     *) p=$worktree/$1 ;;
   esac
-  r=$(readlink -f -- "$p" 2>/dev/null) || r=$(printf '%s' "$p" | sed -e 's#/\./#/#g' -e ':a' -e 's#/[^/]*/\.\./#/#' -e 'ta')
+  readlink -f -- "$p" 2>/dev/null ||
+    printf '%s' "$p" | sed -e 's#/\./#/#g' -e ':a' -e 's#/[^/]*/\.\./#/#' -e 'ta'
+}
+
+# Whether a path resolves inside the worktree (or is the report file).
+inside() {
+  r=$(resolved "$1")
   [ -n "$report" ] && [ "$r" = "$report" ] && return 0
   case "$r" in
     "$worktree" | "$worktree"/*) return 0 ;;
@@ -58,8 +71,9 @@ case "$tool" in
     file=$(printf '%s' "$payload" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty')
     if [ "$stage" = gate ]; then
       # The gate's own checkouts are the only place it may write, and it
-      # writes there only to run what the branch needs run.
-      case "$file" in
+      # writes there only to run what the branch needs run. The path is
+      # resolved first: matching the name alone takes --gate-1/../../x.
+      case "$(resolved "$file")" in
         /data/repos/"${VK_PROJECT:-}"--gate-*) ;;
         *) deny "the gate edits only inside its own checkouts: $file" ;;
       esac
@@ -72,54 +86,178 @@ case "$tool" in
 esac
 
 cmd=$(printf '%s' "$payload" | jq -r '.tool_input.command // empty')
-# One line, single spaces, so the patterns need not care about newlines or tabs.
-flat=$(printf '%s' "$cmd" | tr -s '[:space:]' ' ')
 
+# Two passes over the line, and the rules below are the answer to S-04.
+#
+# Quotes go first. A guard that honours them is one " away from blind, since
+# "/data/settings.json" is not a path to any pattern looking for one. The cost
+# is that quoted prose is read as shell words, so a commit body spelling out
+# `git reset --hard` is denied; say it another way.
+#
+# Then the line is cut wherever a shell would begin a new command — ; | & ( )
+# { } ` and newline — and each piece is stripped down to its command word,
+# past assignments, `env`, `command`, `sh -c`, `xargs`, a keyword like `then`
+# and any leading path. Only then do the rules anchor at ^, and mean it: what
+# they replaced accepted the start of the line or ; & | ( and nothing else, so
+# a second line, `env git`, `/usr/bin/git` or `git -C .` walked past all of it.
+#
+# What no lexical guard can do: follow a variable into a refspec, read a
+# script the run wrote and then ran, or stop a program that opens a file
+# itself. Those want a uid of their own — S-04(c) in the audit, and BACKLOG.
+# A line ending in \ continues on the next one: joined first, or cutting on
+# newlines would read `git \<newline> push -f` as two commands and neither of
+# them as a push.
+# The quotes and the backslash are \047 " \134, octal so that the pattern
+# itself needs no escaping.
+bare=$(printf '%s' "$cmd" | sed -e ':a' -e '/\\$/{N;s/\\\n/ /;ta' -e '}' | tr -d '\047"\134')
+flat=$(printf '%s' "$bare" | tr -s '[:space:]' ' ')
+
+# A content check over the whole line, for what is being written rather than
+# what is being run.
 has() {
   printf '%s' "$flat" | grep -Eq -- "$1"
 }
 
-# --- in every stage: what git cannot undo, and what is not the run's to do ---
-has 'git push( [^;&|]*)? (--force|-f|--force-with-lease)' && deny "no force pushes"
-has 'git push [^;&|]*\+[^ ]*:' && deny "no force pushes"
-has 'git push( [^;&|]*)? (HEAD:|[^ :]*:)?(refs/heads/)?(main|master)( |$|[;&|)])' && deny "no pushes to the default branch"
-has '(^|[;&|(] *)git (reset --hard|clean -[a-zA-Z]*f|checkout -- |restore |stash drop|branch -D|filter-branch|update-ref -d)' && deny "no discarding work: $flat"
-has 'git config (--global|--system)' && deny "no changing git's own configuration"
-has '(^|[;&|(] *)gh (repo delete|release delete|secret |auth |api [^;&|]*(-X|--method) *(DELETE|PUT|PATCH))' && deny "not through gh: $flat"
-has '(^|[;&|(] *)kubectl [^;&|]*(delete|apply|edit|scale|patch|drain|cordon|exec)( |$)' && deny "the cluster is read-only from here"
-has '(^|[;&|(] *)docker (system prune|volume rm|rm -f|rmi)' && deny "no removing docker state"
-has '(^|[;&|(] *)vk (restore|backup)' && deny "backups are not the run's to touch"
-has '(npm|cargo|uv|pnpm|yarn) publish' && deny "no publishing"
-has '(^|[;&|(] *)claude( |$)' && deny "no nested agents"
+# A rule about the one command in $seg.
+is() {
+  printf '%s' "$seg" | grep -Eq -- "$1"
+}
+
+# One piece of the line, reduced to the command it runs.
+strip() {
+  s=$(printf '%s' "$1" | tr -s '[:space:]' ' ')
+  s=${s# }
+  s=${s% }
+  while [ -n "$s" ]; do
+    w=${s%% *}
+    case "$s" in
+      *" "*) rest=${s#* } ;;
+      *) rest= ;;
+    esac
+    case "$w" in
+      *=*) s=$rest ;;
+      if | then | elif | else | fi | do | done | while | until | for | in | "!" | time | exec | nohup | env | command | builtin | eval | sudo | xargs) s=$rest ;;
+      -*) s=$rest ;;
+      sh | bash | dash | zsh)
+        # The string after -c is a command line of its own.
+        case "$rest" in
+          "-c "*) s=${rest#-c } ;;
+          *) break ;;
+        esac
+        ;;
+      */*) s=${w##*/}${rest:+ $rest} ;;
+      *) break ;;
+    esac
+  done
+  printf '%s' "$s"
+}
+
+# git carries its own prefix, and it stands between `git` and the subcommand
+# every rule below is written against. -C is allowed where it stays in the
+# tree; -c, --git-dir and the rest point git at another repository, another
+# configuration or another exec path — `git -c core.hooksPath=…` runs code
+# this guard cannot read — and no stage needs any of them.
+gitprefix() {
+  while :; do
+    case "$seg" in
+      "git -C "*)
+        seg=${seg#git -C }
+        dir=${seg%% *}
+        inside "$dir" || deny "git -C outside the worktree: $dir"
+        case "$seg" in
+          *" "*) seg="git ${seg#* }" ;;
+          *) seg=git ;;
+        esac
+        ;;
+      "git -c "* | "git --git-dir"* | "git --work-tree"* | "git --exec-path"* | "git --namespace"*)
+        deny "git's own options are not the run's to set: $seg"
+        ;;
+      "git --no-pager "* | "git --paginate "* | "git -p "* | "git --bare "* | "git --literal-pathspecs "*)
+        rest=${seg#git }
+        seg="git ${rest#* }"
+        ;;
+      *) break ;;
+    esac
+  done
+}
 
 # Nothing the run writes to the repo or to GitHub may say what wrote it. The
 # commit-msg hook strips the trailers from commits; this stops the rest —
 # issue and PR bodies, comments, reviews — at the only point they can be read,
 # which is why a body has to be inline rather than read from a file.
-if has '(^|[;&|(] *)(git commit|gh (issue|pr) (create|comment|review|edit)|gh api )'; then
-  has '(^|[;&|(] *)gh (issue|pr) [a-z]+ [^;&|]*(--body-file|-F |--title-file)' && deny "write the body inline, so it can be read here"
+if has '(git commit|gh (issue|pr) (create|comment|review|edit)|gh api )'; then
+  has 'gh (issue|pr) [a-z]+ [^;&|]*(--body-file|-F |--title-file)' && deny "write the body inline, so it can be read here"
   printf '%s' "$flat" | grep -Eiq 'co-authored-by|generated (with|by)|anthropic|claude[ -]?(code|session|\.ai)|noreply@anthropic|🤖|\bai[ -]?(generated|assisted|written)|as an ai\b|chatgpt|copilot|openai' \
     && deny "no sign of who wrote it: the text names a tool or an assistant"
 fi
 
-# Writes outside the worktree, checked one command at a time (the line is
-# split on ; | &). Every path an rm is given is resolved, relative ones
-# included, since a symlink makes a relative path reach anywhere; other
-# writing commands and redirections are checked for paths that look like they
-# leave — on the volume, under ~, or through "..". Reads are not checked: the
-# run is expected to read the rest of the volume. A cd is held to the tree
-# too, or the relative paths after it would mean something else.
-nl='
-'
-old_ifs=$IFS
-IFS=$nl
-for seg in $(printf '%s' "$flat" | tr ';|&' "$nl"); do
-  IFS=$old_ifs
-  # Splitting on whitespace is the point: the segment is a command line, and
-  # these are its words.
-  # shellcheck disable=SC2086
-  set -- $seg
-  [ $# -eq 0 ] && continue
+# A word a writing command was given: denied when it is a path that leaves the
+# worktree. A plain relative path is left alone — that is the tree.
+writes() {
+  case "$1" in
+    /* | "~"* | ../* | */../*) inside "$1" || deny "write outside the worktree: $1" ;;
+  esac
+}
+
+# Everything below judges one command, with $seg holding it and $@ its words.
+check() {
+  # --- in every stage: what git cannot undo, and what is not the run's ---
+  is '^git push( .*)? (--force|-f|--force-with-lease)( |$)' && deny "no force pushes"
+  is '^git push .*\+[^ ]*:' && deny "no force pushes"
+  is '^git push( .*)? (HEAD:|[^ :]*:)?(refs/heads/)?(main|master)( |$)' && deny "no pushes to the default branch"
+  is '^git push .*\$' && deny "push a branch by name: the guard cannot follow a variable"
+  is '^git (reset --hard|clean -[a-zA-Z]*f|checkout -- |restore |stash drop|branch -D|filter-branch|update-ref -d)' && deny "no discarding work: $seg"
+  is '^git config (--global|--system)' && deny "no changing git's own configuration"
+  is '^gh (repo delete|release delete|secret |auth |api (graphql|.*(-X|--method)[ =]+(POST|DELETE|PUT|PATCH)))' && deny "not through gh: $seg"
+  is '^kubectl .*(delete|apply|edit|scale|patch|drain|cordon|exec)( |$)' && deny "the cluster is read-only from here"
+  is '^docker (system prune|volume rm|rm -f|rmi)' && deny "no removing docker state"
+  is '^vk (restore|backup)' && deny "backups are not the run's to touch"
+  is '(npm|cargo|uv|pnpm|yarn) publish' && deny "no publishing"
+  is '^claude( |$)' && deny "no nested agents"
+  # An interpreter given its program on the command line is a shell by another
+  # name, and none of the checks below can read it.
+  is '^(python|python3|node|nodejs|perl|ruby|php) (-c|-e|-E|--eval|-r)( |$)' \
+    && deny "no code on the command line: put it in a file in the worktree"
+  # An interpreter with nothing to run reads its program from the pipe it is
+  # on, which is the same thing one step further away: `echo git push -f | sh`.
+  case "$1" in
+    sh | bash | dash | zsh | python | python3 | node | nodejs | perl | ruby | php)
+      words=0
+      asking=0
+      for tok in "$@"; do
+        case "$tok" in
+          --version | -v | -V | --help | -h) asking=1 ;;
+          -*) ;;
+          *) words=$((words + 1)) ;;
+        esac
+      done
+      # The command word counts itself, so a bare interpreter has just the one.
+      [ "$words" -gt 1 ] || [ "$asking" = 1 ] \
+        || deny "nothing is run from a pipe here: the guard cannot read it"
+      ;;
+  esac
+  # A command that runs what it finds is a shell with another name.
+  is '^find .*(-delete|-exec|-execdir|-ok)( |$)' \
+    && deny "no -exec or -delete: the guard cannot read what find would run"
+  # The backend answers on loopback without an Origin, and a session started
+  # there carries no guard at all. Both spellings of its address are denied —
+  # the literal loopback one, and any URL whose path is the app's own /api/,
+  # which is how the ingress name reaches the same routes. S-04(b) closes this
+  # properly, from the backend's side; this is the near half of it.
+  if is '^(curl|wget|nc|ncat|socat|http)( |$)'; then
+    is '(127\.0\.0\.1|\[?::1\]?|localhost|0\.0\.0\.0)' \
+      && deny "the pod's own API is not a way around this guard"
+    is '://[^ ]*/api/' \
+      && deny "the app's API is not a way around this guard: $seg"
+  fi
+
+  # --- writes outside the worktree ---
+  # Every path an rm is given is resolved, relative ones included, since a
+  # symlink makes a relative path reach anywhere. Other writing commands and
+  # redirections are checked for paths that leave — absolute, under ~, through
+  # "..", or built from a variable the guard cannot read. Reads are not
+  # checked: the run is expected to read the rest of the volume. A cd is held
+  # to the tree too, or the relative paths after it would mean something else.
   case "$1" in
     cd)
       # Not if-then-else, and deliberately so: everything that is not a cd to a
@@ -138,67 +276,97 @@ for seg in $(printf '%s' "$flat" | tr ';|&' "$nl"); do
       done
       ;;
   esac
-  if printf '%s' "$seg" | grep -Eq '(^| )(mv|cp|tee|truncate|ln|chmod|chown|rsync|dd|install|touch|mkdir|sed -i)( |$)|>'; then
+  if is '^(mv|cp|tee|truncate|ln|chmod|chown|rsync|dd|install|touch|mkdir|rmdir|tar|patch|unzip|curl|wget)( |$)' ||
+    is '^sed .*(-i|--in-place)' || is '>'; then
     for tok in "$@"; do
+      # The two VK_ words below are matched as the text they are — the
+      # unexpanded word the run typed, not its value — which is what SC2016
+      # is for.
+      # shellcheck disable=SC2016
       case "$tok" in
-        -* | *=*) ;;
-        /data/* | "~"* | ../* | */../*)
-          inside "$tok" || deny "write outside the worktree: $tok"
-          ;;
+        -* | ">") ;;
+        /dev/null | /dev/stdout | /dev/stderr | /dev/tty | /dev/fd/*) ;;
+        '$VK_REPORT_FILE' | '${VK_REPORT_FILE}' | '$VK_WORKTREE' | '$VK_WORKTREE'/*) ;;
+        *'$'*) deny "the guard cannot follow a variable into a path: $tok" ;;
+        # `dd of=…`, `--file=…`: the path is the half after the =.
+        *=*) writes "${tok#*=}" ;;
+        *) writes "$tok" ;;
       esac
     done
+  fi
+
+  # --- worktrees: a stage may add or remove only its own, beside its repo ---
+  if is '^git worktree (add|remove|move)'; then
+    ok=0
+    for tok in "$@"; do
+      case "$tok" in
+        -*) continue ;;
+      esac
+      case "$(resolved "$tok")" in
+        /data/repos/"${VK_PROJECT:-}"--maint-* | /data/repos/"${VK_PROJECT:-}"--gate-*) ok=1 ;;
+      esac
+    done
+    [ $ok = 1 ] || deny "a worktree may only be added or removed as /data/repos/${VK_PROJECT:-<project>}--maint-* or --gate-*"
+  fi
+
+  # --- the builder works on one branch and opens one pull request ---
+  if [ "$stage" = build ]; then
+    is '^gh pr (merge|review|close|reopen|edit|comment)' && deny "the builder opens pull requests; the gate judges them"
+    is '^gh issue (create|close|delete|reopen|transfer|pin|lock)' && deny "the builder moves its own issue's labels and files nothing"
+    is '^git (rebase|commit --amend|merge)' && deny "the builder adds commits; it does not rewrite them"
+  fi
+
+  # --- the gate reads, verifies and reviews; it merges only what may merge ---
+  if [ "$stage" = gate ]; then
+    is '^git push' && deny "the gate pushes nothing"
+    is '^gh pr create' && deny "the gate opens no pull requests"
+    is '^git (commit|checkout -b|switch -c|rebase|cherry-pick)' && deny "the gate changes no branch: $seg"
+    if is '^gh pr merge'; then
+      n=$(printf '%s' "$seg" | sed -n 's/.*gh pr merge \([0-9][0-9]*\).*/\1/p')
+      [ -n "$n" ] || deny "merge by pull request number"
+      # Same shape as the cd above: a merge missing either flag denies, and so
+      # does one missing both.
+      # shellcheck disable=SC2015
+      is "gh pr merge $n .*--squash" && is "gh pr merge $n .*--auto" || deny "a merge is --squash --auto or nothing"
+      view=$(gh pr view "$n" --json labels,headRefName --jq '[.headRefName, (.labels[].name)] | join(" ")' 2>/dev/null) || deny "could not read pull request #$n"
+      case " $view " in
+        *" tier:auto "*) ;;
+        *) deny "pull request #$n is not tier:auto; it is the owner's to merge" ;;
+      esac
+      case "$view" in
+        maint/*) ;;
+        *) deny "pull request #$n is not on a maint/ branch" ;;
+      esac
+    fi
+  fi
+
+  # --- the scout reads and files issues, and that is all ---
+  if [ "$stage" = scout ]; then
+    is '^git (commit|push|checkout -b|switch -c|merge|rebase|cherry-pick|tag|am|apply|worktree|add|rm|mv|stash)' && deny "the scout changes nothing: $seg"
+    is '^gh pr (create|merge|close|reopen|review|edit|comment|ready|checkout)' && deny "the scout opens no pull requests"
+    is '^gh issue (close|delete|reopen|transfer|pin|lock|edit)' && deny "the scout files issues; it does not change them"
+  fi
+}
+
+nl='
+'
+old_ifs=$IFS
+IFS=$nl
+# One newline per character rather than relying on tr padding the shorter set.
+# shellcheck disable=SC2020
+for piece in $(printf '%s' "$bare" | tr ';|&(){}`' '\n\n\n\n\n\n\n\n'); do
+  IFS=$old_ifs
+  seg=$(strip "$piece")
+  if [ -n "$seg" ]; then
+    gitprefix
+    # Splitting on whitespace is the point: the segment is a command line, and
+    # these are its words. A redirection is one of them, spaced off whatever
+    # it is glued to, so the file it names is a word like any other.
+    # shellcheck disable=SC2046,SC2086
+    check $(printf '%s' "$seg" | sed -e 's/>/ > /g')
   fi
   IFS=$nl
 done
 IFS=$old_ifs
-
-# --- worktrees: a stage may add or remove only its own, beside its repo ---
-if has '(^|[;&|(] *)git worktree (add|remove|move)'; then
-  ok=0
-  for tok in $flat; do
-    case "$tok" in
-      /data/repos/"${VK_PROJECT:-}"--maint-* | /data/repos/"${VK_PROJECT:-}"--gate-*) ok=1 ;;
-    esac
-  done
-  [ $ok = 1 ] || deny "a worktree may only be added or removed as /data/repos/${VK_PROJECT:-<project>}--maint-* or --gate-*"
-fi
-
-# --- the builder works on one branch and opens one pull request ---
-if [ "$stage" = build ]; then
-  has '(^|[;&|(] *)gh pr (merge|review|close|reopen|edit|comment)' && deny "the builder opens pull requests; the gate judges them"
-  has '(^|[;&|(] *)gh issue (create|close|delete|reopen|transfer|pin|lock)' && deny "the builder moves its own issue's labels and files nothing"
-  has '(^|[;&|(] *)git (rebase|commit --amend|merge)' && deny "the builder adds commits; it does not rewrite them"
-fi
-
-# --- the gate reads, verifies and reviews; it merges only what may merge ---
-if [ "$stage" = gate ]; then
-  has '(^|[;&|(] *)git push' && deny "the gate pushes nothing"
-  has '(^|[;&|(] *)gh pr create' && deny "the gate opens no pull requests"
-  has '(^|[;&|(] *)git (commit|checkout -b|switch -c|rebase|cherry-pick)' && deny "the gate changes no branch: $flat"
-  if has '(^|[;&|(] *)gh pr merge'; then
-    n=$(printf '%s' "$flat" | sed -n 's/.*gh pr merge \([0-9][0-9]*\).*/\1/p')
-    [ -n "$n" ] || deny "merge by pull request number"
-    # Same shape as the cd above: a merge missing either flag denies, and so
-    # does one missing both.
-    # shellcheck disable=SC2015
-    has "gh pr merge $n [^;&|]*--squash" && has "gh pr merge $n [^;&|]*--auto" || deny "a merge is --squash --auto or nothing"
-    view=$(gh pr view "$n" --json labels,headRefName --jq '[.headRefName, (.labels[].name)] | join(" ")' 2>/dev/null) || deny "could not read pull request #$n"
-    case " $view " in
-      *" tier:auto "*) ;;
-      *) deny "pull request #$n is not tier:auto; it is the owner's to merge" ;;
-    esac
-    case "$view" in
-      maint/*) ;;
-      *) deny "pull request #$n is not on a maint/ branch" ;;
-    esac
-  fi
-fi
-
-# --- the scout reads and files issues, and that is all ---
-if [ "$stage" = scout ]; then
-  has '(^|[;&|(] *)git (commit|push|checkout -b|switch -c|merge|rebase|cherry-pick|tag|am|apply|worktree|add|rm|mv|stash)' && deny "the scout changes nothing: $flat"
-  has '(^|[;&|(] *)gh pr (create|merge|close|reopen|review|edit|comment|ready|checkout)' && deny "the scout opens no pull requests"
-  has '(^|[;&|(] *)gh issue (close|delete|reopen|transfer|pin|lock|edit)' && deny "the scout files issues; it does not change them"
-fi
 
 allow
