@@ -101,7 +101,10 @@ beforeEach(() => {
   tmuxKill.mockResolvedValue(undefined);
   gitHead.mockResolvedValue("start0");
   gitWork.mockResolvedValue(WORK);
-  for (const f of fs.readdirSync(sessionsDir)) fs.rmSync(path.join(sessionsDir, f));
+  // Recursive: retirement puts an archive directory in here.
+  for (const f of fs.readdirSync(sessionsDir)) {
+    fs.rmSync(path.join(sessionsDir, f), { recursive: true, force: true });
+  }
   // The store keeps its last read of each file, keyed by size and mtime. These
   // cases write the same ids over and over within the same few milliseconds,
   // which is not something the volume ever does.
@@ -157,17 +160,25 @@ describe("liveness when tmux cannot be asked", () => {
 });
 
 describe("liveness when tmux answers", () => {
-  it("stamps a session whose tmux is gone, once", async () => {
+  /**
+   * The list says "done" off tmux alone, so it needs no sweep to be right
+   * about that. What the sweep writes down is when it ended.
+   */
+  it("calls a session done off tmux, and the sweep writes down when it ended", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue([]);
 
-    const [first] = await store.listSessions();
-    expect(first.status).toBe("done");
+    const [unswept] = await store.listSessions();
+    expect(unswept.status).toBe("done");
+    expect(readMetaFile("vk-demo-1").endedAt).toBeNull();
+
+    expect(await store.sweepSessions()).toEqual(["vk-demo-1"]);
     const endedAt = readMetaFile("vk-demo-1").endedAt;
     expect(endedAt).not.toBeNull();
 
-    const [second] = await store.listSessions();
-    expect(second.endedAt).toBe(endedAt);
+    // Once, and only once: a second pass has nothing left to stamp.
+    expect(await store.sweepSessions()).toEqual([]);
+    expect((await store.listSessions())[0].endedAt).toBe(endedAt);
   });
 
   it("reports a session tmux still has as running", async () => {
@@ -180,13 +191,14 @@ describe("liveness when tmux answers", () => {
     writeMeta("vk-demo-1", { startCommit: "start0" });
     tmuxList.mockResolvedValue([]);
 
-    const [first] = await store.listSessions();
+    await store.sweepSessions();
 
-    expect(first.work).toEqual(WORK);
+    expect((await store.listSessions())[0].work).toEqual(WORK);
     expect(gitWork).toHaveBeenCalledWith(expect.stringContaining("demo"), "start0");
     // Measured on the way out and then kept, not recomputed per read: the repo
     // keeps moving, and the next session's commits must not join this row.
     gitWork.mockResolvedValue({ ...WORK, commits: 99 });
+    await store.sweepSessions();
     expect((await store.listSessions())[0].work).toEqual(WORK);
     expect(gitWork).toHaveBeenCalledTimes(1);
   });
@@ -195,6 +207,7 @@ describe("liveness when tmux answers", () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue([]);
 
+    await store.sweepSessions();
     expect((await store.listSessions())[0].work).toBeNull();
     expect(gitWork).not.toHaveBeenCalled();
   });
@@ -292,6 +305,24 @@ describe("liveness when tmux answers", () => {
   });
 
   /**
+   * R-33: the list used to stamp ends and measure, so git ran and the volume
+   * was written from whichever client's poll arrived first, several at once,
+   * each over the whole history. Reading is a read now.
+   */
+  it("writes nothing at all when it is only being read", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxList.mockResolvedValue([]);
+    const before = fs.statSync(metaFile("vk-demo-1")).mtimeMs;
+
+    await store.listSessions();
+    await store.getSession("vk-demo-1");
+
+    expect(fs.statSync(metaFile("vk-demo-1")).mtimeMs).toBe(before);
+    expect(gitWork).not.toHaveBeenCalled();
+    expect(tmuxKill).not.toHaveBeenCalled();
+  });
+
+  /**
    * R-09: stamping an end is a read, several git calls, a transcript read and
    * then a write. A DELETE that lands between the read and the write had its
    * session put back on the volume by the sweep, and the row the user had just
@@ -308,19 +339,48 @@ describe("liveness when tmux answers", () => {
         }),
     );
 
-    const listing = store.listSessions();
+    const sweeping = store.sweepSessions();
     await vi.waitFor(() => expect(gitWork).toHaveBeenCalled());
     fs.rmSync(metaFile("vk-demo-1"));
     finishMeasuring();
-    await listing;
+    await sweeping;
 
     expect(fs.existsSync(metaFile("vk-demo-1"))).toBe(false);
+  });
+
+  /**
+   * R-09's other half. The sweep spends git calls and a transcript read
+   * working out how a run went, and a review of that same run is being ticked
+   * off a file at a time while it does. The sweep used to write back the meta
+   * it had read before those marks existed, and they were gone.
+   */
+  it("keeps a review mark saved while the sweep is measuring", async () => {
+    writeMeta("vk-demo-1", { startCommit: "start0" });
+    tmuxList.mockResolvedValue([]);
+    let finishMeasuring: () => void = () => {};
+    gitWork.mockImplementation(
+      () =>
+        new Promise<SessionWork>((resolve) => {
+          finishMeasuring = () => resolve(WORK);
+        }),
+    );
+
+    const sweeping = store.sweepSessions();
+    await vi.waitFor(() => expect(gitWork).toHaveBeenCalled());
+    const marking = store.setReview("vk-demo-1", { file: { path: "src/a.ts", read: true } });
+    finishMeasuring();
+    await Promise.all([sweeping, marking]);
+
+    const meta = readMetaFile("vk-demo-1");
+    expect(meta.reviewed).toEqual(["src/a.ts"]);
+    expect(meta.work).toEqual(WORK);
+    expect(meta.endedAt).not.toBeNull();
   });
 
   it("reaps a shell companion left behind by a dead agent session", async () => {
     writeMeta("vk-demo-1");
     tmuxList.mockResolvedValue(["vk-demo-1-shell"]);
-    await store.listSessions();
+    await store.sweepSessions();
     expect(tmuxKill).toHaveBeenCalledWith("vk-demo-1-shell");
   });
 });
@@ -693,5 +753,81 @@ describe("reapFinishedSessions", () => {
 
     expect(await store.reapFinishedSessions(log)).toEqual([]);
     expect(tmuxKill).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * R-08: nothing ever pruned the sessions directory, and everything that reads
+ * a session walks it — the sweeper every five seconds, the notifier every
+ * five, the scheduler twice a minute. Left alone it grows with everything that
+ * ever ran, so the walk is about history rather than about what is live.
+ */
+describe("retiring old sessions", () => {
+  const log = { info: vi.fn(), warn: vi.fn() };
+  const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60_000).toISOString();
+  const archiveDir = () => path.join(sessionsDir, "archive");
+
+  beforeEach(() => {
+    fs.rmSync(path.join(sessionsDir, "archive"), { recursive: true, force: true });
+    tmuxList.mockResolvedValue([]);
+  });
+
+  it("retires what ended long ago and leaves everything else alone", async () => {
+    writeMeta("vk-demo-1", { endedAt: daysAgo(120) });
+    writeMeta("vk-demo-2", { endedAt: daysAgo(10) });
+    writeMeta("vk-demo-3", { endedAt: null });
+    // Still running, and old enough to be caught by a rule that read the wrong
+    // field: a live session has no end to be older than.
+    writeMeta("vk-demo-4", { endedAt: null, createdAt: daysAgo(200) });
+
+    expect(await store.archiveOldSessions(log)).toBe(1);
+
+    expect(fs.existsSync(metaFile("vk-demo-1"))).toBe(false);
+    for (const id of ["vk-demo-2", "vk-demo-3", "vk-demo-4"]) {
+      expect(fs.existsSync(metaFile(id)), id).toBe(true);
+    }
+    expect((await store.listSessions()).map((s) => s.id).sort()).toEqual([
+      "vk-demo-2",
+      "vk-demo-3",
+      "vk-demo-4",
+    ]);
+  });
+
+  it("keeps what the retired session cost, under the month it ended in", async () => {
+    const usage = { input: 10, output: 20, cacheRead: 30, cacheWrite: 40, turns: 2, costUsd: 0.5 };
+    const endedAt = "2026-03-14T02:00:00.000Z";
+    writeMeta("vk-demo-1", { endedAt, usage, project: "demo" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.report"), "ok: nothing to do\n");
+
+    await store.archiveOldSessions(log);
+
+    expect(fs.readdirSync(archiveDir())).toEqual(["2026-03.jsonl"]);
+    const [row] = await store.archivedSessions();
+    expect(row).toMatchObject({ id: "vk-demo-1", endedAt, usage, status: "done" });
+    // The verdict travels with it; its file does not.
+    expect(row.report).toBe("ok: nothing to do");
+    expect(fs.existsSync(path.join(sessionsDir, "vk-demo-1.report"))).toBe(false);
+  });
+
+  it("counts a row written twice by an interrupted pass once", async () => {
+    const endedAt = "2026-03-14T02:00:00.000Z";
+    writeMeta("vk-demo-1", { endedAt });
+    await store.archiveOldSessions(log);
+    // The pass that died between the append and the removal: the metadata is
+    // still there, so the next pass writes the row again.
+    writeMeta("vk-demo-1", { endedAt });
+    await store.archiveOldSessions(log);
+
+    expect(await store.archivedSessions()).toHaveLength(1);
+  });
+
+  it("survives a line it cannot read, and an archive that is not there", async () => {
+    expect(await store.archivedSessions()).toEqual([]);
+    fs.mkdirSync(archiveDir(), { recursive: true });
+    fs.writeFileSync(
+      path.join(archiveDir(), "2026-03.jsonl"),
+      `{ half a line\n${JSON.stringify({ id: "vk-demo-9", project: "demo" })}\n`,
+    );
+    expect((await store.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-9"]);
   });
 });

@@ -14,6 +14,7 @@ import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { seedCouncil } from "./council-store.js";
 import { startPlanHistory } from "./plan.js";
 import { reloadSchedules, startFeedWork } from "./scheduler.js";
+import { startSweeper } from "./sweeper.js";
 import { restoreSessions } from "./sessions-store.js";
 
 // First boot on an empty volume.
@@ -38,10 +39,11 @@ await ensureSandboxNotes(app.log);
 await injectMemory();
 // The council, on an empty volume only: a member removed by hand stays removed.
 await seedCouncil();
-// Before listening, not after: the first request to list sessions is also what
-// stamps a tmux-less session as done, and it must not beat the restore to them.
+// Before the sweeper, not after: the sweep is what stamps a tmux-less session
+// as done, and it must not beat the restore to them.
 await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
+startSweeper(app.log);
 startNotifier(app.log);
 startPollers(app.log);
 startFeedWork(app.log);
