@@ -19,6 +19,8 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/node_modules/**",
+      // `make coverage`'s html report.
+      "**/coverage/**",
       "frontend/dev-dist/**",
       // Checked by its own tsconfig (worker globals, not DOM ones).
       "frontend/src/sw.ts",

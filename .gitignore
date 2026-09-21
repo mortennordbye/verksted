@@ -6,3 +6,4 @@ dist/
 
 # Scratch of the playwright MCP used to screenshot the app from a laptop.
 .playwright-mcp/
+coverage/

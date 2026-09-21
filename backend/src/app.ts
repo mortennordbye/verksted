@@ -48,7 +48,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       opts.logger === false
         ? false
         : {
-            level: process.env.LOG_LEVEL ?? "info",
+            level: env.LOG_LEVEL,
             serializers: {
               req: (req) => ({
                 method: req.method,

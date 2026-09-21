@@ -17,16 +17,33 @@ import { reloadSchedules, startFeedWork } from "./scheduler.js";
 import { startSweeper } from "./sweeper.js";
 import { restoreSessions } from "./sessions-store.js";
 
-// First boot on an empty volume.
-for (const dir of [
-  env.REPOS_DIR,
-  env.SESSIONS_DIR,
-  env.SCHEDULES_DIR,
-  env.ASSISTANT_DIR,
-  env.MEMORY_DIR,
-  env.COUNCIL_DIR,
-]) {
-  fs.mkdirSync(dir, { recursive: true });
+// First boot on an empty volume, and the check env.ts cannot make at import:
+// that every directory the app writes to is there, or can be made, and takes a
+// write. A read-only mount or a wrong owner used to surface as the first
+// request that touched it failing, minutes in, with an EACCES from wherever.
+// The share (DOCS_DIR) and the shipped prompts are read-only by design, and
+// the backup target is checked by the backup itself, where it can say so.
+for (const [name, dir] of [
+  ["REPOS_DIR", env.REPOS_DIR],
+  ["SESSIONS_DIR", env.SESSIONS_DIR],
+  ["SCHEDULES_DIR", env.SCHEDULES_DIR],
+  ["ASSISTANT_DIR", env.ASSISTANT_DIR],
+  ["MEMORY_DIR", env.MEMORY_DIR],
+  ["COUNCIL_DIR", env.COUNCIL_DIR],
+  ["FEED_DIR", env.FEED_DIR],
+  ["LOOPS_DIR", env.LOOPS_DIR],
+  ["USAGE_DIR", env.USAGE_DIR],
+  ["DOCS_INDEX_DIR", env.DOCS_INDEX_DIR],
+] as const) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.accessSync(dir, fs.constants.W_OK);
+  } catch (e) {
+    console.error(
+      `env: ${name}=${dir} is not a writable directory (${(e as NodeJS.ErrnoException).code})`,
+    );
+    process.exit(1);
+  }
 }
 
 const app = await buildApp();
