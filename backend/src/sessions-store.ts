@@ -10,7 +10,7 @@ import type {
   SessionUsage,
   SessionWork,
 } from "../../shared/api.js";
-import { sweepTempFiles, writeJsonAtomic } from "./atomic-json.js";
+import { sweepTempFiles, writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
@@ -106,7 +106,9 @@ export async function writeReport(id: string, line: string, detail = ""): Promis
   if (!SESSION_ID_RE.test(id)) return;
   // Only the first line is ever read back; what follows is kept for whoever
   // opens the file on the volume to find out what happened.
-  await fs.writeFile(reportPath(id), detail ? `${line}\n\n${detail}\n` : `${line}\n`);
+  // Atomic: the list reads this file's first line on every pass, and a
+  // truncated one reads as a run that wrote no verdict.
+  await writeTextAtomic(reportPath(id), detail ? `${line}\n\n${detail}\n` : `${line}\n`);
 }
 
 /**
@@ -814,6 +816,20 @@ async function launchAgent(
 }
 
 /**
+ * An unattended run the restart ended. Returned rather than announced from
+ * here: the notifier imports this store, and it learns of a session by seeing
+ * its status change, which it cannot for one that ended while it was not
+ * running. Without this the night's failure was in the inbox and nowhere else.
+ */
+export interface RestartFailure {
+  id: string;
+  title: string;
+  project: string;
+}
+
+const RESTARTED = "failed: the pod restarted mid-run";
+
+/**
  * Put sessions that were still live back on a fresh tmux server, after the pod
  * restarted out from under them. The tmux server dies with the container, but
  * everything the session actually is outlives it on the volume: its metadata
@@ -823,14 +839,15 @@ async function launchAgent(
  * on the same one. A session with no recorded id is left to the list sweep,
  * which ends it as before.
  */
-export async function restoreSessions(log: Logger): Promise<void> {
+export async function restoreSessions(log: Logger): Promise<RestartFailure[]> {
+  const failed: RestartFailure[] = [];
   await sweepTempFiles(env.SESSIONS_DIR);
   const live = await liveNames();
   if (live === null) {
     // Restoring on a guess would start a second agent for every session that is
     // actually still running.
     log.warn({}, "tmux unreachable at boot; skipping session restore");
-    return;
+    return failed;
   }
   for (const meta of await readAll()) {
     if (meta.endedAt || live.has(meta.id) || meta.agent !== "claude") continue;
@@ -839,8 +856,9 @@ export async function restoreSessions(log: Logger): Promise<void> {
       // would come back without the flags that made it unattended. Failed
       // instead, in its own words, so the inbox says the pod went down rather
       // than nothing — the sweep ends it like any other session tmux lost.
-      await writeReport(meta.id, "failed: the pod restarted mid-run");
-      log.info(`unattended session ${meta.id} failed: the pod restarted mid-run`);
+      await writeReport(meta.id, RESTARTED);
+      log.info(`unattended session ${meta.id} ${RESTARTED}`);
+      failed.push({ id: meta.id, title: meta.title, project: meta.project });
       continue;
     }
     const conv = await readConv(meta.id);
@@ -854,6 +872,7 @@ export async function restoreSessions(log: Logger): Promise<void> {
       log.warn(err, `could not restore session ${meta.id}`);
     }
   }
+  return failed;
 }
 
 /**

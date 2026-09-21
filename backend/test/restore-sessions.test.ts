@@ -94,12 +94,15 @@ describe("restoreSessions", () => {
     // happen is silence: the inbox has to say the pod went down.
     seed("vk-demo-1", { conv: "11111111-2222-3333-4444-555555555555", unattended: "scout" });
 
-    await store.restoreSessions(log);
+    const failed = await store.restoreSessions(log);
 
     expect(created()).toEqual([]);
     expect(fs.readFileSync(path.join(sessionsDir, "vk-demo-1.report"), "utf8")).toMatch(
       /^failed: the pod restarted/,
     );
+    // And said to whoever boots the pod, so it can be pushed: the notifier
+    // only sees a status change, and this one happened while it was not running.
+    expect(failed.map((f) => f.id)).toEqual(["vk-demo-1"]);
   });
 
   it("restarts a live-but-orphaned claude session on its recorded conversation", async () => {

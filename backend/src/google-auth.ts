@@ -1,7 +1,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { GoogleCalendarStatus } from "../../shared/api.js";
 import { env } from "./env.js";
-import { readVars, writeVars } from "./settings-store.js";
+import { patchVars, readVars } from "./settings-store.js";
 
 /**
  * Signing in to Google, for the calendar and for Gmail's labels and filters.
@@ -204,10 +204,7 @@ export async function connect(code: string, redirect: string): Promise<string> {
   if (!who.ok || !info.email)
     throw new GoogleAuthError("Google did not say which account signed in");
 
-  // Read again right before writing: the exchange took a round trip, and a
-  // var saved on the settings page meanwhile must not be written over.
-  await writeVars({
-    ...(await readVars()),
+  await patchVars({
     GOOGLE_REFRESH_TOKEN: tokens.refresh_token,
     GOOGLE_CALENDAR_USER: info.email,
   });
@@ -219,11 +216,8 @@ export async function connect(code: string, redirect: string): Promise<string> {
  * here either way. The client stays, so signing in again is one tap.
  */
 export async function disconnect(): Promise<void> {
-  const vars = await readVars();
-  const token = vars.GOOGLE_REFRESH_TOKEN;
-  delete vars.GOOGLE_REFRESH_TOKEN;
-  delete vars.GOOGLE_CALENDAR_USER;
-  await writeVars(vars);
+  const token = (await readVars()).GOOGLE_REFRESH_TOKEN;
+  await patchVars({ GOOGLE_REFRESH_TOKEN: null, GOOGLE_CALENDAR_USER: null });
   if (token) {
     await fetch(REVOKE_URL, {
       method: "POST",

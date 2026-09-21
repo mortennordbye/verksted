@@ -44,11 +44,39 @@ async function writeAtomic(target: string, body: string, mode?: number): Promise
   try {
     // The mode goes on the temp file: rename carries it over, and setting it
     // afterwards would leave the secret readable for the window in between.
-    await fs.writeFile(tmp, body, mode === undefined ? undefined : { mode });
+    const handle = await fs.open(tmp, "w", mode);
+    try {
+      await handle.writeFile(body);
+      // Before the rename, or the rename can reach the disk first: on the NFS
+      // volume a node that dies in between leaves the *target* zero bytes
+      // long, and every store here reads that as "no such record".
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
     await fs.rename(tmp, target);
+    await syncDir(path.dirname(target));
   } catch (err) {
     await fs.rm(tmp, { force: true });
     throw err;
+  }
+}
+
+/**
+ * The rename itself is a change to the directory. Best effort: not every
+ * filesystem lets a directory be opened for it, and the file's own sync is the
+ * half that keeps a record from reading back empty.
+ */
+async function syncDir(dir: string): Promise<void> {
+  try {
+    const handle = await fs.open(dir, "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    // See above.
   }
 }
 

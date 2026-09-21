@@ -734,6 +734,19 @@ describe("the feed routes", () => {
     expect(missing.statusCode).toBe(404);
   });
 
+  it("drops a verdict on a version that moved on while it was being judged (R-21)", async () => {
+    await feed.upsert({ ...seen("github:9"), version: "review-requested" });
+    // The poller files the newer one while triage is still thinking.
+    await feed.upsert({ ...seen("github:9"), version: "changes-requested" });
+
+    const late = await feed.judge("github:9", { urgency: "quiet", version: "review-requested" });
+
+    expect(late).toBeNull();
+    const item = (await feed.list()).find((i) => i.id === "github:9");
+    expect(item?.triaged).toBeFalsy();
+    expect(item?.version).toBe("changes-requested");
+  });
+
   it("hands a briefing the feed, the loops and the bench in one text", async () => {
     await feed.upsert(seen("github:5"));
     await feed.judge("github:5", { urgency: "attention", detail: "Review #97 today." });

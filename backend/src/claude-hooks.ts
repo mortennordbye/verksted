@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
 import path from "node:path";
+import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 
 // Session-status hooks for Claude Code, passed via `claude --settings <file>`
@@ -107,7 +107,8 @@ export async function ensureHooksSettings(unattended = false): Promise<string> {
     env.SESSIONS_DIR,
     unattended ? "claude-hooks-unattended.json" : "claude-hooks.json",
   );
-  await fs.writeFile(file, JSON.stringify(unattended ? UNATTENDED : SETTINGS, null, 2));
+  // Rewritten on every launch while running CLIs may be re-reading it.
+  await writeJsonAtomic(file, unattended ? UNATTENDED : SETTINGS);
   return file;
 }
 
@@ -130,6 +131,6 @@ export async function ensureMcpConfig(): Promise<string> {
     },
   };
   const file = path.join(env.SESSIONS_DIR, "claude-mcp.json");
-  await fs.writeFile(file, JSON.stringify(config, null, 2));
+  await writeJsonAtomic(file, config);
   return file;
 }
