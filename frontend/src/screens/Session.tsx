@@ -833,6 +833,7 @@ export default function Session() {
               </div>
               {side === "files" && (
                 <FileTree
+                  treeKey={session?.project ?? ""}
                   title={session ? `~/${session.project}` : "…"}
                   nodes={tree?.nodes ?? null}
                   truncated={tree?.truncated ?? false}
