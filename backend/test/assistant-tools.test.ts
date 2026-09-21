@@ -47,6 +47,12 @@ const REPLIES: Record<string, unknown> = {
   "PUT /api/settings": { schedulesPaused: true },
   "POST /api/projects/demo/sessions": { id: "vk-demo-2", agent: "claude", project: "demo" },
   "POST /api/proposals": { id: "proposal:1", title: "a card" },
+  "GET /api/mail/folders": [
+    { path: "INBOX", name: "INBOX", role: "inbox" },
+    { path: "[Gmail]/Spam", name: "Spam", role: "junk" },
+    { path: "Receipts", name: "Receipts", role: "" },
+  ],
+  "POST /api/mail/move": { moved: 2 },
   "POST /api/council": {
     id: "ledger",
     name: "Ledger",
@@ -475,16 +481,15 @@ describe("one advisor's tools", () => {
     expect(names).toEqual(["status"]);
   });
 
-  it("names three tools that cannot be undone, and no more", async () => {
-    // The point of writing the effect down: this set is what BACKLOG tracks,
-    // and a tool added without a card joins it rather than passing unnoticed.
+  it("names no tool that cannot be undone", async () => {
+    // The point of writing the effect down: a tool added without a row reads
+    // as irreversible, so it lands here rather than passing unnoticed. The
+    // three that used to be listed are cards now.
     const { TOOL_INVENTORY } = await import("../src/council-store.js");
 
-    expect(TOOL_INVENTORY.filter((t) => t.effect === "irreversible").map((t) => t.name)).toEqual([
-      "mail_rule_delete",
-      "mail_label_delete",
-      "calendar_delete",
-    ]);
+    expect(TOOL_INVENTORY.filter((t) => t.effect === "irreversible").map((t) => t.name)).toEqual(
+      [],
+    );
   });
 
   it("keeps the web away from everything private", async () => {
@@ -803,6 +808,51 @@ describe("a backend that does not answer", () => {
     const res = await callTool("run_schedule", { id: "sch-assistant" });
     expect(JSON.parse(seen.at(-1)!.body)).toEqual({ wait: false });
     expect((res.result as { content: { text: string }[] }).content[0].text).toContain("started");
+  });
+});
+
+describe("the mail and calendar changes with no way back", () => {
+  it("files a card for each, and calls nothing that would do it", async () => {
+    for (const [tool, args, action] of [
+      ["mail_rule_create", { from: "a@b.no", archive: true }, { kind: "mail_rule_put" }],
+      ["mail_rule_delete", { id: "F1" }, { kind: "mail_rule_delete", id: "F1" }],
+      ["mail_label_delete", { name: "Bank" }, { kind: "mail_label_delete", name: "Bank" }],
+      [
+        "calendar_delete",
+        { uid: "dentist@x", every: true },
+        { kind: "calendar_delete", uid: "dentist@x", every: true },
+      ],
+    ] as const) {
+      seen = [];
+      const res = await callTool(tool, { ...args, why: "you asked" });
+      expect(
+        seen.map((r) => `${r.method} ${r.url}`),
+        tool,
+      ).toEqual(["POST /api/proposals"]);
+      expect(JSON.parse(seen[0].body), tool).toMatchObject({ action, why: "you asked" });
+      expect((res.result as { content: { text: string }[] }).content[0].text).toContain(
+        "nothing happens until they tap",
+      );
+    }
+  });
+
+  it("files mail directly, and back out of a folder, but cards the junk folder", async () => {
+    seen = [];
+    await callTool("mail_move", { uids: [1, 2], to: "Receipts" });
+    expect(seen.at(-1)).toMatchObject({ method: "POST", url: "/api/mail/move" });
+    expect(JSON.parse(seen.at(-1)!.body)).toEqual({ uids: [1, 2], to: "Receipts" });
+
+    await callTool("mail_move", { uids: [11], to: "INBOX", from: "Receipts" });
+    expect(JSON.parse(seen.at(-1)!.body)).toEqual({ uids: [11], to: "INBOX", from: "Receipts" });
+
+    seen = [];
+    await callTool("mail_move", { uids: [3], to: "[Gmail]/Spam" });
+    expect(seen.map((r) => r.url)).toEqual(["/api/mail/folders", "/api/proposals"]);
+    expect(JSON.parse(seen[1].body).action).toEqual({
+      kind: "mail_move",
+      uids: [3],
+      to: "[Gmail]/Spam",
+    });
   });
 });
 

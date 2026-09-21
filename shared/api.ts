@@ -1301,7 +1301,37 @@ export type ProposalAction =
       enabled?: boolean;
       jitterMinutes?: number;
     }
-  | { kind: "run_schedule"; id: string };
+  | { kind: "run_schedule"; id: string }
+  /**
+   * What has no way back, or stops having one on the server's clock (A-08,
+   * A-09). A filter acts on every mail from then on with nobody watching; a
+   * deleted filter takes its definition with it; a label comes off every
+   * message at once; a removed event is gone from a calendar that has no
+   * trash; and the trash and the junk folder are emptied by the server.
+   *
+   * `rule`, `event` and `subjects` are not the model's to write. The pod reads
+   * them from the account as the card is filed, so the card shows what is
+   * there rather than what something said was there.
+   */
+  | {
+      kind: "mail_rule_put";
+      from?: string;
+      subject?: string;
+      query?: string;
+      label?: string;
+      archive?: boolean;
+      markRead?: boolean;
+    }
+  | { kind: "mail_rule_delete"; id: string; rule: GmailRule }
+  | { kind: "mail_label_delete"; name: string }
+  | {
+      kind: "calendar_delete";
+      uid: string;
+      occurrence?: string;
+      every?: boolean;
+      event: Pick<CalendarEvent, "summary" | "start" | "end" | "recurring" | "location">;
+    }
+  | { kind: "mail_move"; uids: number[]; to: string; from?: string; subjects: string[] };
 
 export interface FeedItem {
   /** `<source>:<the source's own id>`. */

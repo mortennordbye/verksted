@@ -345,23 +345,13 @@ describe("the routes", () => {
       app.inject({ method: "PATCH", url: "/api/calendar/events/abc%40google.com", payload });
     expect((await patch({})).statusCode).toBe(400);
     expect((await patch({ start: "2026-09-18T13:00" })).statusCode).toBe(503);
-    expect(
-      (await app.inject({ method: "DELETE", url: "/api/calendar/events/abc%40google.com" }))
-        .statusCode,
-    ).toBe(503);
 
-    // Which part of a repeating one: a date, something to change, and for a
-    // delete not both.
+    // Which part of a repeating one: a date, and something to change.
     expect((await patch({ every: true })).statusCode).toBe(400);
     expect((await patch({ occurrence: "fredag", summary: "x" })).statusCode).toBe(400);
     expect(
       (await patch({ occurrence: "2026-09-22 10:00", start: "2026-09-22T11:00" })).statusCode,
     ).toBe(503);
-    const del = (query: string) =>
-      app.inject({ method: "DELETE", url: `/api/calendar/events/abc%40google.com?${query}` });
-    expect((await del("occurrence=fredag")).statusCode).toBe(400);
-    expect((await del("occurrence=2026-09-22&every=true")).statusCode).toBe(400);
-    expect((await del("every=true")).statusCode).toBe(503);
   });
 
   it("reads a month's grid, and no more than about that", async () => {

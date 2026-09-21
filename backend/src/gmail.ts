@@ -1,5 +1,6 @@
 import type { GmailLabel, GmailRule } from "../../shared/api.js";
 import { TOKEN_URL } from "./google-auth.js";
+import * as mailLog from "./mail-log.js";
 import { sourceEnv } from "./settings-store.js";
 
 /**
@@ -186,6 +187,16 @@ export interface RuleFields {
   markRead?: boolean;
 }
 
+/** What makes a rule one at all. Apart, so a card is refused as it is filed. */
+export function checkRule(fields: RuleFields): void {
+  if (!fields.from && !fields.subject && !fields.query) {
+    throw new RuleRefused("a rule needs at least a sender, a subject or a search to match on");
+  }
+  if (!fields.label && !fields.archive && !fields.markRead) {
+    throw new RuleRefused("a rule needs something to do: a label, archive, or mark read");
+  }
+}
+
 /**
  * A standing filter: mail matching from/subject/query gets labelled, archived
  * or marked read from then on, with no further asking. Nothing here deletes —
@@ -193,12 +204,7 @@ export interface RuleFields {
  * instead of this pod's.
  */
 export async function createRule(fields: RuleFields): Promise<GmailRule> {
-  if (!fields.from && !fields.subject && !fields.query) {
-    throw new RuleRefused("a rule needs at least a sender, a subject or a search to match on");
-  }
-  if (!fields.label && !fields.archive && !fields.markRead) {
-    throw new RuleRefused("a rule needs something to do: a label, archive, or mark read");
-  }
+  checkRule(fields);
   const addLabelIds = fields.label ? [await labelId(fields.label)] : [];
   const removeLabelIds = [
     ...(fields.archive ? ["INBOX"] : []),
@@ -302,5 +308,8 @@ export async function relabel(fields: RelabelFields): Promise<number> {
     addLabelIds.push(SYSTEM_LABELS.has(name) ? name : (own.get(name) ?? (await labelId(name))));
   }
   await call<unknown>("POST", "/messages/batchModify", { ids, addLabelIds, removeLabelIds });
+  // The ids, because the search is not a record: what it finds tomorrow is not
+  // what it found today, and the opposite relabel would then miss these.
+  await mailLog.record({ verb: "relabel", query, ids, add, remove });
   return ids.length;
 }

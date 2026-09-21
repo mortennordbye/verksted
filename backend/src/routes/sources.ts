@@ -152,7 +152,7 @@ export default async function sourceRoutes(app: FastifyInstance) {
     guard<MailFolder[]>(() => mail.folders(), reply, "mail folders"),
   );
 
-  app.post<{ Body: { uids: number[]; to: string } }>(
+  app.post<{ Body: { uids: number[]; to: string; from?: string } }>(
     "/api/mail/move",
     {
       schema: {
@@ -168,13 +168,18 @@ export default async function sourceRoutes(app: FastifyInstance) {
               items: { type: "integer", minimum: 1 },
             },
             to: { type: "string", minLength: 1, maxLength: 200 },
+            // Where they are now, when that is not the inbox: moving back.
+            from: { type: "string", minLength: 1, maxLength: 200 },
           },
         },
       },
     },
+    // Never `discard`: the trash and the junk folder are the card's to reach.
     (req, reply) =>
       guard<{ moved: number }>(
-        async () => ({ moved: await mail.move(req.body.uids, req.body.to) }),
+        async () => ({
+          moved: await mail.move(req.body.uids, req.body.to, { from: req.body.from }),
+        }),
         reply,
         "mail move",
       ),
@@ -183,30 +188,6 @@ export default async function sourceRoutes(app: FastifyInstance) {
   // Gmail's labels and filters, over its API rather than IMAP — see gmail.ts.
   app.get("/api/mail/labels", (_req, reply) =>
     guard<GmailLabel[]>(() => gmail.labels(), reply, "gmail labels"),
-  );
-
-  // By name in the body rather than the path: a nested label has a / in it.
-  app.delete<{ Body: { name: string } }>(
-    "/api/mail/labels",
-    {
-      schema: {
-        body: {
-          type: "object",
-          required: ["name"],
-          additionalProperties: false,
-          properties: { name: { type: "string", minLength: 1, maxLength: 200 } },
-        },
-      },
-    },
-    (req, reply) =>
-      guard<{ name: string }>(
-        async () => {
-          await gmail.deleteLabel(req.body.name);
-          return { name: req.body.name };
-        },
-        reply,
-        "gmail label delete",
-      ),
   );
 
   app.post<{ Body: gmail.RelabelFields }>(
@@ -241,50 +222,12 @@ export default async function sourceRoutes(app: FastifyInstance) {
       ),
   );
 
+  // Reading the filters is a route. Adding one, removing one, deleting a label
+  // and taking an event off the calendar are not: they are what a tapped card
+  // does (routes/proposals.ts), and an address that did them for whoever asked
+  // would be the way round the card.
   app.get("/api/mail/rules", (_req, reply) =>
     guard<GmailRule[]>(() => gmail.rules(), reply, "gmail rules"),
-  );
-
-  app.post<{ Body: gmail.RuleFields }>(
-    "/api/mail/rules",
-    {
-      schema: {
-        body: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            from: { type: "string", maxLength: 200 },
-            subject: { type: "string", maxLength: 200 },
-            query: { type: "string", maxLength: 500 },
-            label: { type: "string", minLength: 1, maxLength: 200 },
-            archive: { type: "boolean" },
-            markRead: { type: "boolean" },
-          },
-        },
-      },
-    },
-    (req, reply) => guard<GmailRule>(() => gmail.createRule(req.body), reply, "gmail rule create"),
-  );
-
-  app.delete<{ Params: { id: string } }>(
-    "/api/mail/rules/:id",
-    {
-      schema: {
-        params: {
-          type: "object",
-          properties: { id: { type: "string", minLength: 1, maxLength: 200 } },
-        },
-      },
-    },
-    (req, reply) =>
-      guard<{ id: string }>(
-        async () => {
-          await gmail.deleteRule(req.params.id);
-          return { id: req.params.id };
-        },
-        reply,
-        "gmail rule delete",
-      ),
   );
 
   app.get("/api/calendar/today", (_req, reply) =>
@@ -444,29 +387,6 @@ export default async function sourceRoutes(app: FastifyInstance) {
         () => calendar.update(req.params.uid, change, { occurrence, every }),
         reply,
         "calendar update",
-      );
-    },
-  );
-
-  app.delete<{ Params: { uid: string }; Querystring: calendar.Target }>(
-    "/api/calendar/events/:uid",
-    {
-      schema: {
-        params: uidParam,
-        querystring: { type: "object", additionalProperties: false, properties: targetProps },
-      },
-    },
-    (req, reply) => {
-      const { occurrence, every } = req.query;
-      if (occurrence !== undefined && every) {
-        return reply.code(400).send({ error: "either one occurrence or every one, not both" });
-      }
-      const bad = badOccurrence(occurrence);
-      if (bad) return reply.code(400).send({ error: bad });
-      return guard<CalendarEvent>(
-        () => calendar.remove(req.params.uid, { occurrence, every }),
-        reply,
-        "calendar delete",
       );
     },
   );

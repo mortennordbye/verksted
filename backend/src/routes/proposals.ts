@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { ProposalAction } from "../../../shared/api.js";
+import type { GmailRule, ProposalAction } from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
 import * as feed from "../feed-store.js";
+import * as gmail from "../gmail.js";
 import * as mail from "../mail.js";
 import { announce } from "../notifier.js";
 
@@ -21,6 +22,11 @@ import { announce } from "../notifier.js";
  * thing it can do that text nobody here wrote could usefully ask for — an agent
  * with a shell on the pod, holding gh, kubectl and git. The tap is what stands
  * between the two.
+ *
+ * The mail and calendar changes with no way back came last (A-08, A-09), and
+ * they differ in one respect: they have no route of their own to go through.
+ * The card is the only caller their functions have, because an address that
+ * deleted a label for whoever asked would be the way round the card.
  */
 const ACTION = {
   type: "object",
@@ -37,10 +43,22 @@ const ACTION = {
         "desk_session",
         "schedule_put",
         "run_schedule",
+        "mail_rule_put",
+        "mail_rule_delete",
+        "mail_label_delete",
+        "calendar_delete",
+        "mail_move",
       ],
     },
   },
 };
+
+/** A filter on one line: what it matches, then what it does to a match. */
+function ruleText(r: Omit<GmailRule, "id" | "archive" | "markRead"> & Partial<GmailRule>): string {
+  const match = [r.from && `from:${r.from}`, r.subject && `subject:${r.subject}`, r.query];
+  const does = [r.label && `label ${r.label}`, r.archive && "archive", r.markRead && "mark read"];
+  return `${match.filter(Boolean).join(" ")} -> ${does.filter(Boolean).join(", ")}`;
+}
 
 /** What the card says, from what the action is. */
 export function describe(a: ProposalAction): { title: string; detail: string } {
@@ -80,6 +98,33 @@ export function describe(a: ProposalAction): { title: string; detail: string } {
       };
     case "run_schedule":
       return { title: `Run schedule ${a.id} now`, detail: "it starts a session straight away" };
+    case "mail_rule_put":
+      return {
+        title: `Add a Gmail filter: ${ruleText(a)}`,
+        detail: "it acts on every matching mail from now on, without asking",
+      };
+    case "mail_rule_delete":
+      return {
+        title: `Remove the Gmail filter ${ruleText(a.rule)}`,
+        detail: "its definition goes with it",
+      };
+    case "mail_label_delete":
+      return {
+        title: `Delete the Gmail label ${a.name}`,
+        detail: "the mail stays; the label comes off every message and cannot be put back",
+      };
+    case "calendar_delete":
+      return {
+        title: `Take off the calendar: ${a.event.summary}`,
+        detail: a.every
+          ? `every occurrence of the series (the one listed starts ${a.event.start})`
+          : `the one starting ${a.event.start}`,
+      };
+    case "mail_move":
+      return {
+        title: `Move ${a.uids.length} message${a.uids.length === 1 ? "" : "s"} to ${a.to}`,
+        detail: `the server empties that folder on its own\n${a.subjects.join("\n")}`,
+      };
   }
 }
 
@@ -177,8 +222,106 @@ export function validateAction(a: Record<string, unknown>): ProposalAction {
     }
     case "run_schedule":
       return { kind: "run_schedule", id: str("id", 100) };
+    case "mail_rule_put": {
+      const opt = (k: string, max: number) =>
+        typeof a[k] === "string" && a[k].trim() ? { [k]: str(k, max) } : {};
+      const rule = {
+        ...opt("from", 200),
+        ...opt("subject", 200),
+        ...opt("query", 500),
+        ...opt("label", 200),
+        ...(a.archive === true ? { archive: true } : {}),
+        ...(a.markRead === true ? { markRead: true } : {}),
+      };
+      gmail.checkRule(rule);
+      return { kind: "mail_rule_put", ...rule };
+    }
+    // The three below carry something read from the account (`snapshot`), and
+    // whatever the caller sent in its place is dropped here.
+    case "mail_rule_delete":
+      return {
+        kind: "mail_rule_delete",
+        id: str("id", 200),
+        rule: { id: "", archive: false, markRead: false },
+      };
+    case "mail_label_delete":
+      return { kind: "mail_label_delete", name: str("name", 200) };
+    case "calendar_delete": {
+      const occurrence = typeof a.occurrence === "string" ? a.occurrence.slice(0, 40) : undefined;
+      if (occurrence !== undefined && Number.isNaN(Date.parse(occurrence))) {
+        throw new Error("occurrence must be a date");
+      }
+      if (occurrence !== undefined && a.every === true) {
+        throw new Error("either one occurrence or every one, not both");
+      }
+      return {
+        kind: "calendar_delete",
+        uid: str("uid", 300),
+        ...(occurrence ? { occurrence } : {}),
+        ...(a.every === true ? { every: true } : {}),
+        event: { summary: "", start: "", end: "", location: null },
+      };
+    }
+    case "mail_move": {
+      const uids = Array.isArray(a.uids)
+        ? [...new Set(a.uids)].filter((u): u is number => Number.isInteger(u) && u > 0)
+        : [];
+      if (!uids.length || uids.length > mail.MAX_MOVE) {
+        throw new Error(`uids must be 1 to ${mail.MAX_MOVE} message uids`);
+      }
+      const from = typeof a.from === "string" && a.from ? a.from.slice(0, 200) : undefined;
+      return {
+        kind: "mail_move",
+        uids,
+        to: str("to", 200),
+        ...(from ? { from } : {}),
+        subjects: [],
+      };
+    }
     default:
       throw new Error("unknown kind");
+  }
+}
+
+/** The caller's mistake, found by asking the account: a 400 with its sentence. */
+class Unfileable extends Error {}
+
+/**
+ * What the account says about the thing a card names, read as it is filed.
+ *
+ * A card that says "remove filter ANe1Bmj" authorises nothing a person can
+ * judge, and one that shows a description the model wrote authorises the
+ * model's description. So the filter, the event and the subjects are read
+ * here, from the account. It also means a card that could never run (no such
+ * filter, a series with no occurrence named) is refused now, with the
+ * sentence that lets the model correct itself, instead of failing on the tap.
+ */
+async function snapshot(a: ProposalAction): Promise<ProposalAction> {
+  switch (a.kind) {
+    case "mail_rule_delete": {
+      const rule = (await gmail.rules()).find((r) => r.id === a.id);
+      if (!rule) throw new Unfileable(`no such filter: ${a.id}`);
+      return { ...a, rule };
+    }
+    case "mail_label_delete":
+      if (!(await gmail.labels()).some((l) => l.name === a.name)) {
+        throw new Unfileable(`no such label: ${a.name}`);
+      }
+      return a;
+    case "calendar_delete": {
+      const { summary, start, end, recurring, location } = await calendar.peek(a.uid, a);
+      return {
+        ...a,
+        event: { summary, start, end, location, ...(recurring ? { recurring } : {}) },
+      };
+    }
+    case "mail_move": {
+      const found = await mail.summaries(a.uids, a.from);
+      if (!found.length) throw new Unfileable("none of those messages are there");
+      return { ...a, subjects: found.map((m) => `${m.from}: ${m.subject}`) };
+    }
+    default:
+      return a;
   }
 }
 
@@ -201,6 +344,21 @@ export default async function proposalRoutes(app: FastifyInstance) {
         action = validateAction(req.body.action);
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
+      }
+      try {
+        action = await snapshot(action);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        if (
+          err instanceof Unfileable ||
+          err instanceof mail.MailDenied ||
+          err instanceof calendar.CalendarNotFound ||
+          err instanceof calendar.CalendarRefused
+        ) {
+          return reply.code(400).send({ error: message });
+        }
+        req.log.warn(err, "a proposal could not be read back from the account");
+        return reply.code(503).send({ error: message });
       }
       const { title, detail } = describe(action);
       const id = `proposal:${randomUUID()}`;
@@ -239,7 +397,9 @@ export default async function proposalRoutes(app: FastifyInstance) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const code =
-        err instanceof mail.MailUnavailable || err instanceof calendar.CalendarUnavailable
+        err instanceof mail.MailUnavailable ||
+        err instanceof calendar.CalendarUnavailable ||
+        err instanceof gmail.GmailUnavailable
           ? 503
           : 502;
       req.log.warn(err, `proposal ${item.id} failed`);
@@ -339,6 +499,24 @@ async function execute(app: FastifyInstance, a: ProposalAction): Promise<string>
       });
       if (res.statusCode >= 300) throw new Error(errorOf(res));
       return `ran schedule ${a.id}`;
+    }
+    case "mail_rule_put": {
+      const { kind: _kind, ...fields } = a;
+      return `added filter ${(await gmail.createRule(fields)).id}`;
+    }
+    case "mail_rule_delete":
+      await gmail.deleteRule(a.id);
+      return `removed filter ${a.id}`;
+    case "mail_label_delete":
+      await gmail.deleteLabel(a.name);
+      return `deleted label ${a.name}`;
+    case "calendar_delete": {
+      const gone = await calendar.remove(a.uid, { occurrence: a.occurrence, every: a.every });
+      return `removed ${gone.summary}; its file is kept in the calendar trash on the pod`;
+    }
+    case "mail_move": {
+      const moved = await mail.move(a.uids, a.to, { from: a.from, discard: true });
+      return `moved ${moved} to ${a.to}`;
     }
   }
 }

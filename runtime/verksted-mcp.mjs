@@ -264,6 +264,7 @@ const targetOf = (a) => ({
  *     reversible    changes something a later call can change back.
  *     card          files a proposal; nothing happens until the person taps.
  *     irreversible  changes something that cannot be put back, with no card.
+ *                   No tool is; it is what a tool missing from this table reads as.
  *                   There are three. They are named in BACKLOG.md and pinned
  *                   by a test, so the number can only go down.
  */
@@ -318,13 +319,13 @@ const POLICY = {
   mail_rules: { unattended: true, private: true, effect: "read" },
   mail_move: { private: true, effect: "reversible" },
   mail_relabel: { private: true, effect: "reversible" },
-  // A filter acts on every mail from then on rather than once, which is why it
-  // takes the person's own word in the chat; it can be removed again after.
-  mail_rule_create: { chairOnly: true, private: true, effect: "reversible" },
-  // A rule's definition goes with it, and a label comes off every message at
-  // once. Neither has a call that puts it back.
-  mail_rule_delete: { chairOnly: true, private: true, effect: "irreversible" },
-  mail_label_delete: { chairOnly: true, private: true, effect: "irreversible" },
+  // A filter acts on every mail from then on with nobody watching. A rule's
+  // definition goes with it, and a label comes off every message at once;
+  // neither has a call that puts it back. All three are cards, and mail_move
+  // files one itself when the folder is one the server empties.
+  mail_rule_create: { chairOnly: true, private: true, effect: "card" },
+  mail_rule_delete: { chairOnly: true, private: true, effect: "card" },
+  mail_label_delete: { chairOnly: true, private: true, effect: "card" },
 
   // The documents: the person's own share, and text nobody here wrote.
   docs_catalogue: { private: true, outside: true, effect: "read" },
@@ -339,7 +340,7 @@ const POLICY = {
   calendar_add: { chairOnly: true, private: true, effect: "reversible" },
   calendar_update: { chairOnly: true, private: true, effect: "reversible" },
   // Nothing puts a deleted event back, a whole series least of all.
-  calendar_delete: { chairOnly: true, private: true, effect: "irreversible" },
+  calendar_delete: { chairOnly: true, private: true, effect: "card" },
 
   // What the bench remembers, and what it has been told about the person.
   // Searches every conversation the chair ever had, whoever is asking — mail
@@ -989,17 +990,27 @@ const TOOLS = [
   {
     name: "mail_move",
     description:
-      "File messages out of the inbox: give the uids and a folder path mail_folders listed. This is the one thing you may do to the mail without asking, because it is undone by moving them back — so file what you are sure of and say what you filed, and leave anything you would have to guess at in the inbox. Nothing here deletes.",
+      "File messages into a folder mail_folders listed: give the uids and the path. Out of the inbox unless you give from, which is how a filing is undone: from is where they are now, and the uids are the ones they have there. This is the one thing you may do to the mail without asking, so file what you are sure of and say what you filed, and leave anything you would have to guess at in the inbox. A move into the trash or the junk folder is different, because the server empties those on its own: it files a card showing the subjects, and nothing moves until they tap it.",
     inputSchema: {
       type: "object",
       properties: {
         uids: { type: "array", items: { type: "integer" } },
         to: { type: "string" },
+        from: { type: "string", description: "where they are now, when not the inbox" },
+        why: { type: "string", description: "one line for the card, when this files one" },
       },
       required: ["uids", "to"],
     },
     run: async (a) => {
-      const { moved } = await call("POST", "/api/mail/move", { uids: a.uids, to: a.to });
+      const from = a.from ? { from: a.from } : {};
+      // Asked here so the model hears "a card was filed" rather than a refusal
+      // it has to work round; the route refuses the same move on its own.
+      const folders = await call("GET", "/api/mail/folders");
+      const role = (folders ?? []).find((f) => f.path === a.to)?.role;
+      if (role === "trash" || role === "junk") {
+        return propose({ kind: "mail_move", uids: a.uids, to: a.to, ...from }, a.why);
+      }
+      const { moved } = await call("POST", "/api/mail/move", { uids: a.uids, to: a.to, ...from });
       return `moved ${moved} to ${a.to}`;
     },
   },
@@ -1042,7 +1053,7 @@ const TOOLS = [
   {
     name: "mail_rule_create",
     description:
-      "Add a standing Gmail filter: mail matching from/subject/query gets labelled, archived, or marked read, from then on, with no further asking. Because it acts on every mail from here on rather than once like mail_move, only set one up on their word in the chat, never on your own — say what you set up. Needs at least one thing to match and one thing to do; mail_labels lists label names, and a label named here is created if it does not exist yet.",
+      "Propose a standing Gmail filter: mail matching from/subject/query gets labelled, archived, or marked read, from then on, with no further asking. Because it acts on every mail from here on rather than once like mail_move, it files a card showing the filter and nothing is set up until they tap it. Needs at least one thing to match and one thing to do; mail_labels lists label names, and a label named here is created if it does not exist yet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1052,32 +1063,32 @@ const TOOLS = [
         label: { type: "string" },
         archive: { type: "boolean" },
         markRead: { type: "boolean" },
+        why: { type: "string", description: "one line for the card" },
       },
     },
-    run: async (a) => {
-      const r = await call("POST", "/api/mail/rules", a);
-      return `set up ${r.id}: ${ruleLine(r)}`;
-    },
+    run: ({ why, ...rule }) => propose({ kind: "mail_rule_put", ...rule }, why),
   },
   {
     name: "mail_rule_delete",
     description:
-      "Remove a filter mail_rules listed, by its id. Same rule as creating one: only on their word.",
-    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
-    run: async (a) => {
-      await call("DELETE", `/api/mail/rules/${encodeURIComponent(a.id)}`);
-      return `removed rule ${a.id}`;
+      "Propose removing a filter mail_rules listed, by its id. A filter's definition goes with it, so the card shows what it matches and does, and nothing is removed until they tap it.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" }, why: { type: "string" } },
+      required: ["id"],
     },
+    run: (a) => propose({ kind: "mail_rule_delete", id: a.id }, a.why),
   },
   {
     name: "mail_label_delete",
     description:
-      "Delete one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it and cannot be put back, so only on their word in the chat, and say which label you deleted. Refused while a filter still files into it: remove that filter with mail_rule_delete first, again only on their word.",
-    inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] },
-    run: async (a) => {
-      await call("DELETE", "/api/mail/labels", { name: a.name });
-      return `deleted label ${a.name}`;
+      "Propose deleting one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it and cannot be put back, so it is a card and nothing is deleted until they tap it. The tap is refused while a filter still files into the label: propose removing that filter with mail_rule_delete first.",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string" }, why: { type: "string" } },
+      required: ["name"],
     },
+    run: (a) => propose({ kind: "mail_label_delete", name: a.name }, a.why),
   },
   {
     name: "docs_catalogue",
@@ -1167,18 +1178,13 @@ const TOOLS = [
   {
     name: "calendar_delete",
     description:
-      "Take one event off the calendar because they told you to, by its uid in brackets from the calendar tools. Say what was removed. An event marked (repeats) also needs occurrence (the one they mean, its start as listed) or every: true to remove the whole series; if they did not say which, ask.",
+      "Propose taking one event off the calendar, by its uid in brackets from the calendar tools. A calendar has no trash, so this files a card showing the event and nothing is removed until they tap it. An event marked (repeats) also needs occurrence (the one they mean, its start as listed) or every: true to remove the whole series; if they did not say which, ask.",
     inputSchema: {
       type: "object",
-      properties: { uid: { type: "string" }, ...OCCURRENCE_FIELDS },
+      properties: { uid: { type: "string" }, ...OCCURRENCE_FIELDS, why: { type: "string" } },
       required: ["uid"],
     },
-    run: async (a) => {
-      const q = new URLSearchParams(
-        Object.entries(targetOf(a)).map(([k, v]) => [k, String(v)]),
-      ).toString();
-      return `removed: ${eventLine(await call("DELETE", `/api/calendar/events/${encodeURIComponent(a.uid)}${q ? `?${q}` : ""}`))}`;
-    },
+    run: (a) => propose({ kind: "calendar_delete", uid: a.uid, ...targetOf(a) }, a.why),
   },
   {
     name: "propose",

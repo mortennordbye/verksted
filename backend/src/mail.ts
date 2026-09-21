@@ -2,6 +2,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
 import type { MailFolder, MailMessage, MailSummary } from "../../shared/api.js";
+import * as mailLog from "./mail-log.js";
 import { sourceEnv } from "./settings-store.js";
 
 /**
@@ -67,10 +68,10 @@ async function withClient<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   }
 }
 
-/** The same connection with INBOX selected, which every verb but LIST needs. */
-async function withInbox<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+/** The same connection with a mailbox selected, which every verb but LIST needs. */
+async function withBox<T>(box: string, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
   return withClient(async (client) => {
-    const lock = await client.getMailboxLock("INBOX");
+    const lock = await client.getMailboxLock(box);
     try {
       return await fn(client);
     } finally {
@@ -78,6 +79,8 @@ async function withInbox<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
     }
   });
 }
+
+const withInbox = <T>(fn: (client: ImapFlow) => Promise<T>) => withBox("INBOX", fn);
 
 /** What an envelope says, as the feed and the tools show it. */
 export function summarise(msg: {
@@ -205,37 +208,96 @@ export async function folders(): Promise<MailFolder[]> {
 /** A move the server would refuse, refused here, with something to read. */
 export class MailDenied extends Error {}
 
+/** The roles a server expires on its own: a move into one is not a filing. */
+const DISCARDS = new Set(["trash", "junk"]);
+
 /** One sweep's worth. A model that wants more asks twice. */
 export const MAX_MOVE = 50;
 
 /**
- * Move messages out of the inbox into a mailbox that exists.
+ * Move messages into a mailbox that exists, out of the inbox unless told where.
  *
- * The one mutating verb in this file, and it is here rather than behind a
- * tapped card because a move is undone by a move back: the rule is that
- * anything without an undo waits for the person, and this has one. Nothing
- * here deletes, and the trash is a folder like any other — a message put there
- * is still a message until the server expires it.
+ * It is here rather than behind a tapped card because a move is undone by a
+ * move back: the rule is that anything without an undo waits for the person,
+ * and this has one. `from` is what makes that sentence true, since it used to
+ * be the inbox and nothing else, so nothing could be moved back; and every
+ * move is written to the mail log with the uids the messages have where they
+ * landed, which is what moving them back needs to know.
  *
- * The destination is checked against the server's own list rather than passed
+ * The trash and the junk folder are the exception. The server empties both on
+ * its own clock, so a message put there has an undo only until then, and a
+ * mail that says "file everything from the bank under spam" is exactly what a
+ * poisoned message would ask for. `discard` is set by the tapped card and by
+ * nothing else.
+ *
+ * Both folders are checked against the server's own list rather than passed
  * through. A folder a model invented is a refusal, not a mailbox quietly
  * created, and `resolveInsideRepos` is the same idea one directory over.
  */
-export async function move(uids: number[], to: string): Promise<number> {
+export async function move(
+  uids: number[],
+  to: string,
+  opts: { from?: string; discard?: boolean } = {},
+): Promise<number> {
   const wanted = [...new Set(uids)].filter((u) => Number.isInteger(u) && u > 0).slice(0, MAX_MOVE);
   if (!wanted.length) return 0;
-  return withInbox(async (client) => {
-    const target = (await mailboxes(client)).find((box) => box.path === to);
+  return withClient(async (client) => {
+    const boxes = await mailboxes(client);
+    const target = boxes.find((box) => box.path === to);
     if (!target) throw new MailDenied(`no such folder: ${to}`);
-    if (target.role === "inbox") throw new MailDenied("the inbox is where they already are");
-    const res = await client.messageMove(wanted, target.path, { uid: true });
-    // What the server confirms, not what was asked: a uid already filed from
-    // the phone reads as a smaller number here, and a report saying "moved 12"
-    // when four of them were gone is the wrong kind of tidy. `false` is the
-    // library's "the server would not", and uidMap needs UIDPLUS, which not
-    // every server has; without it the count asked for is the best there is.
-    if (!res) return 0;
-    return res.uidMap ? res.uidMap.size : wanted.length;
+    const source = opts.from ? boxes.find((box) => box.path === opts.from) : { path: "INBOX" };
+    if (!source) throw new MailDenied(`no such folder: ${opts.from}`);
+    if (target.path === source.path || (!opts.from && target.role === "inbox")) {
+      throw new MailDenied("that is where they already are");
+    }
+    if (DISCARDS.has(target.role) && !opts.discard) {
+      throw new MailDenied(
+        `${to} is emptied by the server, so a move there waits for a tapped card`,
+      );
+    }
+    const lock = await client.getMailboxLock(source.path);
+    try {
+      const res = await client.messageMove(wanted, target.path, { uid: true });
+      // What the server confirms, not what was asked: a uid already filed from
+      // the phone reads as a smaller number here, and a report saying "moved
+      // 12" when four of them were gone is the wrong kind of tidy. `false` is
+      // the library's "the server would not", and uidMap needs UIDPLUS, which
+      // not every server has; without it the count asked for is the best there
+      // is.
+      if (!res) return 0;
+      await mailLog.record({
+        verb: "move",
+        from: source.path,
+        to: target.path,
+        uids: wanted,
+        uidMap: Object.fromEntries(res.uidMap ?? []),
+      });
+      return res.uidMap ? res.uidMap.size : wanted.length;
+    } finally {
+      lock.release();
+    }
+  });
+}
+
+/** Whether a move to this folder is one only a card may make. */
+export async function discards(to: string): Promise<boolean> {
+  const target = (await folders()).find((box) => box.path === to);
+  return target ? DISCARDS.has(target.role) : false;
+}
+
+/** The envelopes of these uids, for a card to show what it is about to move. */
+export async function summaries(uids: number[], from = "INBOX"): Promise<MailSummary[]> {
+  if (!uids.length) return [];
+  return withBox(from, async (client) => {
+    const out: MailSummary[] = [];
+    for await (const msg of client.fetch(
+      uids,
+      { envelope: true, flags: true, uid: true },
+      { uid: true },
+    )) {
+      out.push(summarise(msg));
+    }
+    return out;
   });
 }
 
