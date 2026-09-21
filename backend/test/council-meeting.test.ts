@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { transcriptPath } from "../src/claude-home.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -41,6 +42,7 @@ function whenAsked(name: string, text: string) {
 
 beforeAll(async () => {
   fake = FakeBin.install(["claude"]);
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "vk-home-"));
   assistantDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-council-thread-"));
   councilDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-council-dir-"));
   process.env.ASSISTANT_DIR = assistantDir;
@@ -351,6 +353,10 @@ describe("a meeting", () => {
     await say("first question");
     const [first] = callsFor("Michael");
     const conversationId = first[first.indexOf("--session-id") + 1];
+    // The real CLI would have written this; it is what the next turn reads.
+    const transcript = transcriptPath(process.env.REPOS_DIR ?? "", conversationId);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(transcript, "");
 
     fake.reset();
     fake.reply("claude", "-p", { stdout: run("convene: michael") });

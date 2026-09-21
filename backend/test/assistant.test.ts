@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { AssistantFrame } from "../../shared/api.js";
+import { transcriptPath } from "../src/claude-home.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -31,8 +32,19 @@ function run(text: string): string {
   );
 }
 
+/**
+ * What the real CLI leaves behind once it has a conversation, and the fake does
+ * not: the transcript, which is what the next turn's flag is read from.
+ */
+function claudeKnows(conversationId: string): void {
+  const file = transcriptPath(process.env.REPOS_DIR ?? "", conversationId);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "");
+}
+
 beforeAll(async () => {
   fake = FakeBin.install(["claude"]);
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "vk-home-"));
   assistantDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-assist-"));
   process.env.ASSISTANT_DIR = assistantDir;
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
@@ -54,6 +66,7 @@ beforeEach(() => {
     fs.rmSync(path.join(assistantDir, f), { recursive: true, force: true });
   }
   fake.reset();
+  fake.clear("claude");
   fake.reply("claude", "-p", { stdout: run("Two things need you.") });
 });
 
@@ -78,6 +91,7 @@ describe("POST /api/assistant/messages", () => {
     await say("first");
     const conversationId = (await app.inject({ url: "/api/assistant" })).json().conversationId;
     expect(conversationId).toMatch(CONV);
+    claudeKnows(conversationId);
 
     fake.reset();
     await say("second");
@@ -86,6 +100,70 @@ describe("POST /api/assistant/messages", () => {
     expect(argv).toContain("--resume");
     expect(argv[argv.indexOf("--resume") + 1]).toBe(conversationId);
     expect(argv).not.toContain("--session-id");
+  });
+
+  it("names the conversation again when the first turn never got as far as one", async () => {
+    // The thread has a reply in it, a failed one, and claude has no session:
+    // resuming here failed this turn and every one after it.
+    fake.reply("claude", "-p", { stderr: "Not logged in\n", code: 1 });
+    await say("first");
+
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: run("Here now.") });
+    const thread = (await say("second")).json();
+
+    const [argv] = fake.argvFor("claude");
+    expect(argv).toContain("--session-id");
+    expect(argv).not.toContain("--resume");
+    expect(thread.entries.at(-1).text).toBe("Here now.");
+  });
+
+  it("takes the other flag when claude says the first was wrong", async () => {
+    // Claude has the conversation and its transcript is not where this app
+    // looks: the turn costs one more spawn rather than the thread.
+    fake.reply("claude", "-p", {
+      contains: "--session-id",
+      stderr: "Error: Session ID 0a237a7d-c38f-4fc2-b6c4-c3d30d2a3d7f is already in use.\n",
+      code: 1,
+    });
+    fake.reply("claude", "-p", { contains: "--resume", stdout: run("Picked up.") });
+
+    const thread = (await say("hello")).json();
+
+    const calls = fake.argvFor("claude");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("--session-id");
+    expect(calls[1]).toContain("--resume");
+    expect(thread.entries.map((e: { text: string }) => e.text)).toEqual(["hello", "Picked up."]);
+    expect(thread.entries.some((e: { failed?: boolean }) => e.failed)).toBe(false);
+  });
+
+  it("names a conversation claude has lost rather than failing to resume it", async () => {
+    await say("first");
+    const conversationId = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    claudeKnows(conversationId);
+
+    fake.reset();
+    const gone = `No conversation found with session ID: ${conversationId}`;
+    fake.reply("claude", "-p", {
+      contains: "--resume",
+      stderr: `${gone}\n`,
+      // What the CLI prints for it: no `result`, the reason under `errors`.
+      stdout:
+        JSON.stringify({
+          type: "result",
+          subtype: "error_during_execution",
+          is_error: true,
+          errors: [gone],
+        }) + "\n",
+    });
+    fake.reply("claude", "-p", { contains: "--session-id", stdout: run("Started over.") });
+    const thread = (await say("second")).json();
+
+    const calls = fake.argvFor("claude");
+    expect(calls.map((argv) => argv.includes("--resume"))).toEqual([true, false]);
+    expect(thread.entries.at(-1).text).toBe("Started over.");
+    expect(thread.entries.at(-1).failed).toBeUndefined();
   });
 
   it("asks for a stream it can actually parse", async () => {

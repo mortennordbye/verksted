@@ -155,6 +155,23 @@ describe("parseStream", () => {
     expect(out.entries).toEqual([]);
   });
 
+  it("says why a run failed when the reason is only under `errors`", () => {
+    // What the CLI prints when it never reached the model: no `result` at all.
+    const out = parseStream(
+      [
+        INIT,
+        result({
+          subtype: "error_during_execution",
+          is_error: true,
+          result: undefined,
+          errors: ["No conversation found with session ID: abc"],
+        }),
+      ].join("\n"),
+    );
+
+    expect(out.error).toBe("No conversation found with session ID: abc");
+  });
+
   it("ignores lines that are not JSON and event types it does not know", () => {
     // A CLI that prints a deprecation warning to stdout, or adds an event type,
     // must not take the turn down with it.
