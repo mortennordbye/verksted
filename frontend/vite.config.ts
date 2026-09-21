@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { VitePWA } from "vite-plugin-pwa";
 
+/** Whether a built asset is one of the material-icon-theme file icons. */
+const isIcon = (file: string) => file.includes("material-icon-theme");
+
 export default defineConfig({
   plugins: [
     react(),
@@ -55,11 +58,41 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        // The hljs + icon chunks exceed the 2 MiB precache default.
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        // The file-type icons are 1,226 files of a kilobyte or two, and a
+        // precache is fetched in full on install. Precaching them would mean
+        // 1,226 requests over the tunnel to have every icon for every language
+        // the theme knows, when a session shows a dozen. They are cached as
+        // they are used instead — see the runtime route in sw.ts.
+        globIgnores: ["**/assets/icons/**"],
       },
     }),
   ],
+  build: {
+    /**
+     * The file-type icons are files, never data URIs.
+     *
+     * Vite inlines any asset under 4 KiB, and the icon theme is 1,226 SVGs of
+     * about two — so the screen that draws a file tree carried every icon for
+     * every language the theme knows, base64'd into its own chunk. That chunk
+     * was 2.2 MB (437 KB gzipped), and it is what a notification tap has to
+     * download and parse on a phone before the terminal appears.
+     *
+     * As files they are fetched when something actually draws one, and the
+     * chunk keeps a table of URLs instead of the images themselves.
+     */
+    assetsInlineLimit: (filePath: string) => (isIcon(filePath) ? false : undefined),
+    rollupOptions: {
+      output: {
+        // Their own directory, so the precache and the worker's runtime cache
+        // can both tell them from the handful of assets the app shell needs.
+        assetFileNames: (asset) =>
+          // The source path, not the output name: the output name is "d.svg".
+          isIcon(asset.originalFileNames?.[0] ?? "")
+            ? "assets/icons/[name]-[hash][extname]"
+            : "assets/[name]-[hash][extname]",
+      },
+    },
+  },
   server: {
     host: true,
     port: 5173,

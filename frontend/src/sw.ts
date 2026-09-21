@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 import { createHandlerBoundToURL, precacheAndRoute } from "workbox-precaching";
 import { NavigationRoute, registerRoute } from "workbox-routing";
+import { CacheFirst } from "workbox-strategies";
+import { ExpirationPlugin } from "workbox-expiration";
 import { appPath } from "./app-path";
 
 // The app's service worker. It does what the generated one did — precache the
@@ -17,6 +19,26 @@ precacheAndRoute(self.__WB_MANIFEST);
 // Navigations serve the cached shell; /api (REST and websockets) never does.
 registerRoute(
   new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/^\/api\//] }),
+);
+
+/**
+ * The file-type icons, kept as they are used.
+ *
+ * They are 1,226 files and the precache deliberately skips them: fetching every
+ * icon for every language the theme knows, on install, over the tunnel, to draw
+ * the dozen a repo actually contains. Cache-first because the name carries a
+ * content hash — a given URL is one image for ever — and the dozen a repo does
+ * use are then offline and free from the second visit.
+ */
+registerRoute(
+  ({ url, request }) =>
+    request.destination === "image" && url.pathname.startsWith("/assets/icons/"),
+  new CacheFirst({
+    cacheName: "file-icons",
+    // Room for several repos' worth without keeping every icon a build ever
+    // produced: a deploy changes the hashes, and the old entries are dead.
+    plugins: [new ExpirationPlugin({ maxEntries: 300, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  }),
 );
 
 // "prompt" updates: a new build waits here until the user taps reload in the
