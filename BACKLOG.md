@@ -1205,25 +1205,3 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   sweep, `reapFinishedSessions`), `backend/src/routes/usage.ts`
   (`backfillUsage` on a GET), `backend/src/pollers.ts` (`pollBench` on
   `GET /api/feed`), `backend/src/maintenance.ts`, `backend/src/events.ts`.
-
-## An open file or document is not in the URL
-
-- **What:** F-34's overlay half. The session's pane and side tab, the project
-  tab and the inbox filters are in the URL now, so a reload or an evicted iOS
-  app comes back where it was. The file open in the session's viewer and the
-  document open in the Docs viewer are still component state: a reload closes
-  them, and neither can be sent to somebody as a link.
-- **Why deferred:** Both are overlays, and an overlay's Back works by pushing a
-  history entry marked `{ vkOverlay: true }` (`useDismissOnBack`). Writing the
-  open path into the URL through react-router replaces the current entry's
-  state with react-router's own, which drops that marker — the overlay then
-  cannot tell its entry from a real navigation, so it either leaves a stray
-  entry behind or Backs out of the screen. Making it work means deciding
-  whether these overlays become routes (Back pops the URL, no marker at all)
-  or whether the marker moves somewhere react-router preserves.
-- **Unblocked by:** The root cause 6 overlay work (F-22: one `Overlay` wrapper
-  over Radix `Dialog` that keeps `useDismissOnBack`'s behaviour). That is the
-  one place the history handling gets rewritten, and this should ride on it.
-- **Where:** `frontend/src/useDismissOnBack.ts`, `frontend/src/screens/Session.tsx`
-  (the file viewer), `frontend/src/screens/Docs.tsx` and
-  `frontend/src/components/DocViewer.tsx`.

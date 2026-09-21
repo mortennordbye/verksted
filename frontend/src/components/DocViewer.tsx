@@ -3,9 +3,9 @@ import Markdown from "react-markdown";
 import { api } from "../api";
 import { parseCsv } from "../csv";
 import { marks, rehypeMark } from "../find";
-import { useOverlayDismiss } from "../useDismissOnBack";
 import { MD, REMARK } from "./chat/markdown";
 import { SkeletonLines } from "./Skeleton";
+import Overlay, { OverlayHeader } from "./ui/Overlay";
 
 /** How a file is shown, decided by its extension, as /api/docs/raw decides. */
 const VIDEO = new Set(["mp4", "m4v", "mov", "webm", "mkv"]);
@@ -139,7 +139,6 @@ export default function DocViewer({
   const body = useRef<HTMLDivElement>(null);
   /** Which match the next jump goes to. */
   const next = useRef(0);
-  useOverlayDismiss(true, onClose);
 
   useEffect(() => {
     if (view !== "text") return;
@@ -178,125 +177,105 @@ export default function DocViewer({
   }, [hits, initialFind, jump]);
 
   return (
-    <div
-      role="presentation"
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+    <Overlay
+      label={path}
+      onClose={onClose}
+      className="h-[85dvh] w-full max-w-[900px] overflow-hidden rounded-xl"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={path}
-        className="flex h-[85vh] w-full max-w-[900px] flex-col overflow-hidden rounded-xl border border-line bg-surface"
-      >
-        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
-          <span className="min-w-0 truncate">{path}</span>
-          {/* A new tab is the way out of an iframe that will not scroll and of
+      <OverlayHeader title={path} onClose={onClose}>
+        {/* A new tab is the way out of an iframe that will not scroll and of
               a type this app hands over rather than renders. */}
-          <a
-            href={rawUrl(path)}
-            target="_blank"
-            rel="noreferrer"
-            className="tap ml-auto flex flex-none items-center px-2 text-faint hover:text-text"
-          >
-            open
-          </a>
-          {/* 18px glyphs, and one of them the way out of a full-screen overlay
-              on a phone. `tap-sq` is what the rest of the app gives an icon
-              with no label of its own. */}
-          <button
-            onClick={onClose}
-            aria-label="close"
-            className="tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text"
-          >
-            ✕
-          </button>
-        </div>
-        {view === "text" && (
-          <div className="flex items-center gap-2 border-b border-line px-3.5 py-2">
-            <input
-              value={find}
-              onChange={(e) => setFind(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && jump()}
-              placeholder="find in this document"
-              aria-label="find in this document"
-              className="min-w-0 flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
-            />
-            {find.trim() !== "" && (
-              <>
-                <span className="flex-none font-mono text-[11px] text-faint">
-                  {hits === 0 ? "no matches" : `${hits} match${hits === 1 ? "" : "es"}`}
-                </span>
-                <button
-                  onClick={jump}
-                  disabled={hits === 0}
-                  className="tap flex-none rounded-[7px] border border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
-                >
-                  next ↓
-                </button>
-              </>
-            )}
-          </div>
-        )}
-        <div ref={body} className="min-h-0 flex-1 overflow-auto bg-bg">
-          {view === "image" && (
-            <img src={rawUrl(path)} alt={path} className="mx-auto block max-h-full" />
+        <a
+          href={rawUrl(path)}
+          target="_blank"
+          rel="noreferrer"
+          className="tap flex flex-none items-center px-2 text-faint hover:text-text"
+        >
+          open
+        </a>
+      </OverlayHeader>
+      {view === "text" && (
+        <div className="flex items-center gap-2 border-b border-line px-3.5 py-2">
+          <input
+            value={find}
+            onChange={(e) => setFind(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && jump()}
+            placeholder="find in this document"
+            aria-label="find in this document"
+            className="min-w-0 flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
+          />
+          {find.trim() !== "" && (
+            <>
+              <span className="flex-none font-mono text-[11px] text-faint">
+                {hits === 0 ? "no matches" : `${hits} match${hits === 1 ? "" : "es"}`}
+              </span>
+              <button
+                onClick={jump}
+                disabled={hits === 0}
+                className="tap flex-none rounded-[7px] border border-line px-2.5 py-1.5 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-40"
+              >
+                next ↓
+              </button>
+            </>
           )}
-          {/* No <track>: these are whatever is on the share, and there is no
+        </div>
+      )}
+      <div ref={body} className="min-h-0 flex-1 overflow-auto bg-bg">
+        {view === "image" && (
+          <img src={rawUrl(path)} alt={path} className="mx-auto block max-h-full" />
+        )}
+        {/* No <track>: these are whatever is on the share, and there is no
               caption file to point at. An empty one would be a lie to the
               screen reader rather than a kindness. */}
-          {view === "video" && (
-            // eslint-disable-next-line jsx-a11y/media-has-caption -- see above
-            <video src={rawUrl(path)} controls playsInline className="mx-auto block max-h-full" />
-          )}
-          {view === "audio" && (
-            // eslint-disable-next-line jsx-a11y/media-has-caption -- see above
-            <audio src={rawUrl(path)} controls className="w-full p-4" />
-          )}
-          {view === "pdf" && (
-            <iframe src={rawUrl(path)} title={path} className="h-full w-full border-0" />
-          )}
-          {view === "text" && failed && <div className="p-4 text-[13px] text-wait">{failed}</div>}
-          {view === "text" && !failed && text === null && (
-            <SkeletonLines count={8} className="p-4" />
-          )}
-          {view === "text" && !failed && text !== null && flavour === "markdown" && (
-            <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7]">
-              <Markdown
-                components={MD}
-                remarkPlugins={REMARK}
-                rehypePlugins={find.trim() ? [rehypeMark(find.trim())] : []}
-              >
-                {text}
-              </Markdown>
-            </div>
-          )}
-          {view === "text" && !failed && text !== null && flavour === "csv" && (
-            <CsvTable text={text} find={find.trim()} />
-          )}
-          {view === "text" && !failed && text !== null && flavour === "code" && (
-            <pre className="p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-muted">
-              {marks(text, find.trim())}
-            </pre>
-          )}
-          {/* Extracted prose: a measure it can be read at, in the reading
+        {view === "video" && (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- see above
+          <video src={rawUrl(path)} controls playsInline className="mx-auto block max-h-full" />
+        )}
+        {view === "audio" && (
+          // eslint-disable-next-line jsx-a11y/media-has-caption -- see above
+          <audio src={rawUrl(path)} controls className="w-full p-4" />
+        )}
+        {view === "pdf" && (
+          <iframe src={rawUrl(path)} title={path} className="h-full w-full border-0" />
+        )}
+        {view === "text" && failed && <div className="p-4 text-[13px] text-wait">{failed}</div>}
+        {view === "text" && !failed && text === null && <SkeletonLines count={8} className="p-4" />}
+        {view === "text" && !failed && text !== null && flavour === "markdown" && (
+          <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7]">
+            <Markdown
+              components={MD}
+              remarkPlugins={REMARK}
+              rehypePlugins={find.trim() ? [rehypeMark(find.trim())] : []}
+            >
+              {text}
+            </Markdown>
+          </div>
+        )}
+        {view === "text" && !failed && text !== null && flavour === "csv" && (
+          <CsvTable text={text} find={find.trim()} />
+        )}
+        {view === "text" && !failed && text !== null && flavour === "code" && (
+          <pre className="p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-muted">
+            {marks(text, find.trim())}
+          </pre>
+        )}
+        {/* Extracted prose: a measure it can be read at, in the reading
               font, at the size the rest of the app sets prose in. */}
-          {view === "text" && !failed && text !== null && flavour === "prose" && (
-            <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7] whitespace-pre-wrap text-text">
-              {marks(text, find.trim())}
-            </div>
-          )}
-          {view === "download" && (
-            <div className="p-4 text-[13px] text-muted">
-              This bench does not draw this kind of file.{" "}
-              <a href={rawUrl(path)} className="text-accent hover:underline">
-                Download it
-              </a>{" "}
-              to open it where it belongs.
-            </div>
-          )}
-        </div>
+        {view === "text" && !failed && text !== null && flavour === "prose" && (
+          <div className="mx-auto max-w-[72ch] p-4 text-[14px] leading-[1.7] whitespace-pre-wrap text-text">
+            {marks(text, find.trim())}
+          </div>
+        )}
+        {view === "download" && (
+          <div className="p-4 text-[13px] text-muted">
+            This bench does not draw this kind of file.{" "}
+            <a href={rawUrl(path)} className="text-accent hover:underline">
+              Download it
+            </a>{" "}
+            to open it where it belongs.
+          </div>
+        )}
       </div>
-    </div>
+    </Overlay>
   );
 }

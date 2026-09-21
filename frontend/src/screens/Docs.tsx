@@ -4,6 +4,7 @@ import type { DocEntry, DocHit } from "../../../shared/api";
 import { agoLabel, usePoll } from "../api";
 import DocViewer from "../components/DocViewer";
 import TopBar from "../components/TopBar";
+import { useUrlOverlay } from "../useUrlOverlay";
 import PageHeader from "../components/PageHeader";
 import { SkeletonList } from "../components/Skeleton";
 
@@ -34,8 +35,7 @@ function size(bytes: number): string {
 
 export default function Docs() {
   // The folder is in the URL, so back goes up rather than off the screen, and
-  // a folder is a link somebody can be sent. The open document is not (yet):
-  // see BACKLOG, "An open file or document is not in the URL".
+  // a folder is a link somebody can be sent. So is the open document.
   const [params, setParams] = useSearchParams();
   const dir = params.get("path") ?? "";
   const [query, setQuery] = useState("");
@@ -52,7 +52,9 @@ export default function Docs() {
     const timer = setTimeout(() => setSearch(trimmed), 300);
     return () => clearTimeout(timer);
   }, [query]);
-  const [open, setOpen] = useState<string | null>(null);
+  const viewer = useUrlOverlay(["doc"]);
+  const open = viewer.values.doc;
+  const setOpen = (path: string) => viewer.show({ doc: path });
 
   const { data: entries, error } = usePoll<DocEntry[]>(
     `/api/docs?path=${encodeURIComponent(dir)}`,
@@ -162,7 +164,7 @@ export default function Docs() {
         <DocViewer
           path={open}
           initialFind={query.trim().length >= 2 ? query.trim() : ""}
-          onClose={() => setOpen(null)}
+          onClose={viewer.hide}
         />
       )}
     </>

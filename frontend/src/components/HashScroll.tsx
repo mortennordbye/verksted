@@ -19,7 +19,7 @@ import { NavigationType, useLocation, useNavigationType } from "react-router";
 const GIVE_UP_MS = 5_000;
 
 export default function HashScroll() {
-  const { hash, key } = useLocation();
+  const { hash, key, state } = useLocation();
   const type = useNavigationType();
 
   useEffect(() => {
@@ -30,7 +30,10 @@ export default function HashScroll() {
       // the bench opened it halfway down too. Only a push: Back is the
       // browser's to restore, and a replace is a tab or a filter on the page
       // you are already reading.
-      if (type === NavigationType.Push) window.scrollTo(0, 0);
+      // An overlay opened into the URL is a push too, and the page under it
+      // has to stay where it was.
+      const overlay = (state as { overlay?: string } | null)?.overlay;
+      if (type === NavigationType.Push && !overlay) window.scrollTo(0, 0);
       return;
     }
 
@@ -55,7 +58,7 @@ export default function HashScroll() {
     };
     // `key` changes on every navigation, so tapping the same link twice scrolls
     // back to the row a second time rather than doing nothing.
-  }, [hash, key, type]);
+  }, [hash, key, type, state]);
 
   return null;
 }
