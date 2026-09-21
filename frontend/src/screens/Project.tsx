@@ -32,7 +32,7 @@ import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import Skeleton from "../components/Skeleton";
 import { useConfirm } from "../useConfirm";
 import Button from "../components/ui/Button";
-import { Input } from "../components/ui/Field";
+import { Input, Select } from "../components/ui/Field";
 import Notice from "../components/ui/Notice";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
@@ -41,7 +41,18 @@ const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: stri
   { agent: "codex", swatch: "bg-codex", desc: "OpenAI Codex CLI", cmd: "$ codex" },
 ];
 
-function SessionRow({ session, onDelete }: { session: Session; onDelete: () => void }) {
+function SessionRow({
+  session,
+  onDelete,
+  picked,
+  onPick,
+}: {
+  session: Session;
+  onDelete: () => void;
+  /** Set while picking rows to delete together: whether this one is picked. */
+  picked?: boolean;
+  onPick?: () => void;
+}) {
   const live = session.status !== "done";
   return (
     // The row was a div with an onClick: not focusable, not keyboard-reachable,
@@ -54,6 +65,15 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
         live ? "border-line bg-surface" : "border-line/60 bg-transparent"
       }`}
     >
+      {onPick && (
+        <input
+          type="checkbox"
+          checked={picked}
+          onChange={onPick}
+          aria-label={`pick ${session.title}`}
+          className="tap-sq flex-none accent-accent"
+        />
+      )}
       <Link to={`/s/${session.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <StatusDot running={live} />
         <div className="min-w-0 flex-1">
@@ -132,8 +152,58 @@ export default function Project() {
   const tab = TABS.find((t) => t === params.get("tab")) ?? "sessions";
   const [confirm, confirmDialog] = useConfirm();
 
-  const active = sessions?.filter((s) => s.status !== "done") ?? [];
-  const recent = sessions?.filter((s) => s.status === "done") ?? [];
+  /**
+   * Narrowing and ordering the list, and clearing out a stack of finished ones
+   * at once (F-49). A project that has been worked in for a month has more
+   * finished sessions than anybody scrolls, and deleting them was a confirm
+   * per row. Picking is for the finished ones only: a live agent is killed one
+   * deliberate tap at a time.
+   */
+  const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<"newest" | "oldest" | "agent">("newest");
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const shown = (sessions ?? [])
+    .filter((s) => {
+      const q = filter.trim().toLowerCase();
+      if (!q) return true;
+      return [s.title, s.id, s.agent, s.report ?? ""].some((f) => f.toLowerCase().includes(q));
+    })
+    .sort((a, b) =>
+      sort === "agent"
+        ? a.agent.localeCompare(b.agent) || b.createdAt.localeCompare(a.createdAt)
+        : sort === "oldest"
+          ? a.createdAt.localeCompare(b.createdAt)
+          : b.createdAt.localeCompare(a.createdAt),
+    );
+  const active = shown.filter((s) => s.status !== "done");
+  const recent = shown.filter((s) => s.status === "done");
+  const pick = (id: string) =>
+    setPicked((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  async function deletePicked() {
+    const ids = recent.filter((s) => picked.has(s.id)).map((s) => s.id);
+    if (!ids.length) return;
+    const ok = await confirm({
+      title: `Delete ${ids.length} finished session${ids.length === 1 ? "" : "s"}?`,
+      body: "They are removed from history. This cannot be undone.",
+      action: `delete ${ids.length}`,
+      danger: true,
+    });
+    if (!ok) return;
+    const results = await Promise.allSettled(
+      ids.map((id) => api(`/api/sessions/${id}?purge=1`, { method: "DELETE" })),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    setError(failed ? `${failed} of ${ids.length} could not be deleted` : null);
+    setPicked(new Set());
+    setSelecting(false);
+    refreshSessions();
+  }
 
   async function newWorktree() {
     const value = branch.trim();
@@ -315,6 +385,51 @@ export default function Project() {
 
         {tab === "sessions" && (
           <>
+            {(sessions?.length ?? 0) > 3 && (
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <Input
+                  label="filter sessions"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="filter by title, agent, id…"
+                  className="min-w-[160px] flex-1"
+                />
+                <Select
+                  label="sort sessions"
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as typeof sort)}
+                >
+                  <option value="newest">newest first</option>
+                  <option value="oldest">oldest first</option>
+                  <option value="agent">by agent</option>
+                </Select>
+                {recent.length > 0 &&
+                  (selecting ? (
+                    <>
+                      <Button onClick={() => setPicked(new Set(recent.map((s) => s.id)))}>
+                        all finished
+                      </Button>
+                      <Button
+                        variant="ghost-danger"
+                        disabled={picked.size === 0}
+                        onClick={() => void deletePicked()}
+                      >
+                        delete {picked.size}
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setSelecting(false);
+                          setPicked(new Set());
+                        }}
+                      >
+                        cancel
+                      </Button>
+                    </>
+                  ) : (
+                    <Button onClick={() => setSelecting(true)}>select</Button>
+                  ))}
+              </div>
+            )}
             <SectionLabel icon="running" sub>
               Active
             </SectionLabel>
@@ -342,7 +457,13 @@ export default function Project() {
                 </SectionLabel>
                 <div className="flex flex-col gap-2.5">
                   {recent.map((s) => (
-                    <SessionRow key={s.id} session={s} onDelete={() => deleteSession(s)} />
+                    <SessionRow
+                      key={s.id}
+                      session={s}
+                      onDelete={() => deleteSession(s)}
+                      picked={picked.has(s.id)}
+                      onPick={selecting ? () => pick(s.id) : undefined}
+                    />
                   ))}
                 </div>
               </>

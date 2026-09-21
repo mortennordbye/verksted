@@ -320,6 +320,84 @@ function Composer({ name }: { name: string }) {
   );
 }
 
+/**
+ * Whether each place the inbox reads from is set up and answering, and the
+ * way to where it lives or to where its credential is typed.
+ */
+function SourceHealth({ sources, ghDown }: { sources: SourceStatus | null; ghDown: boolean }) {
+  return (
+    <div>
+      <Label icon="sources">Sources</Label>
+      <div className="flex flex-col gap-1">
+        {(
+          [
+            // The poller files one item when it cannot read github and
+            // resolves it when it can again; that is the only truth
+            // about this source the screen has, and it is the right one.
+            ["github", !ghDown, "github", sources?.links.github, "/settings?tab=agents"],
+            ["mail", sources?.mail ?? false, "inbox", sources?.links.mail, "/settings?tab=agents"],
+            [
+              "calendar",
+              sources?.calendar ?? false,
+              "calendar",
+              sources?.links.calendar,
+              "/settings?tab=sources",
+            ],
+            ["documents", sources?.docs ?? false, "document", "/docs", "/settings?tab=agents"],
+          ] as [string, boolean, IconName, string | undefined, string][]
+        ).map(([name, on, icon, home, setup]) => {
+          // A source that is set up opens where it lives: the share in
+          // the app, the rest on their own site in a new tab. One that
+          // is not, or whose site the server cannot name, goes to where
+          // its credential is typed, which is the one useful place.
+          const to = on && home ? home : setup;
+          const outside = to.startsWith("https://");
+          const row = (
+            <>
+              {/* The icon says which source; its colour says whether it
+                  is set up — and that was the whole of it. #4a4a4a on
+                  the surface is about 2.2:1, so "not set up" was a
+                  shade nobody can see, carried by colour alone, on the
+                  one row whose job is to say a source is missing. The
+                  words are the signal now and the colour agrees with
+                  them. */}
+              <Icon name={icon} size={14} className={on ? "text-run" : "text-faint"} />
+              {name}
+              {!on && <span className="text-[11px] text-wait">not set up</span>}
+              {outside && <span className="text-faint">↗</span>}
+            </>
+          );
+          const className =
+            "flex items-center gap-2 px-1 py-0.5 text-[12.5px] text-muted hover:text-text";
+          const title = !on
+            ? "not set up: tap to add it"
+            : outside
+              ? `open ${name}`
+              : name === "documents"
+                ? "browse the share"
+                : "set up";
+          return outside ? (
+            <a
+              key={name}
+              href={to}
+              target="_blank"
+              rel="noreferrer"
+              className={className}
+              title={title}
+            >
+              {row}
+            </a>
+          ) : (
+            <Link key={name} to={to} className={className} title={title}>
+              {row}
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Today() {
   // The one thing that can fail from this screen without a sheet to say so:
   // the × on a row. Kept next to the count, which is what it changes.
@@ -713,6 +791,12 @@ export default function Today() {
 
             <div className="min-[1000px]:hidden">
               <Running sessions={running} />
+              {/* The side column is a desk's; on a phone it is not drawn at
+                  all, which left no way to see that a source had stopped
+                  (F-49). The same list, under the rest. */}
+              <div className="mt-7">
+                <SourceHealth sources={sources} ghDown={ghDown} />
+              </div>
             </div>
           </section>
 
@@ -754,87 +838,7 @@ export default function Today() {
                 <div className="text-[13px] text-faint">nothing new</div>
               )}
             </div>
-            <div>
-              <Label icon="sources">Sources</Label>
-              <div className="flex flex-col gap-1">
-                {(
-                  [
-                    // The poller files one item when it cannot read github and
-                    // resolves it when it can again; that is the only truth
-                    // about this source the screen has, and it is the right one.
-                    ["github", !ghDown, "github", sources?.links.github, "/settings?tab=agents"],
-                    [
-                      "mail",
-                      sources?.mail ?? false,
-                      "inbox",
-                      sources?.links.mail,
-                      "/settings?tab=agents",
-                    ],
-                    [
-                      "calendar",
-                      sources?.calendar ?? false,
-                      "calendar",
-                      sources?.links.calendar,
-                      "/settings?tab=sources",
-                    ],
-                    [
-                      "documents",
-                      sources?.docs ?? false,
-                      "document",
-                      "/docs",
-                      "/settings?tab=agents",
-                    ],
-                  ] as [string, boolean, IconName, string | undefined, string][]
-                ).map(([name, on, icon, home, setup]) => {
-                  // A source that is set up opens where it lives: the share in
-                  // the app, the rest on their own site in a new tab. One that
-                  // is not, or whose site the server cannot name, goes to where
-                  // its credential is typed, which is the one useful place.
-                  const to = on && home ? home : setup;
-                  const outside = to.startsWith("https://");
-                  const row = (
-                    <>
-                      {/* The icon says which source; its colour says whether it
-                          is set up — and that was the whole of it. #4a4a4a on
-                          the surface is about 2.2:1, so "not set up" was a
-                          shade nobody can see, carried by colour alone, on the
-                          one row whose job is to say a source is missing. The
-                          words are the signal now and the colour agrees with
-                          them. */}
-                      <Icon name={icon} size={14} className={on ? "text-run" : "text-faint"} />
-                      {name}
-                      {!on && <span className="text-[11px] text-wait">not set up</span>}
-                      {outside && <span className="text-faint">↗</span>}
-                    </>
-                  );
-                  const className =
-                    "flex items-center gap-2 px-1 py-0.5 text-[12.5px] text-muted hover:text-text";
-                  const title = !on
-                    ? "not set up: tap to add it"
-                    : outside
-                      ? `open ${name}`
-                      : name === "documents"
-                        ? "browse the share"
-                        : "set up";
-                  return outside ? (
-                    <a
-                      key={name}
-                      href={to}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={className}
-                      title={title}
-                    >
-                      {row}
-                    </a>
-                  ) : (
-                    <Link key={name} to={to} className={className} title={title}>
-                      {row}
-                    </Link>
-                  );
-                })}
-              </div>
-            </div>
+            <SourceHealth sources={sources} ghDown={ghDown} />
             <div>
               <Label icon="history">Recent runs</Label>
               {runs?.length ? (

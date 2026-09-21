@@ -719,6 +719,15 @@ describe("the app in a real browser", () => {
     expect(filed()).toHaveLength(1);
   });
 
+  // F-49: the side column is a desk's, and on a phone the sources were in it
+  // and nowhere else.
+  it("shows whether the sources are set up on a phone too", async () => {
+    await page.goto(`${base}/today`, { waitUntil: "networkidle" });
+    await expect
+      .poll(() => page.getByText("Sources", { exact: true }).first().isVisible())
+      .toBe(true);
+  });
+
   /**
    * F-48: an accessibility pass per route, by axe-core, against WCAG A and AA.
    * The lint rules see one element at a time; this sees the page as drawn,
