@@ -43,6 +43,14 @@ interface Logger {
 interface Meta {
   id: string;
   project: string;
+  /**
+   * Where it runs inside the project, when that is not the project's own
+   * directory. A desk session belongs to "desk" and runs in `desk/<task>`, and
+   * claude files a conversation under the directory it was started in: derived
+   * from the project, its transcript was looked for in the wrong place, so it
+   * had no chat and no usage, and a restore resumed it in the desk's root.
+   */
+  cwd?: string;
   agent: AgentName;
   title: string;
   createdAt: string;
@@ -66,6 +74,11 @@ interface Meta {
   verdict?: ReviewVerdict | null;
   /** The maintainer stage a schedule started this as; absent otherwise. */
   unattended?: MaintainerStage;
+}
+
+/** The directory a session runs in. Everything that reads its transcript starts here. */
+export function sessionDir(s: { project: string; cwd?: string }): string {
+  return resolveInsideRepos(s.project, s.cwd ?? "");
 }
 
 function metaPath(id: string): string {
@@ -391,7 +404,7 @@ async function captureWork(
 ): Promise<{ work: SessionWork | null; endCommit: string | null }> {
   if (!meta.startCommit) return { work: null, endCommit: null };
   try {
-    const dir = resolveInsideRepos(meta.project);
+    const dir = sessionDir(meta);
     // Both taken here, at the same moment and for the same reason: the counts
     // and the range they stand for have to describe the same window.
     return { work: await workSince(dir, meta.startCommit), endCommit: await headCommit(dir) };
@@ -410,7 +423,7 @@ async function captureUsage(meta: Meta): Promise<SessionUsage | null> {
   const conv = await readConv(meta.id);
   if (!conv) return null;
   try {
-    return await usageOf(resolveInsideRepos(meta.project), conv);
+    return await usageOf(sessionDir(meta), conv);
   } catch {
     return null;
   }
@@ -864,7 +877,7 @@ export async function restoreSessions(log: Logger): Promise<RestartFailure[]> {
     const conv = await readConv(meta.id);
     if (!conv) continue;
     try {
-      await launchAgent(meta, resolveInsideRepos(meta.project), `claude --resume ${conv}`);
+      await launchAgent(meta, sessionDir(meta), `claude --resume ${conv}`);
       log.info(`restored session ${meta.id} on conversation ${conv}`);
     } catch (err) {
       // A deleted project dir or a tmux that would not start: leave it to be
@@ -954,9 +967,12 @@ export function createSession(
     const sync = await syncDefaultBranch(projectDir, extraEnv);
     const metas = await readAll();
     const seq = await nextSeq(project, metas);
+    // Against the project as it resolves: `projectDir` has been through realpath.
+    const under = path.relative(resolveInsideRepos(project), projectDir);
     const meta: Meta = {
       id: `vk-${project}-${seq}`,
       project,
+      ...(under && !under.startsWith("..") ? { cwd: under } : {}),
       agent,
       title: opts.title?.trim() || `${agent}-${seq}`,
       createdAt: new Date().toISOString(),
