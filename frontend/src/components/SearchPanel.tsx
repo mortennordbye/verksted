@@ -160,6 +160,7 @@ export default function SearchPanel({
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && run()}
               placeholder="search (enter)"
+              aria-label="search this repo"
               className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-faint"
             />
             <Toggle
@@ -188,6 +189,7 @@ export default function SearchPanel({
                 onChange={(e) => setReplace(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && replaceAll()}
                 placeholder="replace"
+                aria-label="replace matches with"
                 className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-faint"
               />
               <button

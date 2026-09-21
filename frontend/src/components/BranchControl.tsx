@@ -291,6 +291,7 @@ export default function BranchControl({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="filter branches"
+            aria-label="filter branches"
             className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-2.5 font-mono text-[13px] outline-none placeholder:text-faint focus:border-accent"
           />
           <div className="mt-2 max-h-[38vh] overflow-auto">

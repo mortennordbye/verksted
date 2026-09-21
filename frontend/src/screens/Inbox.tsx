@@ -260,7 +260,9 @@ function Row({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="min-w-0 flex-1 text-left"
+          // The row's own tap target, and on a one-line item it was 34px of a
+          // list you scroll with a thumb.
+          className="tap min-w-0 flex-1 text-left"
         >
           {/* Who it is from, ahead of the subject and lighter: six rows of
               "review PR" are six different repositories, and a mail without
@@ -631,7 +633,9 @@ export default function Inbox() {
                 {/* What is behind the chip, so a filter can be chosen rather than
                   tried. Counted over what is live, which is what the list is
                   showing unless done is switched on. */}
-                <span className="ml-1.5 text-line-strong">
+                {/* A border token as text: #3a3a3a on the surface is about
+                    1.6:1, which is a number you cannot read. */}
+                <span className="ml-1.5 text-faint">
                   {s === "all" ? counted.length : counted.filter((i) => i.source === s).length}
                 </span>
               </button>

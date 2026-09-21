@@ -274,18 +274,21 @@ export default function CouncilPanel() {
           <input
             className={field}
             placeholder="name"
+            aria-label="member name"
             value={editing.name}
             onChange={(e) => setEditing({ ...editing, name: e.target.value })}
           />
           <input
             className={field}
             placeholder="one line: what they are for"
+            aria-label="what they are for"
             value={editing.remit}
             onChange={(e) => setEditing({ ...editing, remit: e.target.value })}
           />
           <textarea
             className={`${field} min-h-[80px] resize-y`}
             placeholder="how they think, in their own words. Carried with every turn, so keep it short."
+            aria-label="how they think"
             value={editing.persona}
             onChange={(e) => setEditing({ ...editing, persona: e.target.value })}
           />
@@ -293,6 +296,7 @@ export default function CouncilPanel() {
             <input
               className={`${field} w-[13ch]`}
               placeholder="model"
+              aria-label="model"
               value={editing.model}
               onChange={(e) => setEditing({ ...editing, model: e.target.value })}
             />

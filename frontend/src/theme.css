@@ -345,8 +345,13 @@ select:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* `animate-pulse` is Tailwind's own, and it was the one this list missed —
+     six of them, including the dot that says the pod cannot be reached and the
+     one that says the microphone is open, each pulsing away for someone who
+     asked the system for no animation. */
   .animate-blink,
   .animate-glow,
+  .animate-pulse,
   .animate-pulse-run,
   .animate-rise,
   .animate-vk-talk {

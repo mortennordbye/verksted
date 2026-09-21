@@ -758,9 +758,16 @@ export default function Today() {
                   const outside = to.startsWith("https://");
                   const row = (
                     <>
-                      {/* The icon says which source, its colour whether it is set up. */}
-                      <Icon name={icon} size={14} className={on ? "text-run" : "text-idle"} />
+                      {/* The icon says which source; its colour says whether it
+                          is set up — and that was the whole of it. #4a4a4a on
+                          the surface is about 2.2:1, so "not set up" was a
+                          shade nobody can see, carried by colour alone, on the
+                          one row whose job is to say a source is missing. The
+                          words are the signal now and the colour agrees with
+                          them. */}
+                      <Icon name={icon} size={14} className={on ? "text-run" : "text-faint"} />
                       {name}
+                      {!on && <span className="text-[11px] text-wait">not set up</span>}
                       {outside && <span className="text-faint">↗</span>}
                     </>
                   );

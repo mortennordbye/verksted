@@ -588,6 +588,57 @@ describe("the app in a real browser", () => {
     expect(await smallButtons()).toEqual([]);
   });
 
+  // The routes the thumb check had never been run on. The project screen is
+  // where a session is started and a branch is made; the inbox is where a run
+  // is answered from a lock screen.
+  it("gives a thumb something to hit on the project screen and the inbox", async () => {
+    for (const route of ["/p/demo", "/runs"]) {
+      await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      await page.waitForTimeout(500);
+      expect([route, await smallButtons()]).toEqual([route, []]);
+      expect([route, await narrowGlyphButtons()]).toEqual([route, []]);
+    }
+  });
+
+  /**
+   * Width, for the controls whose label carries none.
+   *
+   * `tap` is deliberately height-only — see theme.css, forcing 44px of width
+   * would turn the terminal's key bar into a much longer scroll — and `tap-sq`
+   * is the one for icon-only buttons, where there is no text to make the box
+   * wide. This asks the question that distinction exists to answer: a button
+   * whose whole label is a glyph has to be reachable sideways too. The blocked
+   * owner's ✕ was about eight pixels wide.
+   */
+  async function narrowGlyphButtons() {
+    return await page.evaluate(() => {
+      const { document } = globalThis as unknown as {
+        document: {
+          querySelectorAll(selector: string): Iterable<{
+            textContent: string | null;
+            className: unknown;
+            getAttribute(name: string): string | null;
+            getBoundingClientRect(): { width: number; height: number };
+          }>;
+        };
+      };
+      return [...document.querySelectorAll("button")]
+        .filter((el) => {
+          const classes = String(el.className).split(/\s+/);
+          if (classes.includes("tap-sq") || classes.includes("tap-hit")) return false;
+          const label = (el.textContent ?? "").trim();
+          // A glyph, or nothing at all: an icon-only control either way.
+          if (label.length > 2) return false;
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && box.width < 44;
+        })
+        .map((el) => {
+          const label = (el.textContent ?? "").trim();
+          return label || el.getAttribute("aria-label") || "(unnamed)";
+        });
+    });
+  }
+
   async function smallButtons() {
     return await page.evaluate(() => {
       const { document } = globalThis as unknown as {

@@ -206,6 +206,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
             }
           }}
           placeholder="url (e.g. localhost:5173)"
+          aria-label="url to open"
           spellCheck={false}
           className={`min-w-0 flex-1 rounded-[7px] border bg-surface-2 px-2.5 py-1 text-[12px] outline-none placeholder:text-faint ${
             editing ? "border-accent" : "border-line"

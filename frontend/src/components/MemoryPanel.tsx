@@ -95,6 +95,7 @@ function Editor({
         // you were reading before you have decided to type.
         ref={focusIfPointerFine}
         placeholder="Something a future agent should know without being told again."
+        aria-label="what to remember"
         className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13.5px] outline-none placeholder:text-faint focus:border-accent"
       />
       <div className="flex flex-wrap items-center gap-2">

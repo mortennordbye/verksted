@@ -80,6 +80,7 @@ export default function Docs() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="search the text of every document…"
+          aria-label="search the documents"
           className="mb-5 w-full rounded-[9px] border border-line bg-surface-2 px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-accent"
         />
 
