@@ -95,9 +95,19 @@ export default function GoogleCalendar() {
         </Notice>
       )}
 
+      {data?.account && data.error && (
+        <Notice kind="fail" className="mb-3">
+          Google no longer accepts the stored sign-in ({data.error}). The calendar and the Gmail
+          rules are off until you sign in again.
+        </Notice>
+      )}
       {data?.account ? (
         <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
-          <StatusChip kind="run" label="connected" />
+          {data.error ? (
+            <StatusChip kind="fail" label="sign-in refused" />
+          ) : (
+            <StatusChip kind="run" label="connected" />
+          )}
           <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{data.account}</span>
           <a
             href="/api/calendar/google/start"

@@ -210,7 +210,7 @@ export default function Settings() {
                   {v.fingerprint && (
                     <span className="font-mono text-[11.5px] text-faint">{v.fingerprint}</span>
                   )}
-                  {v.source === "settings" && <CopyVar keyName={v.key} />}
+                  {v.copyable && <CopyVar keyName={v.key} />}
                   <Input
                     label={`new value for ${v.key}`}
                     mono

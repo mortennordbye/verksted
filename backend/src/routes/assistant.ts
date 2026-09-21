@@ -20,9 +20,10 @@ import { MAX_TEXT } from "../tts.js";
 /**
  * The assistant's thread, and the one websocket that pushes it.
  *
- * Deliberately small: a turn is a POST that returns when it is done, and the
- * socket exists so a phone watching the thread sees the turn land without
- * polling. Everything the socket sends is the whole thread, because a thread is
+ * Deliberately small: a turn is a POST, and the socket exists so a phone
+ * watching the thread sees the turn land without polling. The POST answers
+ * when the turn is done, or, for a caller that has the socket and says
+ * `wait: false`, as soon as the question is on record. Everything the socket sends is the whole thread, because a thread is
  * a handful of kilobytes and a diff protocol would be the only stateful thing
  * in this app.
  */
@@ -30,7 +31,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
   app.get("/api/assistant", () => assistant.readThread());
 
   app.post<{
-    Body: { text: string; images?: string[]; roundTable?: boolean };
+    Body: { text: string; images?: string[]; roundTable?: boolean; wait?: boolean };
   }>(
     "/api/assistant/messages",
     {
@@ -54,6 +55,11 @@ export default async function assistantRoutes(app: FastifyInstance) {
             // parallel. Per turn, not a setting: it costs more and takes longer,
             // so it is a thing you switch on for a question worth it.
             roundTable: { type: "boolean" },
+            // False answers 202 as soon as the question is recorded, with the
+            // thread as it then stands; the socket carries the turn. The chat
+            // screen asks for that. The default still answers when the turn is
+            // done, which is what a caller with no socket wants.
+            wait: { type: "boolean" },
           },
         },
       },
@@ -62,7 +68,18 @@ export default async function assistantRoutes(app: FastifyInstance) {
       const text = req.body.text.trim();
       if (!text) return reply.code(400).send({ error: "say something" });
       try {
-        return await assistant.send(text, req.body.images ?? [], req.body.roundTable === true);
+        const { thread, done } = await assistant.begin(
+          text,
+          req.body.images ?? [],
+          req.body.roundTable === true,
+        );
+        if (req.body.wait === false) {
+          // What went wrong is in the thread by now (see `begin`); this is the
+          // copy for whoever reads the pod's log.
+          done.catch((err: unknown) => req.log.error(err, "assistant turn failed"));
+          return await reply.code(202).send(thread);
+        }
+        return await done;
       } catch (err) {
         // The only expected throw is "already running", which is a conflict
         // rather than a server fault: the client should wait, not retry.

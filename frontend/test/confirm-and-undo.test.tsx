@@ -34,7 +34,7 @@ afterEach(() => {
 describe("a stored credential", () => {
   const settings: SettingsInfo = {
     server: {},
-    vars: [{ key: "GH_TOKEN", source: "settings", fingerprint: "…a1b2" }],
+    vars: [{ key: "GH_TOKEN", source: "settings", fingerprint: "…a1b2", copyable: true }],
     schedulesPaused: false,
     blockedOwners: [],
   };

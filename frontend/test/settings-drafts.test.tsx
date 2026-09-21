@@ -12,7 +12,7 @@ import Settings from "../src/screens/Settings";
  */
 const settings: SettingsInfo = {
   server: {},
-  vars: [{ key: "GH_TOKEN", source: "unset", fingerprint: null }],
+  vars: [{ key: "GH_TOKEN", source: "unset", fingerprint: null, copyable: false }],
   schedulesPaused: false,
   blockedOwners: [],
 };

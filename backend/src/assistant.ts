@@ -1638,6 +1638,27 @@ export async function send(
   images: string[] = [],
   roundTable = false,
 ): Promise<AssistantThread> {
+  return (await begin(prompt, images, roundTable)).done;
+}
+
+/**
+ * The same turn, handed back as soon as the question is on record (A-20).
+ *
+ * `thread` is the conversation with the question in it and the turn marked as
+ * running; `done` is the turn. A caller that holds a request open for `done`
+ * holds it for a meeting: the chair's ten minutes, six advisors' five, and the
+ * chair's ten again, through whatever proxy sits in between and gives up at
+ * one. The socket carries everything that happens after `thread`, so the chat
+ * screen has no use for the wait.
+ *
+ * Everything that can refuse a turn still throws from here, before anything is
+ * handed back: a turn already running, a thread that cannot be written.
+ */
+export async function begin(
+  prompt: string,
+  images: string[] = [],
+  roundTable = false,
+): Promise<{ thread: AssistantThread; done: Promise<AssistantThread> }> {
   // Taken before anything is awaited, which is the whole of why it is a plain
   // flag: everything below this line yields, and a guard that yields first is
   // one two requests walk through together.
@@ -1645,6 +1666,14 @@ export async function send(
   chat.turn = true;
 
   let threadId = "";
+  const release = () => {
+    chat.turn = false;
+    chat.thread = null;
+    // Whatever happened, nothing should be left marked as speaking.
+    for (const key of [...running.keys()]) {
+      if (running.get(key)?.threadId === threadId) running.delete(key);
+    }
+  };
   try {
     threadId = await currentConversation();
     chat.thread = threadId;
@@ -1659,42 +1688,64 @@ export async function send(
       at: new Date().toISOString(),
     });
     announce();
-
-    const direct = await addressed(prompt);
-    if (direct?.everyone) {
-      // Nobody has to decide who this belongs to: it was put to the room. The
-      // chair's opening turn is skipped entirely, so asking everybody costs one
-      // call fewer than a meeting it had to be talked into.
-      await runEveryone(threadId, direct, roundTable);
-    } else if (direct?.members[0]) {
-      await speak({
-        threadId,
-        member: direct.members[0],
-        systemPrompt: await memberSystemPrompt(direct.members[0]),
-        prompt: direct.rest,
-        images,
-      });
-    } else {
-      await runChair(threadId, prompt, images, roundTable);
-    }
-  } finally {
-    chat.turn = false;
-    chat.thread = null;
-    // Whatever happened, nothing should be left marked as speaking.
-    for (const key of [...running.keys()]) {
-      if (running.get(key)?.threadId === threadId) running.delete(key);
-    }
+  } catch (err) {
+    release();
+    throw err;
   }
 
-  // The turn may have written or deleted a memory file directly, so what every
-  // other session is told is rebuilt from the directory rather than from a
-  // callback the agent would have had to remember to make. Once per turn, not
-  // once per advisor.
-  await injectMemory();
+  const run = async (): Promise<AssistantThread> => {
+    try {
+      const direct = await addressed(prompt);
+      if (direct?.everyone) {
+        // Nobody has to decide who this belongs to: it was put to the room. The
+        // chair's opening turn is skipped entirely, so asking everybody costs
+        // one call fewer than a meeting it had to be talked into.
+        await runEveryone(threadId, direct, roundTable);
+      } else if (direct?.members[0]) {
+        await speak({
+          threadId,
+          member: direct.members[0],
+          systemPrompt: await memberSystemPrompt(direct.members[0]),
+          prompt: direct.rest,
+          images,
+        });
+      } else {
+        await runChair(threadId, prompt, images, roundTable);
+      }
+    } catch (err) {
+      // A CLI that fails says so in the thread itself. This is the rest: a
+      // volume that stopped taking writes, a roster that would not parse. With
+      // nobody waiting on the request any more, the thread is the only place
+      // left to say it, and a question with nothing under it says nothing.
+      await append(threadId, {
+        role: "assistant",
+        text: `That turn could not be run: ${err instanceof Error ? err.message : String(err)}`,
+        tools: [],
+        failed: true,
+      }).catch(() => undefined);
+      throw err;
+    } finally {
+      release();
+    }
 
-  const thread = await readThread();
-  for (const fn of chat.listeners) fn(thread);
-  return thread;
+    // The turn may have written or deleted a memory file directly, so what
+    // every other session is told is rebuilt from the directory rather than
+    // from a callback the agent would have had to remember to make. Once per
+    // turn, not once per advisor.
+    await injectMemory();
+
+    const thread = await readThread();
+    for (const fn of chat.listeners) fn(thread);
+    return thread;
+  };
+
+  // Started before the thread is read, so what is handed back says "running".
+  const done = run();
+  // Whoever does not wait for `done` must not leave it unhandled: the caller
+  // attaches its own handler, and this one only keeps a rejection nobody has
+  // picked up yet from ending the process.
+  done.catch(() => undefined);
+  return { thread: await readThread(), done };
 }
 
 /**

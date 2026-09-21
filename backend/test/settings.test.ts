@@ -87,6 +87,30 @@ describe("what the page shows of a value", () => {
         .statusCode,
     ).toBe(404);
   });
+
+  it("never hands back the Google sign-in, which nobody typed and only a sign-in replaces", async () => {
+    const store = await import("../src/settings-store.js");
+    await store.writeVars({
+      ...(await store.readVars()),
+      GOOGLE_REFRESH_TOKEN: "1//standing-access",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/settings/vars/GOOGLE_REFRESH_TOKEN/reveal",
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.body).not.toContain("standing-access");
+
+    // And the page is told, so it offers no button that would only fail.
+    const vars = (await app.inject({ url: "/api/settings" })).json().vars as {
+      key: string;
+      copyable: boolean;
+    }[];
+    const copyable = (name: string) => vars.find((row) => row.key === name)?.copyable;
+    expect(copyable("GOOGLE_REFRESH_TOKEN")).toBe(false);
+    expect(copyable("MINE")).toBe(true);
+  });
 });
 
 describe("PUT /api/settings", () => {

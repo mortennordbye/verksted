@@ -17,7 +17,7 @@ import TopBar from "../components/TopBar";
 import { readStored, writeStored } from "../storage";
 import { useConfirm } from "../useConfirm";
 import Skeleton, { SkeletonList } from "../components/Skeleton";
-import { useAssistantStream } from "../useAssistantStream";
+import { adopt, useAssistantStream } from "../useAssistantStream";
 import { useGrow } from "../useGrow";
 import { canListen, canSpeak, useSpeech } from "../useSpeech";
 import { useVisualViewport } from "../useVisualViewport";
@@ -761,18 +761,19 @@ export default function Chat() {
     setError(null);
     posting.current = true;
     try {
-      setThread(
-        await api<AssistantThread>("/api/assistant/messages", {
-          method: "POST",
-          body: JSON.stringify({
-            text: value || "(see image)",
-            images,
-          }),
-          // A turn does real work; the default 15s would abandon every one of
-          // them while the socket kept showing it running.
-          timeoutMs: 11 * 60_000,
+      // Answered as soon as the question is on record (`wait: false`): the
+      // socket carries the turn, and a request held open for a whole meeting is
+      // one the tunnel gives up on first. What can still come back as an error
+      // is a refusal: a turn already running, a pod that cannot be reached.
+      const accepted = await api<AssistantThread>("/api/assistant/messages", {
+        method: "POST",
+        body: JSON.stringify({
+          text: value || "(see image)",
+          images,
+          wait: false,
         }),
-      );
+      });
+      setThread((held) => adopt(held, accepted));
     } catch (e) {
       setError((e as Error).message);
       // Only into an empty field: a queued message failing must not overwrite

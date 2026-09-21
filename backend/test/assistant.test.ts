@@ -228,6 +228,48 @@ describe("POST /api/assistant/messages", () => {
   });
 });
 
+describe("POST /api/assistant/messages, not waited for", () => {
+  // What the chat screen sends. The socket carries the turn, and a request
+  // held open for a meeting is one a proxy gives up on long before it ends.
+  const ask = (text: string) =>
+    app.inject({
+      method: "POST",
+      url: "/api/assistant/messages",
+      payload: { text, wait: false },
+    });
+  const settled = async () => {
+    for (let i = 0; i < 200; i++) {
+      const thread = (await app.inject({ url: "/api/assistant" })).json();
+      if (thread.status === "idle") return thread;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    throw new Error("the turn never ended");
+  };
+
+  it("answers 202 with the question on record and the turn marked as running", async () => {
+    fake.reply("claude", "-p", { stdout: run("Two things need you."), delayMs: 300 });
+
+    const res = await ask("what needs me?");
+
+    expect(res.statusCode).toBe(202);
+    const thread = res.json();
+    expect(thread.status).toBe("thinking");
+    expect(thread.entries.map((e: { role: string }) => e.role)).toEqual(["user"]);
+
+    // And the answer lands in the thread, where the socket reads it from.
+    expect((await settled()).entries.at(-1).text).toBe("Two things need you.");
+  });
+
+  it("still refuses a second turn at once, which is the one thing worth waiting to hear", async () => {
+    fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
+
+    expect((await ask("one")).statusCode).toBe(202);
+    expect((await ask("two")).statusCode).toBe(409);
+
+    await settled();
+  });
+});
+
 describe("the thread", () => {
   it("persists across a restart, and comes back idle rather than thinking", async () => {
     await say("remember this");

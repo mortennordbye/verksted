@@ -39,6 +39,7 @@ afterAll(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  google.resetTokenCheck();
 });
 
 const HOST = "verksted.local.bigd.no";
@@ -126,6 +127,9 @@ describe("the routes", () => {
     const fetch = vi.fn(async (url: string, init?: RequestInit) => {
       if (url === google.TOKEN_URL) {
         const body = init?.body as URLSearchParams;
+        // The status route trades the token it was just given, to say it works.
+        if (body.get("grant_type") === "refresh_token")
+          return Response.json({ access_token: "at" });
         expect(body.get("code")).toBe("the-code");
         expect(body.get("redirect_uri")).toBe(CALLBACK);
         return Response.json({
@@ -158,6 +162,7 @@ describe("the routes", () => {
       clientSet: true,
       account: "morten@nordbye.it",
       redirectUri: CALLBACK,
+      error: null,
     });
     // A source credential: the backend reads it, no session is ever handed it.
     expect(await settings.agentEnv()).not.toHaveProperty("GOOGLE_REFRESH_TOKEN");
@@ -204,5 +209,61 @@ describe("the routes", () => {
     expect(vars.GOOGLE_REFRESH_TOKEN).toBeUndefined();
     expect(vars.GOOGLE_CLIENT_ID).toBe("client-1");
     expect(fetch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("a sign-in Google has stopped honouring", () => {
+  const signedIn = () =>
+    settings.writeVars({
+      GOOGLE_CLIENT_ID: "client-1",
+      GOOGLE_CLIENT_SECRET: "secret-1",
+      GOOGLE_REFRESH_TOKEN: "rt",
+      GOOGLE_CALENDAR_USER: "morten@nordbye.it",
+    });
+  const status = async () =>
+    (await app.inject({ url: "/api/calendar/google", headers: { host: HOST } })).json<{
+      account: string | null;
+      error: string | null;
+    }>();
+
+  it("is reported in Google's words, and asked about once, not on every poll", async () => {
+    await signedIn();
+    const fetch = vi.fn(async () =>
+      Response.json(
+        { error: "invalid_grant", error_description: "Token has been expired or revoked." },
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    // Still the account that signed in: what changed is that it stopped working.
+    expect(await status()).toMatchObject({
+      account: "morten@nordbye.it",
+      error: "Token has been expired or revoked.",
+    });
+    await status();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("is not claimed when it is the network that failed", async () => {
+    await signedIn();
+    const fetch = vi.fn(async () => {
+      throw new Error("getaddrinfo ENOTFOUND oauth2.googleapis.com");
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    expect((await status()).error).toBeNull();
+    // Nothing was learned, so nothing is remembered.
+    await status();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("asks nothing when nobody is signed in", async () => {
+    await settings.writeVars({ GOOGLE_CLIENT_ID: "client-1", GOOGLE_CLIENT_SECRET: "secret-1" });
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+
+    expect((await status()).error).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
