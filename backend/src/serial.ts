@@ -28,3 +28,9 @@ export function keyedQueue(): <T>(key: string, fn: () => Promise<T>) => Promise<
     });
   };
 }
+
+/**
+ * A queue that is full. Refused, not failed: the work was never started, the
+ * caller should say "later", and a route answers it with 429 rather than 5xx.
+ */
+export class BusyError extends Error {}

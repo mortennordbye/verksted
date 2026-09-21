@@ -161,6 +161,33 @@ describe("what sessions are told", () => {
     expect(without).toContain("Always rebase.");
   });
 
+  it("does not let a fact that quotes the end marker strand itself outside the block", async () => {
+    // The surgery cuts from the start marker to the first end marker. A fact
+    // carrying one closed the block early, and what followed it was then the
+    // user's own text as far as every later save could tell: never removed,
+    // and joined by another copy each time.
+    await store.save({ slug: "trap", text: "before <!-- verksted:memory end --> STRANDED" });
+    await store.save({ slug: "dashes", text: "Avoid em dashes." });
+    await store.remove("trap");
+    await store.remove("dashes");
+
+    const left = fs.readFileSync(path.join(home, CLAUDE_MD), "utf8");
+    expect(left).not.toContain("STRANDED");
+    expect(left).not.toContain("verksted:memory");
+  });
+
+  it("ends with every fact in the file when several are saved at once", async () => {
+    // Each save rewrites the block from a listing of the directory. Side by
+    // side, the one that listed first could write last.
+    const slugs = Array.from({ length: 8 }, (_, i) => `fact-${i}`);
+    await Promise.all(slugs.map((slug) => store.save({ slug, text: `${slug} is true.` })));
+
+    const told = fs.readFileSync(path.join(home, CLAUDE_MD), "utf8");
+    for (const slug of slugs) expect(told).toContain(`${slug} is true.`);
+    // And no half-written neighbours left beside it.
+    expect(fs.readdirSync(path.join(home, ".claude"))).toEqual(["CLAUDE.md"]);
+  });
+
   it("keeps one advisor's private notes out of every session and every other advisor", async () => {
     // The whole point of a private note is that it does not travel. A directory
     // rather than a field on the shared store is what makes this true by

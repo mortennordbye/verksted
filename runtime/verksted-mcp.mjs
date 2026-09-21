@@ -23,12 +23,36 @@ const API = process.env.VK_API ?? "http://127.0.0.1:8080";
  */
 const reason = (err) => (err instanceof Error ? err.message : String(err));
 
+/**
+ * How long the bench gets to answer one call.
+ *
+ * A fetch with no signal waits for ever, and a tool call that never returns
+ * holds the turn until the turn's own ten minutes run out, with nothing in the
+ * thread to say which tool it was. Longer than any endpoint here should take,
+ * because a timeout is not a cancel: the backend carries on, and a model told
+ * "that failed" about a write that then lands will do it twice. The variable is
+ * for the tests, which cannot wait a minute to see it.
+ */
+const CALL_TIMEOUT_MS = Number(process.env.VK_CALL_TIMEOUT_MS) || 60_000;
+
 async function call(method, path, body) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      throw new Error(
+        `the bench did not answer within ${Math.round(CALL_TIMEOUT_MS / 1000)}s. It may still be doing this, so look before trying again.`,
+        { cause: err },
+      );
+    }
+    throw err;
+  }
   const text = await res.text();
   if (!res.ok) throw new Error(`${res.status}: ${text.slice(0, 300)}`);
   return text ? JSON.parse(text) : null;
@@ -774,10 +798,11 @@ const TOOLS = [
       if ((await scheduleKind(a.id)) === "session") {
         return propose({ kind: "run_schedule", id: a.id }, a.why);
       }
-      const r = await call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`);
-      // An assistant schedule starts no session: what it said is the result,
-      // and it was said by you, a moment ago, in a conversation of its own.
-      return r.reply ? `it ran and said: ${r.reply}` : `started ${r.id}`;
+      // Not waited for. The run is a whole turn of its own, up to ten minutes,
+      // and this call is inside a turn with the same ten: waiting meant the
+      // one asking could be stopped for the time the other took.
+      await call("POST", `/api/schedules/${encodeURIComponent(a.id)}/run`, { wait: false });
+      return `started ${a.id}. It answers in a conversation of its own; list_schedules says how it went.`;
     },
   },
   {

@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { env } from "./env.js";
+import { BusyError } from "./serial.js";
 
 /**
  * The assistant's voice, on the pod.
@@ -52,6 +53,23 @@ let starting: Promise<Worker> | null = null;
 let idleTimer: NodeJS.Timeout | null = null;
 /** Serialises requests; each one waits for the previous to answer. */
 let queue: Promise<unknown> = Promise.resolve();
+/** Sentences accepted and not yet answered, the one being spoken included. */
+let waiting = 0;
+/**
+ * A listener keeps two in flight: the sentence playing and the one after it.
+ * This is room for three of them, and past that the chain is not a queue any
+ * more but a promise to keep a CPU busy for minutes on behalf of whoever asked.
+ */
+export const MAX_WAITING = 6;
+/**
+ * The model's voices, kept once it has said what they are.
+ *
+ * The list is a property of a file baked into the image, and the only way to
+ * read it is to load the model. Asking the worker each time meant that saving
+ * a council member with a voice, ten minutes after anyone last spoke, loaded a
+ * gigabyte to check a name.
+ */
+let knownVoices: string[] | null = null;
 
 /** True when this pod has the model and the worker to run it. */
 export function available(): boolean {
@@ -170,6 +188,7 @@ async function ensure(): Promise<Worker> {
     .then((w) => {
       worker = w;
       starting = null;
+      knownVoices = w.voices;
       return w;
     })
     .catch((err: unknown) => {
@@ -182,6 +201,7 @@ async function ensure(): Promise<Worker> {
 /** The voices this model has. Empty when there is no voice on this pod. */
 export async function voices(): Promise<string[]> {
   if (!available()) return [];
+  if (knownVoices) return knownVoices;
   const w = await ensure();
   idle();
   return w.voices;
@@ -193,11 +213,21 @@ export async function voices(): Promise<string[]> {
  * The worker writes to a file rather than down the pipe: WAV bytes and JSON
  * answers on one stream is a framing problem with no upside here.
  */
-export async function synthesize(text: string, voice?: string): Promise<Buffer> {
+export async function synthesize(
+  text: string,
+  voice?: string,
+  /** Asked when this sentence's turn comes: whether anyone is still waiting for it. */
+  left: () => boolean = () => false,
+): Promise<Buffer> {
   const body = text.trim().slice(0, MAX_TEXT);
   if (!body) throw new Error("nothing to say");
+  if (waiting >= MAX_WAITING) throw new BusyError("the voice has a queue already");
 
+  waiting++;
   const run = queue.then(async () => {
+    // A reply that was interrupted leaves its sentences in the chain, and each
+    // is seconds of a whole core spent on audio nobody will hear.
+    if (left()) throw new Error("nobody is listening any more");
     const w = await ensure();
     if (voice && !w.voices.includes(voice)) throw new Error(`no such voice: ${voice}`);
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "vk-say-"));
@@ -227,6 +257,6 @@ export async function synthesize(text: string, voice?: string): Promise<Buffer> 
   });
   // The queue must not stay rejected: one failed sentence cannot poison the
   // ones after it.
-  queue = run.catch(() => undefined);
+  queue = run.catch(() => undefined).finally(() => waiting--);
   return run;
 }

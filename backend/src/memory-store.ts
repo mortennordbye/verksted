@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Memory, MemoryScope, MemoryType } from "../../shared/api.js";
+import { writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { MEMORY_FILES, mergeMarked } from "./sandbox-doc.js";
+import { keyedQueue } from "./serial.js";
 
 /**
  * What verksted has learned about how you work, as plain files on the volume.
@@ -118,7 +120,7 @@ export async function save(input: {
   // "known since July" is part of what makes it trustworthy.
   const existing = await read(input.slug);
   const created = existing?.createdAt ?? new Date().toISOString();
-  await fs.writeFile(
+  await writeTextAtomic(
     filePath(input.slug),
     frontmatter(input.slug, text, {
       type: input.type,
@@ -238,7 +240,7 @@ export async function saveForMember(
   if (!text) throw new Error("a memory needs something to remember");
   await fs.mkdir(memberDir(id), { recursive: true });
   const existing = (await listForMember(id)).find((m) => m.slug === input.slug);
-  await fs.writeFile(
+  await writeTextAtomic(
     path.join(memberDir(id), `${input.slug}.md`),
     frontmatter(input.slug, text, {
       type: input.type,
@@ -322,7 +324,7 @@ export async function propose(input: {
   // correcting a kept fact is a thing the person does, in the settings page.
   if (await read(input.slug)) throw new Error(`${input.slug} is already remembered`);
   await fs.mkdir(proposalsDir(), { recursive: true });
-  await fs.writeFile(
+  await writeTextAtomic(
     proposalPath(input.slug),
     frontmatter(input.slug, text, {
       type: input.type,
@@ -443,8 +445,22 @@ export function renderBlock(
 
 function renderLine(m: Memory): string {
   const prefix = m.scope === "global" ? "" : `In ${m.scope}: `;
-  return `- ${prefix}${m.text.replace(/\s*\n\s*/g, " ")}`;
+  return `- ${prefix}${m.text.replace(MARKER_RE, "").replace(/\s*\n\s*/g, " ")}`;
 }
+
+/**
+ * Any of the markers verksted cuts these files by, this block's or the two in
+ * sandbox-doc.ts. The surgery finds a block by the first end marker after its
+ * start, so a fact that quotes one closes the block early: everything after it
+ * is then outside the managed region, where forgetting the fact can never
+ * remove it and every later save appends another copy. Dropped where the line
+ * is printed rather than refused where it is saved, because these files are
+ * also written by hand and by agents, and neither goes through `save`.
+ */
+const MARKER_RE = /<!--\s*verksted:[^>]*-->/g;
+
+/** One writer at a time over the files `inject` rewrites. */
+const injecting = keyedQueue();
 
 /**
  * Write the block into every agent's global memory file.
@@ -455,7 +471,14 @@ function renderLine(m: Memory): string {
  * CLAUDE.md — would put verksted's guesses into a file that gets committed.
  * Labelling the scope inline costs a few words and reaches every session.
  */
-export async function inject(home = process.env.HOME ?? "/data/home"): Promise<void> {
+export function inject(home = process.env.HOME ?? "/data/home"): Promise<void> {
+  // Queued with the listing inside it. Two saves a moment apart used to run
+  // this side by side, and the one that listed first could write last: the file
+  // every session reads then lacked the newer fact until something else saved.
+  return injecting(home, () => injectNow(home));
+}
+
+async function injectNow(home: string): Promise<void> {
   const { text } = renderBlock(await list());
   for (const rel of MEMORY_FILES) {
     const file = path.join(home, rel);
@@ -463,7 +486,9 @@ export async function inject(home = process.env.HOME ?? "/data/home"): Promise<v
       await fs.mkdir(path.dirname(file), { recursive: true });
       const existing = await fs.readFile(file, "utf8").catch(() => "");
       const merged = mergeMarked(existing, START, END, text.trim() ? text : "");
-      if (merged !== existing) await fs.writeFile(file, merged);
+      // Atomic, because an agent starting a session reads this file whenever it
+      // likes, and a truncated one is a session told nothing at all.
+      if (merged !== existing) await writeTextAtomic(file, merged);
     } catch {
       // A memory that cannot be injected is still a memory; the next save
       // retries, and nothing here is worth failing a request over.

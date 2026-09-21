@@ -1081,6 +1081,39 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   `backend/src/routes/assistant.ts`, `recordCall` in
   `runtime/verksted-mcp.mjs`.
 
+## A scheduled assistant turn cannot be stopped from the app
+
+- **What:** A turn is its own process group now, so its time limit and the stop
+  button end the CLI and everything it started, and the backend ends whatever
+  is out when it leaves (A-15). The stop button only reaches the conversation
+  on screen, though. A briefing, a triage pass or a journal turn that wedges
+  still holds the unattended queue for its full ten minutes, and nothing in the
+  app says one is running or offers to end it.
+- **Why deferred:** The missing half is a screen, not a signal. `stopAll()`
+  would do it today, but there is nowhere that shows an unattended turn in
+  flight, and an endpoint with no button is dead code.
+- **Unblocked by:** Deciding where it is shown: most likely the runs list, as a
+  row for the run that has started and not yet recorded an outcome.
+- **Where:** `live`, `endTree` and `stopAll` in `backend/src/assistant.ts`;
+  `unattendedTurn` in the same file passes `onSpawn: () => {}`;
+  `frontend/src/components/SchedulesPanel.tsx`.
+
+## Only Gmail reads are retried, and nothing in the calendar is tested against a server
+
+- **What:** A Gmail read that meets a 429 or a 5xx is asked again twice, and an
+  HTML error body no longer surfaces as a parse error (A-21). The calendar and
+  IMAP have no retry at all, and the calendar's new per-request timeout
+  (`davFetch`) has no test: there is no fake DAV server in the suite, which is
+  the same gap A-32 lists for `find`, `put` and `remove`.
+- **Why deferred:** tsdav and imapflow each own their requests, so a retry
+  there is a wrapper per call site rather than one loop, and writes must stay
+  out of it. A fake CalDAV server is its own piece of work, and the timeout was
+  not worth holding back for it.
+- **Unblocked by:** A small in-process DAV stub (PROPFIND, REPORT, PUT, DELETE)
+  that the calendar tests can point `CALDAV_URL` at.
+- **Where:** `call` in `backend/src/gmail.ts`, `connect` and `davFetch` in
+  `backend/src/calendar.ts`, `withInbox` in `backend/src/mail.ts`.
+
 ## The resize race and the browser bridge are still untested
 
 - **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —

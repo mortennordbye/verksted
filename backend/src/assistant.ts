@@ -548,6 +548,55 @@ type Child = ReturnType<typeof spawn>;
 const runKey = (threadId: string, member: string) => `${threadId}\u0000${member}`;
 
 /**
+ * Every CLI this module has out, attended or not.
+ *
+ * `running` is what the stop button reads, and it only knows the conversation
+ * on screen. This is what the process leaving reads: a turn is its own process
+ * group now (see `endTree`), so nothing else would end one on the way out.
+ */
+const live = new Set<Child>();
+
+/** How long a turn gets to leave on its own before it is made to. */
+const KILL_GRACE_MS = 5_000;
+
+/**
+ * End a turn and everything it started (A-15).
+ *
+ * The CLI is not one process: it starts the verksted MCP server, headroom's,
+ * and for the chair a browser wrapper, and a signal sent to the CLI's pid alone
+ * left those behind, holding their sockets and their memory, once for every
+ * turn that timed out or was stopped. The turn is spawned as the leader of its
+ * own group, so the negative pid reaches all of it.
+ *
+ * Asked first, because a CLI that is told to stop writes its transcript out;
+ * then told, because the turn this exists for is the one that is not listening.
+ * The second signal goes even when the CLI has already exited: what it started
+ * may not have.
+ */
+function endTree(child: Child): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  const signal = (sig: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      // Nothing left in the group, which is the outcome being asked for.
+    }
+  };
+  signal("SIGTERM");
+  setTimeout(() => signal("SIGKILL"), KILL_GRACE_MS).unref();
+}
+
+/**
+ * End every turn in flight. For the process leaving; the threads keep what was
+ * said. Only the asking half happens then, since the exit does not wait five
+ * seconds for the other, and on the pod the container goes with it anyway.
+ */
+export function stopAll(): void {
+  for (const child of live) endTree(child);
+}
+
+/**
  * What is true of the conversation while somebody is in it.
  *
  * One conversation, whoever answers in it: the chair alone, or the advisors it
@@ -937,7 +986,7 @@ export function stop(): boolean {
     // Marked whether or not it has a child yet: what has not been spawned is
     // exactly what must not be spawned now.
     cancelled.add(run.threadId);
-    run.child?.kill("SIGTERM");
+    if (run.child) endTree(run.child);
     stopped = true;
   }
   // A meeting between its stages has an empty registry and is still stoppable:
@@ -1080,7 +1129,13 @@ async function turn(o: {
       VK_TURN: turnId,
     },
     stdio: ["ignore", "pipe", "pipe"],
+    // The leader of its own process group, so ending the turn ends what the
+    // turn started. See `endTree`.
+    detached: true,
   });
+  live.add(child);
+  child.once("close", () => live.delete(child));
+  child.once("error", () => live.delete(child));
   // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
   // character in half wherever the pipe happens to break, and both halves come
   // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
@@ -1113,7 +1168,7 @@ async function turn(o: {
     let queue: Promise<unknown> = Promise.resolve();
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      endTree(child);
     }, speaker.timeoutMs);
     child.stdout?.on("data", (d: string) => {
       const entries = consumeChunk(d, state);
@@ -1134,7 +1189,9 @@ async function turn(o: {
         o.onChange();
       });
     });
-    child.stderr?.on("data", (d: string) => (err += d));
+    // Only ever read for its last three lines, and a CLI that is looping on an
+    // error would otherwise be kept whole, in memory, for ten minutes.
+    child.stderr?.on("data", (d: string) => (err = (err + d).slice(-4_000)));
     const done = () => {
       clearTimeout(timer);
       // Whatever was mid-write when the process ended still has to land.
@@ -1443,7 +1500,7 @@ async function speak(o: {
         // Stop was pressed while this one was still getting ready: there was no
         // process to signal then, so it is signalled now rather than left to
         // run to completion and charge for the answer nobody is waiting for.
-        if (cancelled.has(threadId)) child.kill("SIGTERM");
+        if (cancelled.has(threadId)) endTree(child);
       },
       // Only the chair streams its tokens: three advisors writing at once onto a
       // phone is noise, and a chip saying who is speaking carries the same

@@ -54,6 +54,17 @@ describe("the profile", () => {
     );
   });
 
+  it("keeps every line when the assistant notes several in one turn", async () => {
+    const lines = ["One.", "Two.", "Three.", "Four.", "Five."];
+    await Promise.all(
+      lines.map((text) =>
+        app.inject({ method: "POST", url: "/api/profile/lines", payload: { text } }),
+      ),
+    );
+    const { text } = (await app.inject({ url: "/api/profile" })).json();
+    for (const line of lines) expect(text).toContain(`- ${line}`);
+  });
+
   it("refuses to grow past its budget, since every byte is re-sent every turn", async () => {
     const res = await app.inject({
       method: "PUT",
