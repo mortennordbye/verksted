@@ -12,6 +12,7 @@
   "dependencies": {
     "@fastify/compress": "^9.2.0",
     "@fastify/helmet": "^13.1.1",
+    "@fastify/rate-limit": "^11.2.0",
     "@fastify/static": "^10.0.0",
     "@fastify/websocket": "^11.0.0",
     "croner": "^10.0.1",

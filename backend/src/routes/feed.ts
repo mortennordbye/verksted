@@ -6,6 +6,7 @@ import * as loops from "../loops-store.js";
 import { pollBench } from "../pollers.js";
 import { runTriage } from "../scheduler.js";
 import { listSessions } from "../sessions-store.js";
+import { perMinute } from "../limits.js";
 
 /**
  * The feed and the loops, as the screen and the tools read them.
@@ -21,7 +22,9 @@ export default async function feedRoutes(app: FastifyInstance) {
   });
 
   /** Judge what is waiting, now. The button for "why is this here". */
-  app.post("/api/feed/triage", async (req) => ({ judged: await runTriage(req.log, true) }));
+  app.post("/api/feed/triage", { config: perMinute(6) }, async (req) => ({
+    judged: await runTriage(req.log, true),
+  }));
 
   app.post<{ Params: { id: string }; Body: { state: string; until?: string } }>(
     "/api/feed/:id/state",

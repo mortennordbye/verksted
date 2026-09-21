@@ -28,6 +28,7 @@ import {
 import { leafInsideRepos, repoDirOr404, repoRelPath, resolveInsideRepos } from "../paths.js";
 import { execEnv } from "../settings-store.js";
 import { ReplaceTimeout, runReplace } from "../replace.js";
+import { UPLOAD_NEEDS_BYTES, needRoom, perMinute } from "../limits.js";
 
 // Literal pathspecs: client-supplied paths can never be pathspec magic/globs.
 const GIT_ENV = { ...process.env, GIT_LITERAL_PATHSPECS: "1" };
@@ -394,6 +395,7 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.put<{ Params: { name: string }; Querystring: { path: string } }>(
     "/api/projects/:name/file",
     {
+      config: perMinute(60),
       bodyLimit: MAX_RAW_BYTES,
       schema: {
         querystring: {
@@ -449,6 +451,7 @@ export default async function fileRoutes(app: FastifyInstance) {
   app.post<{ Params: { name: string }; Querystring: { filename: string } }>(
     "/api/projects/:name/upload",
     {
+      config: perMinute(60),
       bodyLimit: MAX_RAW_BYTES,
       schema: {
         querystring: {
@@ -478,6 +481,7 @@ export default async function fileRoutes(app: FastifyInstance) {
         .replace("T", "-")
         .replace(/\.(\d+)Z$/, "$1");
       const rel = `${UPLOAD_DIR}/${stamp}-${safe}`;
+      await needRoom(repoDir, UPLOAD_NEEDS_BYTES, "take an upload");
       await fs.mkdir(path.join(repoDir, UPLOAD_DIR), { recursive: true });
       // Resolved after the mkdir, not before it: a repo that ships .verksted as
       // a symlink has just had "uploads" created wherever it points, and this

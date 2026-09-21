@@ -9,6 +9,7 @@ import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import { WorktreeError, addWorktree, listProjects } from "../projects-store.js";
 import * as store from "../sessions-store.js";
 import { execEnv } from "../settings-store.js";
+import { CLONE_NEEDS_BYTES, needRoom, perMinute } from "../limits.js";
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
 // Both halves must start alphanumeric: "-oX/y" would otherwise reach
@@ -37,6 +38,7 @@ export default async function projectRoutes(app: FastifyInstance) {
   app.post<{ Body: { mode: "clone" | "init"; url?: string; name?: string } }>(
     "/api/projects",
     {
+      config: perMinute(10),
       schema: {
         body: {
           type: "object",
@@ -74,6 +76,7 @@ export default async function projectRoutes(app: FastifyInstance) {
         } catch {
           // dest is free
         }
+        await needRoom(env.REPOS_DIR, CLONE_NEEDS_BYTES, "clone a repo");
         try {
           // execEnv so GH_TOKEN from the settings page authenticates gh —
           // without it, cloning a private repo fails as unauthenticated.

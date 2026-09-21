@@ -19,6 +19,7 @@ import * as store from "../sessions-store.js";
 import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
 import { parseActivity, parseMode, parsePrompt } from "../tui-prompt.js";
+import { perMinute } from "../limits.js";
 
 /** Same ceiling the project's file diff uses: enough for any one file, and a
  *  phone is not where a bigger one gets read. */
@@ -81,6 +82,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
   }>(
     "/api/projects/:name/sessions",
     {
+      config: perMinute(30),
       schema: {
         body: {
           type: "object",
@@ -123,6 +125,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
   app.post<{ Body: { title: string; ask: string } }>(
     "/api/desk/sessions",
     {
+      config: perMinute(10),
       schema: {
         body: {
           type: "object",
