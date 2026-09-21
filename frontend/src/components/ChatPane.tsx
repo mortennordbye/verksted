@@ -21,6 +21,7 @@ import Skeleton from "./Skeleton";
 import { MD, REMARK } from "./chat/markdown";
 import { scrollBehavior } from "../motion";
 import Ago, { DayRule, newDay } from "./Ago";
+import CopyButton from "./chat/CopyButton";
 
 /**
  * A session read as a conversation.
@@ -213,7 +214,10 @@ const Turn = memo(function Turn({
         </div>
       )}
       {message.text && (
-        <Ago at={message.at} className="-mt-1.5 font-mono text-[10px] leading-none text-faint" />
+        <div className="-mt-1.5 flex items-center gap-2">
+          <Ago at={message.at} className="font-mono text-[10px] leading-none text-faint" />
+          <CopyButton text={message.text} />
+        </div>
       )}
     </div>
   );

@@ -3,6 +3,8 @@ import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
+import CopyButton from "./chat/CopyButton";
+import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 
@@ -125,9 +127,12 @@ function Writing({ live }: { live: string }) {
 const Bubble = memo(function Bubble({
   entries,
   live,
+  onRetry,
 }: {
   entries: AssistantEntry[];
   live?: string;
+  /** Given for the thread's last bubble when it ended badly: ask the same thing again. */
+  onRetry?: () => void;
 }) {
   const parts: { entry: AssistantEntry; times: number }[] = [];
   for (const entry of entries) {
@@ -153,10 +158,28 @@ const Bubble = memo(function Bubble({
         </div>
       )}
       {last && live === undefined && (
-        <Ago
-          at={last.at}
-          className="-mt-0.5 self-end font-mono text-[10px] leading-none text-faint"
-        />
+        <div className="-mt-0.5 flex items-center gap-2 self-end">
+          {onRetry && last.failed && (
+            // A failed turn was only painted red. What went wrong is usually
+            // the pod or the CLI, not the question, and typing it out again on
+            // a phone is the expensive way to find that out.
+            <button
+              type="button"
+              onClick={onRetry}
+              className="tap flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-semibold text-fail ring-1 ring-fail/40 hover:brightness-110"
+            >
+              <Icon name="reload" size={11} />
+              try again
+            </button>
+          )}
+          <CopyButton
+            text={parts
+              .map((p) => p.entry.text)
+              .filter(Boolean)
+              .join("\n\n")}
+          />
+          <Ago at={last.at} className="font-mono text-[10px] leading-none text-faint" />
+        </div>
       )}
     </div>
   );
@@ -173,7 +196,10 @@ const Card = memo(function Card({ who, entry }: { who: CouncilMember; entry: Ass
       <div className="flex items-center gap-2.5">
         <Portrait face={who.face} colour={who.colour} size={28} tone mood="idle" />
         <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
-        <Ago at={entry.at} className="ml-auto font-mono text-[11px] text-faint" />
+        <span className="ml-auto flex items-center gap-2">
+          {entry.text && <CopyButton text={entry.text} />}
+          <Ago at={entry.at} className="font-mono text-[11px] text-faint" />
+        </span>
       </div>
       <Said entry={entry} />
     </div>
@@ -224,10 +250,13 @@ export default function Room({
   thread,
   members,
   chair,
+  onRetry,
 }: {
   thread: AssistantThread;
   members: CouncilMember[];
   chair: CouncilMember;
+  /** Ask the last thing said again, with what it carried. */
+  onRetry?: (text: string, images: string[]) => void;
 }) {
   const thinking = thread.status === "thinking";
   // Keyed on the entries array rather than recomputed per frame: while a reply
@@ -239,6 +268,13 @@ export default function Room({
   // last thing on screen, and starts one of its own otherwise.
   const writing = thinking && thread.live ? thread.live : undefined;
   const joinsLast = writing !== undefined && drawn.at(-1)?.kind === "run";
+
+  // The question a failed last turn was answering: the newest thing typed.
+  const asked = thread.entries.findLast((e) => e.role === "user");
+  const retry = useMemo(
+    () => (asked && onRetry ? () => onRetry(asked.text, asked.images ?? []) : undefined),
+    [asked, onRetry],
+  );
 
   const draw = (b: Block, i: number) => {
     if (b.kind === "user") {
@@ -266,7 +302,13 @@ export default function Room({
       return <Card who={who} entry={b.entry} />;
     }
     const isLast = i === drawn.length - 1;
-    return <Bubble entries={b.entries} live={isLast && joinsLast ? writing : undefined} />;
+    return (
+      <Bubble
+        entries={b.entries}
+        live={isLast && joinsLast ? writing : undefined}
+        onRetry={isLast && !thinking ? retry : undefined}
+      />
+    );
   };
 
   return (
