@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useNavigate } from "react-router";
 import CommandPalette from "./components/CommandPalette";
 import ConnectionBanner from "./components/ConnectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -9,6 +9,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import Hub from "./screens/Hub";
 import NotFound from "./screens/NotFound";
 import Today from "./screens/Today";
+import { appPath } from "./app-path";
 import { ackedToday } from "./todayAck";
 
 // The two front doors load with the app; every other screen is its own chunk.
@@ -34,6 +35,29 @@ function ScreenFallback() {
 
 export default function App() {
   const [palette, setPalette] = useState(false);
+  const navigate = useNavigate();
+
+  /**
+   * Where a tapped notification lands.
+   *
+   * The worker used to call `client.navigate`, which is a full document load —
+   * the terminal's websocket, the event stream and any unsent draft go with it,
+   * even when the app was already on the session the notification was about.
+   * It sends the path instead and the app routes to it.
+   *
+   * The path is re-checked here as well as in the worker: it arrives from the
+   * push service, and a router that goes wherever it is told is worth
+   * attacking. `appPath` is the same rule both ends.
+   */
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; url?: unknown } | null;
+      if (data?.type !== "navigate") return;
+      void navigate(appPath(data.url, location.origin));
+    };
+    navigator.serviceWorker?.addEventListener("message", onMessage);
+    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
+  }, [navigate]);
 
   // The one global shortcut. Cmd/Ctrl+K is where every editor and chat app puts
   // "jump to", and the app had no keyboard route to anything at all before it.
