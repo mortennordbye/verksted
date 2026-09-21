@@ -49,7 +49,7 @@ export function parseFile(raw: string): Parsed {
   const match = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
   if (!match) return { meta: {}, body: raw.trim() };
   const meta: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
+  for (const line of (match[1] ?? "").split("\n")) {
     const at = line.indexOf(":");
     if (at <= 0) continue;
     meta[line.slice(0, at).trim()] = line

@@ -445,7 +445,7 @@ export async function search(query: string, limit = 8): Promise<AssistantSearchH
         conversationId,
         at: entry.at,
         role: entry.role,
-        text: around(entry.text, entry.text.toLowerCase().indexOf(words[0])),
+        text: around(entry.text, entry.text.toLowerCase().indexOf(words[0] ?? "")),
       });
     }
   }
@@ -717,7 +717,7 @@ export async function newConversation(): Promise<string> {
 /** A line of the first thing typed, which is what a thread is remembered by. */
 function titleOf(entries: AssistantEntry[]): string {
   const first = entries.find((e) => e.role === "user" && e.text.trim());
-  const line = (first?.text ?? "(image)").trim().split("\n")[0];
+  const line = (first?.text ?? "(image)").trim().split("\n")[0] ?? "";
   return line.length > 90 ? `${line.slice(0, 89)}…` : line;
 }
 
@@ -746,7 +746,8 @@ export async function listThreads(): Promise<AssistantThreadSummary[]> {
     out.push({
       conversationId: id,
       title: titleOf(entries),
-      at: entries[entries.length - 1].at,
+      // Not empty: checked above.
+      at: entries.at(-1)!.at,
       turns: entries.filter((e) => e.role === "user").length,
     });
   }
@@ -1335,8 +1336,9 @@ async function convened(
   const line = text.trim().split("\n")[0] ?? "";
   const match = CONVENE_RE.exec(line);
   if (!match) return { members: [], round: false, everyone: false, dropped: 0 };
-  const ids = [...new Set(match[2].split(",").map((id) => id.trim()))];
-  const wantsRound = forceRound || match[1].toLowerCase() === "discuss";
+  const [, verb = "", list = ""] = match;
+  const ids = [...new Set(list.split(",").map((id) => id.trim()))];
+  const wantsRound = forceRound || verb.toLowerCase() === "discuss";
   // `all` is the whole room and cannot be mixed with names: it already is the
   // names, and reading "all, michael" as anything but everybody would be
   // guessing at what the chair meant.
@@ -1372,13 +1374,14 @@ interface Addressed {
 async function addressed(prompt: string): Promise<Addressed | null> {
   const match = /^@([a-z][a-z0-9-]{0,31})\b\s*([\s\S]*)$/.exec(prompt.trim());
   if (!match) return null;
-  const rest = match[2].trim();
+  const [, name = "", body = ""] = match;
+  const rest = body.trim();
   if (!rest) return null;
-  if (match[1] === EVERYONE) {
+  if (name === EVERYONE) {
     const { members, dropped } = await theRoom();
     return members.length ? { members, rest, everyone: true, dropped } : null;
   }
-  const member = await getMember(match[1]);
+  const member = await getMember(name);
   if (!member || !member.enabled || member.chair) return null;
   return { members: [member], rest, everyone: false, dropped: 0 };
 }
@@ -1606,7 +1609,7 @@ export async function send(
       // chair's opening turn is skipped entirely, so asking everybody costs one
       // call fewer than a meeting it had to be talked into.
       await runEveryone(threadId, direct, roundTable);
-    } else if (direct) {
+    } else if (direct?.members[0]) {
       await speak({
         threadId,
         member: direct.members[0],

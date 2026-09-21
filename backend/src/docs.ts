@@ -250,7 +250,7 @@ export async function search(query: string, limit = 12): Promise<DocHit[]> {
       const text = await fs.readFile(full, "utf8").catch(() => "");
       const lower = text.toLowerCase();
       if (!words.every((w) => lower.includes(w))) continue;
-      const at = lower.indexOf(words[0]);
+      const at = lower.indexOf(words[0] ?? "");
       const from = Math.max(0, text.lastIndexOf("\n", at) + 1);
       const to = text.indexOf("\n", at);
       hits.push({

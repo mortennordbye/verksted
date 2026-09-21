@@ -709,7 +709,7 @@ export function parseVerdicts(text: string): Verdict[] {
   for (const raw of text.split("\n")) {
     const parts = raw.split("\t").map((p) => p.trim());
     if (parts.length < 3) continue;
-    const [id, urgency, summary, loop = "-"] = parts;
+    const [id, urgency = "", summary = "", loop = "-"] = parts;
     if (!id || !["attention", "new", "quiet"].includes(urgency)) continue;
     let ref: Verdict["loop"] = null;
     if (loop.startsWith("new:")) {
@@ -836,7 +836,7 @@ export function parseCatalogue(
     const parsed: { on: string; what: string }[] = [];
     for (const part of dates.split(";")) {
       const m = /^(\d{4}-\d{2}-\d{2})\s*(.*)$/.exec(part.trim());
-      if (m) parsed.push({ on: m[1], what: m[2].trim() || "date" });
+      if (m?.[1]) parsed.push({ on: m[1], what: (m[2] ?? "").trim() || "date" });
     }
     out.push({ rel, line, dates: parsed });
   }

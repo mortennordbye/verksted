@@ -191,7 +191,7 @@ const REASON: Record<string, string> = {
  * case-insensitive, so the comparison has to be too.
  */
 export function blockedOwner(fullName: string, owners: string[]): boolean {
-  return owners.includes(fullName.split("/")[0].toLowerCase());
+  return owners.includes((fullName.split("/")[0] ?? "").toLowerCase());
 }
 
 export function notificationItems(threads: Notification[], blocked: string[] = []): Seen[] {
@@ -249,7 +249,7 @@ export function mailItems(messages: MailSummary[]): Seen[] {
 export function filedAway(seen: Seen[], items: FeedItem[]): string[] {
   if (!seen.length) return [];
   const here = new Set(seen.map((s) => s.id));
-  const oldest = seen.reduce((a, s) => (s.at < a ? s.at : a), seen[0].at);
+  const oldest = seen.map((s) => s.at).reduce((a, at) => (at < a ? at : a));
   return items
     .filter((i) => /^mail:\d+$/.test(i.id) && i.state !== "done")
     .filter((i) => i.at >= oldest && !here.has(i.id))
@@ -318,10 +318,15 @@ async function supersededRuns(): Promise<string[]> {
   for (const i of items) {
     // `schedule:<id>:<at>`, and the schedule id has no colons.
     const id = i.id.split(":")[1];
+    // An id without the schedule in it is not one of these to compare.
+    if (id === undefined) continue;
     if (!newest.has(id) || i.at > (newest.get(id) as string)) newest.set(id, i.at);
   }
   return items
-    .filter((i) => i.state !== "done" && i.at !== newest.get(i.id.split(":")[1]))
+    .filter((i) => {
+      const id = i.id.split(":")[1];
+      return id !== undefined && i.state !== "done" && i.at !== newest.get(id);
+    })
     .map((i) => i.id);
 }
 
@@ -465,7 +470,7 @@ function pullOrIssue(link: string | null): { repo: string; number: number } | nu
   const m = /^https:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/(?:pull|issues)\/(\d+)/.exec(
     link ?? "",
   );
-  return m ? { repo: m[1], number: Number(m[2]) } : null;
+  return m?.[1] ? { repo: m[1], number: Number(m[2]) } : null;
 }
 
 /**
@@ -572,7 +577,7 @@ export async function purgeBlocked(): Promise<number> {
   let removed = 0;
   for (const item of await feed.list()) {
     if (item.source !== "github") continue;
-    const repo = item.title.split(":")[0];
+    const repo = item.title.split(":")[0] ?? "";
     if (!repo.includes("/") || !blockedOwner(repo, owners)) continue;
     await feed.remove(item.id);
     removed++;

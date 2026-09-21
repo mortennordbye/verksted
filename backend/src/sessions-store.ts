@@ -128,7 +128,7 @@ export async function lastWords(id: string): Promise<{ line: string | null; tail
     .split("\n")
     .map((l) => l.trimEnd())
     .filter(Boolean);
-  if (lines.length && /[$#%>]\s*$/.test(lines[lines.length - 1])) lines.pop();
+  if (/[$#%>]\s*$/.test(lines.at(-1) ?? "")) lines.pop();
   const line = lines.at(-1)?.trim().slice(0, 200) ?? null;
   return { line, tail };
 }

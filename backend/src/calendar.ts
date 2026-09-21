@@ -227,11 +227,11 @@ export async function update(
       ? seriesUpdate(data, change, target.occurrence)
       : occurrenceUpdate(data, target.occurrence!, change);
     await save(found, next);
-    if (target.every || !listed) return parseIcs(next)[0];
+    if (target.every || !listed) return firstEvent(next);
     const at = Date.parse(change.start ?? listed.start);
     return parseIcs(next).find((e) => Math.abs(Date.parse(e.start) - at) < MINUTE) ?? listed;
   }
-  const [current] = parseIcs(data);
+  const current = firstEvent(data);
   const start = change.start ?? current.start;
   const end =
     change.end ??
@@ -251,7 +251,7 @@ export async function update(
   }
   const next = edit(data, props);
   await save(found, next);
-  return parseIcs(next)[0];
+  return firstEvent(next);
 }
 
 /** Write a changed file back over the one it was read from. */
@@ -291,7 +291,18 @@ export async function remove(uid: string, target: Target = {}): Promise<Calendar
   }
   const res = await found.client.deleteCalendarObject({ calendarObject: found.object });
   if (!res.ok) throw new Error(`the calendar server refused the delete: ${res.status}`);
-  return parseIcs(found.data)[0];
+  return firstEvent(found.data);
+}
+
+/**
+ * The event an object holds. A calendar object is one event, and what came
+ * back from the server not parsing into one used to be an undefined that the
+ * route then tried to read a start time off.
+ */
+function firstEvent(ics: string): CalendarEvent {
+  const [event] = parseIcs(ics);
+  if (!event) throw new Error("the calendar server sent back an event this cannot read");
+  return event;
 }
 
 /**
@@ -471,7 +482,8 @@ function formOf(p: Prop): Form {
   if (/VALUE=DATE(?!-TIME)/i.test(p.params) || /^\d{8}$/.test(p.value)) return { kind: "date" };
   const tz = /(?:^|;)TZID=("[^"]*"|[^;]*)/i.exec(p.params);
   if (tz) {
-    const tzid = tz[1].replace(/^"|"$/g, "");
+    const raw = tz[1] ?? "";
+    const tzid = raw.replace(/^"|"$/g, "");
     try {
       Intl.DateTimeFormat("en-CA", { timeZone: tzid });
     } catch {
@@ -479,7 +491,7 @@ function formOf(p: Prop): Form {
         `its time zone, ${tzid}, is not one this can write; change it in the calendar app`,
       );
     }
-    return { kind: "zoned", tzid, raw: tz[1] };
+    return { kind: "zoned", tzid, raw };
   }
   return /Z$/i.test(p.value) ? { kind: "utc" } : { kind: "floating" };
 }
@@ -520,7 +532,8 @@ function readIn(p: Prop): number {
   const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?)?Z?$/i.exec(p.value);
   if (!m)
     throw new CalendarRefused(`cannot read the date ${p.value}; change it in the calendar app`);
-  const [, y, mo, d, h = "0", mi = "0", s = "0"] = m;
+  // The first three groups are not optional, so they are there when m is.
+  const [, y = "", mo = "", d = "", h = "0", mi = "0", s = "0"] = m;
   return fromWall(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s), formOf(p));
 }
 

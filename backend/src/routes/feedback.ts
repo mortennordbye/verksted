@@ -61,7 +61,7 @@ export default async function feedbackRoutes(app: FastifyInstance) {
         id: `bench:feedback:${createHash("sha256").update(text).digest("hex").slice(0, 12)}`,
         source: "bench",
         at: new Date().toISOString(),
-        title: `the bench is missing something: ${text.split("\n")[0].slice(0, 120)}`,
+        title: `the bench is missing something: ${(text.split("\n")[0] ?? "").slice(0, 120)}`,
         detail: [text, session && `filed by ${session.agent} in ${session.project}`]
           .filter(Boolean)
           .join("\n"),

@@ -562,7 +562,7 @@ export class MemberDeniedError extends Error {}
 function faceFor(id: string): CouncilFace {
   let n = 0;
   for (const ch of id) n = (n * 31 + ch.charCodeAt(0)) % 1_000_003;
-  return FACES[n % FACES.length];
+  return FACES[n % FACES.length] ?? "owl";
 }
 
 function filePath(id: string): string {
