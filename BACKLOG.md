@@ -1223,3 +1223,21 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   Then `gh api -X PUT repos/mortennordbye/verksted/rulesets/20606001` with the
   pull_request rule added and `bypass_actors` emptied.
 - **Where:** GitHub repository settings; `.github/workflows/dependabot-auto-merge.yml`.
+
+## An overlay's own Back can abort the next e2e navigation
+
+- **What:** `e2e/smoke.test.ts` failed once on CI (PR #211, 2026-09-21) with
+  `page.goto: net::ERR_ABORTED` at the top of "reads the whole run in one
+  scroll", 7ms in, and passed on a rerun. The test before it ends by pressing
+  Escape on the discard confirm. A closing overlay drops its history entry with
+  a `history.back()` that lands a task or two later, so a `goto` issued right
+  after the test ends can be the navigation that Back cancels.
+- **Why deferred:** Seen once and not reproduced, so a fix could not be shown
+  to work. It is a race only a test can lose: nobody types a URL within a task
+  of closing a dialog.
+- **Unblocked by:** Ending that test on something that proves the entry is
+  gone, such as waiting for `history.state.vkOverlay` to clear, and running the
+  file in a loop under CPU throttling to see the failure first.
+- **Where:** `e2e/smoke.test.ts` ("asks before a tap beside the file viewer
+  throws away an edit"), `frontend/src/useDismissOnBack.ts` (`ownBack`,
+  `overlaysSettled`).
