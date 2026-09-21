@@ -60,7 +60,8 @@ afterAll(async () => {
   fake.uninstall();
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  (await import("../src/assistant-usage.js")).resetUsageCache();
   // recursive: unattended threads live in a subdirectory beside the chats.
   for (const f of fs.readdirSync(assistantDir)) {
     fs.rmSync(path.join(assistantDir, f), { recursive: true, force: true });
@@ -73,6 +74,77 @@ beforeEach(() => {
 async function say(text: string) {
   return app.inject({ method: "POST", url: "/api/assistant/messages", payload: { text } });
 }
+
+/** The same run, saying what it took the way the CLI's result event does. */
+function measuredRun(text: string, prompt: number, output: number): string {
+  const usage = {
+    input_tokens: 10,
+    cache_read_input_tokens: prompt - 10,
+    cache_creation_input_tokens: 0,
+    output_tokens: output,
+  };
+  return (
+    [
+      JSON.stringify({ type: "system", subtype: "init" }),
+      JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text }], usage } }),
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        num_turns: 1,
+        total_cost_usd: 0.25,
+        usage,
+      }),
+    ].join("\n") + "\n"
+  );
+}
+
+describe("what a thread has taken (A-26)", () => {
+  it("says nothing until a turn has been measured", async () => {
+    const thread = (await say("hello")).json();
+    expect(thread.usage).toBeUndefined();
+  });
+
+  it("adds each turn to the thread's total, and keeps the size of the last prompt", async () => {
+    fake.reply("claude", "-p", { stdout: measuredRun("One.", 1_000, 40) });
+    await say("first");
+    fake.reply("claude", "-p", { stdout: measuredRun("Two.", 3_000, 60) });
+    const thread = (await say("second")).json();
+
+    expect(thread.usage).toEqual({
+      total: { input: 20, output: 100, cacheRead: 3_980, cacheWrite: 0, turns: 2, costUsd: 0.5 },
+      context: 3_000,
+    });
+  });
+
+  it("reads it back from the volume, not from memory", async () => {
+    fake.reply("claude", "-p", { stdout: measuredRun("One.", 1_000, 40) });
+    await say("first");
+    (await import("../src/assistant-usage.js")).resetUsageCache();
+
+    const thread = (await app.inject({ url: "/api/assistant" })).json();
+    expect(thread.usage.total.output).toBe(40);
+  });
+
+  it("starts a new conversation at nothing, and takes the count with a deleted one", async () => {
+    fake.reply("claude", "-p", { stdout: measuredRun("One.", 1_000, 40) });
+    const old = (await say("first")).json().conversationId;
+
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+    expect((await app.inject({ url: "/api/assistant" })).json().usage).toBeUndefined();
+
+    await app.inject({ method: "DELETE", url: `/api/assistant/threads/${old}` });
+    expect(fs.readdirSync(assistantDir).filter((f) => f.startsWith(old))).toEqual([]);
+  });
+
+  it("is not read as a conversation by the thread list", async () => {
+    fake.reply("claude", "-p", { stdout: measuredRun("One.", 1_000, 40) });
+    await say("first");
+
+    const threads = (await app.inject({ url: "/api/assistant/threads" })).json();
+    expect(threads).toHaveLength(1);
+  });
+});
 
 describe("POST /api/assistant/messages", () => {
   it("stores both sides of the turn", async () => {

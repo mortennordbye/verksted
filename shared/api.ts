@@ -1066,6 +1066,17 @@ export interface AssistantEntry {
   member?: string;
 }
 
+/** What a conversation with the assistant has taken, across everyone who spoke in it. */
+export interface AssistantThreadUsage {
+  /** Every run of every participant, summed. `turns` counts model calls. */
+  total: SessionUsage;
+  /**
+   * Prompt tokens of the chair's last model call: the conversation as it now
+   * stands, which every new turn sends again. What says a thread has grown long.
+   */
+  context: number;
+}
+
 export interface AssistantThread {
   /**
    * The claude conversation id, which verksted mints rather than parses: it is
@@ -1089,6 +1100,8 @@ export interface AssistantThread {
    * speaking carries the same information for none of the traffic.
    */
   speaking?: string[];
+  /** Absent until the thread's first measured turn, and on threads older than the measuring. */
+  usage?: AssistantThreadUsage;
 }
 
 /**

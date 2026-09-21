@@ -1,4 +1,4 @@
-import type { AssistantEntry, AssistantToolCall } from "../../shared/api.js";
+import type { AssistantEntry, AssistantToolCall, SessionUsage } from "../../shared/api.js";
 
 /**
  * Turning `claude -p --output-format stream-json` into thread entries.
@@ -77,6 +77,17 @@ export interface StreamResult {
 export interface StreamState {
   conversationId: string | null;
   error: string | null;
+  /**
+   * What the run took, from its result event. The CLI has always reported it
+   * and it used to be dropped, which left the assistant the one thing on this
+   * bench whose cost nobody could see.
+   */
+  usage: SessionUsage | null;
+  /**
+   * Prompt tokens of the last model call: the conversation as it now stands,
+   * which is what the next turn sends again before it has said a word.
+   */
+  context: number;
   pendingTools: AssistantToolCall[];
   /** Pictures tools returned, carried to the next thing said like the tools are. */
   pendingShots: Shot[];
@@ -104,11 +115,26 @@ export function newStreamState(onTool?: (name: string) => void): StreamState {
     ...(onTool ? { onTool } : {}),
     conversationId: null,
     error: null,
+    usage: null,
+    context: 0,
     pendingTools: [],
     pendingShots: [],
     toolNames: new Map(),
     buffer: "",
     live: "",
+  };
+}
+
+/** The four counts the API reports, under this app's names for them. */
+function tokens(usage: unknown): Omit<SessionUsage, "turns" | "costUsd"> | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  const n = (key: string) => (typeof u[key] === "number" ? u[key] : 0);
+  return {
+    input: n("input_tokens"),
+    output: n("output_tokens"),
+    cacheRead: n("cache_read_input_tokens"),
+    cacheWrite: n("cache_creation_input_tokens"),
   };
 }
 
@@ -132,7 +158,9 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
   }
 
   if (event.type === "assistant") {
-    const message = event.message as { content?: ContentBlock[] } | undefined;
+    const message = event.message as { content?: ContentBlock[]; usage?: unknown } | undefined;
+    const prompt = tokens(message?.usage);
+    if (prompt) state.context = prompt.input + prompt.cacheRead + prompt.cacheWrite;
     const blocks = Array.isArray(message?.content) ? message.content : [];
     const text = blocks
       .filter((b) => b.type === "text" && typeof b.text === "string")
@@ -189,6 +217,14 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
   }
 
   if (event.type === "result") {
+    const used = tokens(event.usage);
+    if (used) {
+      state.usage = {
+        ...used,
+        turns: typeof event.num_turns === "number" ? event.num_turns : 0,
+        ...(typeof event.total_cost_usd === "number" ? { costUsd: event.total_cost_usd } : {}),
+      };
+    }
     if (
       event.is_error === true ||
       (typeof event.subtype === "string" && event.subtype !== "success")
