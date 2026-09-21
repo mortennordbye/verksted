@@ -344,12 +344,14 @@ function CreatePrSheet({
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="title"
+        aria-label="pull request title"
         className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[14px] outline-none placeholder:text-faint focus:border-accent"
       />
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="description (optional)"
+        aria-label="pull request description"
         rows={5}
         className="mt-2 w-full resize-y rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[13.5px] outline-none placeholder:text-faint focus:border-accent"
       />

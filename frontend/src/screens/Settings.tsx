@@ -227,6 +227,7 @@ export default function Settings() {
                   onChange={(e) => setNewKey(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === "Enter" && addVar()}
                   placeholder="NEW_VARIABLE"
+                  aria-label="new variable name"
                   className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
                 />
                 <input
@@ -234,6 +235,7 @@ export default function Settings() {
                   onChange={(e) => setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && addVar()}
                   placeholder="value"
+                  aria-label="value for the new variable"
                   className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
                 />
                 <button
@@ -434,6 +436,7 @@ function GoogleCalendar() {
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
                 placeholder="client ID"
+                aria-label="Google client ID"
                 spellCheck={false}
                 autoComplete="off"
                 className={field}
@@ -442,6 +445,7 @@ function GoogleCalendar() {
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
                 placeholder="client secret"
+                aria-label="Google client secret"
                 type="password"
                 autoComplete="off"
                 className={field}
@@ -524,6 +528,7 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="owner-or-org"
+          aria-label="GitHub owner to skip"
           className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
         />
         <button
@@ -1061,6 +1066,7 @@ function SshKeys() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="key name"
+              aria-label="ssh key name"
               className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
             />
             <button
@@ -1078,6 +1084,7 @@ function SshKeys() {
             value={material}
             onChange={(e) => setMaterial(e.target.value)}
             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+            aria-label="private key"
             rows={3}
             spellCheck={false}
             className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] outline-none placeholder:text-faint focus:border-accent"

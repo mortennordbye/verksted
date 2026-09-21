@@ -235,7 +235,7 @@ export default function Project() {
                     project={name!}
                     branch={info.branch}
                     onChanged={refreshProjects}
-                    className="rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[13px] hover:border-faint hover:text-text"
+                    className="tap rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[13px] hover:border-faint hover:text-text"
                   />
                   <span>
                     {info.dirty ? "dirty" : "clean"}
@@ -286,7 +286,7 @@ export default function Project() {
               key={t}
               aria-pressed={tab === t}
               onClick={() => setTab(t)}
-              className={`flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
+              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
                 tab === t
                   ? "border-accent bg-surface-2 text-text"
                   : "border-line bg-surface text-muted hover:text-text"
@@ -345,7 +345,7 @@ export default function Project() {
         <div className="mt-10 border-t border-line pt-4">
           <button
             onClick={() => setConfirmingDelete(true)}
-            className="flex items-center gap-1.5 text-[12.5px] text-faint hover:text-wait"
+            className="tap flex items-center gap-1.5 text-[12.5px] text-faint hover:text-wait"
           >
             <Icon name="trash" size={13} />
             delete project…
@@ -403,6 +403,7 @@ export default function Project() {
             onChange={(e) => setBranch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && newWorktree()}
             placeholder="branch name (e.g. feature-x)"
+            aria-label="branch name"
             className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[14px] outline-none placeholder:text-faint focus:border-accent"
           />
           <button

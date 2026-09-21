@@ -78,7 +78,7 @@ function SessionCard({
   return (
     <Link
       to={`/s/${session.id}`}
-      className={`tap flex items-center gap-3 rounded-xl border p-3.5 transition hover:-translate-y-px ${
+      className={`tap flex items-center gap-3 rounded-xl border p-3.5 transition motion-safe:hover:-translate-y-px ${
         urgent
           ? "border-wait/30 bg-wait/8 hover:border-wait/60"
           : "border-line bg-surface hover:border-accent-pastel"
@@ -352,7 +352,7 @@ export default function Hub() {
             <Link
               key={p.name}
               to={`/p/${p.name}`}
-              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition hover:-translate-y-px hover:border-accent-pastel"
+              className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition motion-safe:hover:-translate-y-px hover:border-accent-pastel"
             >
               <div className="flex items-center gap-2.5">
                 <StatusDot running={p.running + p.waiting > 0} />
@@ -520,6 +520,7 @@ export default function Hub() {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addProject()}
             placeholder="owner/repo or project-name"
+            aria-label="repo to clone, or a name for a new one"
             className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[14px] outline-none placeholder:text-faint focus:border-accent"
           />
           {error && <div className="mt-2 font-mono text-[12px] text-wait">{error}</div>}
