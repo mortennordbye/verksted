@@ -337,11 +337,17 @@ export function useSpeech(onFinal: (said: string) => void) {
   // touches the player again.
   const runRef = useRef(0);
 
+  // Ends the clip `speakOnPod` is waiting on. A paused element fires neither
+  // `ended` nor `error`, so without this a cancel left that promise pending for
+  // good, and the clip's object URL with it.
+  const endClip = useRef<(() => void) | null>(null);
+
   const cancelSpeech = useCallback(() => {
     runRef.current++;
     if (canSpeak()) speechSynthesis.cancel();
     const audio = audioPlayer();
     audio.pause();
+    endClip.current?.();
     setSpeaking(false);
   }, []);
 
@@ -392,6 +398,7 @@ export function useSpeech(onFinal: (said: string) => void) {
           await new Promise<void>((resolve, reject) => {
             audio.onended = () => resolve();
             audio.onerror = () => reject(new Error("playback failed"));
+            endClip.current = resolve;
             audio.src = url;
             void audio.play().catch(reject);
           });
@@ -403,6 +410,7 @@ export function useSpeech(onFinal: (said: string) => void) {
         } finally {
           audio.onended = null;
           audio.onerror = null;
+          endClip.current = null;
         }
         URL.revokeObjectURL(url);
         if (runRef.current !== run) return true;
@@ -479,6 +487,7 @@ export function useSpeech(onFinal: (said: string) => void) {
       stopRef.current?.();
       if (canSpeak()) speechSynthesis.cancel();
       audioPlayer().pause();
+      endClip.current?.();
     };
   }, []);
 

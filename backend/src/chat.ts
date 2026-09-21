@@ -738,7 +738,12 @@ export async function readChat(
       Math.min(opts.bytes ?? DEFAULT_WINDOW, MAX_WINDOW),
       opts.repoDir,
     );
-  } catch {
+  } catch (err) {
+    // Not there yet is nothing said yet. Anything else (a transcript this
+    // process may not read, a volume that has gone away) used to look the same,
+    // and "nothing said yet" over a session that has been talking for an hour
+    // sends people to the terminal to find out what happened.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     return empty;
   }
   const { messages, pending, todos, permissionMode } = window.parsed;

@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import type {
   ChatMessage,
@@ -19,6 +19,8 @@ import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
 import Skeleton from "./Skeleton";
 import { MD, REMARK } from "./chat/markdown";
+import { scrollBehavior } from "../motion";
+import Ago, { DayRule, newDay } from "./Ago";
 
 /**
  * A session read as a conversation.
@@ -183,6 +185,7 @@ const Turn = memo(function Turn({
             {message.text}
           </div>
         )}
+        <Ago at={message.at} className="-mt-1 font-mono text-[10px] leading-none text-faint" />
       </div>
     );
   }
@@ -208,6 +211,9 @@ const Turn = memo(function Turn({
             </Markdown>
           </div>
         </div>
+      )}
+      {message.text && (
+        <Ago at={message.at} className="-mt-1.5 font-mono text-[10px] leading-none text-faint" />
       )}
     </div>
   );
@@ -554,7 +560,7 @@ export default function ChatPane({
   function toLatest() {
     const el = scroller.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    el.scrollTo({ top: el.scrollHeight, behavior: scrollBehavior() });
     atBottom.current = true;
     setAway(false);
   }
@@ -735,8 +741,11 @@ export default function ChatPane({
             </div>
           )}
 
-          {messages.map((m) => (
-            <Turn key={m.id} message={m} sessionId={session.id} project={session.project} />
+          {messages.map((m, i) => (
+            <Fragment key={m.id}>
+              {newDay(messages[i - 1]?.at, m.at) && <DayRule at={m.at} />}
+              <Turn message={m} sessionId={session.id} project={session.project} />
+            </Fragment>
           ))}
 
           {/* Work in flight: the calls it has made since the last thing it said. */}
@@ -749,7 +758,7 @@ export default function ChatPane({
             which is the honest picture of what happened to it. */}
           {echoes.map((e, i) => (
             <div key={`e${i}`} className="flex justify-end">
-              <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent/40 px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent opacity-70">
+              <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent-tint px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-text ring-1 ring-accent/30">
                 {e.text}
               </div>
             </div>
@@ -792,7 +801,7 @@ export default function ChatPane({
       )}
 
       {live && (
-        <div className="flex flex-none items-end gap-2 border-t border-line px-3 py-2.5">
+        <div className="flex flex-none items-end gap-2 border-t border-line px-3 py-2.5 focus-within:border-accent/60">
           <input
             ref={fileRef}
             type="file"

@@ -29,6 +29,9 @@ export default function PlanCard({ plan, sessionId }: { plan: ChatPlan; sessionI
     }
     setOpen(true);
     if (markdown !== null || !plan.id) return;
+    // Opening it again is asking again: the flag used to outlive the failure,
+    // so one dropped request left "could not read it back" there for good.
+    setFailedToLoad(false);
     try {
       const query = new URLSearchParams({ ref: plan.id });
       const detail = await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`);

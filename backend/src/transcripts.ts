@@ -1,4 +1,5 @@
-import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import readline from "node:readline";
 import { resolveInsideRepos } from "./paths.js";
 import { listSessions, readConv } from "./sessions-store.js";
 
@@ -56,38 +57,48 @@ import { subagentDir, transcriptPath } from "./claude-home.js";
 
 export { subagentDir, transcriptPath };
 
-/** The human-typed turns of one transcript, oldest first. */
+/**
+ * The human-typed turns of one transcript, oldest first.
+ *
+ * Read a line at a time. A long session's transcript runs to tens of megabytes
+ * of tool results, and the nightly harvest used to hold each one whole, as a
+ * string, to keep the few hundred characters a person typed into it.
+ */
 async function promptsIn(file: string): Promise<string[]> {
-  let raw: string;
+  const out: string[] = [];
   try {
-    raw = await fs.readFile(file, "utf8");
+    const lines = readline.createInterface({
+      input: createReadStream(file, "utf8"),
+      crlfDelay: Infinity,
+    });
+    for await (const line of lines) read(line, out);
   } catch {
     // A session whose transcript was never written, or has been cleaned up.
-    return [];
-  }
-  const out: string[] = [];
-  for (const line of raw.split("\n")) {
-    if (!line.startsWith("{")) continue;
-    let entry: {
-      type?: string;
-      origin?: { kind?: string };
-      message?: { role?: string; content?: unknown };
-    };
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      // One torn line costs one turn, never the transcript.
-      continue;
-    }
-    // Both halves are required. `origin.kind` is what separates a person from a
-    // tool result wearing the user role; the string check is what separates a
-    // typed message from a structured one, whose parts are attachments and
-    // results rather than words.
-    if (entry.origin?.kind !== "human" || entry.message?.role !== "user") continue;
-    const text = typeof entry.message.content === "string" ? entry.message.content.trim() : "";
-    if (text) out.push(text.slice(0, MAX_PROMPT_CHARS));
   }
   return out;
+}
+
+/** One line of a transcript: kept only if a person typed it. */
+function read(line: string, out: string[]): void {
+  if (!line.startsWith("{")) return;
+  let entry: {
+    type?: string;
+    origin?: { kind?: string };
+    message?: { role?: string; content?: unknown };
+  };
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    // One torn line costs one turn, never the transcript.
+    return;
+  }
+  // Both halves are required. `origin.kind` is what separates a person from a
+  // tool result wearing the user role; the string check is what separates a
+  // typed message from a structured one, whose parts are attachments and
+  // results rather than words.
+  if (entry.origin?.kind !== "human" || entry.message?.role !== "user") return;
+  const text = typeof entry.message.content === "string" ? entry.message.content.trim() : "";
+  if (text) out.push(text.slice(0, MAX_PROMPT_CHARS));
 }
 
 /**

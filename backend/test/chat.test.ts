@@ -481,6 +481,14 @@ describe("readChat", () => {
     expect((await chat.readChat(missing, CONV)).messages).toEqual([]);
   });
 
+  it("does not pass off a transcript it could not read as one with nothing in it", async () => {
+    // A file where its directory should be, which fails with ENOTDIR. The
+    // tests run as root, so a permission bit would not stop the read.
+    const blocker = path.join(home, "not-a-directory");
+    fs.writeFileSync(blocker, "");
+    await expect(chat.readChat(path.join(blocker, `${CONV}.jsonl`), CONV)).rejects.toThrow();
+  });
+
   it("reads only the tail of a long transcript, and says so", async () => {
     writeTranscript("demo", [
       ...Array.from({ length: 400 }, (_, i) => says(`old line ${i} ${"x".repeat(2_000)}`)),
