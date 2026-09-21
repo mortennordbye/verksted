@@ -11,6 +11,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { copyText } from "../clipboard";
+import { vapidKey } from "../vapid";
 import { useConfirm } from "../useConfirm";
 import TopBar from "../components/TopBar";
 import PageHeader from "../components/PageHeader";
@@ -537,15 +538,6 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
   );
 }
 
-/** VAPID keys travel as base64url; PushManager wants the raw bytes. */
-function vapidKey(b64: string): Uint8Array<ArrayBuffer> {
-  const padded = b64.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (b64.length % 4)) % 4);
-  const raw = atob(padded);
-  const bytes = new Uint8Array(raw.length);
-  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-  return bytes;
-}
-
 /**
  * Push notifications for this device — the pod telling a pocketed phone that a
  * session wants input, or has finished.
@@ -579,7 +571,24 @@ function Notifications() {
         setState("denied");
         return;
       }
-      setState((await reg.pushManager.getSubscription()) ? "on" : "off");
+      const sub = await reg.pushManager.getSubscription();
+      setState(sub ? "on" : "off");
+      // Told again, every time this panel is opened. The browser's half of the
+      // subscription outlives the pod's: restore the volume from a backup and
+      // the endpoint list goes back to whatever it held that night, while every
+      // phone still believes it is subscribed and this panel still says "on".
+      // Nothing says otherwise until a push that should have arrived does not.
+      // Re-registering is idempotent — it is keyed on the endpoint.
+      const { endpoint, keys } = sub?.toJSON() ?? {};
+      if (endpoint && keys?.p256dh && keys.auth) {
+        await api<PushStatus>("/api/push/subscribe", {
+          method: "POST",
+          body: JSON.stringify({ endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+        })
+          .then((s) => setDevices(s.devices))
+          .catch(() => undefined);
+        return;
+      }
       await api<PushStatus>("/api/push")
         .then((s) => setDevices(s.devices))
         .catch(() => undefined);

@@ -52,12 +52,23 @@ export default defineConfig({
           method: "GET",
           params: { title: "title", text: "text", url: "url" },
         },
+        // Apart, not "any maskable" on one entry: that tells the platform the
+        // same bitmap is both, so Android crops the padding-free one to fit a
+        // circle and the desktop shows the padded one with its padding.
         icons: [
-          { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
+        // Tapping a link to the app, or a notification's URL, goes to the
+        // window that is already open rather than starting a second one.
+        launch_handler: { client_mode: "navigate-existing" },
       },
       injectManifest: {
+        // woff2 is not in workbox's default set, so the offline shell came up
+        // in the platform's fallback fonts — on a phone with no tunnel, the one
+        // time the shell is all there is.
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
         // The file-type icons are 1,226 files of a kilobyte or two, and a
         // precache is fetched in full on install. Precaching them would mean
         // 1,226 requests over the tunnel to have every icon for every language

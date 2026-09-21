@@ -4,6 +4,7 @@ import { NavigationRoute, registerRoute } from "workbox-routing";
 import { CacheFirst } from "workbox-strategies";
 import { ExpirationPlugin } from "workbox-expiration";
 import { appPath } from "./app-path";
+import { vapidKey } from "./vapid";
 
 // The app's service worker. It does what the generated one did — precache the
 // built assets, fall back to the SPA shell for navigations — plus the one thing
@@ -76,6 +77,40 @@ self.addEventListener("push", (event) => {
   );
 });
 
+/**
+ * The browser retired this device's endpoint and issued another.
+ *
+ * It happens on its own schedule — a long quiet spell, a browser update, a
+ * push service rotating its keys — and nothing about it is visible: the
+ * settings panel still reads "on", because a subscription still exists, and
+ * the pod goes on posting to an endpoint that has been dead for a week. The
+ * only sign is a phone that stopped buzzing.
+ *
+ * Subscribing again here is the whole recovery, and it needs no user gesture:
+ * permission was granted for this origin and is not what changed.
+ */
+self.addEventListener("pushsubscriptionchange", ((event: ExtendableEvent) => {
+  event.waitUntil(
+    (async () => {
+      const status = (await fetch("/api/push")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null)) as { publicKey?: string } | null;
+      if (!status?.publicKey) return;
+      const sub = await self.registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: vapidKey(status.publicKey),
+      });
+      const { endpoint, keys } = sub.toJSON();
+      if (!endpoint || !keys?.p256dh || !keys.auth) return;
+      await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }),
+      });
+    })(),
+  );
+}) as EventListener);
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = appPath(
@@ -90,7 +125,13 @@ self.addEventListener("notificationclick", (event) => {
       const client = clients[0];
       if (client) {
         await client.focus();
-        await client.navigate(url).catch(() => undefined);
+        // A message, not `client.navigate`. Navigating is a full document load:
+        // it drops the terminal's websocket, the event stream and whatever was
+        // typed and unsent — and it did that even when the app was already on
+        // the session the notification was about, which is the common case,
+        // since the push that says an agent is waiting is the push you tap
+        // while looking at it. The app routes itself from here.
+        client.postMessage({ type: "navigate", url });
         return;
       }
       await self.clients.openWindow(url);
