@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import HashScroll from "./components/HashScroll";
 import Skeleton, { SkeletonList } from "./components/Skeleton";
 import UpdateBanner from "./components/UpdateBanner";
+import { onPaletteAsked } from "./palette";
 import Hub from "./screens/Hub";
 import NotFound from "./screens/NotFound";
 import Today from "./screens/Today";
@@ -71,6 +72,9 @@ export default function App() {
     addEventListener("keydown", onKey);
     return () => removeEventListener("keydown", onKey);
   }, []);
+
+  // And the top bar's button, which is the phone's way in.
+  useEffect(() => onPaletteAsked(() => setPalette(true)), []);
 
   return (
     <>

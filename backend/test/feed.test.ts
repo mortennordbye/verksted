@@ -168,6 +168,38 @@ describe("the feed store", () => {
     expect(await feed.sweep(Date.parse("2026-08-15T00:00:00.000Z"))).toBe(1);
     expect(await feed.get("bench:wait:vk-x-1")).toBeNull();
   });
+
+  /**
+   * F-32. "Clear" was a POST per row, in sequence, over the tunnel — and a
+   * phone that slept halfway down a list of thirty left half of it cleared.
+   */
+  it("changes many items in one request, and says which it changed", async () => {
+    await feed.upsert(seen("github:bulk-1"));
+    await feed.upsert(seen("github:bulk-2"));
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/feed/state",
+      payload: {
+        ids: ["github:bulk-1", "github:bulk-2", "github:bulk-1", "github:gone"],
+        state: "done",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    // The duplicate once, and the one that no longer exists not at all: the
+    // undo offers back exactly this list.
+    expect(res.json().changed).toEqual(["github:bulk-1", "github:bulk-2"]);
+    expect((await feed.get("github:bulk-2"))!.state).toBe("done");
+  });
+
+  it("refuses a bulk snooze, which needs an until per item, and an empty list", async () => {
+    for (const payload of [
+      { ids: ["github:bulk-1"], state: "snoozed" },
+      { ids: [], state: "done" },
+    ]) {
+      const res = await app.inject({ method: "POST", url: "/api/feed/state", payload });
+      expect(res.statusCode).toBe(400);
+    }
+  });
 });
 
 describe("the loops", () => {

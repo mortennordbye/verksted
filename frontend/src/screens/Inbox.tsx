@@ -129,6 +129,9 @@ export function saysTheSame(item: FeedItem): boolean {
  * like Cmd+K, and not while a sheet or a confirm is up — those are dialogs, and
  * a key that snoozed the row behind one would be acting on what you cannot see.
  */
+/** No row is leaving. One shared empty set, so the default is stable. */
+const NONE: ReadonlySet<string> = new Set();
+
 function listKey(e: KeyboardEvent): boolean {
   if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return false;
   const target = e.target as HTMLElement | null;
@@ -143,6 +146,8 @@ function Row({
   selected,
   onChange,
   onActed,
+  leaving,
+  onLeaving,
 }: {
   item: FeedItem;
   session?: Session;
@@ -153,6 +158,9 @@ function Row({
   onChange: () => void;
   /** What just happened to which items, so the screen can offer it back. */
   onActed: (ids: string[], label: string) => void;
+  /** Tapped away and not yet confirmed gone: hidden, but kept mounted. */
+  leaving: boolean;
+  onLeaving: (ids: string[], on: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [snoozing, setSnoozing] = useState(false);
@@ -169,13 +177,23 @@ function Row({
     if (ok) onChange();
     return ok;
   };
-  const setState = (state: FeedItem["state"], until?: string) =>
-    act(() =>
+  /**
+   * The row goes the moment it is tapped, not two round trips later (F-32):
+   * the POST, then the list read back. Hidden rather than removed, so that if
+   * the pod refuses, the row comes back with the reason on it — unmounted, it
+   * would have come back with nothing.
+   */
+  const setState = async (state: FeedItem["state"], until?: string) => {
+    if (state === "done" || state === "snoozed") onLeaving([item.id], true);
+    const ok = await act(() =>
       api(`/api/feed/${encodeURIComponent(item.id)}/state`, {
         method: "POST",
         body: JSON.stringify(until ? { state, until } : { state }),
       }),
     );
+    if (!ok) onLeaving([item.id], false);
+    return ok;
+  };
 
   const snooze = (choice: { label: string; at: Date }) =>
     void setState("snoozed", choice.at.toISOString()).then((ok) => {
@@ -230,6 +248,7 @@ function Row({
       id={item.id}
       ref={ref}
       aria-current={selected || undefined}
+      hidden={leaving}
       // A ring rather than the hover's border, so the keyboard's row and the
       // pointer's row can be told apart when they are not the same one.
       className={`group rounded-[11px] border px-3 py-2 ${selected ? "ring-2 ring-accent/60" : ""} ${
@@ -443,6 +462,29 @@ export default function Inbox() {
   const [cursor, setCursor] = useState<{ id: string; index: number } | null>(null);
   const [confirm, confirmDialog] = useConfirm();
 
+  /**
+   * Rows tapped away whose change the pod has not been read back saying yet.
+   *
+   * Tied to the answer they were tapped against, rather than cleared by hand:
+   * the next answer from the pod — the read after the POST, or an undo's — is
+   * the truth about them, and replaces this without anyone having to notice.
+   * A POST that fails takes its rows back out straight away.
+   */
+  const [leaving, setLeaving] = useState<{ of: FeedItem[] | null; ids: ReadonlySet<string> }>({
+    of: null,
+    ids: new Set(),
+  });
+  const gone = leaving.of === items ? leaving.ids : NONE;
+  const leave = (ids: string[], on: boolean) =>
+    setLeaving((l) => {
+      const next = new Set(l.of === items ? l.ids : NONE);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return { of: items, ids: next };
+    });
+
   const all = items ?? [];
   const live = all.filter((i) => i.state !== "done");
   // What the chips are counting, and therefore what decides whether there is a
@@ -528,35 +570,28 @@ export default function Inbox() {
       action: `mark ${items.length} done`,
     });
     if (!ok) return;
-    // What actually went through, which over a phone that slept halfway down a
-    // list of thirty is not the same as what was asked for. The undo bar used
-    // to offer back every id including the ones the pod never heard about.
-    const cleared: string[] = [];
-    await runList(async () => {
-      // One at a time: this is a write per item on the pod's volume, and
-      // thirty at once buys nothing on a list nobody is watching finish.
-      for (const item of items) {
-        await api(`/api/feed/${encodeURIComponent(item.id)}/state`, {
-          method: "POST",
-          body: JSON.stringify({ state: "done" }),
-        });
-        cleared.push(item.id);
-      }
+    const ids = items.map((i) => i.id);
+    leave(ids, true);
+    // One request, not one per row: a phone that slept halfway down a list of
+    // thirty used to leave half of it cleared. What comes back is what the
+    // pod actually changed, and that is all the undo offers back.
+    let changed: string[] = [];
+    const sent = await runList(async () => {
+      ({ changed } = await api<{ changed: string[] }>("/api/feed/state", {
+        method: "POST",
+        body: JSON.stringify({ ids, state: "done" }),
+      }));
     });
-    if (cleared.length) offerUndo(`${cleared.length} marked done`, () => restore(cleared));
+    if (!sent) leave(ids, false);
+    if (changed.length) offerUndo(`${changed.length} marked done`, () => restore(changed));
     refresh();
   }
 
   /** Put rows back to new, which is what every undo on this list means. */
   async function restore(ids: string[]) {
-    await runList(async () => {
-      for (const id of ids) {
-        await api(`/api/feed/${encodeURIComponent(id)}/state`, {
-          method: "POST",
-          body: JSON.stringify({ state: "new" }),
-        });
-      }
-    });
+    await runList(() =>
+      api("/api/feed/state", { method: "POST", body: JSON.stringify({ ids, state: "new" }) }),
+    );
     refresh();
   }
 
@@ -751,6 +786,8 @@ export default function Inbox() {
                           selected={i.id === selected}
                           onChange={refresh}
                           onActed={(ids, label) => offerUndo(label, () => restore(ids))}
+                          leaving={gone.has(i.id)}
+                          onLeaving={leave}
                         />
                       ))}
                     </div>
