@@ -157,6 +157,170 @@ export default function CouncilPanel() {
     setEditing(blank(id));
   }
 
+  // The form, drawn where the member's card was. It used to open under the
+  // whole grid, a screen or more below the "edit" that was tapped, which on a
+  // phone read as the button having done nothing. A new member has no card yet,
+  // so theirs opens at the end, where the new card will be.
+  const editor = editing && (
+    <div className="flex flex-col gap-2 rounded-[11px] border border-accent/40 bg-surface px-[15px] py-3">
+      <div className="font-mono text-[11px] text-faint">@{editing.id}</div>
+      <Input
+        label="member name"
+        placeholder="name"
+
+        value={editing.name}
+        onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+      />
+      <Input
+        label="what they are for"
+        placeholder="one line: what they are for"
+
+        value={editing.remit}
+        onChange={(e) => setEditing({ ...editing, remit: e.target.value })}
+      />
+      <Textarea
+        label="how they think"
+        className="min-h-[80px]"
+        placeholder="how they think, in their own words. Carried with every turn, so keep it short."
+
+        value={editing.persona}
+        onChange={(e) => setEditing({ ...editing, persona: e.target.value })}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          label="model"
+          className="w-[13ch]"
+          placeholder="model"
+
+          value={editing.model}
+          onChange={(e) => setEditing({ ...editing, model: e.target.value })}
+        />
+        <Select
+          label="effort"
+          value={editing.effort}
+          onChange={(e) => setEditing({ ...editing, effort: e.target.value as AssistantEffort })}
+        >
+          {EFFORTS.map((e) => (
+            <option key={e} value={e}>
+              {e}
+            </option>
+          ))}
+        </Select>
+        <Select
+          label="colour"
+          value={editing.colour}
+          onChange={(e) => setEditing({ ...editing, colour: e.target.value as CouncilColour })}
+        >
+          {COLOURS.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </Select>
+        {voices.length > 0 && (
+          <Select
+            label="voice"
+            value={editing.voice}
+            onChange={(e) => setEditing({ ...editing, voice: e.target.value })}
+          >
+            <option value="">the default voice</option>
+            {voices.map((v) => (
+              <option key={v} value={v}>
+                {voiceLabel(v)}
+              </option>
+            ))}
+          </Select>
+        )}
+      </div>
+
+      {/* Drawn in the colour picked above, because that is the pair you are
+            actually choosing: the same fox in two hues is two advisors. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {FACES.map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setEditing({ ...editing, face: f })}
+            aria-pressed={editing.face === f}
+            aria-label={f}
+            title={f}
+            className={`tap flex h-9 w-9 items-center justify-center rounded-full border ${
+              editing.face === f
+                ? `${MEMBER_RULE[editing.colour]} ${MEMBER_TEXT[editing.colour]} bg-surface-2`
+                : "border-line text-faint hover:border-line-strong"
+            }`}
+          >
+            <Face face={f} className="h-[22px] w-[22px]" />
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-1 text-[12px] text-muted">What they may look at</div>
+      <div className="flex flex-wrap gap-1.5">
+        {offerable.map((tool) => {
+          const on = editing.tools.includes(tool);
+          return (
+            <button
+              key={tool}
+              type="button"
+              onClick={() =>
+                setEditing({
+                  ...editing,
+                  tools: on ? editing.tools.filter((t) => t !== tool) : [...editing.tools, tool],
+                })
+              }
+              aria-pressed={on}
+              className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
+                on ? "border-accent/50 bg-accent-tint text-accent" : "border-line text-faint"
+              }`}
+            >
+              {tool}
+            </button>
+          );
+        })}
+      </div>
+
+      <label className="flex items-center gap-2 text-[13px] text-muted">
+        <input
+          type="checkbox"
+          checked={editing.web}
+          onChange={(e) => setEditing({ ...editing, web: e.target.checked })}
+        />
+        can read the web
+      </label>
+      <label className="flex items-center gap-2 text-[13px] text-muted">
+        <input
+          type="checkbox"
+          checked={editing.enabled}
+          onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
+        />
+        takes part in meetings
+      </label>
+
+      <div className="mt-1 flex flex-wrap gap-2">
+        <Button type="button" onClick={() => void save()} variant="primary">
+          save
+        </Button>
+        <button
+          type="button"
+          onClick={() => setEditing(null)}
+          className="tap rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted"
+        >
+          cancel
+        </button>
+        {members.some((m) => m.id === editing.id) && (
+          <Button
+            variant="ghost-danger"
+            onClick={() => void remove(editing.id)}
+            className="ml-auto"
+          >
+            remove
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <section className="mt-8">
       <SectionLabel icon="users">Specialists</SectionLabel>
@@ -189,76 +353,85 @@ export default function CouncilPanel() {
               className="block h-[120px] rounded-[11px] border border-line bg-surface"
             />
           ))}
-        {members.map((m) => (
-          <div
-            key={m.id}
-            className={`flex flex-col gap-2 rounded-[11px] border border-l-2 px-[15px] py-3 ${
-              // A member switched off recedes by its ground; opacity took the
-              // text under 4.5:1 with it.
-              m.enabled ? `bg-surface ${MEMBER_RULE[m.colour]}` : "border-line bg-transparent"
-            }`}
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <Portrait face={m.face} colour={m.colour} size={32} title={m.remit} />
-              <span className={`text-[13.5px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
-              <span className="font-mono text-[11px] text-faint">
-                {m.chair ? "chair" : `@${m.id}`}
-              </span>
-              {!m.enabled && <span className="text-[11.5px] text-wait">paused</span>}
-              {!m.chair && (
-                <button
-                  type="button"
-                  onClick={() => setEditing(m)}
-                  className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-line-strong"
-                >
-                  edit
-                </button>
-              )}
+        {members.map((m) =>
+          editing?.id === m.id ? (
+            <div key={m.id} className="col-span-full">
+              {editor}
             </div>
+          ) : (
+            <div
+              key={m.id}
+              className={`flex flex-col gap-2 rounded-[11px] border border-l-2 px-[15px] py-3 ${
+                // A member switched off recedes by its ground; opacity took the
+                // text under 4.5:1 with it.
+                m.enabled ? `bg-surface ${MEMBER_RULE[m.colour]}` : "border-line bg-transparent"
+              }`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Portrait face={m.face} colour={m.colour} size={32} title={m.remit} />
+                <span className={`text-[13.5px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
+                <span className="font-mono text-[11px] text-faint">
+                  {m.chair ? "chair" : `@${m.id}`}
+                </span>
+                {!m.enabled && <span className="text-[11.5px] text-wait">paused</span>}
+                {!m.chair && (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(m)}
+                    className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-line-strong"
+                  >
+                    edit
+                  </button>
+                )}
+              </div>
 
-            <div className="text-[13px] text-muted">{m.remit}</div>
+              <div className="text-[13px] text-muted">{m.remit}</div>
 
-            {/* How they talk, in their own words. The persona is the field you
+              {/* How they talk, in their own words. The persona is the field you
                 edit when one of them says something annoying, so it is the one
                 worth seeing without opening a form. */}
-            {m.persona.trim() && (
-              <div className="border-l border-line pl-2.5 text-[12.5px] leading-relaxed text-faint italic">
-                {m.persona.split("\n").join(" ")}
+              {m.persona.trim() && (
+                <div className="border-l border-line pl-2.5 text-[12.5px] leading-relaxed text-faint italic">
+                  {m.persona.split("\n").join(" ")}
+                </div>
+              )}
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Voice member={m} voices={voices} />
+                <span className="font-mono text-[11px] text-faint">
+                  {m.model} · {m.effort}
+                </span>
               </div>
-            )}
 
-            <div className="flex flex-wrap items-center gap-1.5">
-              <Voice member={m} voices={voices} />
-              <span className="font-mono text-[11px] text-faint">
-                {m.model} · {m.effort}
-              </span>
-            </div>
-
-            {!m.chair && (
-              <div className="flex flex-wrap gap-1">
-                {m.tools.length ? (
-                  m.tools.map((t) => (
-                    <span
-                      key={t}
-                      className="rounded-full border border-line px-2 py-0.5 font-mono text-[10.5px] text-faint"
-                    >
-                      {t}
+              {!m.chair && (
+                <div className="flex flex-wrap gap-1">
+                  {m.tools.length ? (
+                    m.tools.map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-full border border-line px-2 py-0.5 font-mono text-[10.5px] text-faint"
+                      >
+                        {t}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[11.5px] text-faint">
+                      no tools: answers from memory alone
                     </span>
-                  ))
-                ) : (
-                  <span className="text-[11.5px] text-faint">
-                    no tools: answers from memory alone
-                  </span>
-                )}
-                {m.web && (
-                  <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-faint">
-                    the web
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
+                  )}
+                  {m.web && (
+                    <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-faint">
+                      the web
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ),
+        )}
+        {editing && !members.some((m) => m.id === editing.id) && (
+          <div className="col-span-full">{editor}</div>
+        )}
       </div>
 
       <button
@@ -268,170 +441,6 @@ export default function CouncilPanel() {
       >
         + add someone
       </button>
-
-      {editing && (
-        <div className="mt-3 flex flex-col gap-2 rounded-[11px] border border-accent/40 bg-surface px-[15px] py-3">
-          <div className="font-mono text-[11px] text-faint">@{editing.id}</div>
-          <Input
-            label="member name"
-            placeholder="name"
-
-            value={editing.name}
-            onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-          />
-          <Input
-            label="what they are for"
-            placeholder="one line: what they are for"
-
-            value={editing.remit}
-            onChange={(e) => setEditing({ ...editing, remit: e.target.value })}
-          />
-          <Textarea
-            label="how they think"
-            className="min-h-[80px]"
-            placeholder="how they think, in their own words. Carried with every turn, so keep it short."
-
-            value={editing.persona}
-            onChange={(e) => setEditing({ ...editing, persona: e.target.value })}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              label="model"
-              className="w-[13ch]"
-              placeholder="model"
-
-              value={editing.model}
-              onChange={(e) => setEditing({ ...editing, model: e.target.value })}
-            />
-            <Select
-              label="effort"
-              value={editing.effort}
-              onChange={(e) =>
-                setEditing({ ...editing, effort: e.target.value as AssistantEffort })
-              }
-            >
-              {EFFORTS.map((e) => (
-                <option key={e} value={e}>
-                  {e}
-                </option>
-              ))}
-            </Select>
-            <Select
-              label="colour"
-              value={editing.colour}
-              onChange={(e) => setEditing({ ...editing, colour: e.target.value as CouncilColour })}
-            >
-              {COLOURS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </Select>
-            {voices.length > 0 && (
-              <Select
-                label="voice"
-                value={editing.voice}
-                onChange={(e) => setEditing({ ...editing, voice: e.target.value })}
-              >
-                <option value="">the default voice</option>
-                {voices.map((v) => (
-                  <option key={v} value={v}>
-                    {voiceLabel(v)}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </div>
-
-          {/* Drawn in the colour picked above, because that is the pair you are
-              actually choosing: the same fox in two hues is two advisors. */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            {FACES.map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setEditing({ ...editing, face: f })}
-                aria-pressed={editing.face === f}
-                aria-label={f}
-                title={f}
-                className={`tap flex h-9 w-9 items-center justify-center rounded-full border ${
-                  editing.face === f
-                    ? `${MEMBER_RULE[editing.colour]} ${MEMBER_TEXT[editing.colour]} bg-surface-2`
-                    : "border-line text-faint hover:border-line-strong"
-                }`}
-              >
-                <Face face={f} className="h-[22px] w-[22px]" />
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-1 text-[12px] text-muted">What they may look at</div>
-          <div className="flex flex-wrap gap-1.5">
-            {offerable.map((tool) => {
-              const on = editing.tools.includes(tool);
-              return (
-                <button
-                  key={tool}
-                  type="button"
-                  onClick={() =>
-                    setEditing({
-                      ...editing,
-                      tools: on
-                        ? editing.tools.filter((t) => t !== tool)
-                        : [...editing.tools, tool],
-                    })
-                  }
-                  aria-pressed={on}
-                  className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
-                    on ? "border-accent/50 bg-accent-tint text-accent" : "border-line text-faint"
-                  }`}
-                >
-                  {tool}
-                </button>
-              );
-            })}
-          </div>
-
-          <label className="flex items-center gap-2 text-[13px] text-muted">
-            <input
-              type="checkbox"
-              checked={editing.web}
-              onChange={(e) => setEditing({ ...editing, web: e.target.checked })}
-            />
-            can read the web
-          </label>
-          <label className="flex items-center gap-2 text-[13px] text-muted">
-            <input
-              type="checkbox"
-              checked={editing.enabled}
-              onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
-            />
-            takes part in meetings
-          </label>
-
-          <div className="mt-1 flex flex-wrap gap-2">
-            <Button type="button" onClick={() => void save()} variant="primary">
-              save
-            </Button>
-            <button
-              type="button"
-              onClick={() => setEditing(null)}
-              className="tap rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted"
-            >
-              cancel
-            </button>
-            {members.some((m) => m.id === editing.id) && (
-              <Button
-                variant="ghost-danger"
-                onClick={() => void remove(editing.id)}
-                className="ml-auto"
-              >
-                remove
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
     </section>
   );
 }
