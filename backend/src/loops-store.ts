@@ -117,6 +117,22 @@ export async function close(slug: string): Promise<Loop | null> {
   return loop;
 }
 
+/**
+ * The way back from `close`. Closing is one tap on a row on Today, beside the
+ * row's own link, and a loop shut by a thumb that meant the link is still the
+ * same loop — it had no way back but asking the assistant to open it again.
+ */
+export async function reopen(slug: string): Promise<Loop | null> {
+  const loop = await get(slug);
+  if (!loop) return null;
+  if (loop.state === "closed") {
+    loop.state = "open";
+    loop.closedAt = null;
+    await write(loop);
+  }
+  return loop;
+}
+
 export async function remove(slug: string): Promise<boolean> {
   if (!SLUG_RE.test(slug)) return false;
   try {

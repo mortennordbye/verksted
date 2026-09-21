@@ -65,6 +65,22 @@ export default function Settings() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [newKey, setNewKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+
+  /**
+   * F-30. One tap, and the value was gone: the pod keeps it nowhere else, so
+   * putting it back meant finding it again wherever it came from — a token
+   * page, a password manager, a colleague.
+   */
+  async function clear(name: string) {
+    const ok = await confirm({
+      title: `Remove ${name}?`,
+      body: "The pod keeps no other copy. Sessions started from now on go without it, and the ones already running keep what they started with.",
+      action: "remove it",
+      danger: true,
+    });
+    if (ok) await save({ [name]: null });
+  }
 
   /** Whether it was stored. A failed save must not take the field with it. */
   async function save(vars: Record<string, string | null>): Promise<boolean> {
@@ -211,7 +227,7 @@ export default function Settings() {
                   )}
                   {v.source === "settings" && (
                     <button
-                      onClick={() => save({ [v.key]: null })}
+                      onClick={() => void clear(v.key)}
                       title="remove the stored value"
                       className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait"
                     >
@@ -262,6 +278,7 @@ export default function Settings() {
           </>
         )}
       </main>
+      {confirmDialog}
     </>
   );
 }
@@ -315,6 +332,7 @@ function GoogleCalendar() {
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirm, confirmDialog] = useConfirm();
   const outcome = params.get("google");
   const failed = params.get("google_error");
 
@@ -336,6 +354,15 @@ function GoogleCalendar() {
   }
 
   async function disconnect() {
+    // Revoked at Google as well as forgotten here, so the way back is the
+    // whole sign-in again rather than a tap.
+    const ok = await confirm({
+      title: "Disconnect Google?",
+      body: "The pod forgets its sign-in and revokes it at Google. The calendar and the Gmail rules stop until you sign in again; the client ID and secret stay.",
+      action: "disconnect",
+      danger: true,
+    });
+    if (!ok) return;
     setError(null);
     try {
       await api("/api/calendar/google/disconnect", { method: "POST" });
@@ -383,7 +410,10 @@ function GoogleCalendar() {
           >
             sign in again
           </a>
-          <button onClick={disconnect} className="tap text-[12.5px] text-muted hover:text-wait">
+          <button
+            onClick={() => void disconnect()}
+            className="tap text-[12.5px] text-muted hover:text-wait"
+          >
             disconnect
           </button>
         </div>
@@ -461,6 +491,7 @@ function GoogleCalendar() {
           )}
         </div>
       )}
+      {confirmDialog}
     </>
   );
 }
@@ -476,6 +507,7 @@ function GoogleCalendar() {
 function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => void }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
 
   async function save(next: string[]): Promise<boolean> {
     setError(null);
@@ -492,6 +524,16 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
   async function add() {
     const owner = draft.trim();
     if (!owner) return;
+    // Saving deletes what the owner already filed. The row's × lets the next
+    // poll file it again if GitHub still lists it, but as new: what was done
+    // or snoozed, and how it was sorted, went with the delete.
+    const ok = await confirm({
+      title: `Stop reading ${owner}?`,
+      body: `Everything in the inbox from ${owner} is deleted now, with whatever you had marked done or snoozed, and nothing from it is filed again until you remove it here.`,
+      action: "stop reading it",
+      danger: true,
+    });
+    if (!ok) return;
     if (await save([...owners, owner])) setDraft("");
   }
 
@@ -539,6 +581,7 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
           add
         </button>
       </div>
+      {confirmDialog}
     </>
   );
 }

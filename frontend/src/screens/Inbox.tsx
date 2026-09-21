@@ -17,6 +17,7 @@ import TopBar from "../components/TopBar";
 import WaitingSession from "../components/WaitingSession";
 import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
+import { useUndo } from "../components/UndoBar";
 
 /**
  * The inbox: everything that happened, newest first, and what to do with it.
@@ -436,18 +437,11 @@ export default function Inbox() {
   const { busy: judging, error: judgeError, run: runJudge } = useAction();
   // What the last action did, and the way back out of it. An inbox where
   // "done" is one tap and irreversible is one you stop trusting to tap in.
-  const [undo, setUndo] = useState<{ ids: string[]; label: string } | null>(null);
+  const [offerUndo, undoBar] = useUndo();
   // Where the keyboard is: the row, and where on the list it was, so a row that
   // leaves (marked done, snoozed) hands the selection to the one that took its place.
   const [cursor, setCursor] = useState<{ id: string; index: number } | null>(null);
   const [confirm, confirmDialog] = useConfirm();
-
-  // Offered for as long as it is plausibly still the thing you just did.
-  useEffect(() => {
-    if (!undo) return;
-    const timer = setTimeout(() => setUndo(null), 15_000);
-    return () => clearTimeout(timer);
-  }, [undo]);
 
   const all = items ?? [];
   const live = all.filter((i) => i.state !== "done");
@@ -549,16 +543,12 @@ export default function Inbox() {
         cleared.push(item.id);
       }
     });
-    if (cleared.length) {
-      setUndo({ ids: cleared, label: `${cleared.length} marked done` });
-    }
+    if (cleared.length) offerUndo(`${cleared.length} marked done`, () => restore(cleared));
     refresh();
   }
 
-  async function undoLast() {
-    if (!undo) return;
-    const { ids } = undo;
-    setUndo(null);
+  /** Put rows back to new, which is what every undo on this list means. */
+  async function restore(ids: string[]) {
     await runList(async () => {
       for (const id of ids) {
         await api(`/api/feed/${encodeURIComponent(id)}/state`, {
@@ -614,7 +604,16 @@ export default function Inbox() {
                       void runList(async () => {
                         await api(`/api/loops/${l.slug}/close`, { method: "POST" });
                         refresh();
-                      })
+                      }).then(
+                        (ok) =>
+                          ok &&
+                          offerUndo(`closed “${l.what}”`, () =>
+                            runList(async () => {
+                              await api(`/api/loops/${l.slug}/reopen`, { method: "POST" });
+                              refresh();
+                            }).then(() => undefined),
+                          ),
+                      )
                     }
                     disabled={clearing}
                     className="tap rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
@@ -711,18 +710,6 @@ export default function Inbox() {
           </div>
         )}
 
-        {undo && (
-          <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13px]">
-            <span className="min-w-0 flex-1 text-muted">{undo.label}</span>
-            <button
-              onClick={() => void undoLast()}
-              className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 text-[12px] text-muted hover:border-faint hover:text-text"
-            >
-              undo
-            </button>
-          </div>
-        )}
-
         {sections.map((s) => {
           if (!s.items.length) return null;
           const folded = s.key === "quiet" && !showQuiet;
@@ -763,7 +750,7 @@ export default function Inbox() {
                           loopTitle={i.loop ? loopWhat.get(i.loop) : undefined}
                           selected={i.id === selected}
                           onChange={refresh}
-                          onActed={(ids, label) => setUndo({ ids, label })}
+                          onActed={(ids, label) => offerUndo(label, () => restore(ids))}
                         />
                       ))}
                     </div>
@@ -791,6 +778,7 @@ export default function Inbox() {
       </main>
       <Tabs />
       {confirmDialog}
+      {undoBar}
     </>
   );
 }

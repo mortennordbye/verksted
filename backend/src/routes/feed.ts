@@ -142,6 +142,12 @@ export default async function feedRoutes(app: FastifyInstance) {
     return loop;
   });
 
+  app.post<{ Params: { slug: string } }>("/api/loops/:slug/reopen", async (req, reply) => {
+    const loop = await loops.reopen(req.params.slug);
+    if (!loop) return reply.code(404).send({ error: "not found" });
+    return loop;
+  });
+
   app.delete<{ Params: { slug: string } }>("/api/loops/:slug", async (req, reply) => {
     if (!(await loops.remove(req.params.slug))) return reply.code(404).send({ error: "not found" });
     return { slug: req.params.slug };

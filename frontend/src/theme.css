@@ -384,3 +384,10 @@ select:focus-visible {
     }
   }
 }
+
+/* The line a search hit opened the file viewer on (F-36). A highlight, not a
+   class: the viewer's text is highlight.js's HTML, and the line runs across
+   whatever spans it happens to fall in. */
+::highlight(vk-line) {
+  background-color: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
