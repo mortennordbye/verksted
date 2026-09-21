@@ -48,7 +48,11 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
     // and cmd-click did nothing. The delete button is a sibling of the link
     // rather than inside it, since a button cannot nest in an anchor.
     <div
-      className={`flex w-full items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] transition hover:border-faint ${live ? "" : "opacity-60"}`}
+      className={`flex w-full items-center gap-3 rounded-[11px] border px-[15px] py-[13px] transition hover:border-faint ${
+        // Receded by its ground, not by opacity: faded text on a finished row
+        // measured 2.5:1, which is a row you cannot read (axe, F-48).
+        live ? "border-line bg-surface" : "border-line/60 bg-transparent"
+      }`}
     >
       <Link to={`/s/${session.id}`} className="flex min-w-0 flex-1 items-center gap-3 text-left">
         <StatusDot running={live} />

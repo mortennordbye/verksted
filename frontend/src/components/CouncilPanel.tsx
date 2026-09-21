@@ -192,8 +192,10 @@ export default function CouncilPanel() {
         {members.map((m) => (
           <div
             key={m.id}
-            className={`flex flex-col gap-2 rounded-[11px] border border-l-2 bg-surface px-[15px] py-3 ${
-              m.enabled ? MEMBER_RULE[m.colour] : "border-line opacity-60"
+            className={`flex flex-col gap-2 rounded-[11px] border border-l-2 px-[15px] py-3 ${
+              // A member switched off recedes by its ground; opacity took the
+              // text under 4.5:1 with it.
+              m.enabled ? `bg-surface ${MEMBER_RULE[m.colour]}` : "border-line bg-transparent"
             }`}
           >
             <div className="flex flex-wrap items-center gap-2">

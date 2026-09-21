@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { AxeBuilder } from "@axe-core/playwright";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -717,6 +718,65 @@ describe("the app in a real browser", () => {
     await page.waitForURL("**/runs");
     expect(filed()).toHaveLength(1);
   });
+
+  /**
+   * F-48: an accessibility pass per route, by axe-core, against WCAG A and AA.
+   * The lint rules see one element at a time; this sees the page as drawn,
+   * which is where contrast and a name that never made it into the DOM show.
+   */
+  it("passes axe on every screen", async () => {
+    // Its own context, and legacy mode, which runs axe inside the page: the
+    // default finishes in a second page it opens on the context, which a page
+    // from browser.newPage() will not allow. The app has no cross-origin
+    // frames for the default mode to reach anyway.
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const phone = await context.newPage();
+    const found: string[] = [];
+    for (const route of [
+      "/today",
+      "/runs",
+      "/bench",
+      "/p/demo",
+      "/s/vk-demo-1",
+      "/docs",
+      "/settings",
+    ]) {
+      await phone.goto(`${base}${route}`, { waitUntil: "networkidle" });
+      const { violations } = await new AxeBuilder({ page: phone })
+        .setLegacyMode()
+        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+        .analyze();
+      for (const v of violations) {
+        found.push(`${route} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+      }
+    }
+    await context.close();
+    expect(found).toEqual([]);
+  }, 120_000);
+
+  /**
+   * F-48: the tunnel dropping, in a real browser. The unit tests fake a failed
+   * fetch; this is the browser going offline under a screen that is open, the
+   * banner saying so, and the screen coming back when it returns.
+   */
+  it("says when the pod cannot be reached, and stops saying it when it can", async () => {
+    // Its own context: the failed requests this makes are the point, and the
+    // shared page's listener would count them as problems.
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const phone = await context.newPage();
+    await phone.goto(`${base}/bench`, { waitUntil: "networkidle" });
+    // Going somewhere is what a person does next, and what asks the pod for
+    // something the screen does not already have.
+    await context.setOffline(true);
+    await phone.getByRole("link", { name: "Inbox" }).first().click();
+    await phone.getByText("can't reach the pod").first().waitFor({ timeout: 30_000 });
+    await context.setOffline(false);
+    await phone.getByRole("link", { name: "Bench" }).first().click();
+    await expect
+      .poll(() => phone.getByText("can't reach the pod").count(), { timeout: 30_000 })
+      .toBe(0);
+    await context.close();
+  }, 90_000);
 
   it("did all of that without a console error or a failed request", () => {
     expect(problems).toEqual([]);

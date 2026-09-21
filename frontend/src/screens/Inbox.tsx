@@ -252,7 +252,7 @@ function Row({
       // pointer's row can be told apart when they are not the same one.
       className={`group rounded-[11px] border px-3 py-2 ${selected ? "ring-2 ring-accent/60" : ""} ${
         done
-          ? "border-line/60 bg-surface/60 opacity-70"
+          ? "border-line/60 bg-transparent"
           : item.urgency === "attention"
             ? "border-wait/30 bg-wait/8"
             : "border-line bg-surface"
