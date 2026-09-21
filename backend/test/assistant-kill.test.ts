@@ -78,3 +78,29 @@ describe("stopping a turn", () => {
     expect(await until(() => gone(child))).toBe(true);
   });
 });
+
+describe("a turn that never comes back (A-32)", () => {
+  it("is stopped at its limit, with what it started, and says so in the thread", async () => {
+    fs.rmSync(pidFile, { force: true });
+    const { setTurnTimeouts } = await import("../src/assistant.js");
+    const restore = setTurnTimeouts(300, 300);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/assistant/messages",
+        payload: { text: "anything" },
+      });
+
+      // Nobody pressed stop: the limit ended it, and the request came back.
+      const last = res.json().entries.at(-1);
+      expect(last.failed).toBe(true);
+      expect(last.text).toMatch(/ran past its time limit/);
+      expect(res.json().status).toBe("idle");
+
+      const child = Number(fs.readFileSync(pidFile, "utf8"));
+      expect(await until(() => gone(child))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});

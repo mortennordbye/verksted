@@ -107,6 +107,12 @@ describe("triage", () => {
     expect(system).toContain("sorting them for the person");
     expect(system).toContain("Kari is my partner");
     expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
+    // What it reads is titles written by strangers, so it is given nothing to
+    // act with: no built-ins, nothing allowed, and no MCP server at all (A-05).
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toBe("");
+    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8"));
+    expect(config.mcpServers).toEqual({});
 
     const one = (await feed.get("github:1"))!;
     expect([one.urgency, one.detail, one.triaged]).toEqual([
