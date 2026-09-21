@@ -221,6 +221,17 @@ export default function Terminal({
   const retries = useRef(0);
   const [ended, setEnded] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
+  /**
+   * Sign-in links this pane has finished with.
+   *
+   * The scan runs over the scrollback after every batch of output, and a URL
+   * stays in the scrollback for good — so dismissing the bar bought one line of
+   * quiet and then it came back. It matters because the match is deliberately
+   * wide (any URL carrying oauth, login, verify or /device), which a link in an
+   * agent's own prose can trip: that bar was undismissable until the session
+   * ended.
+   */
+  const dismissedUrls = useRef(new Set<string>());
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
   const [copied, setCopied] = useState(false);
   const [pasteBlocked, setPasteBlocked] = useState(false);
@@ -449,6 +460,9 @@ export default function Terminal({
     if (!trimmed) return;
     sendInput(trimmed + "\r");
     setCode("");
+    // Answered, so the link is done with — and the scan must not raise it again
+    // off the scrollback it is still sitting in.
+    if (authUrl) dismissedUrls.current.add(authUrl);
     setAuthUrl(null);
     setCopied(false);
   }
@@ -467,6 +481,16 @@ export default function Terminal({
     writeStored(FONT_KEY, String(fontSize));
   }, [fontSize]);
 
+  /**
+   * The terminal itself, which outlives any one connection to it.
+   *
+   * Keyed on the session and the pane, not on the attempt. It used to be one
+   * effect for both: every backoff retry disposed the xterm and built an empty
+   * one, so the "reconnecting" banner — written as a banner rather than an
+   * overlay precisely so the last thing the agent printed stays readable
+   * underneath it — was drawn over a blank screen. What the agent said before
+   * the tunnel dropped is usually the thing you wanted to read.
+   */
   useEffect(() => {
     const el = ref.current!;
     const term = new Xterm({
@@ -522,45 +546,6 @@ export default function Terminal({
     // would throw the on-screen keyboard up over the pane on arrival.
     if (matchMedia("(pointer: fine)").matches) term.focus();
     termRef.current = term;
-
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(
-      `${proto}://${location.host}/api/sessions/${sessionId}/attach?cols=${term.cols}&rows=${term.rows}${shell ? "&shell=1" : ""}`,
-    );
-    ws.binaryType = "arraybuffer";
-    wsRef.current = ws;
-    let unmounted = false;
-
-    let scanTimer: number | undefined;
-    setMode(null);
-    setEnded(false);
-    ws.onopen = () => {
-      setDisconnected(false);
-      retries.current = 0;
-    };
-    ws.onmessage = (e) => {
-      term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
-      // Debounced so we scan settled output, not every partial frame.
-      clearTimeout(scanTimer);
-      scanTimer = window.setTimeout(() => {
-        const url = findAuthUrl(term);
-        if (url) setAuthUrl(url);
-        // Sticky: while the agent works it replaces the status line with its
-        // own hints, and the mode hasn't changed just because it scrolled off.
-        const m = findMode(term);
-        if (m) setMode(m);
-      }, 400);
-    };
-    ws.onclose = (e) => {
-      // Codes the attach route uses to say retrying is pointless: 4404 the
-      // session is gone (ended or purged), 4429 too many clients are already
-      // attached, 4500 the pty could not be started at all.
-      if (!unmounted) {
-        if (e.code === 4404 || e.code === 4429 || e.code === 4500) setEnded(true);
-        setCloseCode(e.code);
-        setDisconnected(true);
-      }
-    };
 
     // One text row in CSS pixels — fit() sizes rows to this box, so the box
     // height over the row count is the row height.
@@ -664,25 +649,28 @@ export default function Terminal({
         setCtrl(false);
         data = String.fromCharCode(data.toUpperCase().charCodeAt(0) - 64);
       }
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "in", data }));
     });
 
+    // Refit only. What the new geometry is worth telling tmux is sent by
+    // `term.onResize` below, which also covers the font size — fit() after a
+    // font change leaves this box exactly the size it was, so the observer
+    // never fires and tmux kept the old cols and rows.
     let debounce: number | undefined;
     const ro = new ResizeObserver(() => {
       clearTimeout(debounce);
-      debounce = window.setTimeout(() => {
-        fit.fit();
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ t: "resize", cols: term.cols, rows: term.rows }));
-        }
-      }, 100);
+      debounce = window.setTimeout(() => fit.fit(), 100);
     });
     ro.observe(el);
 
+    const resized = term.onResize(({ cols, rows }) => {
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "resize", cols, rows }));
+    });
+
     return () => {
-      unmounted = true;
       clearTimeout(debounce);
-      clearTimeout(scanTimer);
       clearTimeout(scrollTimer.current);
       clearTimeout(flashTimer.current);
       el.removeEventListener("touchstart", onTouchStart);
@@ -690,9 +678,68 @@ export default function Terminal({
       el.removeEventListener("paste", onPaste, true);
       ro.disconnect();
       input.dispose();
-      ws.close();
+      resized.dispose();
       term.dispose();
       termRef.current = null;
+      fitRef.current = null;
+    };
+  }, [sessionId, shell]);
+
+  /**
+   * The connection to it, which does not: every retry replaces this one and
+   * leaves the screen above alone.
+   */
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(
+      `${proto}://${location.host}/api/sessions/${sessionId}/attach?cols=${term.cols}&rows=${term.rows}${shell ? "&shell=1" : ""}`,
+    );
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+    let unmounted = false;
+
+    let scanTimer: number | undefined;
+    setMode(null);
+    setEnded(false);
+    ws.onopen = () => {
+      // tmux repaints the whole pane on attach. The frame from before the drop
+      // is still on screen now that the terminal survives one, so it is cleared
+      // here rather than left for the repaint to land on top of.
+      if (attempt > 0) term.reset();
+      setDisconnected(false);
+      retries.current = 0;
+    };
+    ws.onmessage = (e) => {
+      term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
+      // Debounced so we scan settled output, not every partial frame.
+      clearTimeout(scanTimer);
+      scanTimer = window.setTimeout(() => {
+        const url = findAuthUrl(term);
+        if (url && !dismissedUrls.current.has(url)) setAuthUrl(url);
+        // Sticky: while the agent works it replaces the status line with its
+        // own hints, and the mode hasn't changed just because it scrolled off.
+        const m = findMode(term);
+        if (m) setMode(m);
+      }, 400);
+    };
+    ws.onclose = (e) => {
+      // Codes the attach route uses to say retrying is pointless: 4404 the
+      // session is gone (ended or purged), 4429 too many clients are already
+      // attached, 4500 the pty could not be started at all.
+      if (!unmounted) {
+        if (e.code === 4404 || e.code === 4429 || e.code === 4500) setEnded(true);
+        setCloseCode(e.code);
+        setDisconnected(true);
+      }
+    };
+
+    return () => {
+      unmounted = true;
+      clearTimeout(scanTimer);
+      ws.close();
+      wsRef.current = null;
     };
   }, [sessionId, shell, attempt]);
 
@@ -964,6 +1011,7 @@ export default function Terminal({
             </button>
             <button
               onClick={() => {
+                dismissedUrls.current.add(authUrl);
                 setAuthUrl(null);
                 setCopied(false);
               }}
