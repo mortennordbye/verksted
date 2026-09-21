@@ -193,8 +193,16 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       event.is_error === true ||
       (typeof event.subtype === "string" && event.subtype !== "success")
     ) {
+      // A run that failed before it reached the model has no `result`, only
+      // `errors` — and without them all that is left is the subtype, which says
+      // "error_during_execution" for everything.
+      const errors = Array.isArray(event.errors)
+        ? event.errors.filter((e): e is string => typeof e === "string").join("\n")
+        : "";
       const detail =
-        typeof event.result === "string" && event.result.trim() ? event.result.trim() : null;
+        typeof event.result === "string" && event.result.trim()
+          ? event.result.trim()
+          : errors.trim() || null;
       state.error =
         detail ?? (typeof event.subtype === "string" ? event.subtype : "the run failed");
     }

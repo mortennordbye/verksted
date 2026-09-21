@@ -25,6 +25,7 @@ import {
 } from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { ASSISTANT_CDP_PORT } from "./browser.js";
+import { transcriptPath } from "./claude-home.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
 import { noteTool } from "./assistant-taint.js";
@@ -499,9 +500,9 @@ async function readParticipants(threadId: string): Promise<Record<string, string
 
 /**
  * The conversation this member speaks in, within this thread, minting one on
- * first use. Returns whether it already existed, which is what decides
- * --resume against --session-id: getting that the wrong way round either loses
- * the thread or fails outright.
+ * first use. Whether claude has that conversation yet is not answered here: the
+ * id is written down before the turn runs, so its being on file says nothing
+ * about whether the turn got as far as a session. `turn` asks claude's side.
  *
  * Serialised, because a meeting allocates for every advisor at once and this is
  * a read-modify-write on one file: unchained, two advisors starting together
@@ -512,26 +513,20 @@ async function readParticipants(threadId: string): Promise<Record<string, string
  */
 let participantWrites: Promise<unknown> = Promise.resolve();
 
-function participant(
-  threadId: string,
-  memberId: string,
-): Promise<{ conversationId: string; resume: boolean }> {
+function participant(threadId: string, memberId: string): Promise<string> {
   const next = participantWrites.then(() => allocate(threadId, memberId));
   participantWrites = next.catch(() => {});
   return next;
 }
 
-async function allocate(
-  threadId: string,
-  memberId: string,
-): Promise<{ conversationId: string; resume: boolean }> {
+async function allocate(threadId: string, memberId: string): Promise<string> {
   const all = await readParticipants(threadId);
   const existing = all[memberId];
-  if (existing && CONV_RE.test(existing)) return { conversationId: existing, resume: true };
+  if (existing && CONV_RE.test(existing)) return existing;
   const conversationId = randomUUID();
   await fs.mkdir(env.ASSISTANT_DIR, { recursive: true });
   await writeJsonAtomic(participantsPath(threadId), { ...all, [memberId]: conversationId });
-  return { conversationId, resume: false };
+  return conversationId;
 }
 
 /**
@@ -1034,6 +1029,22 @@ const TURN_TIMEOUT_MS = 10 * 60_000;
 const MEMBER_TURN_TIMEOUT_MS = 5 * 60_000;
 
 /**
+ * The two ways claude refuses a conversation id: asked to resume one it has no
+ * transcript of, or to name one it already has. Both were read off the real
+ * CLI (2.1.278), and both come before any model call.
+ */
+const WRONG_FLAG_RE = /No conversation found with session ID|Session ID \S+ is already in use/;
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * One turn against the CLI.
  *
  * Shared by the chat, by an advisor the chair convened, and by a schedule
@@ -1051,8 +1062,6 @@ const MEMBER_TURN_TIMEOUT_MS = 5 * 60_000;
 async function turn(o: {
   speaker: Speaker;
   claudeConversationId: string;
-  /** True to continue that conversation, false to name a new one. */
-  resume: boolean;
   prompt: string;
   images: string[];
   unattended: boolean;
@@ -1074,7 +1083,13 @@ async function turn(o: {
     ? `${o.prompt}\n\n${images.map((n) => `[image: ${path.join(uploadsDir(), n)}]`).join("\n")}`
     : o.prompt;
 
-  const args = [
+  const mcpConfig = await ensureMcpConfig({
+    id: speaker.id,
+    unattended,
+    tools: speaker.tools,
+    turn: turnId,
+  });
+  const args = (resume: boolean) => [
     "-p",
     withImages,
     "--output-format",
@@ -1084,14 +1099,14 @@ async function turn(o: {
     // Token deltas, so an answer appears as it is written. Without this the
     // first text arrives only when the whole turn is done.
     "--include-partial-messages",
-    ...(o.resume ? ["--resume", o.claudeConversationId] : ["--session-id", o.claudeConversationId]),
+    ...(resume ? ["--resume", o.claudeConversationId] : ["--session-id", o.claudeConversationId]),
     // Nobody is watching a headless run to approve a tool call, and a prompt it
     // cannot answer is what the timeout below exists for. Safe here only
     // because the tools worth regretting are denied outright below.
     "--permission-mode",
     "auto",
     "--mcp-config",
-    await ensureMcpConfig({ id: speaker.id, unattended, tools: speaker.tools, turn: turnId }),
+    mcpConfig,
     // Without this, MCP servers configured in $HOME join the ones here — and
     // the allow list only auto-approves, so an unlisted server's tools would
     // still be a classifier's call. The claim that this agent has exactly the
@@ -1116,40 +1131,22 @@ async function turn(o: {
     speaker.systemPrompt,
   ];
 
-  const child = spawn("claude", args, {
-    cwd: env.REPOS_DIR,
-    env: {
-      ...process.env,
-      ...(await agentEnv()),
-      // Matches the mcpConfig() browser entry, which only exists for the
-      // chair's attended turns — this is the endpoint its wrapper connects to.
-      ...(speaker.id === CHAIR_ID && !unattended
-        ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
-        : {}),
-      VK_TURN: turnId,
-    },
-    stdio: ["ignore", "pipe", "pipe"],
-    // The leader of its own process group, so ending the turn ends what the
-    // turn started. See `endTree`.
-    detached: true,
-  });
-  live.add(child);
-  child.once("close", () => live.delete(child));
-  child.once("error", () => live.delete(child));
-  // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
-  // character in half wherever the pipe happens to break, and both halves come
-  // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
-  // marks, at random, in text that is then stored and read back for ever.
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.setEncoding("utf8");
-  o.onSpawn(child);
-  o.onChange();
+  const childEnv = {
+    ...process.env,
+    ...(await agentEnv()),
+    // Matches the mcpConfig() browser entry, which only exists for the
+    // chair's attended turns — this is the endpoint its wrapper connects to.
+    ...(speaker.id === CHAIR_ID && !unattended
+      ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
+      : {}),
+    VK_TURN: turnId,
+  };
 
   // Entries are appended and announced the moment they complete, rather than
   // after the process exits: the model produces its first sentence while the
   // tools it wants are still running, and waiting for the exit was the slowest
   // part of a turn by a distance.
-  const state = newStreamState((name) => noteTool(turnId, name));
+  let state = newStreamState((name) => noteTool(turnId, name));
   let lastLive = "";
   // Whether *this* turn recorded anything. A count of the lines in the thread
   // file would answer a different question now that a meeting has several
@@ -1162,44 +1159,84 @@ async function turn(o: {
     await o.sink(shots?.length ? { ...entry, images: await saveShots(shots) } : entry);
   };
 
-  const raw = await new Promise<{ err: string; timedOut: boolean }>((resolve) => {
-    let err = "";
-    let timedOut = false;
-    let queue: Promise<unknown> = Promise.resolve();
-    const timer = setTimeout(() => {
-      timedOut = true;
-      endTree(child);
-    }, speaker.timeoutMs);
-    child.stdout?.on("data", (d: string) => {
-      const entries = consumeChunk(d, state);
-      if (!entries.length) {
-        // Nothing completed, but the live text moved: push it so the answer is
-        // visible as it lands. Throttled, since deltas arrive per token.
-        if (state.live !== lastLive) {
-          lastLive = state.live;
-          o.onChange(state.live);
-        }
-        return;
-      }
-      // Serialised: appends are file writes, and two chunks arriving close
-      // together must not interleave inside the thread file.
-      queue = queue.then(async () => {
-        for (const entry of entries) await record(entry);
-        lastLive = "";
-        o.onChange();
-      });
+  const attempt = (resume: boolean) => {
+    const child = spawn("claude", args(resume), {
+      cwd: env.REPOS_DIR,
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+      // The leader of its own process group, so ending the turn ends what the
+      // turn started. See `endTree`.
+      detached: true,
     });
-    // Only ever read for its last three lines, and a CLI that is looping on an
-    // error would otherwise be kept whole, in memory, for ten minutes.
-    child.stderr?.on("data", (d: string) => (err = (err + d).slice(-4_000)));
-    const done = () => {
-      clearTimeout(timer);
-      // Whatever was mid-write when the process ended still has to land.
-      void queue.then(() => resolve({ err, timedOut }));
-    };
-    child.on("error", done);
-    child.on("close", done);
-  });
+    live.add(child);
+    child.once("close", () => live.delete(child));
+    child.once("error", () => live.delete(child));
+    // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
+    // character in half wherever the pipe happens to break, and both halves come
+    // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
+    // marks, at random, in text that is then stored and read back for ever.
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    o.onSpawn(child);
+    o.onChange();
+    return collect(child);
+  };
+
+  const collect = (child: Child) =>
+    new Promise<{ err: string; timedOut: boolean }>((resolve) => {
+      let err = "";
+      let timedOut = false;
+      let queue: Promise<unknown> = Promise.resolve();
+      const timer = setTimeout(() => {
+        timedOut = true;
+        endTree(child);
+      }, speaker.timeoutMs);
+      child.stdout?.on("data", (d: string) => {
+        const entries = consumeChunk(d, state);
+        if (!entries.length) {
+          // Nothing completed, but the live text moved: push it so the answer is
+          // visible as it lands. Throttled, since deltas arrive per token.
+          if (state.live !== lastLive) {
+            lastLive = state.live;
+            o.onChange(state.live);
+          }
+          return;
+        }
+        // Serialised: appends are file writes, and two chunks arriving close
+        // together must not interleave inside the thread file.
+        queue = queue.then(async () => {
+          for (const entry of entries) await record(entry);
+          lastLive = "";
+          o.onChange();
+        });
+      });
+      // Only ever read for its last three lines, and a CLI that is looping on an
+      // error would otherwise be kept whole, in memory, for ten minutes.
+      child.stderr?.on("data", (d: string) => (err = (err + d).slice(-4_000)));
+      const done = () => {
+        clearTimeout(timer);
+        // Whatever was mid-write when the process ended still has to land.
+        void queue.then(() => resolve({ err, timedOut }));
+      };
+      child.on("error", done);
+      child.on("close", done);
+    });
+
+  // Which flag is claude's to say, not this app's: the conversation exists once
+  // claude has written its transcript, and nothing on this side tracks that. A
+  // thread file with a reply in it used to stand in for it, and the two part
+  // ways whenever a turn ends between them — a stop on a held convene line, a
+  // restart during a first turn, a first turn that failed before claude got as
+  // far as a session. From then on every turn of that thread passed the wrong
+  // flag and failed, for good.
+  const resume = await exists(transcriptPath(env.REPOS_DIR, o.claudeConversationId));
+  let raw = await attempt(resume);
+  // And where the guess is still wrong, claude says so before it has asked the
+  // model anything, so the other flag costs one more spawn and no tokens.
+  if (!said && !raw.timedOut && WRONG_FLAG_RE.test(`${state.error ?? ""}\n${raw.err}`)) {
+    state = newStreamState((name) => noteTool(turnId, name));
+    raw = await attempt(!resume);
+  }
 
   for (const entry of finishStream(state)) await record(entry);
   const error = state.error;
@@ -1470,13 +1507,10 @@ async function speak(o: {
   running.set(key, { threadId, member: member.id, child: null });
   let held: AssistantEntry | null = null;
   try {
-    const { conversationId, resume } = member.chair
-      ? { conversationId: threadId, resume: await chairHasSpoken(threadId) }
-      : await participant(threadId, member.id);
+    const conversationId = member.chair ? threadId : await participant(threadId, member.id);
     const { text } = await turn({
       speaker: await speakerFor(member, o.systemPrompt),
       claudeConversationId: conversationId,
-      resume,
       prompt: o.prompt,
       images: o.images ?? [],
       unattended: false,
@@ -1540,19 +1574,6 @@ function conveneRequest(text: string): { line: string; rest: string } | null {
     return { line: at(lines.length - 1), rest: lines.slice(0, -1).join("\n").trim() };
   }
   return null;
-}
-
-/**
- * Whether the chair has ever spoken in this thread.
- *
- * Per author rather than "does the transcript have entries", because a thread
- * whose first turn was addressed to an advisor has entries the chair's own
- * conversation knows nothing about — passing --resume for a claude session that
- * was never created fails the turn outright.
- */
-async function chairHasSpoken(threadId: string): Promise<boolean> {
-  const entries = await readEntries(threadId);
-  return entries.some((e) => e.role === "assistant" && !e.member);
 }
 
 /**
@@ -2067,7 +2088,6 @@ async function unattendedTurn(
     await turn({
       speaker,
       claudeConversationId: conversationId,
-      resume: false,
       prompt,
       images: [],
       unattended: true,
@@ -2118,7 +2138,6 @@ async function unattendedTurn(
       await turn({
         speaker,
         claudeConversationId: conversationId,
-        resume: true,
         prompt: briefing(
           prompt,
           answers.filter((a) => a.text.trim()),
@@ -2186,7 +2205,6 @@ async function unattendedMemberTurn(
       timeoutMs: MEMBER_TURN_TIMEOUT_MS,
     },
     claudeConversationId: own,
-    resume: false,
     prompt,
     images: [],
     unattended: true,

@@ -192,6 +192,18 @@ export class FakeBin {
     fs.writeFileSync(this.repliesPath, JSON.stringify(this.replies));
   }
 
+  /**
+   * Drop every reply registered for one binary.
+   *
+   * `reset` keeps them, and re-registering only replaces the same prefix and
+   * `contains` pair — so a reply keyed on something the next test's argv also
+   * carries would go on answering for the rest of the file.
+   */
+  clear(bin: string): void {
+    this.replies[bin] = [];
+    fs.writeFileSync(this.repliesPath, JSON.stringify(this.replies));
+  }
+
   /** Every call made since the last reset, in order. */
   calls(): FakeCall[] {
     return fs
