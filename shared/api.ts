@@ -942,6 +942,8 @@ export interface SettingVar {
    * straight to the clipboard (see /api/settings/vars/:key/reveal).
    */
   fingerprint: string | null;
+  /** Whether the copy button has anything to fetch: stored here, and typed by a person. */
+  copyable: boolean;
 }
 
 export interface Settings {
@@ -1453,6 +1455,12 @@ export interface GoogleCalendarStatus {
   account: string | null;
   /** What to register as an authorised redirect URI on the OAuth client. */
   redirectUri: string;
+  /**
+   * Why the stored sign-in no longer works, in Google's words, or null. A
+   * token is kept until someone signs out, so one that was revoked or has
+   * expired is still "signed in" by every other field here.
+   */
+  error: string | null;
 }
 
 /** One entry in a directory of the share. */

@@ -27,6 +27,7 @@ async function currentSettings(): Promise<Settings> {
         // pasted from the one it replaced, and to see that a save landed,
         // without a live credential rendered on a screen.
         fingerprint: value ? settings.fingerprint(value) : null,
+        copyable: stored[key] !== undefined && settings.revealable(key),
       } as const;
     }),
     schedulesPaused: await settings.schedulesPaused(),
@@ -120,11 +121,12 @@ export default async function settingsRoutes(app: FastifyInstance) {
    * Only variables stored on the settings page. One set in the deployment is
    * answered 404: it is not this page's to hand back, and reading arbitrary
    * names out of the server's own environment is a different power than the one
-   * this button needs.
+   * this button needs. The same answer for the one stored value nobody typed
+   * (see `revealable`).
    */
   app.post<{ Params: { key: string } }>("/api/settings/vars/:key/reveal", async (req, reply) => {
     const { key } = req.params;
-    if (!settings.VAR_KEY_RE.test(key) || settings.blockedKey(key)) {
+    if (!settings.VAR_KEY_RE.test(key) || settings.blockedKey(key) || !settings.revealable(key)) {
       return reply.code(404).send({ error: "not found" });
     }
     const value = (await settings.readVars())[key];

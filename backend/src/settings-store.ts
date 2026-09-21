@@ -112,6 +112,20 @@ export function blockedKey(key: string): boolean {
   return BLOCKED_EXACT.has(key) || BLOCKED_PREFIXES.some((p) => key.startsWith(p));
 }
 
+/**
+ * Whether the copy button may hand a stored value back (A-11).
+ *
+ * Everything else on the settings page was typed there by the person, who has
+ * it somewhere else as well; copying it back out is a convenience. The Google
+ * refresh token was written by the sign-in, nobody has ever seen it, and the
+ * only thing that could want it in plaintext is something that should not have
+ * it: it is standing access to the calendar and the mail, good until revoked.
+ * Signing in again is how it is replaced.
+ */
+export function revealable(key: string): boolean {
+  return key !== "GOOGLE_REFRESH_TOKEN";
+}
+
 export const VAR_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 interface Stored {

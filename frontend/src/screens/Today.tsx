@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { Link, useNavigate } from "react-router";
 import { ackToday, ackedToday } from "../todayAck";
@@ -214,6 +214,15 @@ function Composer({ name }: { name: string }) {
    */
   const [shown, setShown] = useState(false);
 
+  // The wait below must not go on asking for a screen that has gone.
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
   async function send() {
     const value = text.trim();
     if (!value || busy) return;
@@ -223,12 +232,18 @@ function Composer({ name }: { name: string }) {
     setReply(null);
     setError(null);
     try {
-      const thread = await api<AssistantThread>("/api/assistant/messages", {
+      // Accepted at once, then asked after: a request held open for the whole
+      // turn is one the tunnel gives up on before a slow turn ends, and the
+      // sheet then said the turn had failed while it carried on.
+      let thread = await api<AssistantThread>("/api/assistant/messages", {
         method: "POST",
-        body: JSON.stringify({ text: value }),
-        // A turn does real work; the default would abandon every one of them.
-        timeoutMs: 11 * 60_000,
+        body: JSON.stringify({ text: value, wait: false }),
       });
+      while (thread.status === "thinking" && alive.current) {
+        await new Promise((r) => setTimeout(r, 2_000));
+        thread = await api<AssistantThread>("/api/assistant");
+      }
+      if (!alive.current) return;
       const last = [...thread.entries].reverse().find((e) => e.role === "assistant" && e.text);
       setReply(last?.text ?? "(no reply)");
     } catch (e) {

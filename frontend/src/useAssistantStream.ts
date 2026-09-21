@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { AssistantFrame, AssistantThread } from "../../shared/api";
 import { api } from "./api";
 
@@ -6,6 +6,22 @@ import { api } from "./api";
 const MAX_BACKOFF_MS = 16_000;
 /** How often the thread is fetched outright while there is no socket. */
 const FALLBACK_MS = 5_000;
+
+/**
+ * Which thread to show when a POST answers: the one held, or the one it sent.
+ *
+ * The POST answers as soon as the question is recorded, and the socket is a
+ * second connection with no ordering against the first. On a slow tunnel the
+ * answer can land after frames that are already past it, and it says
+ * "thinking": put over a thread whose turn has ended, nothing would ever
+ * arrive to correct it, and the composer would queue behind it until a reload.
+ */
+export function adopt(held: AssistantThread | null, accepted: AssistantThread): AssistantThread {
+  return held?.conversationId === accepted.conversationId &&
+    held.entries.length >= accepted.entries.length
+    ? held
+    : accepted;
+}
 
 /**
  * The assistant thread, kept live.
@@ -26,8 +42,12 @@ const FALLBACK_MS = 5_000;
  */
 export function useAssistantStream(): {
   thread: AssistantThread | null;
-  /** For the callers that already hold a newer thread: a POST's answer, an opened one. */
-  setThread: (thread: AssistantThread | null) => void;
+  /**
+   * For the callers that hold a thread of their own: a POST's answer, an opened
+   * one. A function of the thread held, because a POST's answer can arrive
+   * after a frame that is already ahead of it.
+   */
+  setThread: Dispatch<SetStateAction<AssistantThread | null>>;
   /** False while there is no socket, which is what the header says out loud. */
   streaming: boolean;
 } {

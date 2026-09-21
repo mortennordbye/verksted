@@ -103,7 +103,60 @@ export async function status(host: string | undefined): Promise<GoogleCalendarSt
     clientSet: !!(vars.GOOGLE_CLIENT_ID && vars.GOOGLE_CLIENT_SECRET),
     account: vars.GOOGLE_REFRESH_TOKEN ? (vars.GOOGLE_CALENDAR_USER ?? null) : null,
     redirectUri: redirectUri(host),
+    error: await refused(vars),
   };
+}
+
+/** How long one answer about the token stands. The settings page polls every minute. */
+const CHECK_TTL = 5 * 60_000;
+let checked: { token: string; at: number; error: string | null } | null = null;
+
+/** Forget the last answer. For tests, and for a sign-in that replaces the token. */
+export function resetTokenCheck(): void {
+  checked = null;
+}
+
+/**
+ * Whether Google still honours the stored token (A-11).
+ *
+ * A stored token used to be the whole of "connected", and a token is stored
+ * until someone signs out: one revoked from the Google account, or expired
+ * because the OAuth client is still in testing, showed green here while the
+ * calendar and the mail rules failed somewhere else with a different sentence.
+ * Asked by trading it, which is the only question Google answers, and the
+ * access token it returns is thrown away.
+ *
+ * Only Google saying no counts. A pod that cannot reach Google has learned
+ * nothing about the token, and saying "revoked" for a network fault would have
+ * someone sign in again to fix a tunnel.
+ */
+async function refused(vars: Record<string, string>, now = Date.now()): Promise<string | null> {
+  const token = vars.GOOGLE_REFRESH_TOKEN;
+  if (!token || !vars.GOOGLE_CLIENT_ID || !vars.GOOGLE_CLIENT_SECRET) return null;
+  if (checked && checked.token === token && now - checked.at < CHECK_TTL) return checked.error;
+  try {
+    const res = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: vars.GOOGLE_CLIENT_ID,
+        client_secret: vars.GOOGLE_CLIENT_SECRET,
+        refresh_token: token,
+        grant_type: "refresh_token",
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.status >= 500) return null;
+    const body = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      error_description?: string;
+    };
+    const error = res.ok ? null : (body.error_description ?? body.error ?? `HTTP ${res.status}`);
+    checked = { token, at: now, error };
+    return error;
+  } catch {
+    return null;
+  }
 }
 
 /** Trade the code for tokens, learn whose they are, and keep them. Returns the address. */

@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantFrame, AssistantThread } from "../../shared/api";
-import { useAssistantStream } from "../src/useAssistantStream";
+import { adopt, useAssistantStream } from "../src/useAssistantStream";
 
 /**
  * A socket that can be dropped on purpose.
@@ -238,5 +238,43 @@ describe("useAssistantStream", () => {
     act(() => FakeSocket.last.drop());
     await act(async () => void (await vi.advanceTimersByTimeAsync(60_000)));
     expect(FakeSocket.opened).toHaveLength(1);
+  });
+});
+
+describe("a POST's answer, against the thread already held", () => {
+  const entry = (id: string, role: "user" | "assistant") => ({
+    id,
+    role,
+    text: id,
+    tools: [],
+    at: "2026-09-21T10:00:00Z",
+  });
+  const accepted: AssistantThread = {
+    conversationId: "c1",
+    status: "thinking",
+    entries: [entry("q", "user")],
+  };
+
+  it("is shown when the socket has not caught up, so the question appears at once", () => {
+    expect(adopt(null, accepted)).toBe(accepted);
+    expect(adopt({ conversationId: "c1", status: "idle", entries: [] }, accepted)).toBe(accepted);
+  });
+
+  it("does not put 'thinking' back over a turn the socket has already seen end", () => {
+    const ahead: AssistantThread = {
+      conversationId: "c1",
+      status: "idle",
+      entries: [entry("q", "user"), entry("a", "assistant")],
+    };
+    expect(adopt(ahead, accepted)).toBe(ahead);
+  });
+
+  it("wins over another conversation, however long that one is", () => {
+    const other: AssistantThread = {
+      conversationId: "c0",
+      status: "idle",
+      entries: [entry("x", "user"), entry("y", "assistant")],
+    };
+    expect(adopt(other, accepted)).toBe(accepted);
   });
 });

@@ -42,8 +42,8 @@ beforeEach(() => {
         json({
           server: {},
           vars: [
-            { key: "GH_TOKEN", source: "settings", fingerprint: "…a1" },
-            { key: "CLAUDE_CODE_OAUTH_TOKEN", source: "unset", fingerprint: null },
+            { key: "GH_TOKEN", source: "settings", fingerprint: "…a1", copyable: true },
+            { key: "CLAUDE_CODE_OAUTH_TOKEN", source: "unset", fingerprint: null, copyable: false },
           ],
           schedulesPaused: false,
           blockedOwners: [],
