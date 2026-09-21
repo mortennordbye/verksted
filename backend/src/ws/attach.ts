@@ -22,6 +22,15 @@ function clamp(n: unknown, min: number, max: number, def: number): number {
 const MAX_CLIENTS_PER_SESSION = 6;
 const clientCount = new Map<string, number>();
 
+/**
+ * How many bytes may be waiting for the socket before the pty is paused, and
+ * how few it has to fall to before it is read again. A full screen of output
+ * is a few kilobytes, so this is roughly a second of a terminal going flat out
+ * — enough that an ordinary burst never touches it.
+ */
+const HIGH_WATER = 256 * 1024;
+const LOW_WATER = 32 * 1024;
+
 export default async function attachRoutes(app: FastifyInstance) {
   app.get<{
     Params: { id: string };
@@ -89,7 +98,45 @@ export default async function attachRoutes(app: FastifyInstance) {
     }
     clientCount.set(id, (clientCount.get(id) ?? 0) + 1);
 
-    pty.onData((data) => socket.send(data));
+    /**
+     * Backpressure, from either end.
+     *
+     * A `yes | head` or a build log arrives faster than a phone over a tunnel
+     * can be sent it, and faster than xterm can paint what it is sent. Neither
+     * used to be able to slow the pty down: output piled up in this process's
+     * socket buffer and in the page's write queue, and a session that printed
+     * a few megabytes could take the pod's memory with it.
+     *
+     * `socketReady` is this end — what the kernel has not taken yet.
+     * `clientReady` is the far end, which says so itself (`t: "flow"`).
+     */
+    let socketReady = true;
+    let clientReady = true;
+    let flowing = true;
+    let detached = false;
+    const settle = () => {
+      // A send callback lands after the close handler has killed the pty when
+      // a phone drops mid-frame, and this is a listener: what it throws
+      // reaches nothing but the process (R-23), and on this pod that is every
+      // agent in every tmux session.
+      if (detached) return;
+      const want = socketReady && clientReady;
+      if (want === flowing) return;
+      flowing = want;
+      if (want) pty.resume();
+      else pty.pause();
+    };
+
+    pty.onData((data) => {
+      socket.send(data, () => {
+        if (socketReady || socket.bufferedAmount > LOW_WATER) return;
+        socketReady = true;
+        settle();
+      });
+      if (!socketReady || socket.bufferedAmount <= HIGH_WATER) return;
+      socketReady = false;
+      settle();
+    });
     // Session killed elsewhere (or tmux exited): drop the socket.
     pty.onExit(() => socket.close(1000));
 
@@ -147,6 +194,10 @@ export default async function attachRoutes(app: FastifyInstance) {
           // (R-23), which on this pod is every agent in every tmux session.
           req.log.warn({ err }, "resize on a closed terminal");
         }
+      } else if (msg.t === "flow") {
+        if (typeof msg.on !== "boolean") return;
+        clientReady = msg.on;
+        settle();
       } else if (msg.t === "scroll") {
         const lines = clamp(msg.lines, -500, 500, 0);
         if (lines === 0) return;
@@ -158,6 +209,7 @@ export default async function attachRoutes(app: FastifyInstance) {
     // Detach, never kill: this ends only the `tmux attach` client process.
     // The tmux session and the agent inside it keep running.
     socket.on("close", () => {
+      detached = true;
       clearInterval(keepalive);
       const left = (clientCount.get(id) ?? 1) - 1;
       if (left > 0) clientCount.set(id, left);

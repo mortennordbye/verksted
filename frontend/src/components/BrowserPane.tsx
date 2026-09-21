@@ -56,22 +56,53 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
     wsRef.current = ws;
     let unmounted = false;
 
-    ws.onopen = () => setDisconnected(false);
-    ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data as string) as BrowserServerMsg;
-      if (msg.t === "frame") {
-        remote.current = { w: msg.w, h: msg.h };
-        const img = new Image();
-        img.onload = () => {
-          const canvas = canvasRef.current;
-          if (!canvas) return;
+    /**
+     * The newest frame that has not been painted yet, and whether one is
+     * being decoded now.
+     *
+     * Every frame used to be given its own `Image`, and a JPEG decode is
+     * asynchronous: two frames that arrive close together finish in whichever
+     * order the browser gets to them, so a slower older one could land on top
+     * of a newer one and leave the pane showing the page as it was. Decoding
+     * one at a time fixes the order, and what arrives meanwhile collapses to
+     * the last of them — a frame nobody ever saw is not worth decoding, and on
+     * a phone it is the decode, not the tunnel, that cannot keep up.
+     */
+    let pending: { data: string; w: number; h: number } | null = null;
+    let decoding = false;
+
+    const paint = () => {
+      const frame = pending;
+      pending = null;
+      if (!frame) {
+        decoding = false;
+        return;
+      }
+      decoding = true;
+      const img = new Image();
+      img.onload = () => {
+        remote.current = { w: frame.w, h: frame.h };
+        const canvas = canvasRef.current;
+        if (canvas) {
           if (canvas.width !== img.width || canvas.height !== img.height) {
             canvas.width = img.width;
             canvas.height = img.height;
           }
           canvas.getContext("2d")!.drawImage(img, 0, 0);
-        };
-        img.src = `data:image/jpeg;base64,${msg.data}`;
+        }
+        paint();
+      };
+      // A truncated frame must not stop every frame after it.
+      img.onerror = () => paint();
+      img.src = `data:image/jpeg;base64,${frame.data}`;
+    };
+
+    ws.onopen = () => setDisconnected(false);
+    ws.onmessage = (e) => {
+      const msg = JSON.parse(e.data as string) as BrowserServerMsg;
+      if (msg.t === "frame") {
+        pending = { data: msg.data, w: msg.w, h: msg.h };
+        if (!decoding) paint();
       } else if (msg.t === "url") {
         setError(null);
         if (!editingRef.current) setUrl(msg.url === "about:blank" ? "" : msg.url);
@@ -129,20 +160,43 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
     };
   }
 
-  function mouse(
-    e: RMouseEvent<HTMLCanvasElement>,
-    type: "mousePressed" | "mouseReleased" | "mouseMoved",
-  ) {
+  function mouse(e: RMouseEvent<HTMLCanvasElement>, type: "mousePressed" | "mouseReleased") {
     e.preventDefault();
     send({
       t: "mouse",
       type,
       ...toRemote(e),
-      button: type === "mouseMoved" ? "none" : (BUTTONS[e.button] ?? "left"),
-      clickCount: type === "mouseMoved" ? 0 : 1,
+      button: BUTTONS[e.button] ?? "left",
+      clickCount: 1,
       modifiers: modifiers(e),
     });
   }
+
+  /**
+   * Where the pointer was at the last animation frame.
+   *
+   * A mouse reports its position as fast as it can — hundreds of times a
+   * second on a desk — and each one was its own frame over the tunnel for a
+   * position that is superseded before it arrives. The remote page cannot act
+   * on more than it can render either, so one per frame is all of them that
+   * were ever going to matter.
+   */
+  const moveAt = useRef<{ x: number; y: number; modifiers: number } | null>(null);
+  const moveFrame = useRef(0);
+
+  function moved(e: RMouseEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+    moveAt.current = { ...toRemote(e), modifiers: modifiers(e) };
+    if (moveFrame.current) return;
+    moveFrame.current = requestAnimationFrame(() => {
+      moveFrame.current = 0;
+      if (moveAt.current) {
+        send({ t: "mouse", type: "mouseMoved", ...moveAt.current, button: "none", clickCount: 0 });
+      }
+    });
+  }
+
+  useEffect(() => () => cancelAnimationFrame(moveFrame.current), []);
 
   function key(e: RKeyboardEvent<HTMLCanvasElement>, type: "keyDown" | "keyUp") {
     e.preventDefault();
@@ -313,7 +367,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
             mouse(e, "mousePressed");
           }}
           onMouseUp={(e) => mouse(e, "mouseReleased")}
-          onMouseMove={(e) => mouse(e, "mouseMoved")}
+          onMouseMove={moved}
           onWheel={(e) => {
             send({
               t: "mouse",

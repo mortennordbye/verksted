@@ -59,4 +59,20 @@ describe("the built bundle", () => {
     });
     expect(lazy).toHaveLength(1);
   });
+
+  it("fetches the GPU renderer behind the terminal, not in front of it", () => {
+    // The same trade as the highlighter above: 31 KB gzipped of WebGL is worth
+    // having, and not worth putting in front of the first frame of the pane a
+    // notification tap opens. The terminal draws for itself until it lands.
+    const [addon] = chunks().filter((f) => f.startsWith("addon-webgl-"));
+    expect(addon).toBeTruthy();
+    const [session] = chunks().filter((f) => f.startsWith("Session-"));
+    const js = fs.readFileSync(path.join(DIST, session), "utf8");
+    // Named as something to fetch rather than carried: a static import would
+    // put the renderer itself in this chunk instead of a URL to it.
+    expect(js).toMatch(/import\(["'`][^"'`]*addon-webgl-/);
+    // And the shaders really are over there and not here.
+    expect(fs.readFileSync(path.join(DIST, addon), "utf8")).toContain("precision lowp");
+    expect(js).not.toContain("precision lowp");
+  });
 });

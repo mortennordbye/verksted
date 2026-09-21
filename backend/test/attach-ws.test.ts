@@ -22,6 +22,8 @@ let port: number;
 let fake: FakeBin;
 
 const SESSION = "vk-demo-1";
+/** A second one, whose fake prints something instead of just staying up. */
+const NOISY = "vk-demo-2";
 
 /** Open the attach socket for a session and wait until it is up. */
 function open(id = SESSION, qs = ""): Promise<WebSocket> {
@@ -55,23 +57,34 @@ beforeAll(async () => {
   // Before the modules under test are imported: tmux.ts snapshots PATH at
   // import time, and node-pty spawns the attach client with that snapshot.
   fake = FakeBin.install(["tmux"]);
-  fake.reply("tmux", "ls", { stdout: tmuxLsRows(SESSION) });
+  fake.reply("tmux", "ls", { stdout: tmuxLsRows(SESSION, NOISY) });
   // A real attach client lives until something ends it. These two outlive the
   // suite, so what ends them is the code under test rather than a timer.
   fake.reply("tmux", "-u attach-session", { delayMs: 60_000 });
   fake.reply("tmux", "-u new-session", { delayMs: 60_000 });
+  // A longer prefix, so this one wins over the silent reply above for the one
+  // session whose pane says something. It waits before printing, which gives a
+  // test time to say it cannot take the output before there is any — and then
+  // stays up like a real attach client, so what it printed is still readable.
+  fake.reply("tmux", `-u attach-session -t =${NOISY}`, {
+    stdout: "what the pane printed",
+    delayMs: 300,
+    holdMs: 60_000,
+  });
 
   const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-attach-"));
-  fs.writeFileSync(
-    path.join(sessionsDir, `${SESSION}.json`),
-    JSON.stringify({
-      id: SESSION,
-      project: "demo",
-      agent: "claude",
-      title: "a session somebody is watching",
-      createdAt: new Date().toISOString(),
-    }),
-  );
+  for (const id of [SESSION, NOISY]) {
+    fs.writeFileSync(
+      path.join(sessionsDir, `${id}.json`),
+      JSON.stringify({
+        id,
+        project: "demo",
+        agent: "claude",
+        title: "a session somebody is watching",
+        createdAt: new Date().toISOString(),
+      }),
+    );
+  }
   const reposDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-repos-"));
   fs.mkdirSync(path.join(reposDir, "demo"));
   process.env.SESSIONS_DIR = sessionsDir;
@@ -119,6 +132,32 @@ describe("the terminal attach socket", () => {
     socket.close();
     await vi.waitFor(() => expect(gone(client.pid)).toBe(true), { timeout: 10_000 });
     expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
+  });
+
+  /**
+   * R-26 and the far half of F-18. A `yes` or a build log arrives faster than
+   * a phone over a tunnel can be sent it and faster than xterm can paint it,
+   * and the output had nowhere to wait but this process's socket buffer and
+   * the page's write queue. The client says when it cannot take more, and the
+   * pty is not read again until it says it can.
+   */
+  it("stops reading the pty while the client says it cannot draw", async () => {
+    fake.reset();
+    const socket = await open(NOISY);
+    const seen: string[] = [];
+    socket.addEventListener("message", (e) => seen.push(String(e.data)));
+    // The upgrade is accepted before the handler has run, so a frame sent on
+    // the open event can land before anything is listening for it.
+    await vi.waitFor(() => expect(attaches()).toHaveLength(1));
+    socket.send(JSON.stringify({ t: "flow", on: false }));
+
+    // Well past the moment the pane prints. It is sitting in the pipe.
+    await new Promise((r) => setTimeout(r, 900));
+    expect(seen.join("")).not.toContain("what the pane printed");
+
+    socket.send(JSON.stringify({ t: "flow", on: true }));
+    await vi.waitFor(() => expect(seen.join("")).toContain("what the pane printed"));
+    socket.close();
   });
 
   it("refuses a session it does not have without spawning anything", async () => {

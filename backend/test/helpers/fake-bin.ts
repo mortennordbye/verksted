@@ -72,6 +72,14 @@ export interface Reply {
    * way to say that in a test without writing the two halves separately.
    */
   splitAt?: number;
+  /**
+   * Stay alive this long after writing, instead of exiting.
+   *
+   * `delayMs` makes a call slow; this makes it a process that has already said
+   * something and is still there — which is what a `tmux attach` is, and the
+   * only shape in which output produced before a pause can be read after one.
+   */
+  holdMs?: number;
 }
 
 const HELPER = `
@@ -116,6 +124,7 @@ function finish(m) {
   }
   if (m.stdout) writeAll(1, m.stdout);
   if (m.stderr) writeAll(2, m.stderr);
+  if (m.holdMs) return void setTimeout(() => process.exit(m.code || 0), m.holdMs);
   process.exit(m.code || 0);
 }
 if (match && match.delayMs) {
