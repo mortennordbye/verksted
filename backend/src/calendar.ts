@@ -56,6 +56,15 @@ export class CalendarNotFound extends Error {}
  */
 export class CalendarRefused extends Error {}
 
+/**
+ * tsdav's requests, each with a limit. It passes no signal of its own, so a
+ * calendar server that accepted the connection and then said nothing held the
+ * request that asked, and the assistant's tool call behind it, for as long as
+ * the socket lasted.
+ */
+const davFetch: typeof fetch = (input, init) =>
+  fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
+
 async function connect() {
   const config = await calendarConfig();
   if (!config) {
@@ -77,6 +86,7 @@ async function connect() {
       },
       authMethod: "Oauth",
       defaultAccountType: "caldav",
+      fetch: davFetch,
     });
   }
   return createDAVClient({
@@ -84,6 +94,7 @@ async function connect() {
     credentials: { username: config.user, password: config.password },
     authMethod: "Basic",
     defaultAccountType: "caldav",
+    fetch: davFetch,
   });
 }
 

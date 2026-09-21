@@ -28,6 +28,7 @@ let api: string;
 /** Canned replies keyed by "METHOD /path"; anything else answers null. */
 /** Paths the stub answers 500 to, once each: for the fail-closed cases. */
 const failNext = new Set<string>();
+let hang = false;
 
 const REPLIES: Record<string, unknown> = {
   "POST /api/memory/proposed": { slug: "invoices" },
@@ -127,6 +128,8 @@ beforeAll(async () => {
       seen.push({ method: req.method ?? "", url: req.url ?? "", body });
       const key = `${req.method} ${(req.url ?? "").split("?")[0]}`;
       res.setHeader("content-type", "application/json");
+      // A backend that has taken the request and will never answer it.
+      if (key === "GET /api/projects" && hang) return;
       if (failNext.delete(key)) {
         res.statusCode = 500;
         return res.end(JSON.stringify({ error: "no" }));
@@ -778,6 +781,31 @@ describe("requests that carry a safety decision", () => {
  * The filters above — what an unattended turn may do, what one advisor may do —
  * only mean anything while each tool is confined to its own endpoint.
  */
+describe("a backend that does not answer", () => {
+  it("fails the tool call rather than holding the turn for ever, and says it may have landed", async () => {
+    hang = true;
+    try {
+      const res = await rpc(
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "status", arguments: {} } },
+        { VK_CALL_TIMEOUT_MS: "200" },
+      );
+      const result = res.result as { isError?: boolean; content: { text: string }[] };
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("did not answer");
+      expect(result.content[0].text).toContain("look before trying again");
+    } finally {
+      hang = false;
+    }
+  });
+
+  it("does not wait for a run of its own that it started", async () => {
+    seen = [];
+    const res = await callTool("run_schedule", { id: "sch-assistant" });
+    expect(JSON.parse(seen.at(-1)!.body)).toEqual({ wait: false });
+    expect((res.result as { content: { text: string }[] }).content[0].text).toContain("started");
+  });
+});
+
 describe("arguments, before the tool sees them", () => {
   const errorOf = (res: Record<string, unknown>) =>
     (res.result as { content?: { text?: string }[] })?.content?.[0]?.text ?? "";

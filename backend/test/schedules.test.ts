@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { FakeBin } from "./helpers/fake-bin.js";
 
 let app: FastifyInstance;
 let schedulesDir: string;
@@ -29,6 +30,9 @@ beforeAll(async () => {
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = schedulesDir;
+  process.env.ASSISTANT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-assist-"));
+  process.env.MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-mem-"));
+  process.env.COUNCIL_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-council-"));
   process.env.STATIC_DIR = "";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
@@ -249,6 +253,50 @@ describe("POST /api/schedules/:id/run", () => {
   it("404s on an unknown id", async () => {
     const res = await app.inject({ method: "POST", url: "/api/schedules/sch-deadbeef/run" });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/schedules/:id/run, not waited for", () => {
+  // What the assistant's own tool sends. Its call is inside a turn with a time
+  // limit, and the run it starts is another whole turn with the same one.
+  it("answers 202 at once, and the run is recorded when it lands", async () => {
+    const fake = FakeBin.install(["claude"]);
+    try {
+      const said = [
+        JSON.stringify({ type: "system", subtype: "init" }),
+        JSON.stringify({
+          type: "assistant",
+          message: { content: [{ type: "text", text: "ok: nothing needs you" }] },
+        }),
+        JSON.stringify({ type: "result", subtype: "success", is_error: false }),
+      ].join("\n");
+      fake.reply("claude", "-p", { stdout: `${said}\n`, delayMs: 400 });
+      const { id } = (
+        await create({ name: "briefing", kind: "assistant", cron: CRON, prompt: "what needs me?" })
+      ).json();
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/schedules/${id}/run`,
+        payload: { wait: false },
+      });
+      expect(res.statusCode).toBe(202);
+      const lastRunAt = async () =>
+        (await app.inject({ url: "/api/schedules" }))
+          .json<{ id: string; lastRunAt: string | null }[]>()
+          .find((s) => s.id === id)?.lastRunAt ?? null;
+      // Answered before the turn did: nothing is recorded yet.
+      expect(await lastRunAt()).toBeNull();
+
+      let last: string | null = null;
+      for (let i = 0; i < 200 && !last; i++) {
+        await new Promise((r) => setTimeout(r, 25));
+        last = await lastRunAt();
+      }
+      expect(last).not.toBeNull();
+    } finally {
+      fake.uninstall();
+    }
   });
 });
 

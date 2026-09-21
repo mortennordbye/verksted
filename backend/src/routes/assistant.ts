@@ -10,6 +10,7 @@ import type {
 } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
 import { env } from "../env.js";
+import { BusyError } from "../serial.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
 import * as toolLog from "../tool-log.js";
 import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
@@ -141,6 +142,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
         if (!text) return reply.code(422).send({ error: "nothing was said" });
         return { text };
       } catch (err) {
+        if (err instanceof BusyError) return reply.code(429).send({ error: err.message });
         req.log.error(err, "transcription failed");
         return reply.code(502).send({ error: "could not transcribe that" });
       }
@@ -183,11 +185,16 @@ export default async function assistantRoutes(app: FastifyInstance) {
         if (req.body.voice && !(await tts.voices()).includes(req.body.voice)) {
           return reply.code(400).send({ error: `no such voice: ${req.body.voice}` });
         }
-        const wav = await tts.synthesize(req.body.text, req.body.voice);
+        const wav = await tts.synthesize(
+          req.body.text,
+          req.body.voice,
+          () => req.raw.socket.destroyed,
+        );
         // Immutable for the client's purposes: the same text and voice make the
         // same audio, and a reply is often re-read.
         return reply.type("audio/wav").header("cache-control", "private, max-age=300").send(wav);
       } catch (err) {
+        if (err instanceof BusyError) return reply.code(429).send({ error: err.message });
         req.log.error(err, "synthesis failed");
         return reply.code(502).send({ error: "could not say that" });
       }

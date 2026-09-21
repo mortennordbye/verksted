@@ -221,15 +221,32 @@ export default async function scheduleRoutes(app: FastifyInstance) {
 
   // Run now. Same path as a tick, so it reports the same refusals — notably
   // that the previous run is still open. An assistant schedule answers with
-  // what it said instead of with a session, since it starts none.
-  app.post<{ Params: { id: string } }>("/api/schedules/:id/run", async (req, reply) => {
-    const schedule = await store.getSchedule(req.params.id);
-    if (!schedule) return reply.code(404).send({ error: "not found" });
-    const outcome = await runSchedule(schedule.id, app.log);
-    if (!outcome) {
-      const after = await store.getSchedule(schedule.id);
-      return reply.code(409).send({ error: after?.lastError ?? "could not start a session" });
-    }
-    return reply.code(201).send("session" in outcome ? outcome.session : { reply: outcome.reply });
-  });
+  // what it said instead of with a session, since it starts none; the settings
+  // page waits for that, because reading it is why the button was pressed. The
+  // assistant's own tool does not (`wait: false`): its call is inside a turn,
+  // and a run is another whole turn. How that one went is on the schedule.
+  //
+  // No body schema: the button posts none at all, which a schema for an object
+  // refuses. The one field is compared with a literal instead.
+  app.post<{ Params: { id: string }; Body: { wait?: unknown } | undefined }>(
+    "/api/schedules/:id/run",
+    async (req, reply) => {
+      const schedule = await store.getSchedule(req.params.id);
+      if (!schedule) return reply.code(404).send({ error: "not found" });
+      if (req.body?.wait === false && schedule.kind === "assistant") {
+        void runSchedule(schedule.id, app.log).catch((err: unknown) =>
+          app.log.warn(err, `schedule ${schedule.id} failed`),
+        );
+        return reply.code(202).send({ id: schedule.id });
+      }
+      const outcome = await runSchedule(schedule.id, app.log);
+      if (!outcome) {
+        const after = await store.getSchedule(schedule.id);
+        return reply.code(409).send({ error: after?.lastError ?? "could not start a session" });
+      }
+      return reply
+        .code(201)
+        .send("session" in outcome ? outcome.session : { reply: outcome.reply });
+    },
+  );
 }

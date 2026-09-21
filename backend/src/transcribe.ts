@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { exec } from "./exec.js";
+import { BusyError } from "./serial.js";
 
 /**
  * Speech to text, on the pod.
@@ -47,8 +48,33 @@ export function cleanTranscript(raw: string): string {
   return /[a-z0-9]/i.test(text) ? text : "";
 }
 
-/** Transcribe a recorded clip. Returns "" when nothing was said. */
-export async function transcribe(audio: Buffer): Promise<string> {
+/**
+ * A spoken question is well under a minute; the byte cap above does not say so,
+ * because a low-bitrate clip of that size is most of an hour, and whisper would
+ * then hold four cores until its own timeout killed it.
+ */
+const MAX_CLIP_SECONDS = 120;
+
+/** Clips accepted and not yet transcribed, the one being worked on included. */
+let waiting = 0;
+const MAX_WAITING = 3;
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Transcribe a recorded clip. Returns "" when nothing was said.
+ *
+ * One at a time: whisper is given four threads, and two of them at once is
+ * both of them slower on a pod that is also running the agents.
+ */
+export function transcribe(audio: Buffer): Promise<string> {
+  if (waiting >= MAX_WAITING) throw new BusyError("still transcribing the last ones");
+  waiting++;
+  const run = queue.then(() => transcribeNow(audio));
+  queue = run.catch(() => undefined).finally(() => waiting--);
+  return run;
+}
+
+async function transcribeNow(audio: Buffer): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "vk-voice-"));
   const input = path.join(dir, `clip-${randomUUID()}`);
   const wav = `${input}.wav`;
@@ -56,9 +82,29 @@ export async function transcribe(audio: Buffer): Promise<string> {
     await fs.writeFile(input, audio);
     // Whatever the browser produced — webm/opus on Chrome, mp4/aac on Safari —
     // becomes the one format whisper reads. -y because the target is ours.
-    await exec("ffmpeg", ["-nostdin", "-y", "-i", input, "-ar", "16000", "-ac", "1", wav], {
-      timeout: 60_000,
-    });
+    // The bytes are whatever was posted, and some of the containers ffmpeg
+    // reads are playlists: a file that names other files, or URLs, to open.
+    // The whitelist is what keeps a "recording" from being a request the pod
+    // makes on somebody's behalf.
+    await exec(
+      "ffmpeg",
+      [
+        "-nostdin",
+        "-y",
+        "-protocol_whitelist",
+        "file,pipe",
+        "-i",
+        input,
+        "-t",
+        String(MAX_CLIP_SECONDS),
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        wav,
+      ],
+      { timeout: 60_000 },
+    );
     const { stdout } = await exec(
       "whisper-cli",
       ["-m", MODEL, "-f", wav, "--output-txt", "--no-timestamps", "--no-prints", "-t", "4"],

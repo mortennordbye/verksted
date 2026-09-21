@@ -219,3 +219,63 @@ describe("labels and rules", () => {
     expect(requests.some((r) => r.method === "DELETE" && r.url.endsWith(`/${rule.id}`))).toBe(true);
   });
 });
+
+describe("when Google says not now", () => {
+  const html = () => new Response("<html>Service Unavailable</html>", { status: 503 });
+  const routed = (url: string, init: { method?: string; body?: string } = {}) =>
+    url.includes("oauth2.googleapis.com/token") ? fakeFetch(url, init) : null;
+
+  beforeEach(() => {
+    gmail.RETRY_AFTER_MS.fill(0);
+  });
+
+  it("asks again for a read, and answers with what came back the second time", async () => {
+    let asked = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) => {
+        const token = routed(url, init);
+        if (token) return token;
+        return ++asked === 1 ? Promise.resolve(html()) : fakeFetch(url, init);
+      }),
+    );
+
+    expect(await gmail.labels()).toEqual([{ id: "L1", name: "Existing" }]);
+    expect(asked).toBe(2);
+  });
+
+  it("gives up after three, saying what Gmail said rather than failing to parse it", async () => {
+    let asked = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) => {
+        const token = routed(url, init);
+        if (token) return token;
+        asked++;
+        return Promise.resolve(html());
+      }),
+    );
+
+    await expect(gmail.labels()).rejects.toThrow(/Gmail API error/);
+    expect(asked).toBe(3);
+  });
+
+  it("does not ask twice for a write, which may have landed the first time", async () => {
+    let posts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) => {
+        const token = routed(url, init);
+        if (token) return token;
+        if (init?.method !== "POST") return fakeFetch(url, init);
+        posts++;
+        return Promise.resolve(html());
+      }),
+    );
+
+    await expect(gmail.createRule({ from: "a@b.no", label: "New" })).rejects.toThrow(
+      /Gmail API error/,
+    );
+    expect(posts).toBe(1);
+  });
+});

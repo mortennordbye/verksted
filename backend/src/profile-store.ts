@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
+import { keyedQueue } from "./serial.js";
 
 /**
  * The profile: what a new assistant would be told on its first day.
@@ -39,6 +40,8 @@ export async function writeProfile(text: string): Promise<void> {
   await writeTextAtomic(profilePath(), text.trimEnd() + (text.trim() ? "\n" : ""));
 }
 
+const appending = keyedQueue();
+
 /**
  * One line added by the assistant when it is told something about the person
  * mid-conversation. Appended rather than merged, so what the assistant wrote
@@ -48,7 +51,11 @@ export async function writeProfile(text: string): Promise<void> {
 export async function appendProfileLine(line: string): Promise<void> {
   const clean = line.replace(/\s*\n\s*/g, " ").trim();
   if (!clean) throw new Error("nothing to note");
-  const current = await readProfile();
-  const next = `${current.trimEnd()}${current.trim() ? "\n" : ""}- ${clean}\n`;
-  await writeProfile(next);
+  // The read is inside the queue: two notes from one turn used to read the same
+  // profile, and the second write dropped the first note.
+  await appending("profile", async () => {
+    const current = await readProfile();
+    const next = `${current.trimEnd()}${current.trim() ? "\n" : ""}- ${clean}\n`;
+    await writeProfile(next);
+  });
 }

@@ -17,6 +17,7 @@ import type { AssistantVoices, CouncilMember } from "../../shared/api.js";
 const WORKER = `
 const readline = require("node:readline");
 const fs = require("node:fs");
+fs.appendFileSync(process.env.VK_FAKE_LOG + ".starts", "started\\n");
 process.stdout.write(JSON.stringify({ ready: true, voices: ["af_heart", "bf_emma"], rate: 24000 }) + "\\n");
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const req = JSON.parse(line);
@@ -172,6 +173,49 @@ describe("POST /api/assistant/speak", () => {
     const texts = saidSoFar().map((s) => s.text);
     expect(texts).toContain("first one");
     expect(texts).toContain("second one");
+  });
+
+  // Synthesis is a core for seconds per sentence. Past a few waiting, saying
+  // "later" is kinder than accepting work that will be minutes late.
+  it("429s the sentence that would make the queue longer than anyone is waiting for", async () => {
+    const { MAX_WAITING } = await import("../src/tts.js");
+    const codes = (
+      await Promise.all(
+        Array.from({ length: MAX_WAITING + 3 }, (_, i) =>
+          app.inject({
+            method: "POST",
+            url: "/api/assistant/speak",
+            payload: { text: `sentence ${i}` },
+          }),
+        ),
+      )
+    ).map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 200)).toHaveLength(MAX_WAITING);
+    expect(codes.filter((c) => c === 429)).toHaveLength(3);
+    // And it takes work again once it has caught up.
+    const after = await app.inject({
+      method: "POST",
+      url: "/api/assistant/speak",
+      payload: { text: "caught up" },
+    });
+    expect(after.statusCode).toBe(200);
+  });
+
+  it("does not synthesise for a listener who left while it was queued", async () => {
+    const { synthesize } = await import("../src/tts.js");
+    await expect(synthesize("said to nobody", undefined, () => true)).rejects.toThrow();
+    expect(saidSoFar().map((s) => s.text)).not.toContain("said to nobody");
+  });
+
+  it("does not load the model again to say which voices it has", async () => {
+    const tts = await import("../src/tts.js");
+    await tts.voices();
+    tts.stop();
+    const starts = () =>
+      fs.readFileSync(`${log}.starts`, "utf8").split("\n").filter(Boolean).length;
+    const before = starts();
+    expect(await tts.voices()).toEqual(["af_heart", "bf_emma"]);
+    expect(starts()).toBe(before);
   });
 
   // The signal the browser falls back on. Without it a pod that has no model

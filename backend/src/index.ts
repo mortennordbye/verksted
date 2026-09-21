@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { env } from "./env.js";
 import { buildApp } from "./app.js";
+import { stopAll as stopTurns } from "./assistant.js";
 import { sweepTempFiles } from "./atomic-json.js";
 import { killAll } from "./browser.js";
 import { setEventLogger } from "./events.js";
@@ -90,6 +91,7 @@ function shutdown(code: number): void {
   const done = () => {
     killAll();
     stopVoice();
+    stopTurns();
     process.exit(code);
   };
   void app

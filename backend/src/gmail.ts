@@ -67,31 +67,57 @@ interface ApiError {
   error?: { message?: string };
 }
 
+/**
+ * How long to wait before asking again, for the two tries after the first.
+ * Exported so a test does not have to sit through them.
+ */
+export const RETRY_AFTER_MS = [500, 1_500];
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const config = await gmailConfig();
   if (!config) {
     throw new GmailUnavailable("Gmail is not signed in: connect Google under settings, sources");
   }
   const token = await accessToken(config);
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(body ? { "content-type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15_000),
-  });
-  const text = await res.text();
-  const data = (text ? JSON.parse(text) : {}) as T & ApiError;
-  if (!res.ok) {
-    const message = data.error?.message ?? res.statusText;
-    if (res.status === 403) {
-      throw new GmailDenied(`Gmail refused: ${message} — reconnect Google and grant Gmail access`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${API}${path}`, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body ? { "content-type": "application/json" } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await res.text();
+    // A 429 or a 5xx is Google saying "not now", and the mail rules page and
+    // the assistant both used to pass that on as the answer. Reads only: a
+    // write that answered 503 may have landed, and asking again is a second
+    // label or a second filter.
+    const wait = RETRY_AFTER_MS[attempt];
+    if (method === "GET" && wait !== undefined && (res.status === 429 || res.status >= 500)) {
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
     }
-    throw new GmailUnavailable(`Gmail API error: ${message}`);
+    // Google's edge answers in HTML when it is the one refusing, and a parse
+    // error from here reads as a bug in this file rather than as what it is.
+    let data = {} as T & ApiError;
+    try {
+      if (text) data = JSON.parse(text) as T & ApiError;
+    } catch {
+      if (res.ok) throw new GmailUnavailable("Gmail answered with something unreadable");
+    }
+    if (!res.ok) {
+      const message = data.error?.message ?? (res.statusText || String(res.status));
+      if (res.status === 403) {
+        throw new GmailDenied(
+          `Gmail refused: ${message} — reconnect Google and grant Gmail access`,
+        );
+      }
+      throw new GmailUnavailable(`Gmail API error: ${message}`);
+    }
+    return data;
   }
-  return data;
 }
 
 interface RawLabel {
