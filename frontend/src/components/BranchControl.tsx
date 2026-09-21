@@ -5,6 +5,9 @@ import { useConfirm } from "../useConfirm";
 import Icon from "./Icon";
 import Sheet from "./Sheet";
 import { SkeletonLines } from "./Skeleton";
+import Button from "./ui/Button";
+import { Input } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 /**
  * The branch label, clickable: switch branch, pull, push, or reset the branch
@@ -213,57 +216,49 @@ export default function BranchControl({
           {/* One line for what is happening now, what just happened, or what went
               wrong, in that order of precedence. */}
           {working && (
-            <div
-              role="status"
-              className="mb-3 flex items-center gap-2.5 rounded-lg bg-accent-tint px-3 py-2 text-[13px] text-accent ring-1 ring-accent/30"
-            >
-              <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-accent" />
+            <Notice kind="busy" className="mb-3">
               {DOING[working]}
               {working === "pull" && ` from ${target}`}
               {(working === "push" || working === "force" || working === "reset") &&
                 ` to ${target}`}
               …
-            </div>
+            </Notice>
           )}
           {!working && result && (
-            <div
-              role="status"
-              className="mb-3 flex items-center gap-2 rounded-lg bg-run/10 px-3 py-2 text-[13px] text-run ring-1 ring-run/30"
-            >
-              <Icon name="check" size={14} />
+            <Notice kind="ok" className="mb-3">
               {result}
-            </div>
+            </Notice>
           )}
           {!working && error && (
-            <div
-              role="alert"
-              className="mb-3 flex items-start gap-2 rounded-lg bg-fail/10 px-3 py-2 text-[13px] text-fail ring-1 ring-fail/30"
-            >
-              <Icon name="alert" size={14} className="mt-[2px]" />
-              <span className="min-w-0 break-words">{error}</span>
-            </div>
+            <Notice kind="fail" className="mb-3">
+              {error}
+            </Notice>
           )}
 
           <div className="mb-3 flex flex-wrap gap-2">
-            <button
+            <Button
               onClick={pull}
               disabled={busy || !upstream}
               title={upstream ? `fast-forward from ${upstream}` : "no upstream to pull from"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="flex-1"
             >
               <Icon name="pull" size={15} />
               {working === "pull" ? "pulling…" : "pull"}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={push}
               disabled={busy || !canPush}
               title={upstream ? `push to ${upstream}` : "publish the branch on origin"}
-              className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="flex-1"
             >
               <Icon name="push" size={15} />
               {working === "push" ? "pushing…" : upstream ? "push" : "publish"}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => void forcePush()}
               disabled={busy || !canForce}
               title={
@@ -271,28 +266,35 @@ export default function BranchControl({
                   ? `overwrite ${upstream} with this branch`
                   : "nothing on this branch to force over the remote"
               }
-              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-fail hover:text-fail disabled:opacity-50"
+              variant="ghost-danger"
+              size="lg"
+              className="flex-none"
             >
               <Icon name="push" size={15} />
               {working === "force" ? "forcing…" : "force push"}
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => void reset()}
               disabled={busy || !upstream}
               title="discard local commits and changes on this branch"
               aria-label="discard local commits and changes on this branch"
-              className="flex flex-none items-center gap-2 rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              variant="ghost-danger"
+              size="lg"
+              className="flex-none"
             >
               <Icon name="reset" size={15} />
               {working === "reset" ? "resetting…" : `reset to ${upstream ?? "upstream"}`}
-            </button>
+            </Button>
           </div>
-          <input
+          <Input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="filter branches"
-            aria-label="filter branches"
-            className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-2.5 font-mono text-[13px] outline-none placeholder:text-faint focus:border-accent"
+
+            label="filter branches"
+            mono
+            size="lg"
+            className="w-full"
           />
           <div className="mt-2 max-h-[38vh] overflow-auto">
             {!data && <SkeletonLines count={4} className="px-2.5 py-2" />}

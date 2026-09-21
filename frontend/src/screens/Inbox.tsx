@@ -17,7 +17,9 @@ import TopBar from "../components/TopBar";
 import WaitingSession from "../components/WaitingSession";
 import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
-import { useUndo } from "../components/UndoBar";
+import { offerUndo } from "../components/ui/Toast";
+import Button from "../components/ui/Button";
+import Notice from "../components/ui/Notice";
 
 /**
  * The inbox: everything that happened, newest first, and what to do with it.
@@ -240,9 +242,6 @@ function Row({
     return () => removeEventListener("keydown", onKey);
   });
 
-  const button =
-    "tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
-
   return (
     <div
       id={item.id}
@@ -280,6 +279,7 @@ function Row({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
           // The row's own tap target, and on a one-line item it was 34px of a
           // list you scroll with a thumb.
           className="tap min-w-0 flex-1 text-left"
@@ -356,45 +356,41 @@ function Row({
         <span className="ml-auto flex flex-wrap gap-2">
           {item.source === "memory" && !done && (
             <>
-              <button
-                onClick={() => void review(true)}
-                disabled={busy}
-                className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-              >
+              <Button onClick={() => void review(true)} disabled={busy} variant="primary">
                 keep
-              </button>
-              <button onClick={() => void review(false)} disabled={busy} className={button}>
+              </Button>
+              <Button onClick={() => void review(false)} disabled={busy}>
                 drop
-              </button>
+              </Button>
             </>
           )}
           {canSnooze && (
-            <button
+            <Button
               onClick={() => setSnoozing(true)}
               disabled={busy}
-              className={button}
+
               title="put it away until later"
             >
               snooze
-            </button>
+            </Button>
           )}
           {!done && !canFinish ? null : canFinish ? (
-            <button onClick={finish} disabled={busy} className={button}>
+            <Button onClick={finish} disabled={busy}>
               done
-            </button>
+            </Button>
           ) : (
-            <button onClick={() => void setState("new")} disabled={busy} className={button}>
+            <Button onClick={() => void setState("new")} disabled={busy}>
               reopen
-            </button>
+            </Button>
           )}
         </span>
       </div>
       {/* Under the buttons rather than in a banner at the top: which row the pod
           refused is half of what there is to say about it. */}
       {error && (
-        <div role="alert" className="mt-1.5 text-[12.5px] text-fail">
+        <Notice kind="fail" className="mt-1.5">
           {error}
-        </div>
+        </Notice>
       )}
       {snoozing && (
         <Sheet title="Bring it back" sub={item.title} onClose={() => setSnoozing(false)}>
@@ -456,7 +452,6 @@ export default function Inbox() {
   const { busy: judging, error: judgeError, run: runJudge } = useAction();
   // What the last action did, and the way back out of it. An inbox where
   // "done" is one tap and irreversible is one you stop trusting to tap in.
-  const [offerUndo, undoBar] = useUndo();
   // Where the keyboard is: the row, and where on the list it was, so a row that
   // leaves (marked done, snoozed) hands the selection to the one that took its place.
   const [cursor, setCursor] = useState<{ id: string; index: number } | null>(null);
@@ -634,7 +629,7 @@ export default function Inbox() {
                       that cannot break was drawn over the due date beside it. */}
                   <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{l.what}</span>
                   {l.due && <span className="font-mono text-[11px] text-wait">due {l.due}</span>}
-                  <button
+                  <Button
                     onClick={() =>
                       void runList(async () => {
                         await api(`/api/loops/${l.slug}/close`, { method: "POST" });
@@ -651,10 +646,10 @@ export default function Inbox() {
                       )
                     }
                     disabled={clearing}
-                    className="tap rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
+                    size="xs"
                   >
                     close
-                  </button>
+                  </Button>
                 </div>
               ))}
             </div>
@@ -695,29 +690,29 @@ export default function Inbox() {
           </div>
           <span className="flex items-center gap-2 border-t border-line pt-2 min-[800px]:ml-auto min-[800px]:border-0 min-[800px]:pt-0">
             {unjudged > 0 && (
-              <button
+              <Button
                 onClick={judge}
                 disabled={judging}
-                className="tap rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                size="xs"
                 title="ask the assistant to sort what has not been sorted yet"
               >
                 {judging ? "sorting…" : `sort ${unjudged} new`}
-              </button>
+              </Button>
             )}
             {clearable.length > 1 && (
-              <button
+              <Button
                 onClick={() => void clearShown(clearable)}
                 disabled={clearing}
-                className="tap rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                size="xs"
                 title="mark everything on this list done"
               >
                 {clearing ? "clearing…" : `clear ${clearable.length}`}
-              </button>
+              </Button>
             )}
             <button
               onClick={() => filter("done", showDone ? null : "1")}
               aria-pressed={showDone}
-              className={`tap rounded-[7px] border px-2.5 py-1 text-[11.5px] ${
+              className={`tap-hit rounded-md border px-2 py-1 text-[11.5px] ${
                 showDone ? "border-accent/50 text-accent" : "border-line text-faint"
               }`}
             >
@@ -737,12 +732,9 @@ export default function Inbox() {
             each rejected into the console, and the list simply stayed as it
             was, which reads as a tap that did not land. */}
         {(listError ?? judgeError) && (
-          <div
-            role="alert"
-            className="mb-3 rounded-lg border border-fail/40 bg-fail/5 px-3 py-2 text-[12.5px] text-fail"
-          >
+          <Notice kind="fail" className="mb-3">
             {listError ?? judgeError}
-          </div>
+          </Notice>
         )}
 
         {sections.map((s) => {
@@ -756,13 +748,14 @@ export default function Inbox() {
                 count={s.items.length}
                 action={
                   s.key === "quiet" ? (
-                    <button
+                    <Button
                       onClick={() => filter("quiet", showQuiet ? null : "1")}
                       aria-expanded={showQuiet}
-                      className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
+                      size="xs"
+                      className="flex-none"
                     >
                       {showQuiet ? "hide" : "show"}
-                    </button>
+                    </Button>
                   ) : undefined
                 }
               />
@@ -772,9 +765,7 @@ export default function Inbox() {
                       arrive" is most of what tells the overnight ones apart. */}
                   {byDay(s.items).map((day) => (
                     <div key={day.label} className="flex flex-col gap-2">
-                      <div className="mt-2 font-mono text-[11px] tracking-[.12em] text-faint uppercase first:mt-0">
-                        {day.label}
-                      </div>
+                      <div className="mt-2 caps first:mt-0">{day.label}</div>
                       {day.items.map((i) => (
                         <Row
                           key={i.id}
@@ -815,7 +806,6 @@ export default function Inbox() {
       </main>
       <Tabs />
       {confirmDialog}
-      {undoBar}
     </>
   );
 }

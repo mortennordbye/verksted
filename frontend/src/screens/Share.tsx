@@ -3,6 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../api";
 import TopBar from "../components/TopBar";
 import PageHeader from "../components/PageHeader";
+import Button from "../components/ui/Button";
+import Notice from "../components/ui/Notice";
 
 /**
  * Where the share sheet lands.
@@ -71,16 +73,22 @@ export default function Share() {
                 <div className="mt-2 break-all font-mono text-[12.5px] text-accent">{url}</div>
               )}
             </div>
-            <button
+            <Button
               onClick={send}
               disabled={sending}
-              className="tap mt-4 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="mt-4 w-full"
             >
               {sending ? "sending…" : "send to inbox"}
-            </button>
+            </Button>
           </>
         )}
-        {failed && <div className="mt-3 text-[12.5px] text-fail">{failed}</div>}
+        {failed && (
+          <Notice kind="fail" className="mt-3">
+            {failed}
+          </Notice>
+        )}
         <Link to="/" className="mt-4 inline-block text-sm text-accent hover:underline">
           back to today
         </Link>

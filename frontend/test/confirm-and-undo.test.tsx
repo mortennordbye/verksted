@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Loop, Settings as SettingsInfo } from "../../shared/api";
 import { resetPollCache } from "../src/api";
 import SearchPanel from "../src/components/SearchPanel";
+import { resetToasts, Toaster } from "../src/components/ui/Toast";
 import Inbox from "../src/screens/Inbox";
 import Settings from "../src/screens/Settings";
 import { overlaysSettled } from "../src/useDismissOnBack";
@@ -25,6 +26,7 @@ const posted = (match: string) =>
 
 afterEach(() => {
   cleanup();
+  resetToasts();
   resetPollCache();
   vi.unstubAllGlobals();
 });
@@ -99,6 +101,7 @@ describe("a loop closed from the inbox", () => {
     render(
       <MemoryRouter>
         <Inbox />
+        <Toaster />
       </MemoryRouter>,
     );
     await screen.findByText("chase the plumber");
@@ -106,12 +109,14 @@ describe("a loop closed from the inbox", () => {
 
     // The offer floats over the screen rather than sitting above the first
     // row, where on a phone it was four screens up from the row you tapped.
-    const offer = await screen.findByRole("status");
-    expect(offer.textContent).toContain("closed “chase the plumber”");
+    // The toast region, not the list: on a phone the list's own top was four
+    // screens up from the row you tapped.
+    const offer = (await screen.findByText("closed “chase the plumber”")).closest("li")!;
+    expect(offer.closest("ol")).not.toBeNull();
     fireEvent.click(within(offer).getByRole("button", { name: "undo" }));
 
     await waitFor(() => expect(posted("/api/loops/chase-the-plumber/reopen")).toHaveLength(1));
-    expect(screen.queryByRole("status")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("closed “chase the plumber”")).toBeNull());
   });
 });
 

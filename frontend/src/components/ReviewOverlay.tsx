@@ -5,6 +5,7 @@ import { diffLineClass, splitPatch } from "../diff";
 import { SkeletonLines } from "./Skeleton";
 import Icon from "./Icon";
 import Overlay from "./ui/Overlay";
+import Notice from "./ui/Notice";
 
 /** Files start open until this many lines are already on screen; the rest wait
  *  to be asked for, so a big night does not cost a phone thousands of nodes. */
@@ -130,7 +131,7 @@ export default function ReviewOverlay({
 
       <div className="min-h-0 flex-1 overflow-auto font-mono text-[12.5px]">
         {!patch && !error && <SkeletonLines count={10} className="p-4" />}
-        {error && <div className="p-4 text-wait">{error}</div>}
+        {error && <Notice kind="fail">{error}</Notice>}
         {patch && files.length === 0 && (
           <div className="p-4 text-faint">
             nothing committed in this range — the git tab has the working tree

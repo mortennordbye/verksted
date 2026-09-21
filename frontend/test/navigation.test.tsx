@@ -113,11 +113,10 @@ describe("the project's tab", () => {
         <Where />
       </MemoryRouter>,
     );
+  // One of a set, so a radio: Radix's single ToggleGroup, which is what the
+  // three strips are built on.
   const pressed = (name: string) =>
-    screen
-      .getAllByRole("button", { name: new RegExp(`^${name}`) })
-      .find((b) => b.hasAttribute("aria-pressed"))!
-      .getAttribute("aria-pressed");
+    screen.getByRole("radio", { name: new RegExp(`^${name}`) }).getAttribute("aria-checked");
 
   it("comes back on the tab it was left on", () => {
     project("/p/demo?tab=schedules");
@@ -127,9 +126,9 @@ describe("the project's tab", () => {
 
   it("is written into the URL, and the default leaves it clean", async () => {
     project("/p/demo");
-    fireEvent.click(screen.getAllByRole("button", { name: /^actions/ })[0]);
+    fireEvent.click(screen.getByRole("radio", { name: /^actions/ }));
     await waitFor(() => expect(seen.where).toBe("/p/demo?tab=actions"));
-    fireEvent.click(screen.getAllByRole("button", { name: /^sessions/ })[0]);
+    fireEvent.click(screen.getByRole("radio", { name: /^sessions/ }));
     await waitFor(() => expect(seen.where).toBe("/p/demo"));
   });
 });
@@ -183,26 +182,26 @@ describe("a session's side panel", () => {
       </MemoryRouter>,
     );
   const tab = async (name: string) =>
-    within(await screen.findByRole("group", { name: "side panel" })).getByRole("button", {
+    within(await screen.findByRole("radiogroup", { name: "side panel" })).getByRole("radio", {
       name: new RegExp(`^${name}`),
     });
 
   it("comes back on the tab it was left on", async () => {
     open("/s/vk-demo-1?pane=tree&side=git");
-    expect((await tab("git")).getAttribute("aria-pressed")).toBe("true");
-    expect((await tab("files")).getAttribute("aria-pressed")).toBe("false");
+    expect((await tab("git")).getAttribute("aria-checked")).toBe("true");
+    expect((await tab("files")).getAttribute("aria-checked")).toBe("false");
   });
 
   it("still takes the inbox's link to a run's diff, which names only the side", async () => {
     open("/s/vk-demo-1?side=changes");
-    expect((await tab("changes")).getAttribute("aria-pressed")).toBe("true");
+    expect((await tab("changes")).getAttribute("aria-checked")).toBe("true");
   });
 
   it("is written into the URL when it changes", async () => {
     open("/s/vk-demo-1");
     fireEvent.click(await tab("search"));
     await waitFor(() => expect(seen.where).toContain("side=search"));
-    expect((await tab("search")).getAttribute("aria-pressed")).toBe("true");
+    expect((await tab("search")).getAttribute("aria-checked")).toBe("true");
   });
 });
 

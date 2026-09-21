@@ -3,6 +3,8 @@ import type { ReplaceResult, SearchHit } from "../../../shared/api";
 import { api } from "../api";
 import { useConfirm } from "../useConfirm";
 import { fileIcon } from "../fileicons";
+import Notice from "./ui/Notice";
+import { SkeletonLines } from "./Skeleton";
 
 function Toggle({
   glyph,
@@ -145,11 +147,13 @@ export default function SearchPanel({
       aria-label="search"
       className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
     >
-      <div className="px-2.5 pb-2.5 text-[11px] tracking-widest text-faint uppercase">search</div>
+      <div className="px-2.5 pb-2.5 caps">search</div>
       <div className="flex gap-1 px-2.5 pb-2">
         <button
           onClick={() => setShowReplace((s) => !s)}
           title="toggle replace"
+          aria-label="replace"
+          aria-expanded={showReplace}
           className="flex-none self-stretch rounded px-0.5 text-faint hover:text-text"
         >
           {showReplace ? "▾" : "▸"}
@@ -206,9 +210,13 @@ export default function SearchPanel({
           )}
         </div>
       </div>
-      {error && <div className="px-2.5 text-[11px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" small className="px-2.5">
+          {error}
+        </Notice>
+      )}
       {note && <div className="px-2.5 text-[11px] text-run">{note}</div>}
-      {busy && <div className="px-2.5 text-faint">working…</div>}
+      {busy && <SkeletonLines count={4} className="px-2.5" />}
       {hits !== null && !busy && (
         <div className="px-2.5 pb-1 text-[11px] text-faint">
           {hits.length === 0

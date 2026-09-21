@@ -5,6 +5,7 @@ import { fileIcon } from "../fileicons";
 import ReviewOverlay from "./ReviewOverlay";
 import { ReviewMark } from "./StatusChip";
 import { SkeletonLines } from "./Skeleton";
+import Notice from "./ui/Notice";
 
 /** A range's ends, short enough for a sidebar. */
 const short = (sha: string) => (sha === "HEAD" ? "HEAD" : sha.slice(0, 7));
@@ -54,7 +55,7 @@ export default function ChangesPanel({
       aria-label="changes"
       className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
     >
-      <div className="flex items-center gap-1.5 px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
+      <div className="flex items-center gap-1.5 px-2.5 pb-2 caps">
         changes
         {data?.from && (
           <span className="ml-auto normal-case tracking-normal">
@@ -69,7 +70,11 @@ export default function ChangesPanel({
       )}
 
       {loading && <SkeletonLines count={3} className="px-2.5 py-1" />}
-      {error && <div className="px-2.5 text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="px-2.5">
+          {error}
+        </Notice>
+      )}
       {data && data.from === null && (
         <div className="px-2.5 text-faint">
           no range recorded — this session did not start in a git repo
@@ -83,7 +88,7 @@ export default function ChangesPanel({
 
       {(data?.commits.length ?? 0) > 0 && (
         <>
-          <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] tracking-widest text-faint uppercase">
+          <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 caps">
             commits
             <span className="ml-auto rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal text-muted">
               {data!.commits.length}
@@ -104,7 +109,7 @@ export default function ChangesPanel({
 
       {files.length > 0 && (
         <>
-          <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] tracking-widest text-faint uppercase">
+          <div className="flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 caps">
             files
             <span className="ml-auto rounded-full bg-surface-2 px-1.5 py-px text-[10px] normal-case tracking-normal text-muted">
               {readCount > 0 ? `${readCount} of ${files.length} read` : files.length}

@@ -1,4 +1,6 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
+import Button from "./ui/Button";
+import Icon from "./Icon";
 
 /** How often an open app asks whether a newer build has been deployed. */
 const CHECK_MS = 60_000;
@@ -30,18 +32,19 @@ export default function UpdateBanner() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 flex items-center gap-3 border-t border-line bg-surface px-[18px] py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] text-[13px] text-muted over-tabs:bottom-[calc(55px+env(safe-area-inset-bottom))] over-tabs:pb-2.5">
       <span className="min-w-0 flex-1">a new build of verksted is ready</span>
-      <button
+      <Button
         onClick={() => void updateServiceWorker(true)}
-        className="flex-none rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-on-accent hover:brightness-110"
+        variant="primary"
+        className="flex-none"
       >
         reload
-      </button>
+      </Button>
       <button
         onClick={() => setNeedRefresh(false)}
         aria-label="dismiss"
-        className="flex-none px-1 text-faint hover:text-text"
+        className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
       >
-        ✕
+        <Icon name="close" size={14} />
       </button>
     </div>
   );

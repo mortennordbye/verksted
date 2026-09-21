@@ -23,7 +23,7 @@ export default function SectionLabel({
 }) {
   return (
     <div
-      className={`mb-2.5 flex items-center gap-1.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase ${
+      className={`mb-2.5 flex items-center gap-1.5 caps ${
         sub ? "" : "border-t border-line-strong pt-6"
       } ${className}`}
     >

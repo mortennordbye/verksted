@@ -2,6 +2,7 @@ import { useReducer, useRef, useState } from "react";
 import type { TreeNode } from "../../../shared/api";
 import { fileIcon, folderIcon } from "../fileicons";
 import { SkeletonLines } from "./Skeleton";
+import Notice from "./ui/Notice";
 
 /**
  * Which folders are open, per tree, outside React.
@@ -104,7 +105,7 @@ export default function FileTree({
       aria-label="file tree"
       className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
     >
-      <div className="flex items-center px-2.5 pb-2.5 text-[11px] tracking-widest text-faint uppercase">
+      <div className="flex items-center px-2.5 pb-2.5 caps">
         {title}
         {onUpload && (
           <>
@@ -139,7 +140,9 @@ export default function FileTree({
         )}
       </div>
       {uploadError && (
-        <div className="mb-2 px-2.5 text-[11px] break-words text-fail">{uploadError}</div>
+        <Notice kind="fail" small className="mx-2.5 mb-2">
+          {uploadError}
+        </Notice>
       )}
       <ul>
         {(nodes ?? []).map((n) => (

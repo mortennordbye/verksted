@@ -9,6 +9,7 @@ import type { UploadedFile } from "../../../shared/api";
 import { copyText } from "../clipboard";
 import { readStoredNumber, writeStored } from "../storage";
 import Sheet from "./Sheet";
+import Icon from "./Icon";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
 // and copying these off a phone terminal is painful; we surface a tap target.
@@ -203,6 +204,13 @@ const FONT_DEFAULT = 13;
 
 function storedFontSize(): number {
   return readStoredNumber(FONT_KEY, FONT_DEFAULT, FONT_MIN, FONT_MAX);
+}
+
+/** A theme token's value as the page has it, for what cannot take a class. */
+function token(name: string, fallback: string): string {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim() || fallback
+  );
 }
 
 export default function Terminal({
@@ -510,11 +518,14 @@ export default function Terminal({
       // are measured by Unicode 6 rules by default, so anything wider than the
       // table expects shifts every column after it.
       allowProposedApi: true,
-      fontFamily: 'ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace',
+      fontFamily: token("font-term", "monospace"),
       theme: {
-        background: "#0b0e12",
-        foreground: "#e7eaf0",
-        cursor: "#e7eaf0",
+        // The app's own ground and ink, read from the theme rather than written
+        // again here: the terminal was a fourth near-black beside the three the
+        // palette has, and a light theme has to be able to reach it.
+        background: token("color-term", "#0a0a0a"),
+        foreground: token("color-text", "#e7e7e7"),
+        cursor: token("color-text", "#e7e7e7"),
         selectionBackground: "#2a3140",
         // ANSI 16 tuned to the app palette; stock xterm colors clash.
         black: "#22262e",
@@ -1099,7 +1110,7 @@ export default function Terminal({
               className="tap-sq flex flex-none items-center justify-center rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
               aria-label="dismiss sign-in link"
             >
-              ✕
+              <Icon name="close" size={14} />
             </button>
           </div>
           <form

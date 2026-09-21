@@ -14,6 +14,10 @@ import {
   useVoices,
   voiceLabel,
 } from "../useSpeech";
+import Button from "./ui/Button";
+import { Input, Select, Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
+import { toast } from "./ui/Toast";
 
 /**
  * Who the assistant is, and what it costs to run.
@@ -80,7 +84,6 @@ function CanDo() {
 export default function AssistantPanel() {
   const { data, fresh } = usePoll<AssistantConfig>("/api/assistant/config", 60_000);
   const [draft, setDraft] = useState<AssistantConfig | null>(null);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Adopt the server's answer once, then leave the fields alone: a poll landing
@@ -100,8 +103,7 @@ export default function AssistantPanel() {
           body: JSON.stringify(draft),
         }),
       );
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast("saved");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -177,9 +179,6 @@ export default function AssistantPanel() {
     speechSynthesis.speak(sample);
   }
 
-  const field =
-    "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
-
   return (
     <section className="mt-8">
       <SectionLabel icon="chat">Assistant</SectionLabel>
@@ -193,43 +192,46 @@ export default function AssistantPanel() {
 
       <div className="flex flex-col gap-2 rounded-[11px] border border-line bg-surface px-[15px] py-3">
         <div className="flex flex-wrap items-center gap-2">
-          <input
+          <Input
             value={draft?.name ?? ""}
             onChange={(e) => setDraft((d) => d && { ...d, name: e.target.value })}
-            aria-label="assistant name"
+
             placeholder="name"
-            className={`w-[150px] ${field}`}
+            label="assistant name"
+            className="w-[150px]"
           />
-          <input
+          <Input
             value={draft?.model ?? ""}
             onChange={(e) => setDraft((d) => d && { ...d, model: e.target.value })}
-            aria-label="model"
+
             placeholder="model"
-            className={`w-[150px] ${field}`}
+            label="model"
+            className="w-[150px]"
           />
-          <select
+          <Select
             value={draft?.effort ?? "low"}
             onChange={(e) =>
               setDraft((d) => d && { ...d, effort: e.target.value as AssistantConfig["effort"] })
             }
-            aria-label="effort"
-            className={field}
+
+            label="effort"
           >
             {EFFORTS.map((f) => (
               <option key={f} value={f}>
                 {f} effort
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
-        <textarea
+        <Textarea
           value={draft?.instructions ?? ""}
           onChange={(e) => setDraft((d) => d && { ...d, instructions: e.target.value })}
           rows={4}
-          aria-label="standing orders"
+
           placeholder="Standing orders. Anything here overrides how it normally behaves, and is carried with every turn, so keep it short."
-          className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
+          label="standing orders"
+          className="w-full"
         />
 
         {/* The pod's own voices when it has them. They are the same on every
@@ -238,11 +240,12 @@ export default function AssistantPanel() {
             when the pod has nothing. */}
         {podVoices.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2">
-            <select
+            <Select
               value={podVoice}
               onChange={(e) => choosePodVoice(e.target.value)}
-              aria-label="voice"
-              className={`max-w-[280px] ${field}`}
+
+              label="voice"
+              className="max-w-[280px]"
             >
               <option value="">default ({voiceLabel(defaultVoice)})</option>
               {sortVoices(podVoices).map((v) => (
@@ -250,7 +253,7 @@ export default function AssistantPanel() {
                   {voiceLabel(v)}
                 </option>
               ))}
-            </select>
+            </Select>
             <span className="text-[11.5px] text-faint">
               {sampling ? "speaking…" : "spoken on the pod · picking one plays a sample"}
             </span>
@@ -259,11 +262,12 @@ export default function AssistantPanel() {
           canSpeak() &&
           voices.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
-              <select
+              <Select
                 value={voiceName}
                 onChange={(e) => chooseVoice(e.target.value)}
-                aria-label="voice"
-                className={`max-w-[280px] ${field}`}
+
+                label="voice"
+                className="max-w-[280px]"
               >
                 <option value="">best available ({pickVoice(voices)?.name ?? "none"})</option>
                 {voices.map((v) => (
@@ -272,7 +276,7 @@ export default function AssistantPanel() {
                     {v.localService ? "" : " · network"}
                   </option>
                 ))}
-              </select>
+              </Select>
               <span className="text-[11.5px] text-faint">
                 this pod has no voice of its own, so the browser reads replies
               </span>
@@ -281,15 +285,14 @@ export default function AssistantPanel() {
         )}
 
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => void save()}
-            disabled={!draft}
-            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-          >
+          <Button onClick={() => void save()} disabled={!draft} variant="primary">
             save
-          </button>
-          {saved && <span className="text-[11.5px] text-run">saved</span>}
-          {error && <span className="text-[11.5px] text-fail">{error}</span>}
+          </Button>
+          {error && (
+            <Notice kind="fail" small>
+              {error}
+            </Notice>
+          )}
           <span className="ml-auto text-[11.5px] text-faint">
             a bigger model follows instructions more closely and costs more
           </span>

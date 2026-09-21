@@ -7,6 +7,8 @@ import {
 } from "react";
 import type { BrowserClientMsg, BrowserServerMsg, ListeningPort } from "../../../shared/api";
 import { api } from "../api";
+import Button from "./ui/Button";
+import Icon from "./Icon";
 
 // The on-screen keyboard relay keeps a sentinel in the hidden input so
 // Backspace always changes the value (and therefore always fires oninput).
@@ -219,29 +221,28 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
     });
   }
 
-  const navBtn =
-    "rounded-[5px] border border-line px-2 py-0.5 text-muted hover:border-faint hover:text-text";
-
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex items-center gap-1.5 border-b border-line bg-surface px-2 py-1.5 font-mono text-[11.5px]">
-        <button
+        <Button
           onClick={() => send({ t: "back" })}
           title="back"
-          className={`${navBtn} hidden min-[800px]:block`}
+          size="xs"
+          className="hidden min-[800px]:block"
         >
           ←
-        </button>
-        <button
+        </Button>
+        <Button
           onClick={() => send({ t: "forward" })}
           title="forward"
-          className={`${navBtn} hidden min-[800px]:block`}
+          size="xs"
+          className="hidden min-[800px]:block"
         >
           →
-        </button>
-        <button onClick={() => send({ t: "reload" })} title="reload" className={navBtn}>
-          ⟳
-        </button>
+        </Button>
+        <Button onClick={() => send({ t: "reload" })} aria-label="reload" size="xs">
+          <Icon name="reload" size={12} />
+        </Button>
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
@@ -266,7 +267,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
             editing ? "border-accent" : "border-line"
           }`}
         />
-        <button
+        <Button
           onClick={async () => {
             if (ports) {
               setPortsError(null);
@@ -281,20 +282,21 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
             }
           }}
           title="open a port that is listening in the pod"
-          className={navBtn}
+          size="xs"
         >
           ports
-        </button>
-        <button
+        </Button>
+        <Button
           onPointerDown={(e) => {
             e.preventDefault();
             hiddenInput.current?.focus();
           }}
           title="on-screen keyboard"
-          className={`${navBtn} min-[800px]:hidden`}
+          size="xs"
+          className="min-[800px]:hidden"
         >
           ⌨
-        </button>
+        </Button>
         {cdpUrl && (
           <span
             title={`Reachable at $VK_BROWSER_CDP (${cdpUrl})`}
@@ -313,16 +315,17 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
               <span className="px-1 text-faint">nothing listening</span>
             ))}
           {ports.map((p) => (
-            <button
+            <Button
               key={`${p.url}`}
               onClick={() => {
                 send({ t: "nav", url: p.url });
                 setPorts(null);
               }}
-              className="mr-1 rounded-md border border-line px-2 py-0.5 text-muted hover:border-faint hover:text-text"
+              size="xs"
+              className="mr-1"
             >
               :{p.port} <span className="text-faint">{p.process}</span>
-            </button>
+            </Button>
           ))}
         </div>
       )}

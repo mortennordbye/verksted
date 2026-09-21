@@ -4,6 +4,9 @@ import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import { focusIfPointerFine } from "./Sheet";
 import Skeleton, { SkeletonList } from "./Skeleton";
+import Button from "./ui/Button";
+import { Input, Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
 
@@ -87,7 +90,7 @@ function Editor({
 
   return (
     <div className="flex flex-col gap-2 rounded-[11px] border border-accent/40 bg-surface px-[15px] py-3">
-      <textarea
+      <Textarea
         value={text}
         onChange={(e) => setText(e.target.value)}
         rows={3}
@@ -95,8 +98,9 @@ function Editor({
         // you were reading before you have decided to type.
         ref={focusIfPointerFine}
         placeholder="Something a future agent should know without being told again."
-        aria-label="what to remember"
-        className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13.5px] outline-none placeholder:text-faint focus:border-accent"
+
+        label="what to remember"
+        className="w-full"
       />
       <div className="flex flex-wrap items-center gap-2">
         <select
@@ -111,28 +115,29 @@ function Editor({
             </option>
           ))}
         </select>
-        <input
+        <Input
           value={scope}
           onChange={(e) => setScope(e.target.value)}
-          aria-label="scope"
+
           placeholder="global, or a project"
-          className="w-[170px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
+          label="scope"
+          className="w-[170px]"
         />
-        <button
+        <Button
           onClick={() => void save()}
           disabled={busy || !text.trim()}
-          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+          variant="primary"
+          className="ml-auto"
         >
           {memory ? "save" : "remember"}
-        </button>
-        <button
-          onClick={onCancel}
-          className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text"
-        >
-          cancel
-        </button>
+        </Button>
+        <Button onClick={onCancel}>cancel</Button>
       </div>
-      {error && <div className="text-[11.5px] text-fail">{error}</div>}
+      {error && (
+        <Notice kind="fail" small>
+          {error}
+        </Notice>
+      )}
     </div>
   );
 }
@@ -216,7 +221,7 @@ function MemberNotes({ member }: { member: CouncilMember }) {
             <span className="min-w-0 flex-1 break-words text-muted">{m.text}</span>
             <button
               onClick={() => void forget(m.slug)}
-              className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 text-[11.5px] text-faint hover:border-wait hover:text-wait"
+              className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 text-[11.5px] text-faint hover:border-fail/60 hover:text-fail"
             >
               forget
             </button>
@@ -284,15 +289,16 @@ export default function MemoryPanel() {
           Carried into every session, in every repo. The assistant writes most of these; add,
           correct or forget them here.
         </div>
-        <button
+        <Button
           onClick={() => {
             setEditing(null);
             setAdding(true);
           }}
-          className="tap flex-none rounded-lg bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
+          variant="primary"
+          className="flex-none"
         >
           + remember
-        </button>
+        </Button>
       </div>
 
       {data && data.memories.length > 0 && (
@@ -321,13 +327,9 @@ export default function MemoryPanel() {
         {harvest ? (
           <span className="font-mono text-[11px] text-faint">{harvest.cron}</span>
         ) : (
-          <button
-            onClick={startHarvesting}
-            disabled={busy}
-            className="tap flex-none rounded-lg border border-line px-3 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
-          >
+          <Button onClick={startHarvesting} disabled={busy} className="flex-none">
             learn nightly
-          </button>
+          </Button>
         )}
       </div>
 

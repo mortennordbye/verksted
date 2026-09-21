@@ -10,6 +10,8 @@ import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { audioPlayer, voiceLabel } from "../useSpeech";
+import Button from "./ui/Button";
+import { Input, Select, Textarea } from "./ui/Field";
 
 /**
  * The council: who else answers, and what each of them may look at.
@@ -24,9 +26,6 @@ import { audioPlayer, voiceLabel } from "../useSpeech";
  */
 const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
-
-const field =
-  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
 
 /**
  * One line in this advisor's own voice, so the sample is a sample of them.
@@ -271,37 +270,39 @@ export default function CouncilPanel() {
       {editing && (
         <div className="mt-3 flex flex-col gap-2 rounded-[11px] border border-accent/40 bg-surface px-[15px] py-3">
           <div className="font-mono text-[11px] text-faint">@{editing.id}</div>
-          <input
-            className={field}
+          <Input
+            label="member name"
             placeholder="name"
-            aria-label="member name"
+
             value={editing.name}
             onChange={(e) => setEditing({ ...editing, name: e.target.value })}
           />
-          <input
-            className={field}
+          <Input
+            label="what they are for"
             placeholder="one line: what they are for"
-            aria-label="what they are for"
+
             value={editing.remit}
             onChange={(e) => setEditing({ ...editing, remit: e.target.value })}
           />
-          <textarea
-            className={`${field} min-h-[80px] resize-y`}
+          <Textarea
+            label="how they think"
+            className="min-h-[80px]"
             placeholder="how they think, in their own words. Carried with every turn, so keep it short."
-            aria-label="how they think"
+
             value={editing.persona}
             onChange={(e) => setEditing({ ...editing, persona: e.target.value })}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              className={`${field} w-[13ch]`}
+            <Input
+              label="model"
+              className="w-[13ch]"
               placeholder="model"
-              aria-label="model"
+
               value={editing.model}
               onChange={(e) => setEditing({ ...editing, model: e.target.value })}
             />
-            <select
-              className={field}
+            <Select
+              label="effort"
               value={editing.effort}
               onChange={(e) =>
                 setEditing({ ...editing, effort: e.target.value as AssistantEffort })
@@ -312,9 +313,9 @@ export default function CouncilPanel() {
                   {e}
                 </option>
               ))}
-            </select>
-            <select
-              className={field}
+            </Select>
+            <Select
+              label="colour"
               value={editing.colour}
               onChange={(e) => setEditing({ ...editing, colour: e.target.value as CouncilColour })}
             >
@@ -323,13 +324,12 @@ export default function CouncilPanel() {
                   {c}
                 </option>
               ))}
-            </select>
+            </Select>
             {voices.length > 0 && (
-              <select
-                className={field}
+              <Select
+                label="voice"
                 value={editing.voice}
                 onChange={(e) => setEditing({ ...editing, voice: e.target.value })}
-                aria-label="voice"
               >
                 <option value="">the default voice</option>
                 {voices.map((v) => (
@@ -337,7 +337,7 @@ export default function CouncilPanel() {
                     {voiceLabel(v)}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
           </div>
 
@@ -408,13 +408,9 @@ export default function CouncilPanel() {
           </label>
 
           <div className="mt-1 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => void save()}
-              className="tap rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-medium text-on-accent"
-            >
+            <Button type="button" onClick={() => void save()} variant="primary">
               save
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => setEditing(null)}
@@ -423,13 +419,13 @@ export default function CouncilPanel() {
               cancel
             </button>
             {members.some((m) => m.id === editing.id) && (
-              <button
-                type="button"
+              <Button
+                variant="ghost-danger"
                 onClick={() => void remove(editing.id)}
-                className="tap ml-auto rounded-[7px] border border-fail/40 px-3 py-1.5 text-[12.5px] text-fail"
+                className="ml-auto"
               >
                 remove
-              </button>
+              </Button>
             )}
           </div>
         </div>

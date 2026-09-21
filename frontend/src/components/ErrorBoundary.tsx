@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import Button, { buttonClass } from "./ui/Button";
 
 interface Props {
   children: ReactNode;
@@ -35,9 +36,7 @@ export default class ErrorBoundary extends Component<Props, State> {
 
     return (
       <main className="mx-auto max-w-[700px] px-[18px] pt-[60px]">
-        <div className="mb-2.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
-          something broke
-        </div>
+        <div className="mb-2.5 caps">something broke</div>
         <h1 className="mb-3 text-[21px] font-semibold tracking-tight">this screen crashed</h1>
         <p className="mb-4 text-sm text-muted">
           The sessions themselves are untouched — they live in tmux on the pod, not in this page.
@@ -46,16 +45,8 @@ export default class ErrorBoundary extends Component<Props, State> {
           {error.message}
         </pre>
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => this.setState({ error: null })}
-            className="rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted hover:text-text"
-          >
-            try again
-          </button>
-          <a
-            href="/"
-            className="rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
-          >
+          <Button onClick={() => this.setState({ error: null })}>try again</Button>
+          <a href="/" className={buttonClass("primary")}>
             back to the hub
           </a>
         </div>

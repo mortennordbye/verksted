@@ -89,8 +89,35 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.flatConfigs.recommended.rules,
-      // Icon-only controls carry aria-label; the glyph is not the name.
-      "jsx-a11y/control-has-associated-label": "off",
+      // The app's own fields are controls too: a label wrapping an <Input>
+      // is associated with it.
+      "jsx-a11y/label-has-associated-control": [
+        "error",
+        { controlComponents: ["Input", "Textarea", "Select"], depth: 3 },
+      ],
+      // A button or a link with no name. Off for years on the grounds that
+      // icon-only controls carry aria-label, which is true of the ones somebody
+      // remembered; on, it is true of all of them (F-40).
+      "jsx-a11y/control-has-associated-label": [
+        "error",
+        {
+          controlComponents: ["Button"],
+          ignoreElements: [
+            "audio",
+            "canvas",
+            "embed",
+            "input",
+            "textarea",
+            "select",
+            "tr",
+            "td",
+            "th",
+            "li",
+            "video",
+          ],
+          depth: 5,
+        },
+      ],
       // Real findings, but each needs markup restructuring rather than an
       // attribute: modal backdrops that close on click, and the browser pane's
       // canvas, which relays raw pointer events to a remote page. Warned rather
