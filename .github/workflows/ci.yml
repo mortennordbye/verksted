@@ -80,9 +80,10 @@ jobs:
         run: |
           # Anchored to the start of a line so it matches a trailer and not the
           # word in a commit body — this repo drives the claude CLI and talks
-          # about it constantly.
+          # about it constantly. Every agent the pod runs, as the image's
+          # commit-msg hook strips them.
           hits=$(git log --format='%H%n%B' "$BASE..$HEAD" \
-            | grep -inE '^(claude-session:|co-authored-by:.*claude|generated with.*claude)' || true)
+            | grep -inE '^(claude-session:|co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|gemini|antigravity|jules)|[^a-z]*generated (with|by) \[?(claude|codex|openai|chatgpt|gemini|antigravity))' || true)
           if [ -n "$hits" ]; then
             echo "::error::AI attribution found in commit messages"
             echo "$hits"

@@ -44,7 +44,31 @@ describe("commit-msg hook", () => {
     expect(out.toLowerCase()).not.toContain("claude");
   });
 
-  it("keeps other agents' co-author trailers", async () => {
+  it("removes the other agents' co-author lines too, not only claude's", async () => {
+    for (const trailer of [
+      "Co-authored-by: Codex <codex@openai.com>",
+      "Co-authored-by: Gemini <gemini@google.com>",
+      "Co-Authored-By: antigravity-agent <agy@google.com>",
+    ]) {
+      expect(await strip(`feat: a thing\n\nBody.\n\n${trailer}\n`)).toBe(
+        "feat: a thing\n\nBody.\n",
+      );
+    }
+  });
+
+  it("removes a generated-with footer, the robot emoji and all", async () => {
+    const out = await strip(
+      "feat: a thing\n\nBody.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n",
+    );
+    expect(out).toBe("feat: a thing\n\nBody.\n");
+  });
+
+  it("keeps a body line that is only about something generated", async () => {
+    const body = "- generated the fixtures from claude.json";
+    expect(await strip(`test: fixtures\n\n${body}\n`)).toContain(body);
+  });
+
+  it("keeps a bot's co-author trailer on its own commit", async () => {
     const trailer =
       "Co-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>";
     const out = await strip(`chore: bump\n\n${trailer}\n`);

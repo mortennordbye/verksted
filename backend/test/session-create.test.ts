@@ -70,6 +70,18 @@ beforeEach(() => {
 });
 
 describe("POST /api/projects/:name/sessions", () => {
+  it("holds every git in the session to the shipped hooks, a repo's own hooksPath or not", async () => {
+    await create({ agent: "claude" });
+    const [argv] = fake.subcommand("tmux", "new-session");
+    // Environment configuration outranks a repo's local core.hooksPath, which
+    // is how husky's made the attribution stripper never run (O-32).
+    expect(envOf(argv)).toMatchObject({
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.hooksPath",
+      GIT_CONFIG_VALUE_0: "/etc/verksted/git-hooks",
+    });
+  });
+
   it("delivers the prompt to the session instead of dropping it", async () => {
     const res = await create({ agent: "claude", prompt: "run git status and report" });
 

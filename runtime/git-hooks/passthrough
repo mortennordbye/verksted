@@ -1,0 +1,37 @@
+#!/bin/sh
+# Every hook but commit-msg, handed on to the repo's own.
+#
+# core.hooksPath is set system-wide so commit-msg can strip AI attribution in
+# every repo a session clones. It replaces, rather than adds to, what a repo
+# would have run, so a project's pre-commit, pre-push or post-checkout
+# stopped firing in the pod with no error at all: a lint hook skipped, a
+# pre-push check that never ran. Each such name here is a link to this file,
+# which runs the repo's hook of the same name, then husky's, with the same
+# arguments and standard input, and fails when either does.
+set -eu
+
+name=$(basename "$0")
+git_dir=$(git rev-parse --git-dir 2>/dev/null || true)
+top_level=$(git rev-parse --show-toplevel 2>/dev/null || true)
+here=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+
+# Two of these hooks are fed on standard input (pre-push the refs being
+# pushed, post-rewrite the old and new ids), and it can only be read once, so
+# it is kept for each hook that runs. git runs the others with no input.
+stdin_file=$(mktemp)
+trap 'rm -f "$stdin_file"' EXIT
+case "$name" in
+  pre-push | post-rewrite) cat > "$stdin_file" ;;
+esac
+
+run() {
+  hook=$1
+  shift
+  [ -n "$hook" ] && [ -x "$hook" ] || return 0
+  # A repo whose own hooksPath points back here would loop.
+  [ "$(cd "$(dirname "$hook")" 2>/dev/null && pwd)" = "$here" ] && return 0
+  "$hook" "$@" < "$stdin_file"
+}
+
+if [ -n "$git_dir" ]; then run "$git_dir/hooks/$name" "$@"; fi
+if [ -n "$top_level" ]; then run "$top_level/.husky/$name" "$@"; fi
