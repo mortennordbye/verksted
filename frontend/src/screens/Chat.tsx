@@ -796,6 +796,11 @@ export default function Chat() {
     }
   }
 
+  /** "try again" on a failed reply. Through the queue, so a second refusal is held, not lost. */
+  function retry(text: string, images: string[]) {
+    setQueued((q) => [...q, { text: text === "(see image)" ? "" : text, images }]);
+  }
+
   // The queue drains one message per idle moment. The next arrives with the
   // thread that ends this turn, whether from the POST or from the socket.
   useEffect(() => {
@@ -1046,7 +1051,7 @@ export default function Chat() {
           </div>
         )}
 
-        {thread && <Room thread={thread} members={members} chair={chair} />}
+        {thread && <Room thread={thread} members={members} chair={chair} onRetry={retry} />}
 
         {voiceMode && (
           <div className="flex items-center gap-2.5 rounded-xl bg-accent-tint px-3 py-2 text-[12.5px] ring-1 ring-accent/30">
