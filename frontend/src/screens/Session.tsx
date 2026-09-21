@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import hljs from "highlight.js/lib/common";
-import "highlight.js/styles/github-dark-dimmed.css";
 import type {
   BranchSync,
   FileDiff,
@@ -14,6 +12,7 @@ import type {
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
+import { highlight } from "../highlight";
 import { Badge, useNeedsYou } from "../components/Tabs";
 import TopBar, { BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -39,13 +38,6 @@ import { useOverlayDismiss } from "../useDismissOnBack";
 // down it is `dvh`, which needs none of this and cannot go stale — see the
 // shell below.
 import { useVisualViewport } from "../useVisualViewport";
-
-/** hljs language for a path, via its extension (aliases resolve: ts, py, yml…). */
-function langFor(path: string): string | null {
-  const name = path.split("/").at(-1)!.toLowerCase();
-  const ext = name.split(".").at(-1)!;
-  return hljs.getLanguage(ext) ? ext : null;
-}
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]);
 
@@ -477,12 +469,28 @@ export default function Session() {
   // "chat" and "agent" are icons of their own; every other view is its own key.
   const currentPaneKey = pane === "tree" ? side : (views.find(viewOn) ?? "agent");
 
-  // hljs escapes the source; the produced HTML is only span tags with classes.
-  const highlighted = useMemo(() => {
-    if (!file || file.kind !== "text") return null;
-    const lang = langFor(file.path);
-    return lang ? hljs.highlight(file.content, { language: lang }).value : null;
+  /**
+   * The open file as highlighted HTML, once highlight.js has been fetched.
+   *
+   * Null until then, which is the same thing it says for a language nothing
+   * knows — so the file is on screen as plain text from the first paint and
+   * gains its colours a moment later, instead of waiting for a third of a
+   * megabyte of grammars.
+   */
+  const [done, setDone] = useState<{ of: string; html: string } | null>(null);
+  useEffect(() => {
+    if (!file || file.kind !== "text") return;
+    let live = true;
+    void highlight(file.path, file.content).then((html) => {
+      if (live && html !== null) setDone({ of: file.content, html });
+    });
+    return () => {
+      live = false;
+    };
   }, [file]);
+  // What was highlighted is only worth drawing over the text it was made from:
+  // the next file opens with the one before it still in state.
+  const highlighted = done && done.of === file?.content ? done.html : null;
 
   // A session id the pod does not have used to sit on its skeletons for ever,
   // which is exactly what a push notification tapped after the session was
