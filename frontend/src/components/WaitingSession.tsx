@@ -5,6 +5,9 @@ import { agoLabel, api, usePoll } from "../api";
 import { AgentTag, StatusChip } from "./StatusChip";
 import { SkeletonLines } from "./Skeleton";
 import LivePrompt from "./chat/LivePrompt";
+import Button, { buttonClass } from "./ui/Button";
+import { Input } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 /**
  * One agent that wants a decision, answerable without opening its terminal.
@@ -94,24 +97,26 @@ export default function WaitingSession({ session }: { session: Session }) {
         <span className="font-mono text-[11px] text-faint">{agoLabel(session.createdAt)}</span>
       </div>
 
-      {session.report && <div className="mt-1.5 text-[12.5px] text-wait">{session.report}</div>}
+      {session.report && (
+        <Notice kind="note" className="mt-1.5">
+          {session.report}
+        </Notice>
+      )}
 
       <div className="mt-2 flex flex-wrap gap-2">
-        <button
-          onClick={() => setOpen((o) => !o)}
-          className="tap rounded-md border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-faint hover:text-text"
-        >
+        <Button onClick={() => setOpen((o) => !o)} aria-expanded={open} size="xs">
           {open ? "hide" : "show and answer"}
-        </button>
-        <Link
-          to={`/s/${session.id}`}
-          className="tap ml-auto flex items-center rounded-md border border-line px-2.5 py-1 text-[12.5px] text-muted hover:border-faint hover:text-text"
-        >
+        </Button>
+        <Link to={`/s/${session.id}`} className={buttonClass("ghost", "xs", "ml-auto")}>
           open terminal →
         </Link>
       </div>
 
-      {error && <div className="mt-1.5 text-[12.5px] text-fail">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mt-1.5">
+          {error}
+        </Notice>
+      )}
 
       {open && (
         <>
@@ -155,21 +160,23 @@ function Reply({
   };
   return (
     <div className="mt-2 flex gap-2">
-      <input
+      <Input
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && send()}
         placeholder="type a reply…"
-        aria-label="reply to the agent"
-        className="min-w-0 flex-1 rounded-md border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent"
+
+        label="reply to the agent"
+        className="flex-1"
       />
-      <button
+      <Button
         onClick={send}
         disabled={sending || !text.trim()}
-        className="tap flex-none rounded-md bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent disabled:opacity-50"
+        variant="primary"
+        className="flex-none"
       >
         send
-      </button>
+      </Button>
     </div>
   );
 }

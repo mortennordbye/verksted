@@ -9,6 +9,9 @@ const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 import { fileIcon } from "../fileicons";
 import BranchControl from "./BranchControl";
 import { SkeletonLines } from "./Skeleton";
+import Button from "./ui/Button";
+import { Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 const STATUS_COLOR: Record<string, string> = {
   M: "text-wait",
@@ -173,7 +176,7 @@ export default function GitPanel({
   ) {
     return (
       <>
-        <div className="group flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 text-[11px] tracking-widest text-faint uppercase">
+        <div className="group flex items-center gap-1.5 px-2.5 pt-2.5 pb-1 caps">
           {label}
           <span className={ACTIONS_CLS}>
             {headerActions.map((a) => (
@@ -210,7 +213,7 @@ export default function GitPanel({
       aria-label="git"
       className="min-h-0 flex-1 overflow-auto rounded-xl border border-line bg-surface px-2 py-3 font-mono text-[12.5px]"
     >
-      <div className="flex items-center px-2.5 pb-2 text-[11px] tracking-widest text-faint uppercase">
+      <div className="flex items-center px-2.5 pb-2 caps">
         source control
         <BranchControl
           project={project}
@@ -220,7 +223,8 @@ export default function GitPanel({
         />
       </div>
       <div className="px-2.5">
-        <textarea
+        <Textarea
+          label="commit message"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={(e) => {
@@ -231,16 +235,16 @@ export default function GitPanel({
           }}
           placeholder={`Message (${MOD}⏎ to commit on "${status?.branch ?? "…"}")`}
           rows={2}
-          className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12px] outline-none placeholder:text-faint focus:border-accent"
+          className="w-full"
         />
-        <button
-          onClick={commit}
-          disabled={!canCommit}
-          className="mt-1 w-full rounded-[7px] bg-accent px-2.5 py-1.5 text-[12px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-        >
+        <Button onClick={commit} disabled={!canCommit} variant="primary" className="mt-1 w-full">
           {busy ? "working…" : "✓ Commit"}
-        </button>
-        {error && <div className="mt-1 text-[11px] text-wait">{error}</div>}
+        </Button>
+        {error && (
+          <Notice kind="fail" small className="mt-1">
+            {error}
+          </Notice>
+        )}
       </div>
       {!status && <SkeletonLines count={4} className="px-2.5 pt-3" />}
       {status && files.length === 0 && (

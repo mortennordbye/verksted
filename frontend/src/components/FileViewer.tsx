@@ -9,6 +9,7 @@ import { lineRange } from "../lineRange";
 import { useConfirm } from "../useConfirm";
 import { SkeletonLines } from "./Skeleton";
 import Overlay, { OverlayHeader } from "./ui/Overlay";
+import Icon from "./Icon";
 
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]);
 
@@ -277,7 +278,7 @@ export default function FileViewer({
               aria-label="download"
               className="tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text"
             >
-              ⤓
+              <Icon name="download" size={15} />
             </a>
           )}
           {/* Only a file actually read off disk can be written back: a diff, an

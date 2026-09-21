@@ -30,7 +30,7 @@ export default function PageHeader({
     // buttons held at its right edge end up floating beside the wrap.
     <div className="mb-7 flex flex-col items-start gap-3 border-b border-line-strong pb-5 min-[560px]:flex-row min-[560px]:items-end min-[560px]:justify-between min-[560px]:gap-4">
       <div className="min-w-0">
-        <div className="mb-2 flex items-center gap-1.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
+        <div className="mb-2 flex items-center gap-1.5 caps">
           <Icon name={icon} size={13} />
           {label}
         </div>

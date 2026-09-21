@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import Sheet from "./components/Sheet";
 import { overlaysSettled } from "./useDismissOnBack";
+import Button from "./components/ui/Button";
 
 interface Request {
   title: string;
@@ -60,14 +61,14 @@ export function useConfirm(): [(req: Request) => Promise<boolean>, ReactNode] {
     // Escape, the backdrop and Android Back all reach onClose, and every one of
     // them has to mean "no" rather than leaving the promise unsettled.
     <Sheet title={request.title} sub={request.body} onClose={() => settle(false)}>
-      <button
+      <Button
         onClick={() => settle(true)}
-        className={`tap w-full rounded-[11px] px-3.5 py-3 font-mono text-[13px] font-semibold ${
-          request.danger ? "bg-fail text-[#1a0e0e]" : "bg-accent text-on-accent"
-        }`}
+        variant={request.danger ? "danger" : "primary"}
+        size="lg"
+        className="w-full"
       >
         {request.action}
-      </button>
+      </Button>
     </Sheet>
   ) : null;
 

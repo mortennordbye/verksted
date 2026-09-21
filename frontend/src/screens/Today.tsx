@@ -23,12 +23,14 @@ import PollError from "../components/PollError";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
-import { useUndo } from "../components/UndoBar";
+import { offerUndo } from "../components/ui/Toast";
 import Tabs from "../components/Tabs";
 import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
 import { canSpeak, useSpeech } from "../useSpeech";
+import Button from "../components/ui/Button";
+import Notice from "../components/ui/Notice";
 
 /**
  * The home screen: what the assistant would tell you if you asked, before you
@@ -45,7 +47,7 @@ import { canSpeak, useSpeech } from "../useSpeech";
  */
 function Label({ children, icon }: { children: string; icon?: IconName }) {
   return (
-    <div className="mb-2 flex items-center gap-1.5 font-mono text-[11px] tracking-[.14em] text-faint uppercase">
+    <div className="mb-2 flex items-center gap-1.5 caps">
       {icon && <Icon name={icon} size={13} />}
       {children}
     </div>
@@ -308,7 +310,7 @@ function Composer({ name }: { name: string }) {
               working…
             </div>
           )}
-          {error && <div className="text-[12.5px] text-fail">{error}</div>}
+          {error && <Notice kind="fail">{error}</Notice>}
           {reply && (
             <div className="text-[14px]">
               <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
@@ -366,7 +368,6 @@ export default function Today() {
    * first — they are triage, and a question per row is how triage stops
    * happening — so both offer the way back instead (F-30).
    */
-  const [offerUndo, undoBar] = useUndo();
 
   /** A POST, then the list it changed. Says so on the screen if it fails. */
   async function post(url: string, refresh: () => void, body?: unknown): Promise<boolean> {
@@ -451,7 +452,11 @@ export default function Today() {
               ) : (
                 "Nothing needs you."
               )}
-              {error && <div className="mt-1 text-[12.5px] text-fail">{error}</div>}
+              {error && (
+                <Notice kind="fail" className="mt-1">
+                  {error}
+                </Notice>
+              )}
             </>
           }
           actions={
@@ -464,18 +469,20 @@ export default function Today() {
                 seen today
               </span>
             ) : (
-              <button
+              <Button
                 onClick={() => {
                   ackToday();
                   setAcked(true);
                   void navigate("/bench");
                 }}
                 title="done with today: opening verksted goes to the bench until tomorrow"
-                className="tap flex flex-none items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110"
+                variant="primary"
+                size="lg"
+                className="flex-none"
               >
                 <Icon name="check" size={15} />
                 Got it
-              </button>
+              </Button>
             )
           }
         />
@@ -660,7 +667,7 @@ export default function Today() {
                     <span className="truncate">{brief.schedule}</span>
                     <span className="ml-auto flex flex-none items-center gap-2">
                       {canSpeak() && (
-                        <button
+                        <Button
                           onClick={() => {
                             if (speech.speaking) {
                               speech.cancelSpeech();
@@ -668,11 +675,11 @@ export default function Today() {
                             }
                             speech.speak(brief.report ?? "");
                           }}
-                          className="tap rounded-md border border-line px-2 py-0.5 text-muted hover:border-line-strong hover:text-text"
+                          size="xs"
                           title={speech.speaking ? "stop reading" : "read the brief aloud"}
                         >
                           {speech.speaking ? "stop" : "read aloud"}
-                        </button>
+                        </Button>
                       )}
                       <span>{agoLabel(brief.at)}</span>
                     </span>
@@ -862,7 +869,6 @@ export default function Today() {
           </aside>
         </div>
       </main>
-      {undoBar}
       <Tabs />
     </div>
   );

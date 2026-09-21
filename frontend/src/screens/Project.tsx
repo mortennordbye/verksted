@@ -13,6 +13,7 @@ import ActionsPanel from "../components/ActionsPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import TopBar from "../components/TopBar";
 import Icon, { type IconName } from "../components/Icon";
+import SegTabs from "../components/ui/SegTabs";
 import PageHeader from "../components/PageHeader";
 import PollError from "../components/PollError";
 import SectionLabel from "../components/SectionLabel";
@@ -30,6 +31,9 @@ import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import Skeleton from "../components/Skeleton";
 import { useConfirm } from "../useConfirm";
+import Button from "../components/ui/Button";
+import { Input } from "../components/ui/Field";
+import Notice from "../components/ui/Notice";
 
 const AGENT_OPTIONS: { agent: AgentName; swatch: string; desc: string; cmd: string }[] = [
   { agent: "claude", swatch: "bg-claude", desc: "Claude Code · Max plan", cmd: "$ claude" },
@@ -85,7 +89,7 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
         onClick={onDelete}
         title="delete session"
         aria-label={`delete session ${session.title}`}
-        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1.5 text-faint hover:border-wait hover:text-wait"
+        className="tap-sq ml-1 flex flex-none items-center justify-center rounded-[7px] border border-line px-2 py-1.5 text-faint hover:border-fail/60 hover:text-fail"
       >
         <Icon name="trash" size={14} />
       </button>
@@ -255,56 +259,48 @@ export default function Project() {
           actions={
             <>
               {info && !info.worktreeOf && (
-                <button
-                  onClick={() => setBranching(true)}
-                  className="tap flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3.5 py-2 text-[13.5px] font-semibold text-muted hover:border-faint hover:text-text"
-                >
+                <Button onClick={() => setBranching(true)} size="lg" className="bg-surface">
                   <Icon name="branch" size={15} />
                   new worktree
-                </button>
+                </Button>
               )}
-              <button
-                onClick={() => setPicking(true)}
-                className="tap flex items-center gap-1.5 rounded-lg bg-accent px-3.5 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110"
-              >
+              <Button onClick={() => setPicking(true)} variant="primary" size="lg">
                 <Icon name="plus" size={15} />
                 new session
-              </button>
+              </Button>
             </>
           }
         />
 
-        {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+        {error && (
+          <Notice kind="fail" className="mb-3">
+            {error}
+          </Notice>
+        )}
 
         <PollError error={sessionsError} what="this repo's sessions" retry={refreshSessions} />
 
         {/* An unselected panel is unmounted, so its poll does not run.
             Scrolls sideways like the settings strip: with their icons the four
             tabs are wider than a phone, and the last one ran off the screen. */}
-        <div
-          role="group"
-          aria-label="project view"
+        <SegTabs
+          label="project view"
+          value={tab}
+          onChange={(t) => setParams(t === "sessions" ? {} : { tab: t }, { replace: true })}
+          items={TABS.map((t) => ({
+            value: t,
+            content: (
+              <>
+                <Icon name={TAB_ICON[t]} size={14} />
+                {t}
+                {t === "sessions" && active.length > 0 && (
+                  <span className="ml-1 text-run">{active.length}</span>
+                )}
+              </>
+            ),
+          }))}
           className="mt-6 mb-4 flex gap-1.5 overflow-x-auto border-b border-line pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t}
-              aria-pressed={tab === t}
-              onClick={() => setParams(t === "sessions" ? {} : { tab: t }, { replace: true })}
-              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
-                tab === t
-                  ? "border-accent bg-surface-2 text-text"
-                  : "border-line bg-surface text-muted hover:text-text"
-              }`}
-            >
-              <Icon name={TAB_ICON[t]} size={14} />
-              {t}
-              {t === "sessions" && active.length > 0 && (
-                <span className="ml-1 text-run">{active.length}</span>
-              )}
-            </button>
-          ))}
-        </div>
+        />
 
         {tab === "sessions" && (
           <>
@@ -350,7 +346,7 @@ export default function Project() {
         <div className="mt-10 border-t border-line pt-4">
           <button
             onClick={() => setConfirmingDelete(true)}
-            className="tap flex items-center gap-1.5 text-[12.5px] text-faint hover:text-wait"
+            className="tap flex items-center gap-1.5 text-[12.5px] text-faint hover:text-fail"
           >
             <Icon name="trash" size={13} />
             delete project…
@@ -402,22 +398,27 @@ export default function Project() {
           sub="Runs sessions on their own branch in a linked git worktree, side by side with the main checkout. The branch is created from HEAD if it doesn't exist."
           onClose={() => setBranching(false)}
         >
-          <input
+          <Input
             ref={focusIfPointerFine}
             value={branch}
             onChange={(e) => setBranch(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && newWorktree()}
             placeholder="branch name (e.g. feature-x)"
-            aria-label="branch name"
-            className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[14px] outline-none placeholder:text-faint focus:border-accent"
+
+            label="branch name"
+            mono
+            size="lg"
+            className="w-full"
           />
-          <button
+          <Button
             onClick={newWorktree}
             disabled={branchBusy || !branch.trim()}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            variant="primary"
+            size="lg"
+            className="mt-3 w-full"
           >
             {branchBusy ? "working…" : "create worktree"}
-          </button>
+          </Button>
         </Sheet>
       )}
 

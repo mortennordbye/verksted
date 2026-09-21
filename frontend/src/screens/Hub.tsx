@@ -14,6 +14,9 @@ import ClusterPanel from "../components/ClusterPanel";
 import UsagePanel from "../components/UsagePanel";
 import Skeleton from "../components/Skeleton";
 import { readStored, writeStored } from "../storage";
+import Button from "../components/ui/Button";
+import { Input } from "../components/ui/Field";
+import Notice from "../components/ui/Notice";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
@@ -514,23 +517,32 @@ export default function Hub() {
           sub="Paste a GitHub repo (owner/repo or https URL) to clone, or a plain name to init a local repo."
           onClose={() => setAdding(false)}
         >
-          <input
+          <Input
             ref={focusIfPointerFine}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && addProject()}
             placeholder="owner/repo or project-name"
-            aria-label="repo to clone, or a name for a new one"
-            className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 font-mono text-[14px] outline-none placeholder:text-faint focus:border-accent"
+
+            label="repo to clone, or a name for a new one"
+            mono
+            size="lg"
+            className="w-full"
           />
-          {error && <div className="mt-2 font-mono text-[12px] text-wait">{error}</div>}
-          <button
+          {error && (
+            <Notice kind="fail" small className="mt-2">
+              {error}
+            </Notice>
+          )}
+          <Button
             onClick={addProject}
             disabled={busy}
-            className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            variant="primary"
+            size="lg"
+            className="mt-3 w-full"
           >
             {busy ? "working…" : input.includes("/") ? "clone" : "init"}
-          </button>
+          </Button>
         </Sheet>
       )}
     </>

@@ -300,7 +300,7 @@ describe("the app in a real browser", () => {
     // ?side=changes is the one deep link into the side pane; the files tab is
     // a tap from there, which is the way a phone reaches the tree at all.
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByRole("radio", { name: "files", exact: true }).click();
     await page.getByText("readme.md").first().click();
 
     const viewer = page.getByRole("dialog", { name: "readme.md" });
@@ -330,7 +330,7 @@ describe("the app in a real browser", () => {
    */
   it("asks before a tap beside the file viewer throws away an edit", async () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByRole("radio", { name: "files", exact: true }).click();
     await page.getByText("readme.md").first().click();
 
     const viewer = page.getByRole("dialog", { name: "readme.md" });

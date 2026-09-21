@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FeedItem } from "../../shared/api";
 import { resetPollCache } from "../src/api";
+import { resetToasts, Toaster } from "../src/components/ui/Toast";
 import Inbox from "../src/screens/Inbox";
 
 /**
@@ -52,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetToasts();
   resetPollCache();
   vi.unstubAllGlobals();
 });
@@ -60,6 +62,7 @@ const draw = () =>
   render(
     <MemoryRouter>
       <Inbox />
+      <Toaster />
     </MemoryRouter>,
   );
 
@@ -154,7 +157,7 @@ describe("a tap on the list", () => {
     fireEvent.click(await screen.findByRole("button", { name: "clear 2" }));
     fireEvent.click(await screen.findByRole("button", { name: "mark 2 done" }));
 
-    expect((await screen.findByRole("status")).textContent).toContain("2 marked done");
+    expect(await screen.findByText("2 marked done")).toBeTruthy();
     const posts = (fetchMock.mock.calls as [string, RequestInit?][]).filter(
       ([, init]) => init?.method === "POST",
     );

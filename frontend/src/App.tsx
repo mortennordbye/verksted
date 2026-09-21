@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import HashScroll from "./components/HashScroll";
 import Skeleton, { SkeletonList } from "./components/Skeleton";
 import UpdateBanner from "./components/UpdateBanner";
+import { Toaster } from "./components/ui/Toast";
 import { onPaletteAsked } from "./palette";
 import Hub from "./screens/Hub";
 import NotFound from "./screens/NotFound";
@@ -109,6 +110,7 @@ export default function App() {
         </Suspense>
       </ErrorBoundary>
       <UpdateBanner />
+      <Toaster />
     </>
   );
 }

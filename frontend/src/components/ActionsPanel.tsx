@@ -6,6 +6,8 @@ import { StatusChip, StatusDot } from "./StatusChip";
 import Sheet from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
 import { SkeletonList } from "./Skeleton";
+import Button, { buttonClass } from "./ui/Button";
+import Notice from "./ui/Notice";
 
 const FAILED = new Set(["failure", "timed_out", "startup_failure"]);
 
@@ -32,11 +34,13 @@ export default function ActionsPanel({ project }: { project: string }) {
 
   return (
     <>
-      <div className="mb-2.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-        Workflow runs
-      </div>
+      <div className="mb-2.5 caps">Workflow runs</div>
 
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
 
       <div className="flex flex-col gap-2.5">
         {runs?.map((run) => (
@@ -158,47 +162,57 @@ function RunSheet({
         }
         onClose={() => !busy && onClose()}
       >
-        {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
+        {error && (
+          <Notice kind="fail" className="mb-2.5">
+            {error}
+          </Notice>
+        )}
 
         <div className="mb-3 flex flex-wrap gap-2">
           {failed && (
-            <button
+            <Button
               onClick={() =>
                 act(async () =>
                   setLog(await api<RunLog>(`/api/projects/${project}/runs/${id}/log`)),
                 )
               }
               disabled={busy}
-              className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
+              size="lg"
+              className="flex-1"
             >
               {busy ? "working…" : "◫ failed logs"}
-            </button>
+            </Button>
           )}
           {live ? (
-            <button
+            <Button
               onClick={cancel}
               disabled={busy}
-              className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
+              variant="ghost-danger"
+              size="lg"
+              className="flex-none"
             >
               ✕ cancel
-            </button>
+            </Button>
           ) : (
             <>
-              <button
+              <Button
                 onClick={() => act(() => post("rerun"))}
                 disabled={busy}
-                className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                size="lg"
+                className="flex-none"
               >
                 ⟲ re-run all
-              </button>
+              </Button>
               {failed && (
-                <button
+                <Button
                   onClick={() => act(() => post("rerun", { failed: true }))}
                   disabled={busy}
-                  className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+                  size="lg"
+                  className="flex-none"
                 >
                   ⟲ failed only
-                </button>
+                </Button>
               )}
             </>
           )}
@@ -207,7 +221,8 @@ function RunSheet({
               href={detail.url}
               target="_blank"
               rel="noreferrer"
-              className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+              aria-label="open the run on GitHub"
+              className={buttonClass("ghost", "lg", "flex-none")}
             >
               ↗
             </a>

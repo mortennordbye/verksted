@@ -284,6 +284,10 @@ e2e/                  # `make e2e` only: the built app in a real chromium
 - UI styling comes from the mock's palette in `theme.css` (`bg-surface`, `text-muted`,
   `border-line`, agent colors `claude`/`antigravity`/`codex`); mono font for anything
   terminal-ish, sans for prose.
+- UI primitives live in `frontend/src/components/ui/`: `Button` (and `buttonClass` for
+  links), `Input`/`Textarea`/`Select` (a `label` is required), `SegTabs`, `Notice`,
+  `Overlay` (every modal, on Radix Dialog) and `toast`/`offerUndo`. Build on them rather
+  than pasting class strings; the chat screens are the part not yet moved over.
 
 ### Code quality
 

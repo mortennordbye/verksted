@@ -4,6 +4,8 @@ import type { FeedItem, ProposalAction } from "../../../shared/api";
 import { api } from "../api";
 import { cite, citeUrl } from "./chat/cite";
 import { MD, REMARK } from "./chat/markdown";
+import Button from "./ui/Button";
+import Notice from "./ui/Notice";
 
 /**
  * A proposal, whole, with the two buttons.
@@ -138,23 +140,19 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
           <div className="mt-1 text-[12.5px] whitespace-pre-wrap text-muted">{a.ask}</div>
         </div>
       )}
-      {error && <div className="mt-2 text-[12.5px] text-fail">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mt-2">
+          {error}
+        </Notice>
+      )}
       {!done ? (
         <div className="mt-3 flex items-center gap-2">
-          <button
-            onClick={() => void act("do")}
-            disabled={busy !== null}
-            className="tap rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-          >
+          <Button onClick={() => void act("do")} disabled={busy !== null} variant="primary">
             {busy === "do" ? "doing…" : label}
-          </button>
-          <button
-            onClick={() => void act("drop")}
-            disabled={busy !== null}
-            className="tap rounded-[7px] border border-line px-3 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
-          >
+          </Button>
+          <Button onClick={() => void act("drop")} disabled={busy !== null}>
             drop
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="mt-2 font-mono text-[11px] text-faint">{item.did}</div>

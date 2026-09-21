@@ -13,6 +13,9 @@ import Icon from "./Icon";
 import { useConfirm } from "../useConfirm";
 import { ReportLine, StatusChip } from "./StatusChip";
 import { SkeletonLines, SkeletonList } from "./Skeleton";
+import Button from "./ui/Button";
+import { Input, Select, Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 /** A cron pattern's next fire time, in this device's timezone. */
 function whenLabel(iso: string | null): string {
@@ -35,14 +38,6 @@ const CRON_PRESETS = [
   { cron: "0 * * * *", label: "hourly" },
   { cron: "0 7 * * *", label: "daily 07:00" },
 ];
-
-const field =
-  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
-// The same box for what is typed as words: a name, a prompt, a choice between named things.
-const proseField =
-  "max-w-full min-w-0 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] outline-none placeholder:text-faint focus:border-accent";
-const ghost =
-  "tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50";
 
 /**
  * A cron pattern, and what it would actually do.
@@ -91,12 +86,13 @@ function CronField({
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2.5">
-        <input
+        <Input
+          label="cron pattern"
+          mono
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="0 8 * * 1-5"
-          aria-label="cron pattern"
-          className={`${width} ${field}`}
+          className={width}
         />
         {CRON_PRESETS.map((p) => (
           <button
@@ -334,7 +330,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           project ? "" : "mt-10 border-t border-line-strong pt-6"
         }`}
       >
-        <span className="flex items-center gap-1.5 font-mono text-[11px] tracking-[.12em] text-faint uppercase">
+        <span className="flex items-center gap-1.5 caps">
           <Icon name="history" size={13} />
           {project ? "Recurring prompts" : "Schedules · recurring prompts"}
         </span>
@@ -344,7 +340,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         {/* The switch itself stays on the settings screen — it stops every
             repo's schedules, which is not what a per-project button reads as. */}
         {!project && (
-          <button
+          <Button
             onClick={() =>
               run(async () => {
                 await api("/api/settings", {
@@ -356,13 +352,17 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             }
             disabled={busy || !settings}
             title="stop every schedule firing on its cron; run now still works"
-            className={`ml-auto ${ghost}`}
+            className="ml-auto"
           >
             {settings?.schedulesPaused ? "resume all" : "pause all"}
-          </button>
+          </Button>
         )}
       </div>
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
       {note && <div className="mb-3 text-[12.5px] text-muted">{note}</div>}
       {/* The starters, until each exists. A bench without a morning briefing
           has no front page, and the button is the whole of setting one up. */}
@@ -372,7 +372,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <span className="text-[11.5px] text-faint">start with:</span>
             {STARTERS.filter((st) => !schedules.some((s) => s.name === st.name)).map((st) => (
-              <button
+              <Button
                 key={st.name}
                 onClick={() =>
                   run(async () => {
@@ -391,10 +391,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   })
                 }
                 disabled={busy}
-                className={ghost}
               >
                 {st.name}
-              </button>
+              </Button>
             ))}
           </div>
         )}
@@ -422,26 +421,16 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 label={s.enabled ? whenLabel(s.nextRunAt) : "paused"}
               />
               <span className="ml-auto flex flex-wrap gap-2">
-                <button onClick={() => toggleOpen(s)} className={ghost}>
-                  {open === s.id ? "hide" : "edit"}
-                </button>
-                <button onClick={() => runNow(s)} disabled={busy} className={ghost}>
+                <Button onClick={() => toggleOpen(s)}>{open === s.id ? "hide" : "edit"}</Button>
+                <Button onClick={() => runNow(s)} disabled={busy}>
                   run now
-                </button>
-                <button
-                  onClick={() => patch(s, { enabled: !s.enabled })}
-                  disabled={busy}
-                  className={ghost}
-                >
+                </Button>
+                <Button onClick={() => patch(s, { enabled: !s.enabled })} disabled={busy}>
                   {s.enabled ? "pause" : "resume"}
-                </button>
-                <button
-                  onClick={() => remove(s)}
-                  disabled={busy}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
-                >
+                </Button>
+                <Button onClick={() => remove(s)} disabled={busy} variant="ghost-danger">
                   delete
-                </button>
+                </Button>
               </span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
@@ -471,7 +460,9 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   />
                   <label className="text-[11.5px] text-faint">
                     jitter
-                    <input
+                    <Input
+                      label="jitter, in minutes"
+                      mono
                       type="number"
                       min={0}
                       max={720}
@@ -479,25 +470,27 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                       onChange={(e) =>
                         setEdit((d) => d && { ...d, jitterMinutes: Number(e.target.value) })
                       }
-                      className={`ml-2 w-[72px] ${field}`}
+                      className="ml-2 w-[72px]"
                     />
                     <span className="ml-1.5">min</span>
                   </label>
                 </div>
-                <textarea
+                <Textarea
                   value={edit.prompt}
                   onChange={(e) => setEdit((d) => d && { ...d, prompt: e.target.value })}
                   rows={3}
-                  aria-label="prompt"
-                  className={`w-full resize-y ${proseField}`}
+
+                  label="prompt"
+                  className="w-full"
                 />
-                <button
+                <Button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
                   disabled={busy || !edit.cron.trim() || (!edit.prompt.trim() && !s.stage)}
-                  className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                  variant="primary"
+                  className="self-start"
                 >
                   save
-                </button>
+                </Button>
               </div>
             ) : (
               <div className="mt-1.5 line-clamp-2 text-[12.5px] text-muted">{s.prompt}</div>
@@ -512,15 +505,16 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
         <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
           <div className="flex flex-wrap items-center gap-2.5">
-            <input
+            <Input
               value={draft.name}
               onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
               placeholder="what it does"
-              aria-label="schedule name"
-              className={`w-[200px] ${proseField}`}
+
+              label="schedule name"
+              className="w-[200px]"
             />
             {!project && (
-              <select
+              <Select
                 value={
                   draft.kind === "assistant"
                     ? `member:${draft.member}`
@@ -537,8 +531,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                       : { ...d, kind: "session", project: e.target.value },
                   )
                 }
-                aria-label="who runs it"
-                className={proseField}
+
+                label="who runs it"
               >
                 {/* One control, because "which repo" and "which of the council
                     instead of a repo" are the same question asked once. */}
@@ -552,7 +546,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                     {p.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             )}
             <CronField
               value={draft.cron}
@@ -560,19 +554,19 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               width="w-[130px]"
             />
             {!assistantDraft && (
-              <select
+              <Select
                 value={draft.stage}
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, stage: e.target.value as "" | MaintainerStage }))
                 }
-                aria-label="stage"
-                className={proseField}
+
+                label="stage"
               >
                 <option value="">own prompt</option>
                 <option value="scout">maintainer: scout</option>
                 <option value="build">maintainer: build</option>
                 <option value="gate">maintainer: gate</option>
-              </select>
+              </Select>
             )}
             {assistantDraft && !draft.member && (
               <label className="flex items-center gap-1.5 text-[11.5px] text-faint">
@@ -586,18 +580,20 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             )}
             <label className="text-[11.5px] text-faint">
               jitter
-              <input
+              <Input
+                label="jitter, in minutes"
+                mono
                 type="number"
                 min={0}
                 max={720}
                 value={draft.jitterMinutes}
                 onChange={(e) => setDraft((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))}
-                className={`mx-2 w-[72px] ${field}`}
+                className="mx-2 w-[72px]"
               />
               min
             </label>
           </div>
-          <textarea
+          <Textarea
             value={draft.prompt}
             onChange={(e) => setDraft((d) => ({ ...d, prompt: e.target.value }))}
             placeholder={
@@ -608,10 +604,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                   : "Check the open pull requests and merge any that are approved and green."
             }
             rows={3}
-            aria-label="prompt"
-            className={`w-full resize-y ${proseField}`}
+
+            label="prompt"
+            className="w-full"
           />
-          <button
+          <Button
             onClick={add}
             disabled={
               busy ||
@@ -619,10 +616,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               (!draft.prompt.trim() && !(draft.stage && !assistantDraft)) ||
               (!project && !assistantDraft && !projects?.length)
             }
-            className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            variant="primary"
+            className="self-start"
           >
             add schedule
-          </button>
+          </Button>
         </div>
       </div>
       <div className="mt-5 text-[13px] text-muted">

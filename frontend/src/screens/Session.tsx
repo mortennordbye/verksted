@@ -24,6 +24,7 @@ import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
 import Icon from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import SegTabs from "../components/ui/SegTabs";
 import Skeleton from "../components/Skeleton";
 import { readStoredNumber, readStored, writeStored } from "../storage";
 import { useAction } from "../useAction";
@@ -34,6 +35,8 @@ import { useUrlOverlay } from "../useUrlOverlay";
 // down it is `dvh`, which needs none of this and cannot go stale — see the
 // shell below.
 import { useVisualViewport } from "../useVisualViewport";
+import Button, { buttonClass } from "../components/ui/Button";
+import Notice from "../components/ui/Notice";
 
 const SIDE_KEY = "vk.session.sideWidth";
 const RATIO_KEY = "vk.session.ratio";
@@ -530,7 +533,7 @@ export default function Session() {
                 aria-label="dismiss"
                 className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
               >
-                ✕
+                <Icon name="close" size={14} />
               </button>
             </div>
           )}
@@ -540,19 +543,9 @@ export default function Session() {
               phone the sheet is what you were looking at, and the screen behind
               it is unchanged either way. */}
           {actError && (
-            <div
-              role="alert"
-              className="mb-2 flex flex-none items-center gap-2 rounded-lg border border-fail/40 bg-fail/5 px-3 py-1.5 text-[12.5px] text-fail"
-            >
-              <span className="min-w-0 flex-1">{actError}</span>
-              <button
-                onClick={clearActError}
-                aria-label="dismiss"
-                className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
-              >
-                ✕
-              </button>
-            </div>
+            <Notice kind="fail" onDismiss={clearActError} className="mb-2 flex-none">
+              {actError}
+            </Notice>
           )}
 
           {/* Phone: one control for every pane. Desktop shows the sidebar and
@@ -705,32 +698,27 @@ export default function Session() {
                 title="drag to resize · double-click to reset · arrow keys"
                 className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
               />
-              <div
-                role="group"
-                aria-label="side panel"
+              <SegTabs
+                label="side panel"
+                size="sm"
+                value={side}
+                onChange={(t) => show({ side: t })}
+                items={SIDES.map(({ key: t }) => ({
+                  value: t,
+                  content: (
+                    <>
+                      <PaneIcon name={t} size={13} className={side === t ? "text-accent" : ""} />
+                      {t}
+                      {t === "git" && (git?.files.length ?? 0) > 0 && (
+                        <span className="ml-1 text-wait">{git!.files.length}</span>
+                      )}
+                    </>
+                  ),
+                }))}
                 // gap-2.5, not 1.5: these carry `tap-hit`, whose 44px overlay
                 // has to meet its neighbour's inside the gap when the row wraps.
                 className="mb-2 flex flex-none flex-wrap gap-2.5"
-              >
-                {SIDES.map(({ key: t }) => (
-                  <button
-                    key={t}
-                    aria-pressed={side === t}
-                    onClick={() => show({ side: t })}
-                    className={`tap-hit flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] ${
-                      side === t
-                        ? "border-accent bg-surface-2 text-text"
-                        : "border-line bg-surface text-muted"
-                    }`}
-                  >
-                    <PaneIcon name={t} size={13} className={side === t ? "text-accent" : ""} />
-                    {t}
-                    {t === "git" && (git?.files.length ?? 0) > 0 && (
-                      <span className="ml-1 text-wait">{git!.files.length}</span>
-                    )}
-                  </button>
-                ))}
-              </div>
+              />
               {side === "files" && (
                 <FileTree
                   treeKey={session?.project ?? ""}
@@ -867,6 +855,7 @@ export default function Session() {
                     <span className="hidden gap-2 desk:flex">
                       <button
                         onClick={() => setShell((s) => !s)}
+                        aria-pressed={shell}
                         className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${shell ? "border-accent text-text" : "border-line"}`}
                       >
                         {shell ? (
@@ -878,6 +867,7 @@ export default function Session() {
                       </button>
                       <button
                         onClick={() => setBrowser((b) => !b)}
+                        aria-pressed={browser}
                         className={`flex items-center gap-1.5 rounded-[5px] border px-2 py-0.5 hover:border-faint hover:text-text ${browser ? "border-accent text-text" : "border-line"}`}
                       >
                         {browser ? (
@@ -891,6 +881,7 @@ export default function Session() {
                   )}
                   <button
                     onClick={() => setFull((f) => !f)}
+                    aria-pressed={full}
                     className="flex items-center gap-1.5 rounded-[5px] border border-line px-2 py-0.5 hover:border-faint hover:text-text"
                   >
                     <Icon name={full ? "shrink" : "expand"} size={12} />
@@ -1053,56 +1044,55 @@ export default function Session() {
               mode you enter once; the way out of it is the pane strip's own
               ✕ full, which is untouched. */}
           <div className="mb-2 flex flex-col gap-2 desk:hidden">
-            <button
+            <Button
               onClick={() => {
                 setMenu(false);
                 setFull(true);
               }}
-              className="tap w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
+              size="lg"
+              className="w-full"
             >
               ⛶ full screen
-            </button>
+            </Button>
             <Link
               to="/"
               aria-label="verksted — home"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
+              className={buttonClass("ghost", "lg", "w-full")}
             >
               verksted — home
             </Link>
-            <Link
-              to="/runs"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
-            >
+            <Link to="/runs" className={buttonClass("ghost", "lg", "w-full")}>
               inbox{waiting ? ` · ${waiting} waiting` : ""}
             </Link>
-            <Link
-              to="/settings"
-              className="tap flex w-full items-center justify-center rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-line-strong hover:text-text"
-            >
+            <Link to="/settings" className={buttonClass("ghost", "lg", "w-full")}>
               settings
             </Link>
           </div>
           <div className="flex flex-col gap-2">
             {live && (
-              <button
+              <Button
                 onClick={() => {
                   setMenu(false);
                   void kill();
                 }}
-                className="w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait"
+                variant="ghost-danger"
+                size="lg"
+                className="w-full"
               >
                 kill session
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               onClick={() => {
                 setMenu(false);
                 void deleteSession();
               }}
-              className="w-full rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-wait hover:text-wait"
+              variant="ghost-danger"
+              size="lg"
+              className="w-full"
             >
               delete session
-            </button>
+            </Button>
           </div>
         </Sheet>
       )}

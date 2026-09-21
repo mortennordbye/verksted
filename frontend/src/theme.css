@@ -80,6 +80,9 @@
      near-black is 6.43:1. Was written as a raw #16130a in twenty-one places, so
      a change to --color-accent could not follow it. */
   --color-on-accent: #0a0a0a;
+  /* The same job on --color-fail, for a destructive confirm. It was the one
+     hex written inline outside the terminal theme. About 7:1. */
+  --color-on-fail: #1a0e0e;
   /* States. A blog has no session that can be running or stuck, so these come
      from the site's semantic set where it has one: --warn for waiting, --danger
      for failed. Running takes --accent-2, the lighter step of the site's own
@@ -131,6 +134,11 @@
   --color-chart-3: #199e70;
   --color-chart-4: #c98500;
   --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* The terminal's face. Not --font-mono: xterm measures one cell when it is
+     built, and a web font that lands after that leaves every column off by
+     the difference until the next resize. A face already on the device is
+     measured right the first time. */
+  --font-term: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
   --font-sans: "Schibsted Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   --animate-blink: blink 1.2s steps(1) infinite;
@@ -277,6 +285,17 @@ textarea,
   select {
     font-size: 16px !important;
   }
+}
+
+/* The small caps label a section, a list or a side panel starts with. It was
+   written out five times with three different letter-spacings, some in the
+   mono face and some inheriting whatever the panel had. */
+@utility caps {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
 }
 
 /* Touch targets. 44px is the smallest reliable one, and nearly every icon

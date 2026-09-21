@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import PageHeader from "../components/PageHeader";
 import TopBar from "../components/TopBar";
+import { buttonClass } from "../components/ui/Button";
 
 /** Catch-all: an unknown URL used to render a blank page with no way back. */
 export default function NotFound() {
@@ -19,10 +20,7 @@ export default function NotFound() {
             </>
           }
         />
-        <Link
-          to="/"
-          className="inline-block rounded-[7px] bg-accent px-3 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
-        >
+        <Link to="/" className={buttonClass("primary")}>
           back to the hub
         </Link>
       </main>

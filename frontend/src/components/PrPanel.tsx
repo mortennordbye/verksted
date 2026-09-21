@@ -6,6 +6,9 @@ import { StatusChip } from "./StatusChip";
 import Sheet, { focusIfPointerFine } from "./Sheet";
 import CodeOverlay from "./CodeOverlay";
 import { SkeletonList } from "./Skeleton";
+import Button, { buttonClass } from "./ui/Button";
+import { Input, Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 const CHECK_CHIP = {
   passing: { kind: "run", label: "checks ok" },
@@ -45,24 +48,20 @@ export default function PrPanel({
   return (
     <>
       <div className="mb-2.5 flex items-center gap-2">
-        <div className="font-mono text-[11px] tracking-[.12em] text-faint uppercase">
-          Pull requests
-        </div>
-        <button
-          onClick={() => setAll(!all)}
-          className="ml-auto rounded-md border border-line px-2 py-0.5 text-[11.5px] text-muted hover:border-faint hover:text-text"
-        >
+        <div className="caps">Pull requests</div>
+        <Button onClick={() => setAll(!all)} size="xs" className="ml-auto">
           {all ? "open only" : "show closed"}
-        </button>
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded-md border border-line px-2 py-0.5 text-[11.5px] text-muted hover:border-faint hover:text-text"
-        >
+        </Button>
+        <Button onClick={() => setCreating(true)} size="xs">
           ＋ new pr
-        </button>
+        </Button>
       </div>
 
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
 
       <div className="flex flex-col gap-2.5">
         {prs?.map((pr) => (
@@ -209,43 +208,56 @@ function PrSheet({
         }
         onClose={() => !busy && onClose()}
       >
-        {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
-        {note && <div className="mb-2.5 text-[12.5px] text-wait">{note}</div>}
+        {error && (
+          <Notice kind="fail" className="mb-2.5">
+            {error}
+          </Notice>
+        )}
+        {note && (
+          <Notice kind="note" className="mb-2.5">
+            {note}
+          </Notice>
+        )}
 
         <div className="mb-3 flex flex-wrap gap-2">
-          <button
+          <Button
             onClick={merge}
             disabled={busy || !open}
             title={open ? "squash and delete the branch" : `already ${pr?.state.toLowerCase()}`}
-            className="flex-1 rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            variant="primary"
+            size="lg"
+            className="flex-1"
           >
             {busy ? "working…" : open ? "⑃ squash merge" : (pr?.state.toLowerCase() ?? "…")}
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => run(() => post<{ branch: string }>("checkout"))}
             disabled={busy}
             title="check this branch out in the project"
-            className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+            size="lg"
+            className="flex-none"
           >
             ⇄ checkout
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() =>
               run(async () =>
                 setDiff(await api<PrDiff>(`/api/projects/${project}/prs/${number}/diff`)),
               )
             }
             disabled={busy}
-            className="flex-none rounded-lg border border-line px-3.5 py-2.5 text-[13.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
+            size="lg"
+            className="flex-none"
           >
             ◫ diff
-          </button>
+          </Button>
           {pr && (
             <a
               href={pr.url}
               target="_blank"
               rel="noreferrer"
-              className="flex-none rounded-lg border border-line px-3.5 py-2.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+              aria-label="open the pull request on GitHub"
+              className={buttonClass("ghost", "lg", "flex-none")}
             >
               ↗
             </a>
@@ -338,22 +350,30 @@ function CreatePrSheet({
       sub="Pushes the current branch to origin and opens a PR against the default branch. The tree has to be clean — commit first."
       onClose={() => !busy && onClose()}
     >
-      {error && <div className="mb-2.5 text-[12.5px] text-wait">{error}</div>}
-      <input
+      {error && (
+        <Notice kind="fail" className="mb-2.5">
+          {error}
+        </Notice>
+      )}
+      <Input
         ref={focusIfPointerFine}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         placeholder="title"
-        aria-label="pull request title"
-        className="w-full rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[14px] outline-none placeholder:text-faint focus:border-accent"
+
+        label="pull request title"
+        size="lg"
+        className="w-full"
       />
-      <textarea
+      <Textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="description (optional)"
-        aria-label="pull request description"
+
         rows={5}
-        className="mt-2 w-full resize-y rounded-[11px] border border-line bg-surface-2 px-3.5 py-3 text-[13.5px] outline-none placeholder:text-faint focus:border-accent"
+        label="pull request description"
+        size="lg"
+        className="mt-2 w-full"
       />
       <label className="mt-3 flex items-center gap-2.5 text-[12.5px] text-muted">
         <input
@@ -364,13 +384,15 @@ function CreatePrSheet({
         />
         open as a draft
       </label>
-      <button
+      <Button
         onClick={create}
         disabled={busy || !title.trim()}
-        className="mt-3 w-full rounded-lg bg-accent px-3.5 py-2.5 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+        variant="primary"
+        size="lg"
+        className="mt-3 w-full"
       >
         {busy ? "pushing…" : "push and open pr"}
-      </button>
+      </Button>
     </Sheet>
   );
 }

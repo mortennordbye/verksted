@@ -17,6 +17,7 @@ import TopBar from "../components/TopBar";
 import PageHeader from "../components/PageHeader";
 import Icon from "../components/Icon";
 import SectionLabel from "../components/SectionLabel";
+import SegTabs from "../components/ui/SegTabs";
 import AssistantPanel from "../components/AssistantPanel";
 import ProfilePanel from "../components/ProfilePanel";
 import CouncilPanel from "../components/CouncilPanel";
@@ -24,6 +25,10 @@ import MemoryPanel from "../components/MemoryPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import { StatusChip } from "../components/StatusChip";
 import Skeleton, { SkeletonList } from "../components/Skeleton";
+import Button, { buttonClass } from "../components/ui/Button";
+import { Input, Textarea } from "../components/ui/Field";
+import Notice from "../components/ui/Notice";
+import { toast } from "../components/ui/Toast";
 
 function sourceChip(source: SettingVar["source"]) {
   if (source === "env") return <StatusChip kind="run" label="env" />;
@@ -123,25 +128,22 @@ export default function Settings() {
         {/* Scrolls sideways rather than wrapping: five labels do not fit a
             phone, and a strip that wraps to two lines pushes the content down
             by exactly the height it was meant to save. */}
-        <nav
-          aria-label="settings sections"
-          className="mb-7 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {GROUPS.map((g) => (
-            <button
-              key={g.key}
-              aria-pressed={tab === g.key}
-              onClick={() => setParams({ tab: g.key }, { replace: true })}
-              className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
-                tab === g.key
-                  ? "border-accent bg-surface-2 text-text"
-                  : "border-line bg-surface text-muted hover:text-text"
-              }`}
-            >
-              <Icon name={g.icon} size={14} />
-              {g.label}
-            </button>
-          ))}
+        <nav aria-label="settings sections" className="mb-7">
+          <SegTabs
+            label="settings section"
+            value={tab}
+            onChange={(next) => setParams({ tab: next }, { replace: true })}
+            items={GROUPS.map((g) => ({
+              value: g.key,
+              content: (
+                <>
+                  <Icon name={g.icon} size={14} />
+                  {g.label}
+                </>
+              ),
+            }))}
+            className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          />
         </nav>
 
         {show("runs") && <SchedulesPanel />}
@@ -163,7 +165,11 @@ export default function Settings() {
               without putting it on the screen.
             </div>
 
-            {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+            {error && (
+              <Notice kind="fail" className="mb-3">
+                {error}
+              </Notice>
+            )}
 
             <SectionLabel icon="chip" sub>
               Server · from the deployment (read-only)
@@ -208,59 +214,62 @@ export default function Settings() {
                     <span className="font-mono text-[11.5px] text-faint">{v.fingerprint}</span>
                   )}
                   {v.source === "settings" && <CopyVar keyName={v.key} />}
-                  <input
+                  <Input
+                    label={`new value for ${v.key}`}
+                    mono
                     value={drafts[v.key] ?? ""}
                     onChange={(e) => setDrafts((d) => ({ ...d, [v.key]: e.target.value }))}
                     onKeyDown={(e) => e.key === "Enter" && saveDraft(v.key)}
                     placeholder={
                       v.source === "unset" ? "enter value…" : "enter new value to replace…"
                     }
-                    className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+                    className="min-w-[160px] flex-1"
                   />
                   {drafts[v.key]?.trim() && (
-                    <button
-                      onClick={() => saveDraft(v.key)}
-                      className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110"
-                    >
+                    <Button onClick={() => saveDraft(v.key)} variant="primary">
                       save
-                    </button>
+                    </Button>
                   )}
                   {v.source === "settings" && (
-                    <button
+                    <Button
                       onClick={() => void clear(v.key)}
                       title="remove the stored value"
-                      className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait"
+                      variant="ghost-danger"
                     >
                       clear
-                    </button>
+                    </Button>
                   )}
                 </div>
               ))}
 
               <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
-                <input
+                <Input
                   value={newKey}
                   onChange={(e) => setNewKey(e.target.value.toUpperCase())}
                   onKeyDown={(e) => e.key === "Enter" && addVar()}
                   placeholder="NEW_VARIABLE"
-                  aria-label="new variable name"
-                  className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+
+                  label="new variable name"
+                  mono
+                  className="w-[200px]"
                 />
-                <input
+                <Input
                   value={drafts[newKey.trim()] ?? ""}
                   onChange={(e) => setDrafts((d) => ({ ...d, [newKey.trim()]: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && addVar()}
                   placeholder="value"
-                  aria-label="value for the new variable"
-                  className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+
+                  label="value for the new variable"
+                  mono
+                  className="min-w-[160px] flex-1"
                 />
-                <button
+                <Button
                   onClick={addVar}
                   disabled={!newKey.trim() || !drafts[newKey.trim()]?.trim()}
-                  className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+                  variant="primary"
                 >
                   add
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -292,26 +301,23 @@ export default function Settings() {
  * clipboard would give that back.
  */
 function CopyVar({ keyName }: { keyName: string }) {
-  const [said, setSaid] = useState<string | null>(null);
   return (
-    <button
+    <Button
       onClick={async () => {
         try {
           const { value } = await api<{ value: string }>(
             `/api/settings/vars/${encodeURIComponent(keyName)}/reveal`,
             { method: "POST" },
           );
-          setSaid((await copyText(value)) ? "copied" : "could not copy");
+          toast((await copyText(value)) ? `${keyName} copied` : "could not copy");
         } catch (e) {
-          setSaid((e as Error).message);
+          toast((e as Error).message);
         }
-        setTimeout(() => setSaid(null), 2000);
       }}
       title="copy the value to the clipboard"
-      className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-text"
     >
-      {said ?? "copy"}
-    </button>
+      copy
+    </Button>
   );
 }
 
@@ -331,7 +337,6 @@ function GoogleCalendar() {
   const [clientId, setClientId] = useState("");
   const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [confirm, confirmDialog] = useConfirm();
   const outcome = params.get("google");
   const failed = params.get("google_error");
@@ -372,11 +377,6 @@ function GoogleCalendar() {
     }
   }
 
-  const field =
-    "min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent";
-  const button =
-    "tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50";
-
   return (
     <>
       <SectionLabel icon="calendar" className="mt-2">
@@ -398,7 +398,11 @@ function GoogleCalendar() {
           Sign-in did not finish: {failed}
         </div>
       )}
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
 
       {data?.account ? (
         <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
@@ -412,7 +416,7 @@ function GoogleCalendar() {
           </a>
           <button
             onClick={() => void disconnect()}
-            className="tap text-[12.5px] text-muted hover:text-wait"
+            className="tap text-[12.5px] text-muted hover:text-fail"
           >
             disconnect
           </button>
@@ -440,11 +444,12 @@ function GoogleCalendar() {
                 </code>
                 <button
                   onClick={async () => {
-                    if (data && (await copyText(data.redirectUri))) setCopied(true);
+                    if (data)
+                      toast((await copyText(data.redirectUri)) ? "copied" : "could not copy");
                   }}
                   className="tap flex-none text-[12.5px] text-muted hover:text-text"
                 >
-                  {copied ? "copied" : "copy"}
+                  copy
                 </button>
               </span>
             </li>
@@ -453,7 +458,7 @@ function GoogleCalendar() {
 
           {data?.clientSet ? (
             <div className="flex flex-wrap items-center gap-2.5">
-              <a href="/api/calendar/google/start" className={button}>
+              <a href="/api/calendar/google/start" className={buttonClass("primary")}>
                 Sign in with Google
               </a>
               <span className="text-[12px] text-faint">
@@ -462,31 +467,33 @@ function GoogleCalendar() {
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-2.5">
-              <input
+              <Input
                 value={clientId}
                 onChange={(e) => setClientId(e.target.value)}
                 placeholder="client ID"
-                aria-label="Google client ID"
+
                 spellCheck={false}
                 autoComplete="off"
-                className={field}
+                label="Google client ID"
+                mono
               />
-              <input
+              <Input
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
                 placeholder="client secret"
-                aria-label="Google client secret"
+
                 type="password"
                 autoComplete="off"
-                className={field}
+                label="Google client secret"
+                mono
               />
-              <button
+              <Button
                 onClick={saveClient}
                 disabled={!clientId.trim() || !secret.trim()}
-                className={button}
+                variant="primary"
               >
                 save
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -546,7 +553,11 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
         GitHub owners the inbox skips entirely. Nothing from them is filed, triaged, pushed or
         shown, and saving removes what was filed before.
       </div>
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {owners.map((owner) => (
           <span
@@ -557,7 +568,7 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
             <button
               onClick={() => save(owners.filter((o) => o !== owner))}
               title="read this owner again"
-              className="tap text-muted hover:text-wait"
+              className="tap text-muted hover:text-fail"
             >
               ×
             </button>
@@ -565,21 +576,19 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
         ))}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-2.5 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
-        <input
+        <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && add()}
           placeholder="owner-or-org"
-          aria-label="GitHub owner to skip"
-          className="min-w-[160px] flex-1 rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+
+          label="GitHub owner to skip"
+          mono
+          className="min-w-[160px] flex-1"
         />
-        <button
-          onClick={add}
-          disabled={!draft.trim()}
-          className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-        >
+        <Button onClick={add} disabled={!draft.trim()} variant="primary">
           add
-        </button>
+        </Button>
       </div>
       {confirmDialog}
     </>
@@ -723,30 +732,18 @@ function Notifications() {
         {state === "unavailable" && <StatusChip kind="idle" label="unavailable" />}
         {state === "on" && (
           <>
-            <button
-              onClick={test}
-              disabled={busy}
-              className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-accent hover:text-accent disabled:opacity-50"
-            >
+            <Button onClick={test} disabled={busy} className="ml-auto">
               send test
-            </button>
-            <button
-              onClick={disable}
-              disabled={busy}
-              className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
-            >
+            </Button>
+            <Button onClick={disable} disabled={busy} variant="ghost-danger">
               turn off
-            </button>
+            </Button>
           </>
         )}
         {state === "off" && (
-          <button
-            onClick={enable}
-            disabled={busy}
-            className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-          >
+          <Button onClick={enable} disabled={busy} variant="primary" className="ml-auto">
             {busy ? "enabling…" : "enable"}
-          </button>
+          </Button>
         )}
       </div>
       {note && <div className="mt-2.5 text-[12.5px] text-muted">{note}</div>}
@@ -825,9 +822,15 @@ function Backups() {
         are left out.
       </div>
 
-      {note && <div className="mb-3 text-[12.5px] text-wait">{note}</div>}
+      {note && (
+        <Notice kind="fail" className="mb-3">
+          {note}
+        </Notice>
+      )}
       {data?.lastError && !running && (
-        <div className="mb-3 text-[12.5px] text-fail">last run failed: {data.lastError}</div>
+        <Notice kind="fail" className="mb-3">
+          last run failed: {data.lastError}
+        </Notice>
       )}
 
       <div className="mb-3 overflow-hidden rounded-xl border border-line">
@@ -900,13 +903,9 @@ function Backups() {
 
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
         <span className="text-[13px]">back up now</span>
-        <button
-          onClick={backUpNow}
-          disabled={running}
-          className="tap ml-auto rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
-        >
+        <Button onClick={backUpNow} disabled={running} variant="primary" className="ml-auto">
           {running ? "backing up…" : "back up"}
-        </button>
+        </Button>
       </div>
 
       <div className="mt-5 text-[13px] text-muted">
@@ -953,13 +952,9 @@ function AppReset() {
       </SectionLabel>
       <div className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-surface px-[15px] py-2.5">
         <span className="text-[13px]">hard reset</span>
-        <button
-          onClick={hardReset}
-          disabled={busy}
-          className="tap ml-auto rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
-        >
+        <Button onClick={hardReset} disabled={busy} variant="ghost-danger" className="ml-auto">
           {busy ? "resetting…" : "clear cache and reload"}
-        </button>
+        </Button>
       </div>
       <div className="mt-5 text-[13px] text-muted">
         New builds normally announce themselves with a reload banner. Use this when the home-screen
@@ -977,25 +972,15 @@ function AppReset() {
  * — so it silently did nothing and you found out when the paste came up empty.
  */
 function CopyButton({ text }: { text: string }) {
-  const [state, setState] = useState<"idle" | "ok" | "fail">("idle");
-
   return (
-    <button
-      onClick={async () => {
-        setState((await copyText(text)) ? "ok" : "fail");
-        setTimeout(() => setState("idle"), 1500);
-      }}
+    <Button
+      onClick={async () =>
+        toast((await copyText(text)) ? "public key copied" : "could not copy — select it instead")
+      }
       title="copy public key"
-      className={`tap rounded-[7px] border px-2.5 py-1.5 text-[12.5px] ${
-        state === "fail"
-          ? "border-fail/50 text-fail"
-          : state === "ok"
-            ? "border-run/50 text-run"
-            : "border-line text-muted hover:border-faint hover:text-text"
-      }`}
     >
-      {state === "ok" ? "copied" : state === "fail" ? "select it" : "copy"}
-    </button>
+      copy
+    </Button>
   );
 }
 
@@ -1057,7 +1042,11 @@ function SshKeys() {
       <SectionLabel icon="key" className="mt-10">
         SSH keys · ~/.ssh on the data volume
       </SectionLabel>
-      {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-3">
+          {error}
+        </Notice>
+      )}
       <div className="flex flex-col gap-2">
         {(keys ?? []).map((k) => (
           <div
@@ -1070,19 +1059,12 @@ function SshKeys() {
                 {k.fingerprint}
               </span>
               <span className="ml-auto flex gap-2">
-                <button
-                  onClick={() => setShown(shown === k.name ? null : k.name)}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-faint hover:text-text"
-                >
+                <Button onClick={() => setShown(shown === k.name ? null : k.name)}>
                   {shown === k.name ? "hide" : "public key"}
-                </button>
-                <button
-                  onClick={() => remove(k)}
-                  disabled={busy}
-                  className="tap rounded-[7px] border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-wait hover:text-wait disabled:opacity-50"
-                >
+                </Button>
+                <Button onClick={() => remove(k)} disabled={busy} variant="ghost-danger">
                   delete
-                </button>
+                </Button>
               </span>
             </div>
             {shown === k.name && (
@@ -1105,41 +1087,46 @@ function SshKeys() {
 
         <div className="flex flex-col gap-2 rounded-[11px] border border-dashed border-line px-[15px] py-2.5">
           <div className="flex flex-wrap items-center gap-2.5">
-            <input
+            <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="key name"
-              aria-label="ssh key name"
-              className="w-[200px] rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[12px] outline-none placeholder:text-faint focus:border-accent"
+
+              label="ssh key name"
+              mono
+              className="w-[200px]"
             />
-            <button
+            <Button
               onClick={generate}
               disabled={busy || !name.trim()}
               title="generate an ed25519 keypair in the pod — the private key never leaves it"
               aria-label="generate an ed25519 keypair in the pod — the private key never leaves it"
-              className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
             >
               generate in pod
-            </button>
+            </Button>
             <span className="text-[12px] text-faint">or paste a private key:</span>
           </div>
-          <textarea
+          <Textarea
             value={material}
             onChange={(e) => setMaterial(e.target.value)}
             placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-            aria-label="private key"
+
             rows={3}
             spellCheck={false}
-            className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 font-mono text-[11px] outline-none placeholder:text-faint focus:border-accent"
+            label="private key"
+            mono
+            className="w-full"
           />
           {material.trim() && (
-            <button
+            <Button
               onClick={add}
               disabled={busy || !name.trim()}
-              className="tap self-start rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+              variant="primary"
+              className="self-start"
             >
               add key
-            </button>
+            </Button>
           )}
         </div>
       </div>

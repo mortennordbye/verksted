@@ -7,6 +7,8 @@ import TopBar from "../components/TopBar";
 import { useUrlOverlay } from "../useUrlOverlay";
 import PageHeader from "../components/PageHeader";
 import { SkeletonList } from "../components/Skeleton";
+import { Input } from "../components/ui/Field";
+import Icon from "../components/Icon";
 
 /**
  * The share, looked at rather than searched.
@@ -79,12 +81,14 @@ export default function Docs() {
           sub="The share on the NAS, mounted read-only. Nothing here can change it."
         />
 
-        <input
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="search the text of every document…"
-          aria-label="search the documents"
-          className="mb-5 w-full rounded-[9px] border border-line bg-surface-2 px-3 py-2 text-[13px] outline-none placeholder:text-faint focus:border-accent"
+
+          label="search the documents"
+          size="lg"
+          className="mb-5 w-full"
         />
 
         {error && (
@@ -143,7 +147,7 @@ export default function Docs() {
                   onClick={() => (e.dir ? go(e.path) : setOpen(e.path))}
                   className="tap flex w-full items-center gap-3 border-b border-line bg-surface px-[15px] py-2.5 text-left last:border-b-0 hover:bg-surface-2"
                 >
-                  <span className="flex-none text-[13px]">{e.dir ? "📁" : "📄"}</span>
+                  <Icon name={e.dir ? "folder" : "document"} size={14} className="text-faint" />
                   <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">
                     {e.name}
                     {e.dir && "/"}

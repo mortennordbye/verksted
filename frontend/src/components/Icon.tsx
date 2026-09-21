@@ -149,6 +149,8 @@ const PATHS = {
   pull: <path d="M12 3v12M6 11l6 6 6-6M5 21h14" />,
   push: <path d="M12 21V9M6 13l6-6 6 6M5 3h14" />,
   reset: <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
+  reload: <path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5" />,
+  download: <path d="M12 3v12M7 10l5 5 5-5M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />,
   terminal: <path d="m4 17 6-6-6-6M12 19h8" />,
   pr: (
     <>

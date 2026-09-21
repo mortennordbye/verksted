@@ -3,6 +3,10 @@ import type { Profile } from "../../../shared/api";
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
+import Button from "./ui/Button";
+import { Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
+import { toast } from "./ui/Toast";
 
 /**
  * The profile: who the assistant works for, in your own words.
@@ -22,7 +26,6 @@ const HINT = [
 export default function ProfilePanel() {
   const { data } = usePoll<Profile>("/api/profile", 60_000);
   const [draft, setDraft] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The server's text until the first keystroke, then the draft: a poll
@@ -40,8 +43,7 @@ export default function ProfilePanel() {
         body: JSON.stringify({ text: draft }),
       });
       setDraft(next.text);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      toast("saved");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -65,25 +67,29 @@ export default function ProfilePanel() {
         {data === null && draft === null ? (
           <Skeleton className="block h-[214px] rounded-[7px] border border-line bg-surface-2" />
         ) : (
-          <textarea
+          <Textarea
             value={shown}
             onChange={(e) => setDraft(e.target.value)}
             rows={10}
-            aria-label="profile"
+
             placeholder={HINT}
-            className="w-full resize-y rounded-[7px] border border-line bg-surface-2 px-2.5 py-1.5 text-[13px] outline-none placeholder:text-faint focus:border-accent"
+            label="profile"
+            className="w-full"
           />
         )}
         <div className="flex items-center gap-3">
-          <button
+          <Button
             onClick={() => void save()}
             disabled={draft === null || used > budget}
-            className="tap rounded-[7px] bg-accent px-2.5 py-1.5 text-[12.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-50"
+            variant="primary"
           >
             save
-          </button>
-          {saved && <span className="text-[11.5px] text-run">saved</span>}
-          {error && <span className="text-[11.5px] text-fail">{error}</span>}
+          </Button>
+          {error && (
+            <Notice kind="fail" small>
+              {error}
+            </Notice>
+          )}
           <span
             className={`ml-auto font-mono text-[11px] ${used > budget ? "text-fail" : "text-faint"}`}
           >
