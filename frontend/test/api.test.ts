@@ -257,6 +257,42 @@ describe("usePoll", () => {
     expect(stored).not.toContain("/tree");
   });
 
+  /**
+   * F-29. A path that answers 500 was asked again at its full rate for as long
+   * as the screen stayed open — at the hub's, five hundred requests an hour,
+   * all of them the same answer, all of them work for a pod already unhappy.
+   */
+  it("backs off while a path keeps failing, and recovers on an answer", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ error: "boom" }, 500)));
+    const { result } = renderHook(() => usePoll("/api/facts", 1000));
+    await vi.waitFor(() => expect(result.current.error).toBe("boom"));
+    expect(result.current.failures).toBe(1);
+
+    // The second poll is a tick away, not an interval away.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(result.current.failures).toBe(2));
+
+    // And an answer puts it back on its own interval.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    await vi.waitFor(() => expect(result.current.failures).toBe(0));
+    const settled = fetchMock.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(fetchMock.mock.calls.length).toBe(settled + 1);
+  });
+
   it("does not fetch at all while the path is null", async () => {
     renderHook(() => usePoll(null));
     expect(fetchMock).not.toHaveBeenCalled();

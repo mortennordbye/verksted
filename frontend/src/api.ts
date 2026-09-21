@@ -12,10 +12,17 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * What a failure to reach the pod at all says, as opposed to a pod that
+ * answered and said no. The connection banner is already on screen for this
+ * one, so nothing else needs to repeat it.
+ */
+export const OFFLINE_MESSAGE = "can't reach the pod";
+
 /** Nothing answered: the pod is gone, or the tunnel is down. */
 export class OfflineError extends Error {
   constructor() {
-    super("can't reach the pod");
+    super(OFFLINE_MESSAGE);
   }
 }
 
@@ -71,6 +78,9 @@ async function answer<T>(
 /** How often a streamed path is still fetched anyway. Cover for a stream that
  *  connects, reports itself healthy and then quietly stops delivering. */
 const BACKSTOP_MS = 60_000;
+
+/** How far a failing path is allowed to back off to. */
+const BACKOFF_MAX_MS = 60_000;
 
 /**
  * The last answer for each path. A screen opened again paints from it at once
@@ -259,6 +269,14 @@ export function usePoll<T>(path: string | null, ms = 5000) {
    * `data` and the cache they share cannot say what either of them is showing.
    */
   const showing = useRef<string | null>(null);
+  /**
+   * How many polls in a row have failed, which is how far the timer backs off.
+   *
+   * A path that answers 500 was asked again at its full rate for as long as the
+   * screen was open — five hundred requests an hour at the hub's, all of them
+   * the same answer, all of them work for a pod that is already unhappy.
+   */
+  const [failures, setFailures] = useState(0);
 
   const refresh = useCallback(() => {
     if (!path) return;
@@ -277,6 +295,7 @@ export function usePoll<T>(path: string | null, ms = 5000) {
           setFresh(true);
           setError(null);
           setNotFound(false);
+          setFailures(0);
           return;
         }
         // Another hook on the same path may have parsed and stored this very
@@ -291,10 +310,12 @@ export function usePoll<T>(path: string | null, ms = 5000) {
         setFresh(true);
         setError(null);
         setNotFound(false);
+        setFailures(0);
       })
       .catch((e: Error) => {
         if (!current()) return;
         setError(e.message);
+        setFailures((n) => n + 1);
         // A 404 is an answer, not a failure to reach anything: it means this
         // project or session does not exist, and the screen should say so
         // rather than poll a dead path forever.
@@ -319,6 +340,7 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     showing.current = cached ? (stamps.get(path) ?? null) : null;
     setNotFound(false);
     setFresh(false);
+    setFailures(0);
     setLoading(path !== null && !cached);
     if (path === null) return;
 
@@ -349,10 +371,12 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     });
   }, [refresh, path, streamed]);
 
-  // The timer, at the requested rate or as a slow backstop behind the stream.
+  // The timer, at the requested rate or as a slow backstop behind the stream —
+  // and backed off while the path is failing, doubling to a minute.
   useEffect(() => {
     if (path === null) return;
-    const every = streamed && streamOk ? Math.max(ms, BACKSTOP_MS) : ms;
+    const base = streamed && streamOk ? Math.max(ms, BACKSTOP_MS) : ms;
+    const every = failures === 0 ? base : Math.min(BACKOFF_MAX_MS, base * 2 ** failures);
     const id = setInterval(() => {
       if (!document.hidden) refresh();
     }, every);
@@ -366,9 +390,9 @@ export function usePoll<T>(path: string | null, ms = 5000) {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, ms, path, streamed, streamOk]);
+  }, [refresh, ms, path, streamed, streamOk, failures]);
 
-  return { data, error, loading, notFound, fresh, refresh };
+  return { data, error, loading, notFound, fresh, refresh, failures };
 }
 
 /** Elapsed time as a duration: "just now", "5 min", "2 h", "3 d". */

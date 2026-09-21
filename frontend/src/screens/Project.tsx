@@ -14,6 +14,7 @@ import SchedulesPanel from "../components/SchedulesPanel";
 import TopBar from "../components/TopBar";
 import Icon, { type IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import PollError from "../components/PollError";
 import SectionLabel from "../components/SectionLabel";
 
 /** Each view of a project wears the drawing of what it lists. */
@@ -95,6 +96,7 @@ export default function Project() {
   const navigate = useNavigate();
   const {
     data: sessions,
+    error: sessionsError,
     loading: sessionsLoading,
     notFound,
     refresh: refreshSessions,
@@ -268,6 +270,8 @@ export default function Project() {
         />
 
         {error && <div className="mb-3 text-[12.5px] text-wait">{error}</div>}
+
+        <PollError error={sessionsError} what="this repo's sessions" retry={refreshSessions} />
 
         {/* An unselected panel is unmounted, so its poll does not run.
             Scrolls sideways like the settings strip: with their icons the four

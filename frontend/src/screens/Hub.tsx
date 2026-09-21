@@ -5,6 +5,7 @@ import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
 import Icon, { type IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import PollError from "../components/PollError";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -196,7 +197,12 @@ function Band({
 
 export default function Hub() {
   const navigate = useNavigate();
-  const { data: projects, loading, refresh } = usePoll<Project[]>("/api/projects");
+  const {
+    data: projects,
+    error: projectsError,
+    loading,
+    refresh,
+  } = usePoll<Project[]>("/api/projects");
   const { data: facts } = usePoll<PodFacts>("/api/facts", 30_000);
   const { data: usage } = usePoll<UsageSummary>("/api/usage", 60_000);
   const [adding, setAdding] = useState(false);
@@ -308,6 +314,9 @@ export default function Hub() {
             </>
           }
         />
+
+        {/* A pod answering 500 for this list used to read as "Projects 0". */}
+        <PollError error={projectsError} what="the projects" retry={refresh} />
 
         {/* The projects first, under the button that adds one: they are the
             bench's standing contents and the way into any of them, and below

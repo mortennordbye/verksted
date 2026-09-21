@@ -19,6 +19,7 @@ import { cite, citeUrl } from "../components/chat/cite";
 import { MD, REMARK } from "../components/chat/markdown";
 import Icon, { type IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import PollError from "../components/PollError";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
@@ -316,7 +317,11 @@ export default function Today() {
   const { data: config } = usePoll<AssistantConfig>("/api/assistant/config", 300_000);
   const { data: profile } = usePoll<Profile>("/api/profile", 300_000);
   const { data: loops, refresh: refreshLoops } = usePoll<Loop[]>("/api/loops", 60_000);
-  const { data: feed, refresh: refreshFeed } = usePoll<FeedItem[]>("/api/feed", 30_000);
+  const {
+    data: feed,
+    error: feedError,
+    refresh: refreshFeed,
+  } = usePoll<FeedItem[]>("/api/feed", 30_000);
   const cards = (feed ?? []).filter((i) => i.source === "proposal" && i.state !== "done");
   const newest = (feed ?? [])
     .filter((i) => i.state !== "done" && i.source !== "proposal")
@@ -436,6 +441,10 @@ export default function Today() {
             )
           }
         />
+        {/* "Nothing needs you" is a claim about the feed, and a feed that
+            could not be read is not the same claim. */}
+        <PollError error={feedError} what="what arrived" retry={refreshFeed} />
+
         <div className="grid gap-8 min-[1000px]:grid-cols-[minmax(0,1fr)_312px] min-[1000px]:gap-10">
           <section className="flex min-w-0 flex-col gap-7">
             {/* At the top and in place. Stuck to the bottom it followed the
