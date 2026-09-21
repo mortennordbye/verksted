@@ -14,6 +14,7 @@ import Room from "../components/Room";
 import Sheet from "../components/Sheet";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
+import { readStored, writeStored } from "../storage";
 import { useConfirm } from "../useConfirm";
 import Skeleton, { SkeletonList } from "../components/Skeleton";
 import { useAssistantStream } from "../useAssistantStream";
@@ -625,9 +626,7 @@ export default function Chat() {
   // you type a question and then look away. Kept apart because the coupling was
   // the complaint: wanting to be read to meant having the microphone open.
   // Remembered per device: whoever wants it wants it always.
-  const [speakReplies, setSpeakReplies] = useState(
-    () => localStorage.getItem("vk.assistant.speak") === "1",
-  );
+  const [speakReplies, setSpeakReplies] = useState(() => readStored("vk.assistant.speak") === "1");
   /**
    * Entries already read out. A set rather than one id, because a meeting lands
    * several at once and "the last one" would silently drop the rest.
@@ -854,7 +853,7 @@ export default function Chat() {
   function toggleSpeakReplies() {
     const next = !speakReplies;
     setSpeakReplies(next);
-    localStorage.setItem("vk.assistant.speak", next ? "1" : "0");
+    writeStored("vk.assistant.speak", next ? "1" : "0");
     if (next) {
       // Whatever is already on screen has been read, or was never meant to be.
       for (const e of thread?.entries ?? []) spokenRef.current.add(e.id);

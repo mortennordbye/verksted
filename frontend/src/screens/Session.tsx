@@ -29,7 +29,10 @@ import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
 import { fileIcon } from "../fileicons";
 import Icon from "../components/Icon";
+import PageHeader from "../components/PageHeader";
 import Skeleton from "../components/Skeleton";
+import { readStoredNumber, readStored, writeStored } from "../storage";
+import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
 import { useOverlayDismiss } from "../useDismissOnBack";
 // The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
@@ -171,12 +174,6 @@ function PaneIcon({
   );
 }
 
-/** A persisted layout number, clamped — localStorage is user-editable. */
-function storedNumber(key: string, fallback: number, min: number, max: number): number {
-  const n = Number(localStorage.getItem(key));
-  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
-}
-
 export default function Session() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -190,7 +187,7 @@ export default function Session() {
   // arriving at the terminal of a session that has none is a dead end on a
   // phone, where the sidebar is a tab rather than a column.
   const wantsSide = new URLSearchParams(location.search).get("side");
-  const { data: session } = usePoll<SessionInfo>(`/api/sessions/${id}`);
+  const { data: session, notFound } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
     8_000,
@@ -225,13 +222,13 @@ export default function Session() {
    * and it used to reset on every navigation between sessions.
    */
   const [main, setMain] = useState<"agent" | "chat">(() =>
-    localStorage.getItem(VIEW_KEY) === "chat" ? "chat" : "agent",
+    readStored(VIEW_KEY) === "chat" ? "chat" : "agent",
   );
-  useEffect(() => localStorage.setItem(VIEW_KEY, main), [main]);
+  useEffect(() => writeStored(VIEW_KEY, main), [main]);
   const [full, setFull] = useState(false);
   // Sidebar width and the split ratio are per-device preferences that used to
   // reset on every navigation between sessions.
-  const [sideWidth, setSideWidth] = useState(() => storedNumber(SIDE_KEY, 250, 160, 640));
+  const [sideWidth, setSideWidth] = useState(() => readStoredNumber(SIDE_KEY, 250, 160, 640));
   /**
    * Floor for the column. The PR and run panels came from a full-width screen;
    * at the 250px default every run row wrapped to four lines. Applied as a
@@ -241,7 +238,7 @@ export default function Session() {
   const sideShown = Math.max(sideWidth, sideMin);
   const sideDrag = useRef(false);
 
-  useEffect(() => localStorage.setItem(SIDE_KEY, String(sideWidth)), [sideWidth]);
+  useEffect(() => writeStored(SIDE_KEY, String(sideWidth)), [sideWidth]);
 
   // Full screen could only be left with the small ⛶ button; Escape is what
   // every other full-screen surface on a desktop answers to.
@@ -254,8 +251,8 @@ export default function Session() {
   const [menu, setMenu] = useState(false);
   const [picker, setPicker] = useState(false);
   // Agent-pane share of the split, in %. Adjusted by dragging the divider.
-  const [ratio, setRatio] = useState(() => storedNumber(RATIO_KEY, 50, 20, 80));
-  useEffect(() => localStorage.setItem(RATIO_KEY, String(ratio)), [ratio]);
+  const [ratio, setRatio] = useState(() => readStoredNumber(RATIO_KEY, 50, 20, 80));
+  useEffect(() => writeStored(RATIO_KEY, String(ratio)), [ratio]);
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const [file, setFile] = useState<Viewed | null>(null);
@@ -271,6 +268,10 @@ export default function Session() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
+  // Kill and delete, which had no catch at all: over a tunnel that had dropped
+  // the menu closed, the screen navigated away, and nothing said the pod had
+  // not heard it.
+  const { error: actError, run: act, clearError: clearActError } = useAction();
 
   const closeFile = useCallback(async () => {
     if (draft !== null && draft !== file?.content) {
@@ -407,8 +408,12 @@ export default function Session() {
       danger: true,
     });
     if (!ok) return;
-    await api(`/api/sessions/${session.id}`, { method: "DELETE" });
-    void navigate(`/p/${session.project}`);
+    // Leaving the screen is what says it worked, so it only happens when it
+    // did. A DELETE that never reached the pod used to navigate away all the
+    // same, and the session was still running when the list painted again.
+    if (await act(() => api(`/api/sessions/${session.id}`, { method: "DELETE" }))) {
+      void navigate(`/p/${session.project}`);
+    }
   }
 
   async function deleteSession() {
@@ -423,8 +428,9 @@ export default function Session() {
       danger: true,
     });
     if (!ok) return;
-    await api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" });
-    void navigate(`/p/${session.project}`);
+    if (await act(() => api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" }))) {
+      void navigate(`/p/${session.project}`);
+    }
   }
 
   const live = session != null && session.status !== "done";
@@ -477,6 +483,30 @@ export default function Session() {
     const lang = langFor(file.path);
     return lang ? hljs.highlight(file.content, { language: lang }).value : null;
   }, [file]);
+
+  // A session id the pod does not have used to sit on its skeletons for ever,
+  // which is exactly what a push notification tapped after the session was
+  // deleted or retired from history lands on.
+  if (notFound) {
+    return (
+      <>
+        <TopBar back="/" crumb={[{ label: "session" }]} />
+        <main className="mx-auto max-w-[700px] px-[18px] pt-[22px]">
+          <PageHeader
+            icon="alert"
+            label="Session"
+            title="No such session"
+            sub={
+              <>
+                <code className="font-mono text-[12.5px]">{id}</code> is not a session on the pod.
+                It was deleted, or it is older than the history the pod keeps.
+              </>
+            }
+          />
+        </main>
+      </>
+    );
+  }
 
   return (
     <>
@@ -589,6 +619,26 @@ export default function Session() {
               </span>
               <button
                 onClick={() => setSyncNote(null)}
+                aria-label="dismiss"
+                className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Kill and delete are taken from a sheet that closes on the tap, so
+              this is the only place their failure can be said. Announced: on a
+              phone the sheet is what you were looking at, and the screen behind
+              it is unchanged either way. */}
+          {actError && (
+            <div
+              role="alert"
+              className="mb-2 flex flex-none items-center gap-2 rounded-lg border border-fail/40 bg-fail/5 px-3 py-1.5 text-[12.5px] text-fail"
+            >
+              <span className="min-w-0 flex-1">{actError}</span>
+              <button
+                onClick={clearActError}
                 aria-label="dismiss"
                 className="tap-sq flex flex-none items-center justify-center px-1 text-faint hover:text-text"
               >

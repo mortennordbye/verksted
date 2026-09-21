@@ -14,6 +14,7 @@ import Tabs from "../components/Tabs";
 import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
 import WaitingSession from "../components/WaitingSession";
+import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
 
 /**
@@ -151,23 +152,21 @@ function Row({
   /** What just happened to which items, so the screen can offer it back. */
   onActed: (ids: string[], label: string) => void;
 }) {
-  const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [snoozing, setSnoozing] = useState(false);
   const external = item.link?.startsWith("http");
   const u = URGENCY[item.urgency];
   const done = item.state === "done";
+  // This had no catch: a tap over a tunnel that had dropped left the row
+  // exactly as it was, with the rejection in the console and the undo bar
+  // offering to undo something that never happened.
+  const { busy, error, run } = useAction();
 
-  async function act(fn: () => Promise<unknown>) {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await fn();
-      onChange();
-    } finally {
-      setBusy(false);
-    }
-  }
+  const act = async (fn: () => Promise<unknown>): Promise<boolean> => {
+    const ok = await run(fn);
+    if (ok) onChange();
+    return ok;
+  };
   const setState = (state: FeedItem["state"], until?: string) =>
     act(() =>
       api(`/api/feed/${encodeURIComponent(item.id)}/state`, {
@@ -177,7 +176,8 @@ function Row({
     );
 
   const snooze = (choice: { label: string; at: Date }) =>
-    void setState("snoozed", choice.at.toISOString()).then(() => {
+    void setState("snoozed", choice.at.toISOString()).then((ok) => {
+      if (!ok) return;
       setSnoozing(false);
       onActed([item.id], `snoozed until ${choice.label}`);
     });
@@ -193,7 +193,7 @@ function Row({
   // A proposal ends on its own card, so neither applies to one.
   const canSnooze = !done && item.state !== "snoozed" && item.source !== "proposal";
   const canFinish = !done && item.source !== "proposal";
-  const finish = () => void setState("done").then(() => onActed([item.id], "marked done"));
+  const finish = () => void setState("done").then((ok) => ok && onActed([item.id], "marked done"));
 
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
@@ -366,6 +366,13 @@ function Row({
           )}
         </span>
       </div>
+      {/* Under the buttons rather than in a banner at the top: which row the pod
+          refused is half of what there is to say about it. */}
+      {error && (
+        <div role="alert" className="mt-1.5 text-[12.5px] text-fail">
+          {error}
+        </div>
+      )}
       {snoozing && (
         <Sheet title="Bring it back" sub={item.title} onClose={() => setSnoozing(false)}>
           <div className="flex flex-col gap-2">
@@ -402,8 +409,10 @@ export default function Inbox() {
   // Quiet items are the routine: shown on asking, so the ones that matter are
   // not a scroll down past thirty of them.
   const [showQuiet, setShowQuiet] = useState(false);
-  const [judging, setJudging] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  // The list's own two writes. Apart, because triage is a model call that can
+  // take minutes and must not hold up undo while it runs.
+  const { busy: clearing, error: listError, run: runList } = useAction();
+  const { busy: judging, error: judgeError, run: runJudge } = useAction();
   // What the last action did, and the way back out of it. An inbox where
   // "done" is one tap and irreversible is one you stop trusting to tap in.
   const [undo, setUndo] = useState<{ ids: string[]; label: string } | null>(null);
@@ -504,8 +513,11 @@ export default function Inbox() {
       action: `mark ${items.length} done`,
     });
     if (!ok) return;
-    setClearing(true);
-    try {
+    // What actually went through, which over a phone that slept halfway down a
+    // list of thirty is not the same as what was asked for. The undo bar used
+    // to offer back every id including the ones the pod never heard about.
+    const cleared: string[] = [];
+    await runList(async () => {
       // One at a time: this is a write per item on the pod's volume, and
       // thirty at once buys nothing on a list nobody is watching finish.
       for (const item of items) {
@@ -513,36 +525,35 @@ export default function Inbox() {
           method: "POST",
           body: JSON.stringify({ state: "done" }),
         });
+        cleared.push(item.id);
       }
-      setUndo({ ids: items.map((i) => i.id), label: `${items.length} marked done` });
-    } finally {
-      setClearing(false);
-      refresh();
+    });
+    if (cleared.length) {
+      setUndo({ ids: cleared, label: `${cleared.length} marked done` });
     }
+    refresh();
   }
 
   async function undoLast() {
     if (!undo) return;
     const { ids } = undo;
     setUndo(null);
-    for (const id of ids) {
-      await api(`/api/feed/${encodeURIComponent(id)}/state`, {
-        method: "POST",
-        body: JSON.stringify({ state: "new" }),
-      });
-    }
+    await runList(async () => {
+      for (const id of ids) {
+        await api(`/api/feed/${encodeURIComponent(id)}/state`, {
+          method: "POST",
+          body: JSON.stringify({ state: "new" }),
+        });
+      }
+    });
     refresh();
   }
 
-  async function judge() {
-    if (judging) return;
-    setJudging(true);
-    try {
+  function judge() {
+    void runJudge(async () => {
       await api("/api/feed/triage", { method: "POST", timeoutMs: 6 * 60_000 });
       refresh();
-    } finally {
-      setJudging(false);
-    }
+    });
   }
 
   return (
@@ -579,10 +590,12 @@ export default function Inbox() {
                   {l.due && <span className="font-mono text-[11px] text-wait">due {l.due}</span>}
                   <button
                     onClick={() =>
-                      void api(`/api/loops/${l.slug}/close`, { method: "POST" }).then(() =>
-                        refresh(),
-                      )
+                      void runList(async () => {
+                        await api(`/api/loops/${l.slug}/close`, { method: "POST" });
+                        refresh();
+                      })
                     }
+                    disabled={clearing}
                     className="tap rounded-[7px] border border-line px-2 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
                   >
                     close
@@ -626,7 +639,7 @@ export default function Inbox() {
           <span className="flex items-center gap-2 border-t border-line pt-2 min-[800px]:ml-auto min-[800px]:border-0 min-[800px]:pt-0">
             {unjudged > 0 && (
               <button
-                onClick={() => void judge()}
+                onClick={judge}
                 disabled={judging}
                 className="tap rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text disabled:opacity-50"
                 title="ask the assistant to sort what has not been sorted yet"
@@ -660,6 +673,18 @@ export default function Inbox() {
         <div className="-mt-5 mb-5 hidden font-mono text-[11px] text-faint pointer-fine:block">
           j k move · o open · e done · s snooze
         </div>
+
+        {/* This screen had no error state at all: clearing, undoing and sorting
+            each rejected into the console, and the list simply stayed as it
+            was, which reads as a tap that did not land. */}
+        {(listError ?? judgeError) && (
+          <div
+            role="alert"
+            className="mb-3 rounded-lg border border-fail/40 bg-fail/5 px-3 py-2 text-[12.5px] text-fail"
+          >
+            {listError ?? judgeError}
+          </div>
+        )}
 
         {undo && (
           <div className="mb-3 flex items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2 text-[13px]">

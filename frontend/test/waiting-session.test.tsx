@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session, SessionPrompt } from "../../shared/api";
@@ -84,6 +84,45 @@ describe("WaitingSession", () => {
   it("asks the pod nothing while it is collapsed", () => {
     draw();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * F-08. The box was emptied on Enter whatever came back, so a reply typed on
+   * a phone over a tunnel that had dropped was gone with nothing to retype it
+   * from — which is the case this row exists for.
+   */
+  it("keeps what was typed when the pod did not take it", async () => {
+    fetchMock.mockImplementation((u: string) =>
+      Promise.resolve(
+        u.endsWith("/input")
+          ? new Response(JSON.stringify({ error: "session is gone" }), {
+              status: 404,
+              headers: { "content-type": "application/json" },
+            })
+          : new Response(JSON.stringify({}), { headers: { "content-type": "application/json" } }),
+      ),
+    );
+    draw();
+    fireEvent.click(screen.getByRole("button", { name: "show and answer" }));
+
+    const box = screen.getByLabelText("reply to the agent");
+    fireEvent.change(box, { target: { value: "use the other branch" } });
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+
+    expect(await screen.findByText("session is gone")).toBeTruthy();
+    expect((box as HTMLInputElement).value).toBe("use the other branch");
+  });
+
+  it("empties the box once the pane has it", async () => {
+    answer("/input", {});
+    draw();
+    fireEvent.click(screen.getByRole("button", { name: "show and answer" }));
+
+    const box = screen.getByLabelText("reply to the agent");
+    fireEvent.change(box, { target: { value: "carry on" } });
+    fireEvent.click(screen.getByRole("button", { name: "send" }));
+
+    await waitFor(() => expect((box as HTMLInputElement).value).toBe(""));
   });
 
   it("answers the dialog's own option by its number, with no Return", async () => {

@@ -59,12 +59,13 @@ export default function WaitingSession({ session }: { session: Session }) {
     await send({ key });
   }
 
-  async function reply(text: string) {
-    await send({ text, enter: true });
+  async function reply(text: string): Promise<boolean> {
+    return send({ text, enter: true });
   }
 
-  async function send(body: { text?: string; enter?: boolean; key?: string }) {
-    if (sending) return;
+  /** Whether the pane got it, so a reply that failed stays in the box. */
+  async function send(body: { text?: string; enter?: boolean; key?: string }): Promise<boolean> {
+    if (sending) return false;
     setSending(true);
     setError(null);
     try {
@@ -72,8 +73,10 @@ export default function WaitingSession({ session }: { session: Session }) {
         method: "POST",
         body: JSON.stringify(body),
       });
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setSending(false);
     }
@@ -136,12 +139,19 @@ export default function WaitingSession({ session }: { session: Session }) {
 }
 
 /** A real input, which is the only place a phone can paste. */
-function Reply({ onSend, sending }: { onSend: (text: string) => void; sending: boolean }) {
+function Reply({
+  onSend,
+  sending,
+}: {
+  onSend: (text: string) => Promise<boolean>;
+  sending: boolean;
+}) {
   const [text, setText] = useState("");
+  // Emptied only once the pane has it. A reply typed on a phone over a tunnel
+  // that had dropped used to disappear on Enter, with nothing to retype from.
   const send = () => {
     if (!text.trim()) return;
-    onSend(text);
-    setText("");
+    void onSend(text).then((ok) => ok && setText(""));
   };
   return (
     <div className="mt-2 flex gap-2">

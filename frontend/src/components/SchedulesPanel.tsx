@@ -12,7 +12,7 @@ import { agoLabel, api, usePoll } from "../api";
 import Icon from "./Icon";
 import { useConfirm } from "../useConfirm";
 import { ReportLine, StatusChip } from "./StatusChip";
-import { SkeletonList } from "./Skeleton";
+import { SkeletonLines, SkeletonList } from "./Skeleton";
 
 /** A cron pattern's next fire time, in this device's timezone. */
 function whenLabel(iso: string | null): string {
@@ -189,7 +189,11 @@ const STARTERS: {
  * list on the settings screen, where the project is a field on every row.
  */
 export default function SchedulesPanel({ project }: { project?: string }) {
-  const { data: schedules, refresh } = usePoll<Schedule[]>(
+  const {
+    data: schedules,
+    fresh,
+    refresh,
+  } = usePoll<Schedule[]>(
     project ? `/api/projects/${project}/schedules` : "/api/schedules",
     30_000,
   );
@@ -220,7 +224,19 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     stage: "" as "" | MaintainerStage,
   });
   const [open, setOpen] = useState<string | null>(null);
-  const [edit, setEdit] = useState({ cron: "", jitterMinutes: 0, prompt: "" });
+  /**
+   * The open row's editable copy of itself, or null until there is one to make.
+   *
+   * The list paints from the answer the last visit left behind before this
+   * visit's arrives, so a row opened in that beat used to seed the editor from
+   * a cron and a prompt that could be a day old — and saving PATCHed them back
+   * over whatever had changed since. Seeded from a fresh row only.
+   */
+  const [edit, setEdit] = useState<{
+    cron: string;
+    jitterMinutes: number;
+    prompt: string;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -295,8 +311,19 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   function toggleOpen(s: Schedule) {
     setOpen(open === s.id ? null : s.id);
-    setEdit({ cron: s.cron, jitterMinutes: s.jitterMinutes, prompt: s.prompt });
+    setEdit(null);
   }
+
+  // Opened before this visit's answer landed: the editor waits for it rather
+  // than starting from what the row happened to be showing. `?? e` keeps what
+  // is being typed — every later poll answer runs this too.
+  const opened = schedules?.find((s) => s.id === open) ?? null;
+  useEffect(() => {
+    if (!fresh || !opened) return;
+    setEdit(
+      (e) => e ?? { cron: opened.cron, jitterMinutes: opened.jitterMinutes, prompt: opened.prompt },
+    );
+  }, [fresh, opened]);
 
   return (
     <>
@@ -432,12 +459,14 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               {s.lastError && <span className="min-w-0 break-words text-wait">{s.lastError}</span>}
             </div>
             {s.lastReport && <div className="mt-1.5">{reportChip(s.lastReport)}</div>}
-            {open === s.id ? (
+            {open === s.id && !edit ? (
+              <SkeletonLines count={2} className="mt-2" />
+            ) : open === s.id && edit ? (
               <div className="mt-2 flex flex-col gap-2">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <CronField
                     value={edit.cron}
-                    onChange={(cron) => setEdit((d) => ({ ...d, cron }))}
+                    onChange={(cron) => setEdit((d) => d && { ...d, cron })}
                     width="w-[200px]"
                   />
                   <label className="text-[11.5px] text-faint">
@@ -448,7 +477,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                       max={720}
                       value={edit.jitterMinutes}
                       onChange={(e) =>
-                        setEdit((d) => ({ ...d, jitterMinutes: Number(e.target.value) }))
+                        setEdit((d) => d && { ...d, jitterMinutes: Number(e.target.value) })
                       }
                       className={`ml-2 w-[72px] ${field}`}
                     />
@@ -457,7 +486,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 </div>
                 <textarea
                   value={edit.prompt}
-                  onChange={(e) => setEdit((d) => ({ ...d, prompt: e.target.value }))}
+                  onChange={(e) => setEdit((d) => d && { ...d, prompt: e.target.value })}
                   rows={3}
                   aria-label="prompt"
                   className={`w-full resize-y ${proseField}`}
