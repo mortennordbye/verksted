@@ -76,6 +76,25 @@ export async function announce(msg: Announcement, log: Logger): Promise<SendResu
   return result;
 }
 
+/** What `restoreSessions` found the restart had ended, said on the same channels. */
+export async function announceRestartFailures(
+  failed: store.RestartFailure[],
+  log: Logger,
+): Promise<void> {
+  for (const f of failed) {
+    await announce(
+      {
+        title: `${f.title} · ${f.project}`,
+        body: "failed: the pod restarted mid-run",
+        url: `/s/${f.id}`,
+        tag: "warning",
+        priority: "high",
+      },
+      log,
+    );
+  }
+}
+
 async function notify(s: Session, report: string | null, log: Logger): Promise<void> {
   await announce(
     {

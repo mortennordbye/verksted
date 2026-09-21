@@ -143,6 +143,27 @@ describe("PUT /api/settings", () => {
 
   // The scheduler's kill switch shares the settings file, so writing one must
   // never drop the other.
+  it("keeps every var when several are saved at the same moment (R-17)", async () => {
+    // Each save used to read the file before the others had written it, and
+    // the last rename won: ten saves, one var.
+    const keys = Array.from({ length: 10 }, (_, i) => `VK_TEST_RACE_${i}`);
+    await Promise.all(
+      keys.map((key) =>
+        app.inject({ method: "PUT", url: "/api/settings", payload: { vars: { [key]: "x" } } }),
+      ),
+    );
+
+    const stored = JSON.parse(fs.readFileSync(settingsFile, "utf8")).vars;
+    expect(Object.keys(stored)).toEqual(expect.arrayContaining(keys));
+    expect(fs.statSync(settingsFile).mode & 0o777).toBe(0o600);
+
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { vars: Object.fromEntries(keys.map((k) => [k, null])) },
+    });
+  });
+
   it("toggles the schedules pause without disturbing the stored vars", async () => {
     await app.inject({ method: "PUT", url: "/api/settings", payload: { vars: { KEEP_ME: "x" } } });
 

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { sweepTempFiles, writeJsonAtomic } from "../src/atomic-json.js";
 
 let dir: string;
@@ -46,6 +46,38 @@ describe("writeJsonAtomic", () => {
       reads.push(readOrNull(target));
     }
     expect(await Promise.all(reads)).not.toContain(null);
+  });
+
+  it("has the bytes on the disk before the name points at them (R-18)", async () => {
+    // A rename that reaches the disk before the data is a zero-length record
+    // after a node crash, and a zero-length record reads as no record.
+    const order: string[] = [];
+    const open = fsp.open.bind(fsp);
+    const opened = vi.spyOn(fsp, "open").mockImplementation(async (...args) => {
+      const handle = await open(...args);
+      if (String(args[0]).endsWith(".tmp")) {
+        const sync = handle.sync.bind(handle);
+        handle.sync = async () => {
+          order.push("sync");
+          await sync();
+        };
+      }
+      return handle;
+    });
+    const rename = fsp.rename.bind(fsp);
+    const renamed = vi.spyOn(fsp, "rename").mockImplementation(async (from, to) => {
+      order.push("rename");
+      await rename(from, to);
+    });
+    try {
+      await writeJsonAtomic(target, { n: 1 }, 0o600);
+    } finally {
+      opened.mockRestore();
+      renamed.mockRestore();
+    }
+
+    expect(order).toEqual(["sync", "rename"]);
+    expect(fs.statSync(target).mode & 0o777).toBe(0o600);
   });
 
   it("cleans up after itself", async () => {

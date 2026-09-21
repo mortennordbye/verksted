@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import type { AssistantConfig } from "../../shared/api.js";
+import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
+import { keyedQueue } from "./serial.js";
 
 /** Agent vars the settings page always lists (mirrors .env.example). */
 export const KNOWN_AGENT_KEYS = [
@@ -153,17 +154,18 @@ async function read(): Promise<Stored> {
 // Write-temp-then-rename: a truncated settings.json is every credential the
 // user has entered, and read() swallows the parse error and returns {}, so a
 // crash mid-write would silently unset all of them.
-async function write(patch: Stored): Promise<void> {
-  const data = JSON.stringify({ ...(await read()), ...patch }, null, 2);
-  const tmp = `${env.SETTINGS_FILE}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(tmp, data, { mode: 0o600 });
-    await fs.chmod(tmp, 0o600);
-    await fs.rename(tmp, env.SETTINGS_FILE);
-  } catch (err) {
-    await fs.rm(tmp, { force: true });
-    throw err;
-  }
+//
+// One at a time, with the read inside the turn. Two saves landing together
+// (the settings page and the Google sign-in writing its token) each read the
+// file before the other wrote it, and the second rename dropped the first's
+// field.
+const inTurn = keyedQueue();
+
+async function write(change: (stored: Stored) => Stored): Promise<void> {
+  await inTurn("settings", async () => {
+    const stored = await read();
+    await writeJsonAtomic(env.SETTINGS_FILE, { ...stored, ...change(stored) }, 0o600);
+  });
 }
 
 /** Vars set via the settings page, persisted on the data volume. */
@@ -198,7 +200,24 @@ export function fingerprint(value: string): string {
 }
 
 export async function writeVars(vars: Record<string, string>): Promise<void> {
-  await write({ vars });
+  await write(() => ({ vars }));
+}
+
+/**
+ * Set some vars and clear others (null or ""), leaving the rest as they are
+ * *when the write happens*. The callers used to read the map, change it and
+ * hand the whole of it to `writeVars`, so a save from the settings page and the
+ * Google sign-in storing its token could each write the other's change away.
+ */
+export async function patchVars(changes: Record<string, string | null>): Promise<void> {
+  await write((stored) => {
+    const vars = { ...stored.vars };
+    for (const [key, value] of Object.entries(changes)) {
+      if (value === null || value === "") delete vars[key];
+      else vars[key] = value;
+    }
+    return { vars };
+  });
 }
 
 /**
@@ -226,8 +245,7 @@ export async function readAssistantConfig(): Promise<AssistantConfig> {
 }
 
 export async function writeAssistantConfig(patch: Partial<AssistantConfig>): Promise<void> {
-  const current = (await read()).assistant ?? {};
-  await write({ assistant: { ...current, ...patch } });
+  await write((stored) => ({ assistant: { ...stored.assistant, ...patch } }));
 }
 
 /**
@@ -242,7 +260,8 @@ export async function readBlockedOwners(): Promise<string[]> {
 }
 
 export async function writeBlockedOwners(owners: string[]): Promise<void> {
-  await write({ blockedOwners: [...new Set(owners.map((o) => o.trim().toLowerCase()))].sort() });
+  const blockedOwners = [...new Set(owners.map((o) => o.trim().toLowerCase()))].sort();
+  await write(() => ({ blockedOwners }));
 }
 
 export async function schedulesPaused(): Promise<boolean> {
@@ -250,7 +269,7 @@ export async function schedulesPaused(): Promise<boolean> {
 }
 
 export async function setSchedulesPaused(paused: boolean): Promise<void> {
-  await write({ schedulesPaused: paused });
+  await write(() => ({ schedulesPaused: paused }));
 }
 
 /** Settings vars safe to inject into a new tmux session's environment. */

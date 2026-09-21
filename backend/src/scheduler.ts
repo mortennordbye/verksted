@@ -776,7 +776,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   for (const item of items) {
     const v = verdicts.get(item.id);
     if (!v) {
-      await feed.judge(item.id, { urgency: item.urgency });
+      await feed.judge(item.id, { urgency: item.urgency, version: item.version });
       continue;
     }
     let loop: string | null | undefined;
@@ -793,7 +793,14 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
     } else if (v.loop && "slug" in v.loop) {
       loop = (await loops.get(v.loop.slug)) ? v.loop.slug : undefined;
     }
-    const updated = await feed.judge(item.id, { urgency: v.urgency, detail: v.summary, loop });
+    const updated = await feed.judge(item.id, {
+      urgency: v.urgency,
+      detail: v.summary,
+      loop,
+      version: item.version,
+    });
+    // Moved on while it was being judged: the next pass reads the new one.
+    if (!updated) continue;
     judged++;
     if (
       updated &&

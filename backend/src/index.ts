@@ -8,7 +8,7 @@ import { setEventLogger } from "./events.js";
 import { stop as stopVoice } from "./tts.js";
 import { startMaintenance } from "./maintenance.js";
 import { startNightly as startNightlyBackup } from "./backups-store.js";
-import { startNotifier } from "./notifier.js";
+import { announceRestartFailures, startNotifier } from "./notifier.js";
 import { startPollers } from "./pollers.js";
 import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
@@ -59,8 +59,10 @@ await injectMemory();
 await seedCouncil();
 // Before the sweeper, not after: the sweep is what stamps a tmux-less session
 // as done, and it must not beat the restore to them.
-await restoreSessions(app.log);
+const endedByRestart = await restoreSessions(app.log);
 await app.listen({ port: env.PORT, host: "0.0.0.0" });
+// Not awaited: a push service that is slow to answer must not hold the boot.
+void announceRestartFailures(endedByRestart, app.log);
 startSweeper(app.log);
 startNotifier(app.log);
 startPollers(app.log);

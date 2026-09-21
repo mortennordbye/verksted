@@ -106,7 +106,7 @@ export default async function settingsRoutes(app: FastifyInstance) {
       if (Object.keys(stored).length > 50) {
         return reply.code(400).send({ error: "too many variables" });
       }
-      await settings.writeVars(stored);
+      await settings.patchVars(req.body.vars);
       return currentSettings();
     },
   );

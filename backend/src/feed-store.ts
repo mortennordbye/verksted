@@ -209,13 +209,23 @@ export async function setState(
   return item;
 }
 
-/** Triage's verdict on an item. */
+/**
+ * Triage's verdict on an item, as it was when triage read it.
+ *
+ * A turn takes a minute or more, and a poller can file a newer version of the
+ * same item meanwhile: a pull request that was "review requested" when it was
+ * judged and "changes requested by you" by the time the verdict lands. Marking
+ * that one triaged with the old verdict is how it would never be judged at all.
+ * A verdict for a version that has moved on is dropped, and the item is judged
+ * on the next pass.
+ */
 export async function judge(
   id: string,
-  verdict: { urgency: FeedUrgency; detail?: string; loop?: string | null },
+  verdict: { urgency: FeedUrgency; detail?: string; loop?: string | null; version?: string },
 ): Promise<FeedItem | null> {
   const item = await get(id);
   if (!item) return null;
+  if (verdict.version !== undefined && item.version !== verdict.version) return null;
   item.urgency = verdict.urgency;
   if (verdict.detail?.trim()) item.detail = verdict.detail.trim();
   if (verdict.loop !== undefined) item.loop = verdict.loop;
