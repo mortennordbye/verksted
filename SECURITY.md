@@ -30,6 +30,21 @@ What is known to be missing, and planned, is in `BACKLOG.md` and in the audit
 (`FABLE-AUDIT-2026-09-19.md`, root cause 1): agents and the backend run as the
 same user, so an agent can read what the backend can.
 
+Two things in the app look like boundaries and are not, for that reason:
+
+- **The tap on a proposal.** The assistant cannot send a mail, merge or start a
+  session by itself; it files a card and a person taps it. That holds against a
+  model, which only reaches the app through its tool server. It does not hold
+  against a process on the pod: `POST /api/proposals/:id/do` takes nothing but
+  the id, and anything that can reach loopback can post it.
+- **The split between agent variables and the mail and calendar credentials.**
+  A session is not handed the second set in its environment, but it runs as the
+  same user as the backend and can read `settings.json` where both are stored.
+
+Both are safeguards against an agent that has been talked into something, not
+against one that is deliberately looking. Making them real is the privilege
+separation entry in `BACKLOG.md`.
+
 ## Reporting a vulnerability
 
 Please report it privately, through GitHub's

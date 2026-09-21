@@ -13,7 +13,9 @@ import { announce } from "../notifier.js";
  * Anything with no undo is prepared in full by the assistant, filed as a feed
  * item that shows the whole thing, and executed here when the person taps it.
  * The card is the authorisation; nothing a model says reaches `do` without
- * one. Sending a mail, putting an event on the calendar, merging, ending a
+ * one. That is true of a model, which reaches this app only through its tool
+ * server. It is not a boundary against a process on the pod, which can post to
+ * `do` with the id alone (S-05; SECURITY.md says so, BACKLOG has the fix). Sending a mail, putting an event on the calendar, merging, ending a
  * running session and deleting a schedule were the five, and they go through
  * the app's own routes so every validation those routes make holds here too.
  *
