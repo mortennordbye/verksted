@@ -358,9 +358,15 @@ COPY shared ./shared
 COPY backend ./backend
 COPY frontend ./frontend
 RUN npm run build --workspace frontend && npm run build --workspace backend
+# The production install skips install scripts and takes node-pty's build from
+# the install above. node-pty is the only production dependency with a script,
+# it has no prebuilds, and compiling it a second time here produced the same
+# binary the first install had just built.
 RUN --mount=type=cache,target=/root/.npm \
-    rm -rf node_modules backend/node_modules frontend/node_modules \
-    && npm ci --omit=dev --workspace backend \
+    mv node_modules/node-pty/build /tmp/node-pty-build \
+    && rm -rf node_modules backend/node_modules frontend/node_modules \
+    && npm ci --omit=dev --workspace backend --ignore-scripts \
+    && mv /tmp/node-pty-build node_modules/node-pty/build \
     && mkdir -p backend/node_modules
 
 # ---------- runtime: base + the built app ----------
@@ -384,5 +390,9 @@ COPY --from=build /app/backend/node_modules ./backend/node_modules
 COPY --from=build /app/backend/dist ./backend/dist
 COPY --from=build /app/frontend/dist ./frontend/dist
 EXPOSE 8080
+# For `docker run` and compose; the cluster uses its own probes. The health route
+# answers from the process, not the volume, so a slow NFS read does not fail it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:8080/api/health > /dev/null || exit 1
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "backend/dist/backend/src/index.js"]

@@ -1,0 +1,26 @@
+name: ghcr-retention
+
+# Every push to main publishes an image, and nothing ever removed one: tag
+# 0.0.397 was live with every build before it still stored (O-17). This keeps
+# the newest versions, which is weeks of builds to roll back to, and deletes
+# the rest. A version here is one manifest, so a build is about three of them
+# (the index, the image, its attestation) plus the build cache's; they are
+# created together and age out together.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
+        with:
+          package-name: verksted
+          package-type: container
+          min-versions-to-keep: 150
