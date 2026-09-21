@@ -1,27 +1,52 @@
-import { useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import type { TreeNode } from "../../../shared/api";
 import { fileIcon, folderIcon } from "../fileicons";
 import { SkeletonLines } from "./Skeleton";
 
-function Node({ node, onOpenFile }: { node: TreeNode; onOpenFile: (path: string) => void }) {
-  const [open, setOpen] = useState(false);
+/**
+ * Which folders are open, per tree, outside React.
+ *
+ * The sidebar is unmounted whenever you switch to the changes tab, or search,
+ * or a companion pane — and on a phone that is every time you look at anything
+ * else. The expansion went with it, so coming back to the tree meant opening
+ * four folders again to get to the file you had just been reading. Module
+ * state because it is exactly what should outlive the component: a per-device
+ * preference nobody wants written down anywhere.
+ */
+const openDirs = new Map<string, Set<string>>();
+
+function Node({
+  node,
+  open,
+  onToggle,
+  onOpenFile,
+}: {
+  node: TreeNode;
+  open: (path: string) => boolean;
+  onToggle: (path: string) => void;
+  onOpenFile: (path: string) => void;
+}) {
   if (node.type === "dir") {
+    const shown = open(node.path);
     return (
       <li>
         <button
-          onClick={() => setOpen(!open)}
+          onClick={() => onToggle(node.path)}
           title={node.path}
+          // A folder is a disclosure, and nothing said whether it was open:
+          // a screen reader read the same words either way.
+          aria-expanded={shown}
           className="tap flex w-full items-center gap-[7px] rounded-md px-2.5 py-1 text-left text-text hover:bg-surface-2"
         >
-          <img src={folderIcon(node.name, open)} alt="" className="h-4 w-4 flex-none" />
+          <img src={folderIcon(node.name, shown)} alt="" className="h-4 w-4 flex-none" />
           {/* truncate, not nowrap: a deep path used to force the whole sidebar
               to scroll sideways on a phone. */}
           <span className="truncate">{node.name}/</span>
         </button>
-        {open && node.children && node.children.length > 0 && (
+        {shown && node.children && node.children.length > 0 && (
           <ul className="pl-4">
             {node.children.map((c) => (
-              <Node key={c.path} node={c} onOpenFile={onOpenFile} />
+              <Node key={c.path} node={c} open={open} onToggle={onToggle} onOpenFile={onOpenFile} />
             ))}
           </ul>
         )}
@@ -44,12 +69,15 @@ function Node({ node, onOpenFile }: { node: TreeNode; onOpenFile: (path: string)
 }
 
 export default function FileTree({
+  treeKey,
   title,
   nodes,
   truncated,
   onOpenFile,
   onUpload,
 }: {
+  /** What the remembered expansion belongs to — the repo. */
+  treeKey: string;
   title: string;
   nodes: TreeNode[] | null;
   /** The walk hit its entry budget, so files are missing from this tree. */
@@ -60,6 +88,17 @@ export default function FileTree({
   const picker = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // The set is read straight out of the map on every render, so a mount after
+  // the sidebar was away picks up where it left off; this only asks React to
+  // draw again once it changes.
+  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  const isOpen = (path: string) => openDirs.get(treeKey)?.has(path) === true;
+  const toggle = (path: string) => {
+    const dirs = openDirs.get(treeKey) ?? new Set<string>();
+    if (!dirs.delete(path)) dirs.add(path);
+    openDirs.set(treeKey, dirs);
+    redraw();
+  };
   return (
     <nav
       aria-label="file tree"
@@ -104,7 +143,7 @@ export default function FileTree({
       )}
       <ul>
         {(nodes ?? []).map((n) => (
-          <Node key={n.path} node={n} onOpenFile={onOpenFile} />
+          <Node key={n.path} node={n} open={isOpen} onToggle={toggle} onOpenFile={onOpenFile} />
         ))}
         {nodes === null && (
           <li>
