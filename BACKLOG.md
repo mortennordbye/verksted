@@ -1280,3 +1280,17 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `e2e/smoke.test.ts` ("asks before a tap beside the file viewer
   throws away an edit" and the test after it),
   `frontend/src/useDismissOnBack.ts` (`ownBack`, `overlaysSettled`).
+
+## The pod's readiness probe still asks `health`
+
+- **What:** `GET /api/ready` answers 503 when tmux cannot be reached or the
+  sessions directory cannot be written to. Nothing asks it yet: the image's
+  `HEALTHCHECK` and the Deployment's probes both use `/api/health`, which
+  answers whenever the process does.
+- **Why deferred:** The Deployment lives in the Homelab repo. The `HEALTHCHECK`
+  was left on `health` on purpose: it restarts the container, which ends every
+  tmux session, and a volume that has gone read-only is not fixed by that.
+- **Unblocked by:** A `readinessProbe` on `/api/ready` in the Homelab manifest,
+  with `livenessProbe` left on `/api/health`.
+- **Where:** `backend/src/app.ts` (`/api/ready`), `Dockerfile` (`HEALTHCHECK`),
+  `RUNBOOK.md`.

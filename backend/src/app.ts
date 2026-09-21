@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import Fastify, {
   type FastifyError,
   type FastifyInstance,
@@ -8,7 +9,9 @@ import Fastify, {
 import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import helmet from "@fastify/helmet";
+import compress from "@fastify/compress";
 import { env } from "./env.js";
+import * as tmux from "./tmux.js";
 import { hostAllowed, isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js";
 import projectRoutes from "./routes/projects.js";
 import sessionRoutes from "./routes/sessions.js";
@@ -38,6 +41,28 @@ import councilRoutes from "./routes/council.js";
 import attachRoutes from "./ws/attach.js";
 import assistantBrowserRoutes from "./ws/assistant-browser.js";
 import browserRoutes from "./ws/browser.js";
+
+/** The hashed name of the built frontend's entry script, or null with no build to serve. */
+function frontendBuild(): string | null {
+  try {
+    const html = fs.readFileSync(path.join(env.STATIC_DIR, "index.html"), "utf8");
+    return /<script[^>]+src="[^"]*\/(index-[^"/]+\.js)"/.exec(html)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether a file can be made in `dir` right now. */
+async function writable(dir: string): Promise<boolean> {
+  const probe = path.join(dir, `.ready-${process.pid}.tmp`);
+  try {
+    await fs.promises.writeFile(probe, "");
+    await fs.promises.rm(probe, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function buildApp(opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -154,6 +179,12 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       : false,
   });
 
+  // Nothing was compressed. The session list, a diff and the feed are JSON and
+  // text going down a phone tunnel, and the app's own scripts went out at full
+  // size on every cold load. The event stream is hijacked and the sockets are
+  // upgrades, so neither passes through this.
+  await app.register(compress, { threshold: 1024 });
+
   // What a client sends over a socket here is keystrokes, a paste, a resize or
   // a pointer move. The library's own ceiling is 100 MiB a message, read whole
   // into memory and handed to JSON.parse.
@@ -210,10 +241,42 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(browserRoutes);
   await app.register(assistantBrowserRoutes);
 
-  app.get("/api/health", async () => ({ ok: true }));
+  // Liveness: the process answers. `build` is the frontend this image serves,
+  // named the way the frontend names itself (its entry script's hash), so "has
+  // the pod got the new build" is one request and not a look inside the pod.
+  const build = frontendBuild();
+  app.get("/api/health", async () => ({ ok: true, build }));
+
+  // Readiness: the two things every screen leans on. A pod whose volume has
+  // gone read-only, or whose tmux cannot be reached, answers `health` happily
+  // and serves nothing that works.
+  app.get("/api/ready", async (_req, reply) => {
+    const [tmuxOk, volumeOk] = await Promise.all([
+      tmux.listSessionsDetail().then(
+        () => true,
+        () => false,
+      ),
+      writable(env.SESSIONS_DIR),
+    ]);
+    const ready = tmuxOk && volumeOk;
+    return reply.code(ready ? 200 : 503).send({ ready, tmux: tmuxOk, volume: volumeOk });
+  });
 
   if (env.STATIC_DIR && fs.existsSync(env.STATIC_DIR)) {
-    await app.register(fastifyStatic, { root: env.STATIC_DIR });
+    await app.register(fastifyStatic, {
+      root: env.STATIC_DIR,
+      // Every file under assets/ has its content's hash in its name, so it can
+      // be kept for good. Everything else is a name that is reused by the next
+      // build (index.html, the worker, the manifest) and must be asked about.
+      setHeaders: (res, file) => {
+        res.header(
+          "cache-control",
+          file.includes(`${path.sep}assets${path.sep}`)
+            ? "public, max-age=31536000, immutable"
+            : "no-cache",
+        );
+      },
+    });
     // SPA fallback: any non-API GET serves index.html.
     app.setNotFoundHandler((req, reply) => {
       if (req.method === "GET" && !req.url.startsWith("/api/")) {

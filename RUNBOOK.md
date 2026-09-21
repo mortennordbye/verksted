@@ -44,6 +44,18 @@ ends every tmux session on the pod. Take `vk backup` first if anything is
 mid-flight, and expect claude sessions to come back through `--resume` and the
 others to start fresh.
 
+## Which build the pod is serving, and whether it is ready
+
+`GET /api/health` answers `{ ok, build }`. `build` is the hashed name of the
+frontend's entry script, the same name the page itself loads, so after a merge
+it says whether the new image is the one answering without a look inside the
+pod.
+
+`GET /api/ready` answers 200 with `{ ready, tmux, volume }`, or 503 when tmux
+cannot be reached or a file cannot be made in the sessions directory. `health`
+stays the liveness probe: it answers whenever the process does. `ready` is what
+a readiness probe should ask, and the Deployment in Homelab does not yet.
+
 ## Rotate a token
 
 Agent credentials live in `SETTINGS_FILE` on the volume and are set on
