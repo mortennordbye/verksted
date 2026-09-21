@@ -1,4 +1,4 @@
-import { useReducer, useRef, useState } from "react";
+import { useReducer, useRef, useState, type KeyboardEvent } from "react";
 import type { TreeNode } from "../../../shared/api";
 import { fileIcon, folderIcon } from "../fileicons";
 import { SkeletonLines } from "./Skeleton";
@@ -16,55 +16,106 @@ import Notice from "./ui/Notice";
  */
 const openDirs = new Map<string, Set<string>>();
 
+/** A node as the tree draws it: where it sits, and who it hangs off. */
+interface Row {
+  node: TreeNode;
+  level: number;
+  parent: string | null;
+}
+
+/** The rows a person can see right now, top to bottom: what the arrows walk. */
+function visible(nodes: TreeNode[], open: (path: string) => boolean): Row[] {
+  const out: Row[] = [];
+  const walk = (list: TreeNode[], level: number, parent: string | null) => {
+    for (const node of list) {
+      out.push({ node, level, parent });
+      if (node.type === "dir" && open(node.path) && node.children) {
+        walk(node.children, level + 1, node.path);
+      }
+    }
+  };
+  walk(nodes, 1, null);
+  return out;
+}
+
 function Node({
   node,
+  level,
   open,
+  current,
   onToggle,
   onOpenFile,
+  onFocusRow,
+  register,
 }: {
   node: TreeNode;
+  level: number;
   open: (path: string) => boolean;
+  /** The one row Tab lands on. */
+  current: string | null;
   onToggle: (path: string) => void;
   onOpenFile: (path: string) => void;
+  onFocusRow: (path: string) => void;
+  register: (path: string, el: HTMLLIElement | null) => void;
 }) {
-  if (node.type === "dir") {
-    const shown = open(node.path);
-    return (
-      <li>
-        <button
-          onClick={() => onToggle(node.path)}
-          title={node.path}
-          // A folder is a disclosure, and nothing said whether it was open:
-          // a screen reader read the same words either way.
-          aria-expanded={shown}
-          className="tap flex w-full items-center gap-[7px] rounded-md px-2.5 py-1 text-left text-text hover:bg-surface-2"
-        >
-          <img src={folderIcon(node.name, shown)} alt="" className="h-4 w-4 flex-none" />
-          {/* truncate, not nowrap: a deep path used to force the whole sidebar
-              to scroll sideways on a phone. */}
-          <span className="truncate">{node.name}/</span>
-        </button>
-        {shown && node.children && node.children.length > 0 && (
-          <ul className="pl-4">
-            {node.children.map((c) => (
-              <Node key={c.path} node={c} open={open} onToggle={onToggle} onOpenFile={onOpenFile} />
-            ))}
-          </ul>
-        )}
-      </li>
-    );
-  }
+  const dir = node.type === "dir";
+  const shown = dir && open(node.path);
   return (
-    <li>
-      <button
-        onClick={() => onOpenFile(node.path)}
-        title={node.path}
-        className="tap flex w-full items-center gap-[7px] rounded-md px-2.5 py-1 text-left text-muted hover:bg-surface-2 hover:text-text"
+    // A treeitem is the focusable thing itself, so the row is not a button
+    // inside it: the keys are the tree's (see onKeyDown below), and a click
+    // is taken here only when it landed on this row rather than a child's.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+    <li
+      ref={(el) => register(node.path, el)}
+      role="treeitem"
+      aria-level={level}
+      aria-expanded={dir ? shown : undefined}
+      aria-label={node.name}
+      aria-selected={node.path === current}
+      tabIndex={node.path === current ? 0 : -1}
+      title={node.path}
+      onFocus={(e) => e.target === e.currentTarget && onFocusRow(node.path)}
+      onClick={(e) => {
+        if ((e.target as Element).closest('[role="treeitem"]') !== e.currentTarget) return;
+        if (dir) onToggle(node.path);
+        else onOpenFile(node.path);
+      }}
+      className="rounded-md outline-offset-[-2px]"
+    >
+      <div
+        className={`tap flex w-full cursor-pointer items-center gap-[7px] rounded-md px-2.5 py-1 hover:bg-surface-2 ${
+          dir ? "text-text" : "text-muted hover:text-text"
+        }`}
       >
-        <img src={fileIcon(node.name)} alt="" className="h-4 w-4 flex-none" />
-        <span className="truncate">{node.name}</span>
-        {node.modified && <span className="ml-auto flex-none text-[10px] text-wait">M</span>}
-      </button>
+        <img
+          src={dir ? folderIcon(node.name, shown) : fileIcon(node.name)}
+          alt=""
+          className="h-4 w-4 flex-none"
+        />
+        {/* truncate, not nowrap: a deep path used to force the whole sidebar
+            to scroll sideways on a phone. */}
+        <span className="truncate">{dir ? `${node.name}/` : node.name}</span>
+        {!dir && node.modified && (
+          <span className="ml-auto flex-none text-[10px] text-wait">M</span>
+        )}
+      </div>
+      {shown && node.children && node.children.length > 0 && (
+        <ul role="group" className="pl-4">
+          {node.children.map((c) => (
+            <Node
+              key={c.path}
+              node={c}
+              level={level + 1}
+              open={open}
+              current={current}
+              onToggle={onToggle}
+              onOpenFile={onOpenFile}
+              onFocusRow={onFocusRow}
+              register={register}
+            />
+          ))}
+        </ul>
+      )}
     </li>
   );
 }
@@ -99,6 +150,74 @@ export default function FileTree({
     if (!dirs.delete(path)) dirs.add(path);
     openDirs.set(treeKey, dirs);
     redraw();
+  };
+
+  /**
+   * The tree as a keyboard walks it (F-38).
+   *
+   * Every file and folder was its own button, so reaching the fortieth file
+   * was forty presses of Tab, and nothing said a folder had rows inside it.
+   * As an ARIA tree it is one tab stop: the arrows move between the rows you
+   * can see, right opens a folder or steps into it, left closes it or climbs
+   * to its parent, Home and End go to the ends, Enter opens, and typing a
+   * letter jumps to the next row that starts with it.
+   */
+  const rows = visible(nodes ?? [], isOpen);
+  const [focused, setFocused] = useState<string | null>(null);
+  const current = rows.some((r) => r.node.path === focused)
+    ? focused
+    : (rows[0]?.node.path ?? null);
+  const els = useRef(new Map<string, HTMLLIElement>());
+  const register = (path: string, el: HTMLLIElement | null) => {
+    if (el) els.current.set(path, el);
+    else els.current.delete(path);
+  };
+  const moveTo = (path: string | null | undefined) => {
+    if (!path) return;
+    setFocused(path);
+    els.current.get(path)?.focus();
+  };
+  const onKeyDown = (e: KeyboardEvent) => {
+    const at = rows.findIndex((r) => r.node.path === current);
+    const row = rows[at];
+    if (!row) return;
+    const dir = row.node.type === "dir";
+    const openNow = dir && isOpen(row.node.path);
+    let handled = true;
+    switch (e.key) {
+      case "ArrowDown":
+        moveTo(rows[at + 1]?.node.path);
+        break;
+      case "ArrowUp":
+        moveTo(rows[at - 1]?.node.path);
+        break;
+      case "Home":
+        moveTo(rows[0]?.node.path);
+        break;
+      case "End":
+        moveTo(rows.at(-1)?.node.path);
+        break;
+      case "ArrowRight":
+        if (dir && !openNow) toggle(row.node.path);
+        else if (openNow) moveTo(row.node.children?.[0]?.path);
+        break;
+      case "ArrowLeft":
+        if (openNow) toggle(row.node.path);
+        else moveTo(row.parent);
+        break;
+      case "Enter":
+      case " ":
+        if (dir) toggle(row.node.path);
+        else onOpenFile(row.node.path);
+        break;
+      default:
+        if (e.key.length === 1 && /\S/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
+          const key = e.key.toLowerCase();
+          const after = [...rows.slice(at + 1), ...rows.slice(0, at + 1)];
+          moveTo(after.find((r) => r.node.name.toLowerCase().startsWith(key))?.node.path);
+        } else handled = false;
+    }
+    if (handled) e.preventDefault();
   };
   return (
     <nav
@@ -144,24 +263,32 @@ export default function FileTree({
           {uploadError}
         </Notice>
       )}
-      <ul>
-        {(nodes ?? []).map((n) => (
-          <Node key={n.path} node={n} open={isOpen} onToggle={toggle} onOpenFile={onOpenFile} />
-        ))}
-        {nodes === null && (
-          <li>
-            <SkeletonLines count={6} className="px-2.5 py-1" />
-          </li>
-        )}
-        {nodes?.length === 0 && <li className="px-2.5 text-faint">empty repo</li>}
-        {truncated && (
-          // Otherwise a missing file reads as "not there" rather than "the
-          // tree stopped early".
-          <li className="px-2.5 pt-2 text-[11px] text-wait">
-            too many files — this tree is incomplete
-          </li>
-        )}
-      </ul>
+      {nodes === null && <SkeletonLines count={6} className="px-2.5 py-1" />}
+      {nodes?.length === 0 && <div className="px-2.5 text-faint">empty repo</div>}
+      {nodes && nodes.length > 0 && (
+        <ul role="tree" aria-label={title} onKeyDown={onKeyDown}>
+          {nodes.map((n) => (
+            <Node
+              key={n.path}
+              node={n}
+              level={1}
+              open={isOpen}
+              current={current}
+              onToggle={toggle}
+              onOpenFile={onOpenFile}
+              onFocusRow={setFocused}
+              register={register}
+            />
+          ))}
+        </ul>
+      )}
+      {truncated && (
+        // Otherwise a missing file reads as "not there" rather than "the
+        // tree stopped early".
+        <div className="px-2.5 pt-2 text-[11px] text-wait">
+          too many files — this tree is incomplete
+        </div>
+      )}
     </nav>
   );
 }
