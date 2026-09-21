@@ -321,7 +321,7 @@ function Dock({
         full ? "" : "desk:left-1/2 desk:z-30 desk:border-l desk:border-line"
       }`}
     >
-      <div className="flex flex-none items-center gap-2 border-b border-line px-3 pt-[max(8px,env(safe-area-inset-top))] pb-2 text-[12px]">
+      <div className="flex flex-none items-center gap-2 border-b border-line px-3 pt-[max(8px,env(safe-area-inset-top),var(--banner-h,0px))] pb-2 text-[12px]">
         <span className="flex-none font-semibold">{title}</span>
         <span className="min-w-0 flex-1 truncate text-faint">{sub}</span>
         <button

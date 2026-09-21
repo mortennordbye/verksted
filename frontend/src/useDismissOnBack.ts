@@ -71,10 +71,24 @@ export function useDismissOnBack(open: boolean, onClose: () => void): void {
     // Two overlays genuinely open at once share the entry, so Back closes both.
     // They stack only by accident in this app, and one press leaving one of
     // them behind is the worse of the two answers.
-    const onPop = () => close.current();
+    //
+    // An overlay may decline: a sheet whose git pull or delete is still
+    // running ignores its onClose. The browser has popped the entry by then
+    // regardless, so the sheet stayed up with nothing under it and the next
+    // Back left the screen from behind it — mid-operation. A Back that did
+    // not close the overlay puts the entry back, a task later, once a close
+    // that did happen has had its chance to unmount.
+    let live = true;
+    const onPop = () => {
+      close.current();
+      setTimeout(() => {
+        if (live && !overlayEntry()) history.pushState({ vkOverlay: true }, "");
+      }, 0);
+    };
     addEventListener("popstate", onPop);
 
     return () => {
+      live = false;
       removeEventListener("popstate", onPop);
       openOverlays--;
       // Deferred to a task, not a microtask: an overlay closing in order to

@@ -84,6 +84,7 @@ export default function Tabs() {
     // bar left between them was a band of dead space in the middle of a phone.
     <nav
       aria-label="screens"
+      data-tabs
       className="fixed inset-x-0 bottom-0 z-20 flex transform-gpu border-t border-line bg-bg/92 pb-[env(safe-area-inset-bottom)] backdrop-blur-md min-[800px]:hidden kbd:hidden"
     >
       {TABS.map((t) => (

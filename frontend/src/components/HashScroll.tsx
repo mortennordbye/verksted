@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useLocation } from "react-router";
+import { NavigationType, useLocation, useNavigationType } from "react-router";
 
 /**
  * Take a `#id` in the URL to the thing it names.
@@ -20,10 +20,19 @@ const GIVE_UP_MS = 5_000;
 
 export default function HashScroll() {
   const { hash, key } = useLocation();
+  const type = useNavigationType();
 
   useEffect(() => {
     const id = decodeURIComponent(hash.slice(1));
-    if (!id) return;
+    if (!id) {
+      // A link followed with nothing named lands at the top. The document is
+      // one scroll for every screen, so opening a project from halfway down
+      // the bench opened it halfway down too. Only a push: Back is the
+      // browser's to restore, and a replace is a tab or a filter on the page
+      // you are already reading.
+      if (type === NavigationType.Push) window.scrollTo(0, 0);
+      return;
+    }
 
     // Landing exactly on the row hides it under the sticky top bar; the
     // targets that care say so themselves with a scroll-margin class.
@@ -46,7 +55,7 @@ export default function HashScroll() {
     };
     // `key` changes on every navigation, so tapping the same link twice scrolls
     // back to the row a second time rather than doing nothing.
-  }, [hash, key]);
+  }, [hash, key, type]);
 
   return null;
 }
