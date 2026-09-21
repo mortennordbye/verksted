@@ -20,5 +20,12 @@ export default defineConfig({
     setupFiles: ["test/setup.ts"],
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     restoreMocks: true,
+    // Read only by `make coverage`; report-only.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      reporter: ["text-summary", "html"],
+      reportsDirectory: "coverage",
+    },
   },
 });

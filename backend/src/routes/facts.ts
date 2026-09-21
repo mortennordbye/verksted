@@ -81,7 +81,7 @@ async function dockerPorts(): Promise<ListeningPort[]> {
     });
     // In dev, published ports live on the dind service's interface; in the pod
     // (shared netns sidecar) DOCKER_HOST is 127.0.0.1 and so are the ports.
-    const host = process.env.DOCKER_HOST ? new URL(process.env.DOCKER_HOST).hostname : "127.0.0.1";
+    const host = env.DOCKER_HOST ? new URL(env.DOCKER_HOST).hostname : "127.0.0.1";
     const out: ListeningPort[] = [];
     for (const line of stdout.split("\n").filter(Boolean)) {
       const [name = "", ports = ""] = line.split("\t");

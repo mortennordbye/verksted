@@ -1,0 +1,20 @@
+#!/bin/sh
+# Opt in with `make hooks`. Checks the staged files' formatting, which is the
+# one lint failure a push most often makes in CI, and it runs in the container
+# like every other node tool here: npm must not run on the host.
+set -eu
+
+files=$(git diff --cached --name-only --diff-filter=ACMR \
+  | grep -E '\.(ts|tsx|js|mjs|json|css|md|yml|yaml|html)$' || true)
+[ -z "$files" ] && exit 0
+
+if ! docker compose ps >/dev/null 2>&1; then
+  echo "pre-commit: docker is not running; skipping the format check" >&2
+  exit 0
+fi
+
+# shellcheck disable=SC2086 # one argument per file is the point
+docker compose run --rm -T backend npx prettier --check $files || {
+  echo "pre-commit: run \`make format\`, then stage the result" >&2
+  exit 1
+}

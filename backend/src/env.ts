@@ -72,6 +72,25 @@ for (const o of allowedOrigins) {
   }
 }
 
+// Pino's levels; anything else is a typo that would otherwise log everything or
+// nothing depending on how pino reads it.
+const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"];
+const logLevel = process.env.LOG_LEVEL ?? "info";
+if (!LOG_LEVELS.includes(logLevel)) {
+  fail(`LOG_LEVEL must be one of ${LOG_LEVELS.join(", ")}, got "${logLevel}"`);
+}
+
+// The dind sidecar, when there is one. Only its host is read (the facts panel
+// probes it); a value that is not a URL was a crash on the first read.
+const dockerHost = process.env.DOCKER_HOST ?? "";
+if (dockerHost) {
+  try {
+    new URL(dockerHost);
+  } catch {
+    fail(`DOCKER_HOST must be a URL such as tcp://localhost:2375, got "${dockerHost}"`);
+  }
+}
+
 export const env = {
   PORT: port,
   REPOS_DIR: process.env.REPOS_DIR ?? "/data/repos",
@@ -118,6 +137,8 @@ export const env = {
   NTFY_URL: ntfyUrl,
   // Where the app is reachable (over the VPN); used for ntfy click-through links.
   PUBLIC_URL: publicUrl,
+  LOG_LEVEL: logLevel,
+  DOCKER_HOST: dockerHost,
   // Cross-origin allowlist; empty means same-origin only.
   ALLOWED_ORIGINS: allowedOrigins,
   // IANA zone every cron pattern is read in (see above).

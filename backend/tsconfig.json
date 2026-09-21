@@ -13,5 +13,5 @@
   // e2e/ is here rather than in a project of its own: it imports the backend's
   // app and its playwright, so this is the tsconfig that already has both.
   // tsconfig.build.json excludes it, so nothing of it ships.
-  "include": ["src", "test", "../shared", "../e2e"]
+  "include": ["src", "test", "../shared", "../e2e", "vitest.config.ts"]
 }

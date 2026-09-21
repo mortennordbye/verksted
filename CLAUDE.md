@@ -102,11 +102,15 @@ Env vars: copy `.env.example` to `.env` (server config has working defaults; age
 credentials only needed to actually run agents).
 
 ```bash
-make setup   # first time: build dev images + npm install (inside the container)
+make setup   # first time: build dev images + npm ci (inside the container)
 make dev     # backend :8080 (tsx watch) + frontend :5173 (vite HMR)
 make test    # vitest (single test: docker compose run --rm backend npx vitest run test/<file>)
 make e2e     # builds the frontend, then drives it in a real chromium (e2e/)
 make lint    # tsc --noEmit across workspaces, then eslint, shellcheck, prettier
+make format  # prettier --write and eslint --fix
+make coverage # vitest with coverage, report-only; floors on paths.ts and origin.ts
+make audit   # npm audit of what ships, high and above
+make hooks   # opt in to .githooks/ (a prettier check on what is staged)
 make build   # production image (tag: verksted)
 make run     # run the production image on :8080 (needs .env)
 ```

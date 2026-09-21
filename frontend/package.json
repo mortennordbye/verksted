@@ -6,7 +6,8 @@
     "dev": "vite",
     "build": "npm run lint && vite build",
     "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.sw.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -31,6 +32,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "@vitest/coverage-v8": "^5.0.1",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^7.0.2",
