@@ -317,10 +317,15 @@ describe("the app in a real browser", () => {
     expect(await row.getAttribute("aria-current")).toBe("true");
 
     await page.keyboard.press("e");
-    await page.getByText("marked done").waitFor({ timeout: 15_000 });
+    // The toast the person sees, by its role. The words alone match twice for
+    // a moment: the toast library also writes each message into a hidden
+    // live region for screen readers, and a strict locator that lands in that
+    // moment fails the test for finding what it was looking for.
+    const said = page.getByRole("status").filter({ hasText: "marked done" });
+    await said.first().waitFor({ timeout: 15_000 });
     // Put back, so the rest of the suite still finds the note on the list.
     await page.getByRole("button", { name: "undo" }).click();
-    await page.getByText("marked done").waitFor({ state: "detached", timeout: 15_000 });
+    await expect.poll(() => said.count(), { timeout: 15_000 }).toBe(0);
   });
 
   it("reads a finished run's changes and opens the diff behind them", async () => {
