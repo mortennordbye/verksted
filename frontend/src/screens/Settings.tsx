@@ -65,28 +65,32 @@ export default function Settings() {
   const [newKey, setNewKey] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  async function save(vars: Record<string, string | null>) {
+  /** Whether it was stored. A failed save must not take the field with it. */
+  async function save(vars: Record<string, string | null>): Promise<boolean> {
     setError(null);
     try {
       await api("/api/settings", { method: "PUT", body: JSON.stringify({ vars }) });
       refresh();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }
 
   async function saveDraft(key: string) {
     const value = drafts[key]?.trim();
     if (!value) return;
-    await save({ [key]: value });
-    setDrafts((d) => ({ ...d, [key]: "" }));
+    // Cleared on success only. These fields are pasted API keys and tokens,
+    // which is the worst thing in the app to have to go and find twice: a save
+    // that timed out used to empty the box and leave an error above it.
+    if (await save({ [key]: value })) setDrafts((d) => ({ ...d, [key]: "" }));
   }
 
   async function addVar() {
     const key = newKey.trim();
     if (!key) return;
-    await save({ [key]: drafts[key]?.trim() || null });
-    setNewKey("");
+    if (await save({ [key]: drafts[key]?.trim() || null })) setNewKey("");
   }
 
   return (
@@ -468,21 +472,22 @@ function BlockedOwners({ owners, refresh }: { owners: string[]; refresh: () => v
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  async function save(next: string[]) {
+  async function save(next: string[]): Promise<boolean> {
     setError(null);
     try {
       await api("/api/settings", { method: "PUT", body: JSON.stringify({ blockedOwners: next }) });
       refresh();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }
 
   async function add() {
     const owner = draft.trim();
     if (!owner) return;
-    await save([...owners, owner]);
-    setDraft("");
+    if (await save([...owners, owner])) setDraft("");
   }
 
   return (

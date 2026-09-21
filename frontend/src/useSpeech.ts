@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { uncite } from "./components/chat/cite";
+import { readStored } from "./storage";
 
 /**
  * Talking to the assistant, and being talked back to.
@@ -358,7 +359,7 @@ export function useSpeech(onFinal: (said: string) => void) {
       // The speaker's own voice wins over the device's default: a council read
       // aloud in one voice is four answers that sound like one person changing
       // their mind, which is the thing having several of them is meant to fix.
-      const voice = asVoice || localStorage.getItem(POD_VOICE_KEY) || undefined;
+      const voice = asVoice || readStored(POD_VOICE_KEY) || undefined;
       const chunks = chunkForSpeech(body);
       if (!chunks.length) return false;
       const audio = audioPlayer();
@@ -418,10 +419,7 @@ export function useSpeech(onFinal: (said: string) => void) {
     }
     speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(body);
-    const voice = pickVoice(
-      speechSynthesis.getVoices(),
-      localStorage.getItem(VOICE_KEY) ?? undefined,
-    );
+    const voice = pickVoice(speechSynthesis.getVoices(), readStored(VOICE_KEY) ?? undefined);
     if (voice) {
       utterance.voice = voice;
       // Matching the voice's own language stops a British voice reading text

@@ -12,6 +12,7 @@ import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import ClusterPanel from "../components/ClusterPanel";
 import UsagePanel from "../components/UsagePanel";
 import Skeleton from "../components/Skeleton";
+import { readStored, writeStored } from "../storage";
 
 function gb(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(1)}G`;
@@ -168,7 +169,7 @@ const COLS_COMPACT = "grid-cols-[repeat(auto-fill,minmax(min(420px,100%),1fr))]"
 const DENSITY_KEY = "vk.hub.compact";
 
 function initialCompact(): boolean {
-  const stored = localStorage.getItem(DENSITY_KEY);
+  const stored = readStored(DENSITY_KEY);
   if (stored !== null) return stored === "1";
   return !matchMedia("(min-width: 800px) and (min-height: 540px)").matches;
 }
@@ -286,7 +287,7 @@ export default function Hub() {
                 onClick={() => {
                   const next = !compact;
                   setCompact(next);
-                  localStorage.setItem(DENSITY_KEY, next ? "1" : "0");
+                  writeStored(DENSITY_KEY, next ? "1" : "0");
                 }}
                 aria-pressed={compact}
                 title={compact ? "roomier session rows" : "one line per session"}

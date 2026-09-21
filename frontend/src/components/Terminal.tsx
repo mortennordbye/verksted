@@ -6,6 +6,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
 import { copyText } from "../clipboard";
+import { readStoredNumber, writeStored } from "../storage";
 import Sheet from "./Sheet";
 
 // Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
@@ -191,8 +192,7 @@ const FONT_MAX = 22;
 const FONT_DEFAULT = 13;
 
 function storedFontSize(): number {
-  const n = Number(localStorage.getItem(FONT_KEY));
-  return Number.isFinite(n) && n >= FONT_MIN && n <= FONT_MAX ? n : FONT_DEFAULT;
+  return readStoredNumber(FONT_KEY, FONT_DEFAULT, FONT_MIN, FONT_MAX);
 }
 
 export default function Terminal({
@@ -464,7 +464,7 @@ export default function Terminal({
     if (!term) return;
     term.options.fontSize = fontSize;
     fitRef.current?.fit();
-    localStorage.setItem(FONT_KEY, String(fontSize));
+    writeStored(FONT_KEY, String(fontSize));
   }, [fontSize]);
 
   useEffect(() => {

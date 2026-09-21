@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { AssistantConfig, AssistantTool, AssistantVoices } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import { readStored, removeStored, writeStored } from "../storage";
 import SectionLabel from "./SectionLabel";
 import { SkeletonLines } from "./Skeleton";
 import {
@@ -107,10 +108,10 @@ export default function AssistantPanel() {
   }
 
   const voices = useVoices();
-  const [voiceName, setVoiceName] = useState(() => localStorage.getItem(VOICE_KEY) ?? "");
+  const [voiceName, setVoiceName] = useState(() => readStored(VOICE_KEY) ?? "");
   const [podVoices, setPodVoices] = useState<string[]>([]);
   const [defaultVoice, setDefaultVoice] = useState("");
-  const [podVoice, setPodVoice] = useState(() => localStorage.getItem(POD_VOICE_KEY) ?? "");
+  const [podVoice, setPodVoice] = useState(() => readStored(POD_VOICE_KEY) ?? "");
   const [sampling, setSampling] = useState(false);
 
   useEffect(() => {
@@ -132,8 +133,8 @@ export default function AssistantPanel() {
    */
   async function choosePodVoice(name: string) {
     setPodVoice(name);
-    if (name) localStorage.setItem(POD_VOICE_KEY, name);
-    else localStorage.removeItem(POD_VOICE_KEY);
+    if (name) writeStored(POD_VOICE_KEY, name);
+    else removeStored(POD_VOICE_KEY);
     setSampling(true);
     try {
       const res = await fetch("/api/assistant/speak", {
@@ -164,8 +165,8 @@ export default function AssistantPanel() {
    */
   function chooseVoice(name: string) {
     setVoiceName(name);
-    if (name) localStorage.setItem(VOICE_KEY, name);
-    else localStorage.removeItem(VOICE_KEY);
+    if (name) writeStored(VOICE_KEY, name);
+    else removeStored(VOICE_KEY);
     const voice = pickVoice(voices, name || undefined);
     if (!voice) return;
     const sample = new SpeechSynthesisUtterance("Nothing needs you. Everything is quiet.");
