@@ -53,11 +53,20 @@ import { agentEnv, readAssistantConfig } from "./settings-store.js";
 /**
  * What anyone here may do, in two halves.
  *
- * `allowed` is an auto-approve list, not a restriction — anything left off it
- * still exists and, under `--permission-mode auto`, is still up to a classifier.
- * So the tools worth regretting are denied outright. What remains is: read the
- * repos, read the web, and act through the verksted server, whose every
- * endpoint is one the app already validates.
+ * `allowed` is what may run and, under `--permission-mode dontAsk`, the only
+ * thing that may: a call no rule approves is refused rather than put to a
+ * classifier. The tools worth regretting are denied outright all the same,
+ * because a deny is the half that still holds if the mode ever changes. What
+ * remains is: read the repos, read the web, and act through the verksted
+ * server, whose every endpoint is one the app already validates.
+ *
+ * Read, Grep and Glob are deliberately *not* on the allow list. The CLI reads
+ * inside its working directory and its --add-dir without being told it may,
+ * and an allow rule with no path is not confined to either: checked against
+ * 2.1.278, a bare `Read` opened a file beside the repos as readily as one
+ * inside them, which on the pod is settings.json, every document, every past
+ * conversation and the agent's own credentials, in the hands of an advisor that
+ * also holds WebFetch. Left off, the same read is refused.
  *
  * Two halves rather than one list because an advisor's own file decides whether
  * it gets the second. The web tools were denied outright until asked for, and
@@ -85,7 +94,7 @@ const WEB_TOOLS = ["WebFetch", "WebSearch"];
  * repo would have to maintain forever. Under VK_UNATTENDED the server does not
  * offer the ones that change anything, so they do not exist to be approved.
  */
-const UNATTENDED_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
+const UNATTENDED_ALLOWED_TOOLS = ["mcp__verksted"];
 /**
  * Naming the built-ins that exist at all is a stronger statement than the allow
  * list: a tool not named is not present to be approved.
@@ -100,7 +109,27 @@ const UNATTENDED_ALLOWED_TOOLS = ["Read", "Grep", "Glob", "mcp__verksted"];
  * of why VK_TOOLS is worth the trouble rather than only being a safety line.
  */
 const UNATTENDED_BUILTIN_TOOLS = ["Read", "Grep", "Glob"];
-const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task"];
+/**
+ * Where no participant reads, whatever else is decided: every process's
+ * environment, the agent's own home (its login, the ssh keys, gh's token) and
+ * the settings file. Read rules cover Grep and Glob too, and a leading `//` is
+ * how a rule says an absolute path.
+ *
+ * Deny wins over everything, --add-dir included, so a place that holds the
+ * repos or the uploads is left off: on a laptop $HOME usually does.
+ */
+function readDenied(): string[] {
+  const open = [env.REPOS_DIR, uploadsDir()];
+  const holds = (dir: string) => open.some((o) => !path.relative(dir, o).startsWith(".."));
+  const home = process.env.HOME ?? "/data/home";
+  return [
+    "Read(//proc/**)",
+    ...(holds(home) ? [] : [`Read(/${home}/**)`]),
+    `Read(/${env.SETTINGS_FILE})`,
+  ];
+}
+
+const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task", ...readDenied()];
 const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
 /**
@@ -145,6 +174,62 @@ const HEADROOM_DENIED = [
 /** Its own repo's server, run from the volume: nothing here is a second copy. */
 const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
 
+/** Who is offered headroom at all; `null` is the chair. */
+function holdsHeadroom(member: string | null, unattended: boolean): boolean {
+  return member === HEADROOM_MEMBER || (member === null && !unattended);
+}
+
+/**
+ * The environment a turn runs in, named rather than inherited.
+ *
+ * It used to be the backend's whole environment with every stored var on top,
+ * and everything the CLI starts inherits what the CLI has: the browser, the
+ * headroom server, a model reading /proc. None of them has a use for GH_TOKEN,
+ * the other agents' keys or the backup passphrase, and no participant here can
+ * run the shell those exist for. What a turn needs is somewhere to find its
+ * binaries and its home, the locale, a proxy if there is one, and claude's own
+ * sign-in; headroom's two go only to a speaker that is offered headroom.
+ */
+const TURN_ENV_KEYS = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TERM",
+  "LANG",
+  "LANGUAGE",
+  "TZ",
+  "TMPDIR",
+  "NODE_EXTRA_CA_CERTS",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "PLAYWRIGHT_BROWSERS_PATH",
+]);
+const TURN_ENV_PREFIXES = ["LC_", "XDG_", "CLAUDE_"];
+const HEADROOM_KEYS = ["HEADROOM_URL", "HEADROOM_PASSWORD"];
+
+async function turnEnv(headroom: boolean): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...process.env, ...(await agentEnv()) })) {
+    if (value === undefined) continue;
+    if (
+      TURN_ENV_KEYS.has(key) ||
+      TURN_ENV_PREFIXES.some((p) => key.startsWith(p)) ||
+      (headroom && HEADROOM_KEYS.includes(key))
+    ) {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /** Where the MCP server the assistant acts through lives inside the image. */
 function mcpConfig(
   unattended: boolean,
@@ -158,8 +243,7 @@ function mcpConfig(
   // Ariel's schedule to answer. Never without both vars set, so a bench that
   // does not run headroom offers no tools that would fail on every call. The
   // deny list on the writes holds whether or not anyone is reading.
-  const headroom =
-    (member === HEADROOM_MEMBER || (member === null && !unattended)) && headroomConfigured;
+  const headroom = holdsHeadroom(member, unattended) && headroomConfigured;
   // The chair's own browser, never an advisor's and never unattended, for the
   // same reason as headroom: a briefing reads the bench, and the bench is
   // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
@@ -1100,11 +1184,11 @@ async function turn(o: {
     // first text arrives only when the whole turn is done.
     "--include-partial-messages",
     ...(resume ? ["--resume", o.claudeConversationId] : ["--session-id", o.claudeConversationId]),
-    // Nobody is watching a headless run to approve a tool call, and a prompt it
-    // cannot answer is what the timeout below exists for. Safe here only
-    // because the tools worth regretting are denied outright below.
+    // Nobody is watching a headless run to approve a tool call, so what no
+    // allow rule covers is refused on the spot. `auto` hands those calls to a
+    // classifier instead, and a read outside the repos is one of them.
     "--permission-mode",
-    "auto",
+    "dontAsk",
     "--mcp-config",
     mcpConfig,
     // Without this, MCP servers configured in $HOME join the ones here — and
@@ -1132,8 +1216,7 @@ async function turn(o: {
   ];
 
   const childEnv = {
-    ...process.env,
-    ...(await agentEnv()),
+    ...(await turnEnv(holdsHeadroom(speaker.id === CHAIR_ID ? null : speaker.id, unattended))),
     // Matches the mcpConfig() browser entry, which only exists for the
     // chair's attended turns — this is the endpoint its wrapper connects to.
     ...(speaker.id === CHAIR_ID && !unattended
@@ -1279,15 +1362,15 @@ function policyFor(
   // question put to them (WebFetch/WebSearch above) and stay that way: asked
   // for input, not given a second way to act on it.
   const browser = member.chair ? ["mcp__browser"] : [];
+  // An advisor that reads the web does not also read the repos. council-store
+  // takes the private verksted tools off such a member for the same reason, and
+  // a repo is where the .env files are: the two together are what a page needs
+  // to carry something out. The chair keeps both, and what holds it is the rule
+  // in assistant-taint.ts rather than a missing tool.
+  const reads = member.web && !member.chair ? [] : BUILTIN_READ;
   return {
-    builtins: [...BUILTIN_READ, ...web],
-    allowed: [
-      ...BUILTIN_READ,
-      ...web,
-      "mcp__verksted",
-      ...browser,
-      ...(headroom ? ["mcp__headroom"] : []),
-    ],
+    builtins: [...reads, ...web],
+    allowed: [...web, "mcp__verksted", ...browser, ...(headroom ? ["mcp__headroom"] : [])],
     // The chair keeps every tool, so it is offered the server unfiltered; an
     // advisor is offered exactly what its file names — which council-store has
     // already taken anything private out of, if this member reads the web.

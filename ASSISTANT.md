@@ -29,10 +29,27 @@ behind the one conversation.
 ## What it may do
 
 Its built-in tools are **Read, Grep, Glob, WebFetch and WebSearch**. Bash,
-Edit, Write, NotebookEdit and Task are denied outright — not merely left off an
-allow list, which under `--permission-mode auto` is auto-approval rather than
-restriction. `--strict-mcp-config` keeps it to the servers declared for the
-turn, so the MCP servers connected to the Claude account do not join them.
+Edit, Write, NotebookEdit and Task are denied outright, not merely left off the
+allow list. A turn runs under `--permission-mode dontAsk`, so a call no allow
+rule covers is refused rather than put to a classifier. `--strict-mcp-config`
+keeps it to the servers declared for the turn, so the MCP servers connected to
+the Claude account do not join them.
+
+Read, Grep and Glob reach the repos and the uploads directory and nothing else.
+They are deliberately not on the allow list: the CLI reads inside its working
+directory and its `--add-dir` without a rule, and a bare `Read` rule is not
+confined to either (checked against 2.1.278, it read a file beside the repos).
+On top of that, `/proc`, `$HOME` and the settings file are denied by path, which
+holds whatever the mode or the allow list later become. An advisor that reads
+the web gets no Read, Grep or Glob at all: a repo is where the `.env` files
+are.
+
+A turn's environment is named, not inherited: PATH, HOME, the locale, a proxy
+if there is one, and `CLAUDE_*` (the sign-in). `GH_TOKEN`, the other agents'
+keys and the backend's own variables do not reach the CLI or the MCP servers it
+starts. Headroom's URL and password go only to a speaker that is offered
+headroom. To give a turn another variable, add it to `TURN_ENV_KEYS` in
+`assistant.ts`.
 
 Everything else is the verksted MCP server (`runtime/verksted-mcp.mjs`), plus
 two that are the chair's alone: a headless Chromium it can navigate, click and
