@@ -1260,23 +1260,23 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   pull_request rule added and `bypass_actors` emptied.
 - **Where:** GitHub repository settings; `.github/workflows/dependabot-auto-merge.yml`.
 
-## One e2e test fails about one CI run in four, in two ways
+## Whether the e2e flake is gone is not yet known
 
 - **What:** "reads the whole run in one scroll" in `e2e/smoke.test.ts` failed
-  three times on CI on 2026-09-21 (PRs #218, #211, #221) and passed each time
-  on a rerun. Twice the `review all` button never appeared within 30s; once
-  `page.goto` itself failed with `net::ERR_ABORTED`, 7ms in. The test before it
-  ends by pressing Escape on the discard confirm, and a closing overlay drops
-  its history entry with a `history.back()` that lands a task or two later. A
-  Back landing during the next `goto` would abort it, and one landing just
-  after would take the page back off the changes panel, which fits both
-  symptoms. That is a guess: the file viewer is still open at that point and
-  should be holding the shared entry.
-- **Why deferred:** Not reproduced locally, so neither the cause nor a fix
-  could be shown. If the guess is right it is a race only a test can lose.
-- **Unblocked by:** Running the file in a loop under CPU throttling with the
-  page URL and a screenshot logged on failure. If it is the Back, end the
-  earlier test on `history.state.vkOverlay` clearing.
+  about one CI run in four, either with `review all` never appearing or with
+  `page.goto` aborted a few milliseconds in. The cause the old entry guessed at
+  was reproduced: a closing overlay drops its history entry with a
+  `history.back()` that lands a task or two later, and whatever is opened or
+  navigated in between is undone by it. The test before now ends with the
+  viewer closed and waits on the `popstate` itself and on the overlay entries
+  being gone, and a failure of the `review all` click reports the URL and the
+  open dialogs. `settled()` had also been waiting for nothing: a string
+  predicate is compiled in the page, the app's CSP refuses that, and its
+  `catch` swallowed the refusal.
+- **Why deferred:** Five local runs in a row pass, but the failure was never
+  frequent locally, so only CI over a week says whether it is fixed.
+- **Unblocked by:** A week of CI on main without that test failing. Then delete
+  this entry and `e2e-review-all-flake` from the notes.
 - **Where:** `e2e/smoke.test.ts` ("asks before a tap beside the file viewer
   throws away an edit" and the test after it),
   `frontend/src/useDismissOnBack.ts` (`ownBack`, `overlaysSettled`).

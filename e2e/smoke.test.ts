@@ -47,9 +47,30 @@ function git(repo: string, ...args: string[]): string {
  * this fixture keeps its skeleton, and the check that follows says what it
  * finds either way.
  */
+/**
+ * The page's globals, as a function Playwright runs *in the page* sees them.
+ * A type only: this suite is compiled without the DOM types, and such a
+ * function is serialised, so it can call nothing that lives out here.
+ */
+interface InPage {
+  document: { querySelector(selector: string): unknown };
+  history: { state: { vkOverlay?: boolean } | null };
+  location: { search: string };
+  __pops?: number;
+}
+
 async function settled(on: Page): Promise<void> {
   await on
-    .waitForFunction('!document.querySelector(".animate-skeleton-in")', null, { timeout: 10_000 })
+    // A function, not a string: a string is compiled in the page, which the
+    // app's own CSP refuses, and the catch below used to swallow that refusal,
+    // so this waited for nothing.
+    .waitForFunction(
+      () => !(globalThis as unknown as InPage).document.querySelector(".animate-skeleton-in"),
+      null,
+      {
+        timeout: 10_000,
+      },
+    )
     .catch(() => undefined);
 }
 
@@ -367,6 +388,10 @@ describe("the app in a real browser", () => {
         { timeout: 15_000 },
       )
       .toBe(true);
+    // Counted, so the test can wait for the Back the closing confirm issues
+    // for its own history entry. It lands a task or two after the dialog is
+    // gone, and whatever is opened in between is closed by it.
+    await page.evaluate("window.__pops = 0; addEventListener('popstate', () => window.__pops++)");
     await page.keyboard.press("Escape");
 
     await expect
@@ -374,11 +399,45 @@ describe("the app in a real browser", () => {
         timeout: 15_000,
       })
       .toContain("typed, not saved");
+
+    // Leave nothing open. A closing overlay drops its history entry with a
+    // `history.back()` that lands a task or two later, and the next test opens
+    // with a `goto`: one landing on the other is what aborted that navigation,
+    // or took the page back off the changes panel, about one CI run in four.
+    // The first question has to be gone first: the viewer ignores a second
+    // request to close while it is still hearing the answer to the first.
+    await ask.waitFor({ state: "detached", timeout: 15_000 });
+    await page.waitForFunction(() => ((globalThis as unknown as InPage).__pops ?? 0) >= 1, null, {
+      timeout: 15_000,
+    });
+    await page.mouse.click(8, 8);
+    await page.getByRole("button", { name: "discard them" }).click();
+    await viewer.waitFor({ state: "detached", timeout: 15_000 });
+    // Both entries gone, the confirm's and the file's: nothing is left in
+    // flight to land on the next test's navigation.
+    await page.waitForFunction(
+      () => {
+        const w = globalThis as unknown as InPage;
+        return !w.history.state?.vkOverlay && !w.location.search.includes("file=");
+      },
+      null,
+      { timeout: 15_000 },
+    );
   });
 
   it("reads the whole run in one scroll, and remembers what was read", async () => {
     await page.goto(`${base}/s/vk-demo-1?side=changes`, { waitUntil: "networkidle" });
-    await page.getByRole("button", { name: /review all/ }).click();
+    await page
+      .getByRole("button", { name: /review all/ })
+      .click()
+      .catch(async (err: Error) => {
+        // Said, because "the button never appeared" has two causes that look
+        // the same from here: the page is somewhere else, or something is over it.
+        const open = await page.getByRole("dialog").allInnerTexts();
+        throw new Error(
+          `${err.message}\n  at ${page.url()}\n  dialogs open: ${JSON.stringify(open.map((t) => t.slice(0, 80)))}`,
+        );
+      });
 
     const review = page.getByRole("dialog", { name: "review vk-demo-1" });
     // The range's own patch, not a per-file request: the file's header and the
