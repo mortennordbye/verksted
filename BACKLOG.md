@@ -1148,9 +1148,11 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   into a monthly archive, and every change to a session's metadata runs on one
   chain per session. The feed is the part that did not move. `GET /api/feed`
   still runs `pollBench`, which files and resolves items and lifts snoozes, so
-  opening the inbox is what makes the inbox correct (R-33). The same GET reads
-  the whole feed directory at least five times and the session list twice, with
-  no coalescing, and nothing ages out an item that never reached `done` (R-20).
+  opening the inbox is what makes the inbox correct (R-33). The cost of that is
+  down: an item is parsed once for as long as its file sits still, and callers
+  that arrive together share one pass. What is left of R-20 is that the pass
+  still lists the directory six times, and nothing ages out an item that never
+  reached `done`.
 - **Why deferred:** The comment on `pollBench` gives the reason it is there:
   running it per open is also what makes the feed correct in a test with no
   timers. Moving it to the sweeper means either accepting that a brand new
