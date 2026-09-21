@@ -1,4 +1,4 @@
-import { exec } from "./exec.js";
+import { exec, redactSecrets } from "./exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -278,7 +278,7 @@ export function gitError(err: unknown): string {
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l && !l.startsWith("hint:"));
-  return (line ?? "git failed").slice(0, 200);
+  return redactSecrets(line ?? "git failed").slice(0, 200);
 }
 
 /**

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { Writable } from "node:stream";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -85,5 +86,55 @@ describe("GET /api/events", () => {
         new Promise((_, reject) => setTimeout(() => reject(new Error("close hung")), 4_000)),
       ]),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("a client that is not reading (R-25)", () => {
+  /** A socket whose far end has gone quiet: it takes bytes and never drains. */
+  function stuck() {
+    const written: string[] = [];
+    let release: (() => void) | null = null;
+    const res = new Writable({
+      highWaterMark: 16 * 1024,
+      write(chunk: Buffer, _enc, done) {
+        written.push(chunk.toString());
+        // Held until the test says the client has started reading again.
+        release = done;
+      },
+    });
+    return {
+      res,
+      written,
+      drain: () => {
+        const done = release;
+        release = null;
+        done?.();
+      },
+    };
+  }
+
+  it("keeps the newest frame per topic, not every frame it could not send", async () => {
+    const { paced } = await import("../src/routes/events.js");
+    const { res, written, drain } = stuck();
+    const { send } = paced(res);
+    const big = (n: number) => JSON.stringify({ n, pad: "x".repeat(100_000) });
+
+    for (let n = 0; n < 50; n++) send("sessions", big(n));
+    send("projects", "[1]");
+    send("projects", "[2]");
+
+    // Five megabytes were offered, and what is kept for it stays near the mark.
+    expect(res.writableLength).toBeLessThan(600_000);
+
+    // It comes back: what it gets is where things stand now.
+    for (let i = 0; i < 20; i++) {
+      drain();
+      await new Promise((r) => setImmediate(r));
+    }
+    const all = written.join("");
+    expect(all).toContain('"n":49');
+    expect(all).not.toContain('"n":30');
+    expect(all).toContain("data: [2]");
+    expect(all).not.toContain("data: [1]");
   });
 });

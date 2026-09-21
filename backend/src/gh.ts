@@ -1,5 +1,5 @@
 import { env } from "./env.js";
-import { exec } from "./exec.js";
+import { exec, redactSecrets } from "./exec.js";
 import { execEnv } from "./settings-store.js";
 import type { PullRequest, RunLog } from "../../shared/api.js";
 
@@ -121,7 +121,7 @@ export function ghMessage(stderr: string): string {
   // reports an existing PR, and the url is the whole point of the message.
   const [first = "", second] = lines;
   const msg = first.endsWith(":") && second ? `${first} ${second}` : first;
-  return msg.slice(0, 200);
+  return redactSecrets(msg).slice(0, 200);
 }
 
 /** Collapse a PR's statusCheckRollup into the one word the list row shows. */
