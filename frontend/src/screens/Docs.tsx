@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
 import type { DocEntry, DocHit } from "../../../shared/api";
 import { agoLabel, usePoll } from "../api";
@@ -38,6 +38,19 @@ export default function Docs() {
   const [params, setParams] = useSearchParams();
   const dir = params.get("path") ?? "";
   const [query, setQuery] = useState("");
+  /**
+   * What is actually searched, a beat after the typing stops.
+   *
+   * The query was the poll's path, so every keystroke was a request — and each
+   * one is a full-text search of the whole share on the pod, for a prefix
+   * nobody meant to search for.
+   */
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const trimmed = query.trim();
+    const timer = setTimeout(() => setSearch(trimmed), 300);
+    return () => clearTimeout(timer);
+  }, [query]);
   const [open, setOpen] = useState<string | null>(null);
 
   const { data: entries, error } = usePoll<DocEntry[]>(
@@ -45,7 +58,7 @@ export default function Docs() {
     60_000,
   );
   const { data: hits } = usePoll<DocHit[]>(
-    query.trim().length >= 2 ? `/api/docs/search?q=${encodeURIComponent(query.trim())}` : null,
+    search.length >= 2 ? `/api/docs/search?q=${encodeURIComponent(search)}` : null,
     60_000,
   );
 
@@ -77,7 +90,7 @@ export default function Docs() {
           </div>
         )}
 
-        {query.trim().length >= 2 ? (
+        {search.length >= 2 ? (
           <div className="flex flex-col gap-1.5">
             {hits?.length === 0 && <div className="text-[13px] text-faint">nothing matched</div>}
             {(hits ?? []).map((h) => (
