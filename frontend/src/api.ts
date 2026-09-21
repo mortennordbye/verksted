@@ -27,6 +27,20 @@ export async function api<T>(
   path: string,
   init?: RequestInit & { timeoutMs?: number },
 ): Promise<T> {
+  return (await answer<T>(path, init)).parse();
+}
+
+/**
+ * The same request, with the body as it arrived and the parse left undone.
+ *
+ * `usePoll` wants the text first: comparing it against the last answer is how a
+ * poll that changed nothing — which is most of them — costs neither a parse,
+ * nor a render, nor a write to the stored cache.
+ */
+async function answer<T>(
+  path: string,
+  init?: RequestInit & { timeoutMs?: number },
+): Promise<{ text: string; parse: () => T }> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -50,7 +64,8 @@ export async function api<T>(
     const body = await res.json().catch(() => null);
     throw new ApiError(res.status, body?.error ?? `HTTP ${res.status}`);
   }
-  return res.json();
+  const text = await res.text();
+  return { text, parse: () => JSON.parse(text) as T };
 }
 
 /** How often a streamed path is still fetched anyway. Cover for a stream that
@@ -65,14 +80,40 @@ const BACKSTOP_MS = 60_000;
 const cache = new Map<string, unknown>();
 const CACHE_MAX = 200;
 
-function remember(path: string, value: unknown): void {
+/**
+ * A fingerprint of the last body seen for a path.
+ *
+ * Kept beside the cache rather than the body itself: one file tree is most of a
+ * megabyte, and all this has to answer is "is this the same answer again". It
+ * almost always is — a session list polled every three seconds changes when
+ * something happens, not on the tick.
+ */
+const stamps = new Map<string, string>();
+
+function stamp(text: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `${text.length}:${h >>> 0}`;
+}
+
+function remember(path: string, value: unknown, text?: string): void {
   cache.delete(path);
   cache.set(path, value);
-  if (cache.size > CACHE_MAX) cache.delete(cache.keys().next().value!);
+  if (text === undefined) stamps.delete(path);
+  else stamps.set(path, stamp(text));
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value!;
+    cache.delete(oldest);
+    stamps.delete(oldest);
+  }
   scheduleSave();
 }
 
 function forget(path: string): void {
+  stamps.delete(path);
   if (cache.delete(path)) scheduleSave();
 }
 
@@ -109,6 +150,19 @@ function loadStored(): void {
   }
 }
 
+/**
+ * What is worth keeping between launches.
+ *
+ * A file tree is most of a megabyte and is re-read on arrival anyway; a repo
+ * search and a pane capture are answers to a question nobody asks twice. All
+ * three were being serialised into localStorage with everything else, which is
+ * a megabyte of `JSON.stringify` on the main thread for data no screen paints
+ * from.
+ */
+function worthStoring(path: string): boolean {
+  return !/\/(tree|search|capture|raw|file)(\?|$)/.test(path);
+}
+
 /** Write the cache out now. Exported as the test seam for a relaunch. */
 export function savePollCache(): void {
   clearTimeout(saveTimer);
@@ -116,6 +170,7 @@ export function savePollCache(): void {
   const parts: string[] = [];
   let size = 0;
   for (const entry of [...cache].reverse()) {
+    if (!worthStoring(entry[0])) continue;
     const json = JSON.stringify(entry);
     if (size + json.length > STORE_MAX_CHARS) continue;
     parts.push(json);
@@ -137,10 +192,16 @@ function scheduleSave(): void {
 
 if (typeof document !== "undefined") {
   loadStored();
-  // A phone put back in a pocket may be killed before the timer fires.
+  // A phone put back in a pocket may be killed before the timer fires, and an
+  // installed app is closed without either event on some platforms — pagehide
+  // is the one iOS is reliable about.
+  const flush = () => {
+    if (saveTimer) savePollCache();
+  };
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && saveTimer) savePollCache();
+    if (document.hidden) flush();
   });
+  addEventListener("pagehide", flush);
 }
 
 /** Test seam: module state, and a test file is one page. */
@@ -148,6 +209,7 @@ export function resetPollCache(): void {
   clearTimeout(saveTimer);
   saveTimer = undefined;
   cache.clear();
+  stamps.clear();
   try {
     localStorage.removeItem(STORE_KEY);
   } catch {
@@ -190,16 +252,42 @@ export function usePoll<T>(path: string | null, ms = 5000) {
    * superseded it, and the screen would then go backwards.
    */
   const generation = useRef(0);
+  /**
+   * The fingerprint of the answer this hook is holding, or null when it holds
+   * something whose body it never saw — the cache from an earlier visit, or a
+   * push off the stream. Per hook, because two hooks on one path have their own
+   * `data` and the cache they share cannot say what either of them is showing.
+   */
+  const showing = useRef<string | null>(null);
 
   const refresh = useCallback(() => {
     if (!path) return;
     const mine = ++generation.current;
     const current = () => mine === generation.current;
-    api<T>(path)
-      .then((d) => {
+    answer<T>(path)
+      .then(({ text, parse }) => {
         if (!current()) return;
-        remember(path, d);
-        setData(d);
+        const mark = stamp(text);
+        // An answer that says the same as the one this hook is already showing
+        // is most of them. Applying it anyway re-parsed the body, re-rendered
+        // every subscriber and rewrote the stored cache on every tick — Today
+        // holds nine polls and re-reads its brief through react-markdown on
+        // each, and one file tree is most of a megabyte to parse.
+        if (showing.current === mark) {
+          setFresh(true);
+          setError(null);
+          setNotFound(false);
+          return;
+        }
+        // Another hook on the same path may have parsed and stored this very
+        // body a moment ago. Then the work is done and only this hook has to
+        // catch up — and it catches up to that same object, so the two stay
+        // identical and neither re-renders the other's subscribers.
+        const known = stamps.get(path) === mark;
+        const value = known ? (cache.get(path) as T) : parse();
+        if (!known) remember(path, value, text);
+        showing.current = mark;
+        setData(value);
         setFresh(true);
         setError(null);
         setNotFound(false);
@@ -225,6 +313,10 @@ export function usePoll<T>(path: string | null, ms = 5000) {
   useEffect(() => {
     const cached = path !== null && cache.has(path);
     setData(cached ? (cache.get(path) as T) : null);
+    // What the cache holds is what its stamp describes, so an unchanged first
+    // answer is free too. Null when nothing was cached, or when the cached
+    // value came from the stream rather than from a body.
+    showing.current = cached ? (stamps.get(path) ?? null) : null;
     setNotFound(false);
     setFresh(false);
     setLoading(path !== null && !cached);
@@ -237,6 +329,7 @@ export function usePoll<T>(path: string | null, ms = 5000) {
       else remember(path, hit.value);
       // Newer than anything in flight, by definition: the server sent it.
       generation.current++;
+      showing.current = null;
       setData(hit.value);
       setFresh(true);
       setNotFound(hit.value === null);

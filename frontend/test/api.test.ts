@@ -193,6 +193,70 @@ describe("usePoll", () => {
     expect(result.current.loading).toBe(true);
   });
 
+  /**
+   * F-16. Every poll answer used to be parsed, stored and applied whether or
+   * not it said anything new — and most of them do not. What this pins is the
+   * visible half: the same object comes back, so nothing downstream of it
+   * re-renders on the tick.
+   */
+  it("does not even parse a poll answer that changed nothing", async () => {
+    // mockImplementation, not mockResolvedValue: a Response body can be read
+    // once, and every call here reads one.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ v: 1 })));
+    const { result } = renderHook(() => usePoll<{ v: number }>("/api/facts"));
+    await waitFor(() => expect(result.current.data).toEqual({ v: 1 }));
+    const first = result.current.data;
+
+    const parse = vi.spyOn(JSON, "parse");
+    act(() => result.current.refresh());
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    // The body was read and fingerprinted; nothing else was done with it.
+    expect(parse).not.toHaveBeenCalled();
+    expect(result.current.data).toBe(first);
+
+    // And an answer that does say something new still lands.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ v: 2 })));
+    act(() => result.current.refresh());
+    await waitFor(() => expect(result.current.data).toEqual({ v: 2 }));
+    expect(parse).toHaveBeenCalled();
+    parse.mockRestore();
+  });
+
+  /**
+   * The same, with two hooks on one path — three screens do exactly this with
+   * /api/feed. The second must still end up holding the answer: the first one
+   * having stored it is not the same as this one showing it.
+   */
+  it("gives a second hook on the same path the answer the first stored", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse([{ id: "a" }])));
+    const first = renderHook(() => usePoll<{ id: string }[]>("/api/feed"));
+    await waitFor(() => expect(first.result.current.data).toHaveLength(1));
+
+    const second = renderHook(() => usePoll<{ id: string }[]>("/api/feed"));
+    await waitFor(() => expect(second.result.current.data).toHaveLength(1));
+    // One object between them, so neither re-renders when the other refetches.
+    expect(second.result.current.data).toBe(first.result.current.data);
+  });
+
+  /**
+   * F-14. A file tree is most of a megabyte and is re-read on arrival anyway;
+   * the stored cache was serialising it, and a repo search, and a pane capture,
+   * on the main thread every couple of seconds.
+   */
+  it("leaves the heavy, one-off answers out of the stored cache", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ nodes: [] })));
+    const tree = renderHook(() => usePoll("/api/projects/demo/tree"));
+    await waitFor(() => expect(tree.result.current.data).toEqual({ nodes: [] }));
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse({ ok: true })));
+    const facts = renderHook(() => usePoll("/api/facts"));
+    await waitFor(() => expect(facts.result.current.data).toEqual({ ok: true }));
+
+    savePollCache();
+    const stored = localStorage.getItem("vk.poll-cache") ?? "";
+    expect(stored).toContain("/api/facts");
+    expect(stored).not.toContain("/tree");
+  });
+
   it("does not fetch at all while the path is null", async () => {
     renderHook(() => usePoll(null));
     expect(fetchMock).not.toHaveBeenCalled();

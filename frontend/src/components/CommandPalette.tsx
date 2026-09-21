@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { Project, Session } from "../../../shared/api";
-import { api } from "../api";
+import { usePoll } from "../api";
 import Skeleton from "./Skeleton";
 import { useDismissOnBack } from "../useDismissOnBack";
 
@@ -38,48 +38,40 @@ function matches(entry: Entry, query: string): boolean {
 export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [entries, setEntries] = useState<Entry[] | null>(null);
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
 
   useDismissOnBack(true, onClose);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const projects = await api<Project[]>("/api/projects").catch(() => []);
-      if (cancelled) return;
-      const out: Entry[] = projects.map((p) => ({
+  /**
+   * Both lists come from the two paths the event stream already holds, so an
+   * open normally costs no request at all and paints from what the hub was
+   * showing a moment ago. It used to fetch the projects and then one session
+   * list per project — on a bench with eight repos, nine requests every time
+   * the palette was opened, for a list the app already had.
+   */
+  const { data: projects } = usePoll<Project[]>("/api/projects", 30_000);
+  const { data: sessions } = usePoll<Session[]>("/api/sessions", 30_000);
+
+  const entries = useMemo<Entry[] | null>(() => {
+    if (!projects && !sessions) return null;
+    return [
+      ...(projects ?? []).map((p) => ({
         id: `p:${p.name}`,
         label: `~/${p.name}`,
         hint: `project · ${p.branch}${p.waiting ? ` · ${p.waiting} waiting` : ""}`,
         to: `/p/${p.name}`,
-      }));
-      setEntries(out);
-
-      // Sessions come from per-project calls, so show projects first rather
-      // than an empty palette while they land.
-      const lists = await Promise.all(
-        projects.map((p) =>
-          api<Session[]>(`/api/projects/${p.name}/sessions`).catch(() => [] as Session[]),
-        ),
-      );
-      if (cancelled) return;
-      for (const session of lists.flat()) {
-        if (session.status === "done") continue;
-        out.push({
-          id: `s:${session.id}`,
-          label: session.title,
-          hint: `${session.status} · ${session.agent} · ${session.project}`,
-          to: `/s/${session.id}`,
-        });
-      }
-      setEntries([...out]);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      })),
+      ...(sessions ?? [])
+        .filter((s) => s.status !== "done")
+        .map((s) => ({
+          id: `s:${s.id}`,
+          label: s.title,
+          hint: `${s.status} · ${s.agent} · ${s.project}`,
+          to: `/s/${s.id}`,
+        })),
+    ];
+  }, [projects, sessions]);
 
   const shown = useMemo(
     () => (entries ?? []).filter((e) => matches(e, query)).slice(0, 40),
