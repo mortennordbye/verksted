@@ -291,6 +291,13 @@ describe("a repeating event", () => {
 });
 
 describe("mail", () => {
+  // imapflow 2 passes a Date header it could not parse through as the string.
+  it("keeps a message whose date came as text, readable or not", () => {
+    const at = (date: string) => mail.summarise({ uid: 1, envelope: { date } }).at;
+    expect(at("Mon, 21 Sep 2026 06:00:00 +0000")).toBe("2026-09-21T06:00:00.000Z");
+    expect(() => at("sometime last week")).not.toThrow();
+  });
+
   it("reduces an envelope to a line, and HTML to text", () => {
     const s = mail.summarise({
       uid: 42,

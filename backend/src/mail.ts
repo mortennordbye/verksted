@@ -84,7 +84,8 @@ export function summarise(msg: {
   uid: number;
   envelope?: {
     subject?: string;
-    date?: Date;
+    // imapflow 2 hands back the header as it came when it cannot parse it.
+    date?: Date | string;
     from?: { name?: string; address?: string }[];
   };
   flags?: Set<string>;
@@ -95,9 +96,18 @@ export function summarise(msg: {
     subject: msg.envelope?.subject?.trim() || "(no subject)",
     from: from?.name?.trim() || from?.address || "(unknown)",
     address: from?.address ?? "",
-    at: (msg.envelope?.date ?? new Date()).toISOString(),
+    at: when(msg.envelope?.date).toISOString(),
     unread: !(msg.flags?.has("\\Seen") ?? false),
   };
+}
+
+/**
+ * A message's date as a Date. A header nobody can read is not a reason to drop
+ * the message, or to throw on `toISOString`: it is dated when it was seen.
+ */
+function when(date: Date | string | undefined): Date {
+  const d = date instanceof Date ? date : date ? new Date(date) : null;
+  return d && !Number.isNaN(d.getTime()) ? d : new Date();
 }
 
 /** The newest messages in the inbox, newest first. */
