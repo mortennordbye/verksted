@@ -239,6 +239,59 @@ describe("usePoll", () => {
   });
 
   /**
+   * F-15. The tab bar, the inbox and Today all poll /api/feed, at 60, 15 and 30
+   * seconds. Three timers meant three requests scattered across the minute for
+   * an answer that is one answer.
+   */
+  it("asks once per tick however many hooks are on the path", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse([{ id: "a" }])));
+    const tabs = renderHook(() => usePoll("/api/feed", 4000));
+    await vi.waitFor(() => expect(tabs.result.current.data).toHaveLength(1));
+
+    // Mounted at its own moment, which is the thing: the tab bar is up long
+    // before the inbox is opened, so two intervals started half a second apart
+    // never fell on the same instant and neither could stand in for the other.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    const inbox = renderHook(() => usePoll("/api/feed", 1000));
+    await vi.waitFor(() => expect(inbox.result.current.data).toHaveLength(1));
+    const mounted = fetchMock.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    // Four ticks of the fast one, with the slow one riding along on the fourth
+    // — not four plus one of its own. Both are still up to date.
+    expect(fetchMock.mock.calls.length).toBe(mounted + 4);
+    expect(inbox.result.current.data).toHaveLength(1);
+    expect(tabs.result.current.fresh).toBe(true);
+  });
+
+  /**
+   * The other half of that. A refresh a screen asks for itself is the one after
+   * a POST, and an answer the pod composed before the POST is the wrong answer
+   * — so that one never rides along with a poll already in flight.
+   */
+  it("does not answer a screen's own refresh from a request that predates it", async () => {
+    let release: ((body: unknown) => void) | undefined;
+    fetchMock.mockImplementationOnce(
+      () => new Promise((resolve) => (release = (b) => resolve(jsonResponse(b)))),
+    );
+    const { result } = renderHook(() => usePoll<{ v: number }[]>("/api/feed"));
+    await waitFor(() => expect(release).toBeTruthy());
+
+    // The POST landed; this is the read after it, with the first still open.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse([{ v: 2 }])));
+    act(() => result.current.refresh());
+    release!([{ v: 1 }]);
+
+    await waitFor(() => expect(result.current.data).toEqual([{ v: 2 }]));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  /**
    * F-14. A file tree is most of a megabyte and is re-read on arrival anyway;
    * the stored cache was serialising it, and a repo search, and a pane capture,
    * on the main thread every couple of seconds.

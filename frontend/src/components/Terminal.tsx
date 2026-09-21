@@ -3,6 +3,7 @@ import { Terminal as Xterm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import type { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
 import { copyText } from "../clipboard";
@@ -19,6 +20,15 @@ const AUTH_URL_RE =
 // signal, and unlike "row is full" it never depends on the wrap width matching
 // the terminal's current cols (which a keyboard-driven resize can desync).
 const URL_CHARS_RE = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
+
+/**
+ * How many bytes may be waiting to be drawn before the pod is asked to stop
+ * sending, and how few before it is asked to carry on. A screen of output is a
+ * few kilobytes, so an ordinary burst never reaches this; a `cat` of something
+ * large does, immediately.
+ */
+const WRITE_HIGH_WATER = 128 * 1024;
+const WRITE_LOW_WATER = 16 * 1024;
 
 /**
  * Most recent auth URL visible in the terminal, or null. Only the last ~400
@@ -540,6 +550,50 @@ export default function Terminal({
       }),
     );
     term.open(el);
+
+    /**
+     * Draw on the GPU where there is one.
+     *
+     * The default renderer builds a DOM node per styled run, and an agent TUI
+     * repainting a full-screen box several times a second is what that costs
+     * most on — a phone browser doing layout for the whole pane on every
+     * frame. The addon has to be loaded after `open`, because it needs the
+     * canvas the terminal has only then created.
+     *
+     * Every failure here falls back to that DOM renderer, which is what the
+     * terminal did before and looks identical: no WebGL at all (an old phone,
+     * a locked-down browser, jsdom), or a context lost afterwards — the
+     * browser takes one away when the page is backgrounded or memory is tight,
+     * and a disposed addon leaves the terminal drawing for itself again.
+     */
+    let webgl: WebglAddon | undefined;
+    let gone = false;
+    // Fetched rather than bundled, for the same reason highlight.js is: this
+    // is the chunk a notification tap downloads before the terminal appears,
+    // and 29 KB of renderer is not worth delaying the first frame of it. The
+    // pane opens on the DOM renderer, exactly as it did, and moves onto the
+    // GPU a moment later. The check comes first so a browser without WebGL2
+    // does not fetch a renderer it cannot use.
+    if (typeof WebGL2RenderingContext !== "undefined") {
+      void import("@xterm/addon-webgl")
+        .then(({ WebglAddon }) => {
+          if (gone) return;
+          const addon = new WebglAddon();
+          // The browser takes a context away when the page is backgrounded or
+          // memory is tight. Disposing the addon hands the drawing back.
+          addon.onContextLoss(() => {
+            addon.dispose();
+            webgl = undefined;
+          });
+          term.loadAddon(addon);
+          webgl = addon;
+        })
+        .catch(() => {
+          // No WebGL after all, or the chunk never arrived: the DOM renderer
+          // is already drawing and nothing about the pane looks different.
+        });
+    }
+
     fit.fit();
     // On a desktop the terminal is the point of the screen, and it used to need
     // a click before it would take a keystroke. Not on touch, where focusing
@@ -679,6 +733,8 @@ export default function Terminal({
       ro.disconnect();
       input.dispose();
       resized.dispose();
+      gone = true;
+      webgl?.dispose();
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
@@ -711,8 +767,31 @@ export default function Terminal({
       setDisconnected(false);
       retries.current = 0;
     };
+    /**
+     * How much output has been handed to xterm and not drawn yet.
+     *
+     * A terminal cannot paint a build log as fast as a pod can print one, and
+     * the difference has nowhere to go but this page: `write` queues, the
+     * queue grows for as long as the flood lasts, and on a phone that is the
+     * tab being killed. Past the high mark the pod is asked to stop reading
+     * the pty until the queue has drained, which is a pause the agent itself
+     * sees — the same way a slow terminal slows a command on a desk.
+     */
+    let pending = 0;
+    let asked = false;
+    const flow = (on: boolean) => {
+      asked = !on;
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "flow", on }));
+    };
+
     ws.onmessage = (e) => {
-      term.write(typeof e.data === "string" ? e.data : new Uint8Array(e.data));
+      const data = typeof e.data === "string" ? e.data : new Uint8Array(e.data);
+      pending += data.length;
+      if (!asked && pending > WRITE_HIGH_WATER) flow(false);
+      term.write(data, () => {
+        pending -= data.length;
+        if (asked && pending <= WRITE_LOW_WATER) flow(true);
+      });
       // Debounced so we scan settled output, not every partial frame.
       clearTimeout(scanTimer);
       scanTimer = window.setTimeout(() => {

@@ -44,10 +44,12 @@ export async function api<T>(
  * poll that changed nothing — which is most of them — costs neither a parse,
  * nor a render, nor a write to the stored cache.
  */
+type Answer<T> = { text: string; parse: () => T };
+
 async function answer<T>(
   path: string,
   init?: RequestInit & { timeoutMs?: number },
-): Promise<{ text: string; parse: () => T }> {
+): Promise<Answer<T>> {
   let res: Response;
   try {
     res = await fetch(path, {
@@ -73,6 +75,91 @@ async function answer<T>(
   }
   const text = await res.text();
   return { text, parse: () => JSON.parse(text) as T };
+}
+
+/**
+ * The GETs `usePoll` currently has in flight, by path.
+ *
+ * Three hooks want `/api/feed` — the tab bar, the inbox and Today — and the
+ * ticker below fires them on the same instant. Sharing the request makes that
+ * one request and one parse: by the time the second hook's `.then` runs, the
+ * first has stored the body and its fingerprint, so the second reads the cache.
+ *
+ * Only the timed polls share. A `refresh()` a screen asks for itself is usually
+ * the one after a POST, and joining a request that was issued before it would
+ * answer with what the pod thought a moment ago.
+ */
+const inFlight = new Map<string, Promise<Answer<unknown>>>();
+
+function shared<T>(path: string): Promise<Answer<T>> {
+  const running = inFlight.get(path);
+  if (running) return running as Promise<Answer<T>>;
+  const started = answer<T>(path);
+  inFlight.set(path, started);
+  const done = () => {
+    if (inFlight.get(path) === started) inFlight.delete(path);
+  };
+  // Both branches, and both handled here: the caller has its own catch.
+  started.then(done, done);
+  return started;
+}
+
+/**
+ * One timer per path, rather than one per hook.
+ *
+ * The tab bar, the inbox and Today all poll `/api/feed`, at 60, 15 and 30
+ * seconds. Three independent intervals meant three requests scattered across
+ * the minute for what is one answer. They share a timer now: it runs at the
+ * shortest rate anyone asked for, and each subscriber still fires only on its
+ * own rate — so the slow ones land on an instant the fast one is already asking
+ * at, and `shared` above turns that into a single request.
+ */
+type Sub = { every: number; last: number; fire: () => void };
+type Ticker = { id: ReturnType<typeof setInterval>; every: number; subs: Set<Sub> };
+const tickers = new Map<string, Ticker>();
+
+function tick(path: string): void {
+  const t = tickers.get(path);
+  if (!t || document.hidden) return;
+  const now = Date.now();
+  for (const sub of t.subs) {
+    // Half a tick of slack, because a timer fires a hair late and a 30 s
+    // subscriber on a 15 s ticker would otherwise miss its instant by a
+    // millisecond and wait another whole tick for the next one.
+    if (now - sub.last < sub.every - t.every / 2) continue;
+    sub.last = now;
+    sub.fire();
+  }
+}
+
+function retime(path: string): void {
+  const t = tickers.get(path);
+  if (!t) return;
+  let every = Infinity;
+  for (const sub of t.subs) every = Math.min(every, sub.every);
+  if (every === t.every) return;
+  clearInterval(t.id);
+  t.every = every;
+  t.id = setInterval(() => tick(path), every);
+}
+
+function subscribeTick(path: string, every: number, fire: () => void): () => void {
+  const sub: Sub = { every, last: Date.now(), fire };
+  let t = tickers.get(path);
+  if (!t) {
+    t = { id: setInterval(() => tick(path), every), every, subs: new Set() };
+    tickers.set(path, t);
+  }
+  t.subs.add(sub);
+  retime(path);
+  return () => {
+    const current = tickers.get(path);
+    if (!current) return;
+    current.subs.delete(sub);
+    if (current.subs.size > 0) return retime(path);
+    clearInterval(current.id);
+    tickers.delete(path);
+  };
 }
 
 /** How often a streamed path is still fetched anyway. Cover for a stream that
@@ -220,6 +307,9 @@ export function resetPollCache(): void {
   saveTimer = undefined;
   cache.clear();
   stamps.clear();
+  inFlight.clear();
+  for (const ticker of tickers.values()) clearInterval(ticker.id);
+  tickers.clear();
   try {
     localStorage.removeItem(STORE_KEY);
   } catch {
@@ -278,54 +368,66 @@ export function usePoll<T>(path: string | null, ms = 5000) {
    */
   const [failures, setFailures] = useState(0);
 
-  const refresh = useCallback(() => {
-    if (!path) return;
-    const mine = ++generation.current;
-    const current = () => mine === generation.current;
-    answer<T>(path)
-      .then(({ text, parse }) => {
-        if (!current()) return;
-        const mark = stamp(text);
-        // An answer that says the same as the one this hook is already showing
-        // is most of them. Applying it anyway re-parsed the body, re-rendered
-        // every subscriber and rewrote the stored cache on every tick — Today
-        // holds nine polls and re-reads its brief through react-markdown on
-        // each, and one file tree is most of a megabyte to parse.
-        if (showing.current === mark) {
+  /**
+   * Ask the path again. `share` says whether this one may ride along with a
+   * request another hook on the same path already has in flight — true for the
+   * timed polls, false for a `refresh()` a screen asked for, which is usually
+   * the one right after a POST and must not be answered from before it.
+   */
+  const run = useCallback(
+    (share: boolean) => {
+      if (!path) return;
+      const mine = ++generation.current;
+      const current = () => mine === generation.current;
+      (share ? shared<T>(path) : answer<T>(path))
+        .then(({ text, parse }) => {
+          if (!current()) return;
+          const mark = stamp(text);
+          // An answer that says the same as the one this hook is already
+          // showing is most of them. Applying it anyway re-parsed the body,
+          // re-rendered every subscriber and rewrote the stored cache on every
+          // tick — Today holds nine polls and re-reads its brief through
+          // react-markdown on each, and one file tree is most of a megabyte.
+          if (showing.current === mark) {
+            setFresh(true);
+            setError(null);
+            setNotFound(false);
+            setFailures(0);
+            return;
+          }
+          // Another hook on the same path may have parsed and stored this very
+          // body a moment ago. Then the work is done and only this hook has to
+          // catch up — and it catches up to that same object, so the two stay
+          // identical and neither re-renders the other's subscribers.
+          const known = stamps.get(path) === mark;
+          const value = known ? (cache.get(path) as T) : parse();
+          if (!known) remember(path, value, text);
+          showing.current = mark;
+          setData(value);
           setFresh(true);
           setError(null);
           setNotFound(false);
           setFailures(0);
-          return;
-        }
-        // Another hook on the same path may have parsed and stored this very
-        // body a moment ago. Then the work is done and only this hook has to
-        // catch up — and it catches up to that same object, so the two stay
-        // identical and neither re-renders the other's subscribers.
-        const known = stamps.get(path) === mark;
-        const value = known ? (cache.get(path) as T) : parse();
-        if (!known) remember(path, value, text);
-        showing.current = mark;
-        setData(value);
-        setFresh(true);
-        setError(null);
-        setNotFound(false);
-        setFailures(0);
-      })
-      .catch((e: Error) => {
-        if (!current()) return;
-        setError(e.message);
-        setFailures((n) => n + 1);
-        // A 404 is an answer, not a failure to reach anything: it means this
-        // project or session does not exist, and the screen should say so
-        // rather than poll a dead path forever.
-        if (e instanceof ApiError && e.status === 404) {
-          forget(path);
-          setNotFound(true);
-        }
-      })
-      .finally(() => current() && setLoading(false));
-  }, [path]);
+        })
+        .catch((e: Error) => {
+          if (!current()) return;
+          setError(e.message);
+          setFailures((n) => n + 1);
+          // A 404 is an answer, not a failure to reach anything: it means this
+          // project or session does not exist, and the screen should say so
+          // rather than poll a dead path forever.
+          if (e instanceof ApiError && e.status === 404) {
+            forget(path);
+            setNotFound(true);
+          }
+        })
+        .finally(() => current() && setLoading(false));
+    },
+    [path],
+  );
+
+  /** What a screen calls after it changed something. Never shared. */
+  const refresh = useCallback(() => run(false), [run]);
 
   // What the path is worth: reset on a change of path (to what it last said, if
   // anything), then take the first answer from whichever of the two can give
@@ -362,14 +464,14 @@ export function usePoll<T>(path: string | null, ms = 5000) {
 
     // Navigating back to a screen the stream already covers paints from what it
     // last sent, with no request at all.
-    if (!streamed || !fromStream()) refresh();
+    if (!streamed || !fromStream()) run(true);
     if (!streamed) return;
 
     return subscribeStream(() => {
       setStreamOk(streamHealthy());
       fromStream();
     });
-  }, [refresh, path, streamed]);
+  }, [run, path, streamed]);
 
   // The timer, at the requested rate or as a slow backstop behind the stream —
   // and backed off while the path is failing, doubling to a minute.
@@ -377,20 +479,19 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     if (path === null) return;
     const base = streamed && streamOk ? Math.max(ms, BACKSTOP_MS) : ms;
     const every = failures === 0 ? base : Math.min(BACKOFF_MAX_MS, base * 2 ** failures);
-    const id = setInterval(() => {
-      if (!document.hidden) refresh();
-    }, every);
+    const untick = subscribeTick(path, every, () => run(true));
     // Coming back to a backgrounded tab or a pocketed phone otherwise shows up
-    // to a full interval of stale data before the next tick.
+    // to a full interval of stale data before the next tick. Shared, so a
+    // screen holding several polls of one path wakes up owing one request.
     const onVisible = () => {
-      if (!document.hidden) refresh();
+      if (!document.hidden) run(true);
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      clearInterval(id);
+      untick();
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [refresh, ms, path, streamed, streamOk, failures]);
+  }, [run, ms, path, streamed, streamOk, failures]);
 
   return { data, error, loading, notFound, fresh, refresh, failures };
 }

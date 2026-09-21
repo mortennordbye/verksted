@@ -987,7 +987,14 @@ export type WsClientMsg =
   | { t: "in"; data: string }
   | { t: "resize"; cols: number; rows: number }
   /** Scroll the pane's history: positive lines go back, negative go forward. */
-  | { t: "scroll"; lines: number };
+  | { t: "scroll"; lines: number }
+  /**
+   * Whether the client can take more output. A terminal painting a build log
+   * cannot keep up with one, and the bytes it has not drawn yet pile up in the
+   * page rather than anywhere the pod can see; this is how it says so, and the
+   * pod stops reading from the pty until it says the opposite.
+   */
+  | { t: "flow"; on: boolean };
 
 /** Browser pane websocket, client -> server. Mouse/key fields mirror CDP Input.dispatch*. */
 export type BrowserClientMsg =

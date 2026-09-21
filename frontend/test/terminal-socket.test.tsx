@@ -166,6 +166,46 @@ describe("a sign-in link that was dismissed", () => {
   });
 });
 
+/**
+ * F-18. A terminal cannot paint a build log as fast as a pod can print one,
+ * and the difference had nowhere to go: `term.write` queued it in the page,
+ * the queue grew for as long as the flood lasted, and on a phone that is the
+ * tab being killed. The pod is told to stop reading the pty instead.
+ */
+describe("output arriving faster than it can be drawn", () => {
+  const flows = (ws: FakeSocket) =>
+    frames(ws)
+      .filter((f) => f.t === "flow")
+      .map((f) => f.on);
+
+  it("asks the pod to wait, and to carry on once it has caught up", async () => {
+    draw();
+    const ws = FakeSocket.open[0];
+    ws.accept("");
+    expect(flows(ws)).toEqual([]);
+
+    // A screenful at a time, well past the mark. xterm has drawn none of it:
+    // it paints on an animation frame, and none has run inside this act.
+    act(() => {
+      for (let i = 0; i < 40; i++) ws.onmessage?.({ data: "x".repeat(8192) });
+    });
+    expect(flows(ws)).toEqual([false]);
+
+    // And once the queue is empty the pod is released — exactly once, not
+    // once per write that drained.
+    await waitFor(() => expect(flows(ws)).toEqual([false, true]));
+  });
+
+  it("says nothing at all about output a terminal keeps up with", async () => {
+    const { container } = draw();
+    const ws = FakeSocket.open[0];
+    ws.accept("the agent said something\r\n");
+    await waitFor(() => expect(container.textContent).toContain("the agent said something"));
+    // Which is every session that is not a flood, so this costs no frames.
+    expect(flows(ws)).toEqual([]);
+  });
+});
+
 describe("the pane's geometry", () => {
   it("reaches tmux when the font size changes it", async () => {
     draw();
