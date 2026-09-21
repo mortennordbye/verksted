@@ -1,7 +1,7 @@
 # verksted
 
-Self-hosted agent workbench. A web app for running Claude Code, Gemini CLI, and
-Codex sessions across git repositories from any device, hosted as a single
+Self-hosted agent workbench. A web app for running Claude Code, Antigravity
+(agy) and Codex sessions across git repositories from any device, hosted as a single
 container in a personal Kubernetes cluster, reachable only over WireGuard.
 
 "verksted" is Norwegian for workshop and is the working name.
@@ -30,8 +30,8 @@ session persistence.
 - Multiple agent sessions in parallel across repos; sessions survive the
   browser closing, the phone sleeping, and pod restarts of the UI layer.
 - Overview of session state: running, waiting for input, finished.
-- Per-session agent choice: claude, gemini, or codex, each as its real CLI in
-  a real terminal.
+- Per-session agent choice: claude, antigravity (agy), or codex, each as its
+  real CLI in a real terminal.
 - Interactive terminal with full tool access (gh, git, kubectl, package
   installs). Installs persist.
 - MCP servers usable by the agents (config-file based, no UI needed).
@@ -69,17 +69,18 @@ session persistence.
 
 ## Product shape
 
-Three levels:
+It started as three levels, and those are still the spine:
 
 1. Hub: list of projects (repos on the PVC). Card per project with status
    badges (sessions running / waiting / idle), branch, active agents. Add
    project = clone via gh or init locally.
 2. Project: active and recent sessions. New session opens an agent picker
-   (claude / gemini / codex) and starts a fresh tmux session in that repo.
+   (claude / antigravity / codex) and starts a fresh tmux session in that repo.
 3. Session: file tree of the repo plus terminal. Desktop: split pane. Mobile:
-   tabs or swipe between full-screen tree and terminal. Tree is browse/view
-   only in v1; editing happens through the terminal. Modified files are
-   marked in the tree. The main pane switches between the terminal and the
+   tabs or swipe between full-screen tree and terminal. A file opens in a
+   viewer that can edit and save it, refusing when the file changed under the
+   edit (the tree was browse-only in v1); the open file is in the URL. Modified
+   files are marked in the tree. The main pane switches between the terminal and the
    same session read as a conversation; the chat view is the only one that
    still works after the session has ended. The sidebar carries a fourth tab,
    changes: the commits the session made and the diff behind each file, over
@@ -90,6 +91,13 @@ Three levels:
    review begun on a phone is still half-done at a desk, and the inbox row says
    how far it got — an overnight run that has been dealt with should look
    different from one nobody has opened.
+
+Around them since: **Today**, the front door once a day (the brief, what is
+running, the inbox's newest, the sources and the recent runs); the **inbox**,
+what every schedule, poller and session filed, triaged and undoable; the
+**assistant**, a chat with a council of advisors that can act on the bench;
+the **documents**, a read-only window onto the NAS share; and **settings**.
+A command palette (⌘K, or the top bar's search) finds any of it.
 
 A footer on the hub shows pod facts (PVC usage, per-agent auth status, MCP
 server count) and what the bench costs: tokens over the last day, week and
@@ -104,19 +112,20 @@ only reachable through the tunnel, so a chip there can never say anything but
 "connected" to anyone able to read it. A tunnel that drops mid-session shows up
 as the connection banner instead.
 
-A clickable single-file HTML mock of all three screens exists (dark theme,
-monospace-forward, amber accent, agent colors: claude coral, gemini blue,
-codex green). Keep it in the repo as the design reference for the frontend.
+A clickable single-file HTML mock of the first three screens is in
+`design/mock.html` (dark theme, monospace-forward, amber accent). It was the
+design reference for the frontend; the palette has since moved to nordbye.it's
+own (`frontend/src/theme.css`), so it is a reference for layout, not colour.
 
 ## Architecture
 
 One container, three parts:
 
-- Runtime: tmux, claude CLI, gemini CLI, codex CLI, gh, git, node, python,
+- Runtime: tmux, claude CLI, antigravity CLI (agy), codex CLI, gh, git, node, python,
   and general toolchains. One tmux session per agent session. Repos, agent
   configs (~/.claude etc.), and user-level tool installs all live on the
   single PVC so everything survives restarts.
-- Backend: Node 22 + TypeScript + Fastify, one process on one port.
+- Backend: Node 24 + TypeScript + Fastify, one process on one port.
   - REST: list/clone projects, create/kill/list sessions, file tree and
     file-read endpoints scoped to the repos directory.
   - WebSocket: bridges xterm.js in the browser to `tmux attach` via node-pty.
@@ -147,7 +156,7 @@ the only copy of that, and discarding what git cannot get back is not a
 housekeeping decision.
 
 Session status and notifications share one mechanism: Claude Code
-Notification/Stop hooks (and best-effort equivalents for gemini/codex) write
+Notification/Stop hooks (and best-effort equivalents for agy/codex) write
 state files that drive the UI badges over websocket, and feed the notifier so
 the phone gets pushed when a session waits on permission or finishes — as a web
 push to the installed PWA (per-device, opt-in on the settings page) and to an
@@ -160,10 +169,12 @@ ntfy topic when one is configured.
   year) and inject it as CLAUDE_CODE_OAUTH_TOKEN. Never set ANTHROPIC_API_KEY
   in the pod; it silently overrides subscription auth and bills per token.
   Verify with /status in a session that auth shows subscription.
-- Gemini and Codex: equivalent env-based credentials, injected the same way.
+- Antigravity and Codex: equivalent env-based credentials, injected the same way.
 - GitHub: PAT or GitHub App token for gh/git push.
-- All secrets flow through External Secrets Operator in the cluster; nothing
-  is baked into the image or committed.
+- Agent credentials are typed into the settings page and kept in
+  `SETTINGS_FILE` on the data volume, from where they reach the CLIs through
+  the session environment. The Deployment carries only plain server config.
+  Nothing is baked into the image or committed.
 - Network auth boundary is the VPN. In-app auth is deliberately absent in v1;
   add an auth layer only if the app ever needs to be reachable outside
   WireGuard.
@@ -331,18 +342,18 @@ model.
 ## Deployment
 
 - Image: multi-stage Dockerfile. Build stage compiles the frontend; runtime
-  stage is node:22-slim plus tmux, git, gh, the three agent CLIs, and
+  stage is node:24-trixie-slim plus tmux, git, gh, the three agent CLIs, and
   toolchains. Built and pushed to GHCR by CI in this repo.
 - Kubernetes manifests live in the Homelab repo under k8s/talos/apps/,
   following its conventions: ArgoCD application, Deployment, single PVC,
-  ExternalSecrets, and a VPN-only route (Cilium LB IP or internal route
+  and a VPN-only route (Cilium LB IP or internal route
   reserved for the WireGuard subnet). No public HTTPRoute.
 - Local development is containerized (make targets wrapping Docker); no
   native node tooling on the laptop. Dev and prod share the same environment.
 
 ## Milestones
 
-1. Runtime image + PVC + secrets. Verify claude, gemini, and codex sessions
+1. Runtime image + PVC + secrets. Verify claude, agy, and codex sessions
    in tmux via kubectl exec; confirm Claude Max auth with /status.
 2. Backend websocket bridge + bare terminal in the browser over the VPN.
 3. Hub and project UI: project list, clone, session lifecycle, file tree.
@@ -366,3 +377,6 @@ unchanged.
 - 2026-07-13: Gemini CLI replaced by its successor Antigravity CLI (`agy`,
   standalone Go binary, install script) as the Google agent. Headless auth via
   ANTIGRAVITY_API_KEY, or interactive `agy` login persisted on the PVC.
+- 2026-09-21: the audit's frontend part closed. Every modal is a Radix dialog
+  and the rest of the UI outside the chat is built from `components/ui/`; the
+  open file and document are in the URL; the palette searches everything.

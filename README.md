@@ -31,7 +31,7 @@ native module built for Linux, and host `node_modules` would shadow it.
 
 ## How it is put together
 
-- **Backend** — Node 22, TypeScript, Fastify. REST under `/api`, a websocket
+- **Backend** — Node 24, TypeScript, Fastify. REST under `/api`, a websocket
   bridging xterm.js to `tmux attach` through node-pty, and static serving of
   the built frontend.
 - **Frontend** — Vite, React, Tailwind v4, @xterm/xterm. Hub, project, session,
@@ -135,9 +135,10 @@ pointed back at `/data`. One runs nightly, keeping the last `VK_BACKUP_KEEP`
 (default 7); set it to `0` to turn that off. **Settings → Backups** shows where
 they go, what is there and how old, and takes one on demand.
 
-**The archive is not encrypted.** It holds every token, private key and OAuth
-login on the volume in cleartext — treat the file the way you would treat a
-password database. To pull one off the box:
+**Without `VK_BACKUP_PASSPHRASE` the archive is not encrypted.** It then holds
+every token, private key and OAuth login on the volume in cleartext, so treat
+the file the way you would treat a password database, and set the passphrase
+wherever the archives land somewhere shared. To pull one off the box:
 
 ```bash
 kubectl cp verksted/<pod>:mnt/backups/<file> ./<file>
@@ -149,6 +150,10 @@ leaves anything else where it stands. Restoring over the live `/data` needs
 `--force` and a restart afterwards, because the backend reads `settings.json`
 at startup. For a migration, point a fresh pod at an empty volume, copy the
 archive in, and run `vk restore`.
+
+`RUNBOOK.md` has the rest of the operations side: a restore drill, rolling back
+to an earlier image, and rotating a token. `SECURITY.md` says what the app does
+and does not defend against, and how to report something.
 
 ## Licence
 

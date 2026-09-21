@@ -342,7 +342,7 @@ textarea,
   }
 }
 
-/* From mock.html:32, never ported. Without it there is no keyboard focus
+/* From design/mock.html:32, never ported. Without it there is no keyboard focus
    indicator anywhere: Tab moves an invisible cursor around the app. */
 button:focus-visible,
 a:focus-visible,

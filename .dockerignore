@@ -7,6 +7,6 @@ frontend/dist
 .env
 Makefile
 docker-compose.yml
-mock.html
+design/
 *.md
 .github

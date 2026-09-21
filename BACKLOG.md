@@ -103,9 +103,10 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   agy's headless auth are mixed (some say API key works, some say interactive
   login only). The binary installs and runs (`agy --version` verified in the
   image); auth is untested.
-- **Why deferred:** Needs a real key / a deployed pod to test against.
-- **Unblocked by:** Milestone-1 cluster verification: set the key, start an
-  antigravity session, confirm it authenticates. Fallback: run `agy` once
+- **Why deferred:** Needs a real key to test with. The pod is deployed; the key
+  is the missing half.
+- **Unblocked by:** Setting the key on the settings page, starting an
+  antigravity session, and confirming it authenticates. Fallback: run `agy` once
   interactively in a pod terminal (remote login flow prints a URL); the token
   persists in `$HOME` on the PVC.
 - **Where:** `.env.example`, `Dockerfile` (runtime stage)
@@ -213,8 +214,11 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   finished: the app is unreachable except through the tunnel, so the chip could
   only ever read "connected", and a tunnel that drops is already reported by the
   connection banner.
-- **Why deferred:** Needs the pod deployed (auth is a cluster fact).
-- **Unblocked by:** Milestone-1 deployment.
+- **Why deferred:** It waited on the pod being deployed, since auth is a
+  cluster fact. The pod has been deployed for months; nobody has come back to
+  it.
+- **Unblocked by:** Nothing now. Read each CLI's own auth status (and the MCP
+  config) the way the facts route reads the rest, and draw it in the footer.
 - **Where:** `backend/src/routes/facts.ts` (extend)
 
 ## A catch-up has never run after a real pod restart
@@ -254,22 +258,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   turns out to be an outlier rather than the new normal.
 - **Where:** `backend/src/git.ts` (`MAX_COMMITS`, `MAX_FILES`,
   `MAX_PATCH_BYTES`), `frontend/src/components/ReviewOverlay.tsx`
-
-## The screens have one smoke path and one component test between them
-
-- **What:** `e2e/smoke.test.ts` proves the app boots and the review path works;
-  `frontend/test/` covers `api.ts`, two hooks and `ChangesPanel`. Everything
-  else in `frontend/src` — 23 components, the session screen's layout and pane
-  logic, the terminal's reconnect and dictation — has no test at all.
-- **Why deferred:** Deliberate. The smoke test was built first because it
-  catches the class of regression that actually reaches this repo (an unattended
-  agent shipping a bundle that does not render), and per-component coverage of a
-  UI that is still moving costs more than it returns.
-- **Unblocked by:** A regression that the smoke path does not catch. The setup
-  is no longer in the way: jsdom, Testing Library and the node_modules icon
-  glob all work (`frontend/vitest.config.ts`), so a component test is now a file
-  rather than a project.
-- **Where:** `frontend/test/`, `frontend/vitest.config.ts`
 
 ## The pod's voice is English-first, and never speaks Norwegian
 
@@ -574,27 +562,22 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/maintenance.ts`, `backend/src/assistant.ts`
   (`threadPath`, `uploadsDir`)
 
-## The house rules are instructions, not enforcement
+## "Ask before anything irreversible" is an instruction, not enforcement
 
-- **What:** "Leave no sign an agent wrote this" and "ask before anything
-  irreversible" reach every agent through the global memory file, which is the
-  strongest instruction channel available and still only an instruction. A model
-  that ignores it leaves a `Co-Authored-By` trailer in history, and history is
-  the thing you cannot quietly fix later. The one check after the fact is
-  `pr_detail`, which flags attribution in a PR's body and commits so the chair
-  raises it before recommending a merge — but only when someone asks it about
-  that PR, and nothing stops the commit being made.
-- **Why deferred:** The mechanical version is a `commit-msg` hook installed into
-  every repo verksted touches, which strips agent trailers and footers. That
-  writes into the user's own repos and their `.git` directories, which is a
-  bigger decision than it looks — a hook is invisible, survives verksted, and
-  surprises anyone else who clones the repo.
-- **Unblocked by:** Deciding whether verksted may write into `.git/hooks` (or
-  set `core.hooksPath` to a directory it owns), then a hook that drops any
-  trailer matching Claude/agent/AI and any "Generated with" footer.
-- **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`),
-  `backend/src/sessions-store.ts` (where a hook would be installed),
-  `backend/src/routes/github.ts` (`AGENT_ATTRIBUTION`, the pattern a hook would reuse)
+- **What:** Of the two house rules, "leave no sign an agent wrote this" is now
+  enforced: the image installs a commit-msg hook as the system-wide
+  `core.hooksPath` that strips agent trailers and footers, and CI rejects what
+  gets past. "Ask before anything irreversible" still reaches an
+  interactive agent only as an instruction in its global memory file. Unattended
+  runs are the exception: `vk-guard` denies rather than asks.
+- **Why deferred:** An interactive agent is being watched, and the CLIs' own
+  permission prompts are the check on it. Enforcing more would mean a guard on
+  interactive sessions too, which asks rather than denies, and which the CLIs'
+  own settings already partly do.
+- **Unblocked by:** An irreversible action an interactive agent took without
+  asking. Then the same PreToolUse hook as unattended runs, in ask mode.
+- **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`), `runtime/vk-guard`,
+  `runtime/git-hooks/`
 
 ## The harvest has only read scheduled-run transcripts, and nothing guards the shape
 
@@ -810,7 +793,7 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 ## The chat view is polled, not pushed
 
 - **What:** `ChatPane` runs its own 3s timer against `GET /api/sessions/:id/chat`
-  with a `since` cursor, and a second 2s timer against `/prompt` while something
+  with a `since` cursor, and a second 3s timer against `/prompt` while something
   is being asked. The `/api/events` SSE stream carries neither.
 - **Why deferred:** The stream broadcasts two global topics whose payload every
   client wants identically — that is what makes one server-side watcher cheaper
@@ -882,7 +865,7 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 
 - **What:** `FeedItem` now carries `from` and `facts`, and the mail and github
   pollers fill them from what they were already holding — a sender and address,
-  a repository, a notification's kind and reason. `mock-inbox.html` promises
+  a repository, a notification's kind and reason. `design/mock-inbox.html` promises
   more than that: a pull request's check status and diff size, a mail's first
   body line, a run's duration and token cost. None of those are filled, so a
   row drawn from the mock will have two facts where the mock shows four.
@@ -899,7 +882,7 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/pollers.ts` (`mailItems`, `notificationItems`,
   `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
-  `mock-inbox.html` in the repo root.
+  `design/mock-inbox.html`.
 
 ## Gmail rules have no settings-page view
 
@@ -1146,29 +1129,6 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   `supersededRuns`), `backend/src/routes/feed.ts`, `backend/src/feed-store.ts`,
   `backend/src/sweeper.ts`, `backend/test/feed.test.ts`.
 
-## The resize race and the browser bridge are still untested
-
-- **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —
-  detach never kills, a shell pane gets its companion session, an unknown
-  session is refused, the client cap holds — which was O-24. Two things it
-  does not reach. The guard around `pty.resize` on a terminal whose process
-  has gone (R-23) is the one throw known to be able to take the backend down
-  and every agent with it, and `ws/browser.ts` is driven by no test at all.
-  The `uncaughtException` handler that closes the app before exiting is
-  bootstrap wiring in `index.ts` and is not reachable from a test either.
-- **Why deferred:** The exit race is inherently timing-dependent: `pty.onExit`
-  closes the socket, so a resize has to land in the same tick as the exit to
-  reach the throw at all. A test that waits for the exit tests nothing, and
-  one that races it is flaky. Writing that honestly is its own piece of work —
-  most likely a unit test of the message handler over a pty stub rather than
-  another end-to-end case.
-- **Unblocked by:** Deciding that a stubbed pty is worth it for this one path
-  (the rest of the bridge is better tested for real, as it now is), or finding
-  a way to make node-pty throw on demand.
-- **Where:** `backend/src/ws/attach.ts` (the `resize` branch of the message
-  handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
-  the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
-
 ## The list no longer re-reads the volume, but it still walks it, and GETs still write
 
 - **What:** R-07, R-10 and R-31 are done: a pass over the session list stats
@@ -1205,3 +1165,61 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   sweep, `reapFinishedSessions`), `backend/src/routes/usage.ts`
   (`backfillUsage` on a GET), `backend/src/pollers.ts` (`pollBench` on
   `GET /api/feed`), `backend/src/maintenance.ts`, `backend/src/events.ts`.
+
+## The restore has never been rehearsed
+
+- **What:** O-03 in the audit. `vk backup` runs nightly and every run reads its
+  own manifest back, but no archive has ever been restored somewhere and looked
+  at. The backup target is a share on the same NAS as the PVC, and where that
+  NAS copies offsite, if anywhere, is not written down here.
+- **Why deferred:** It needs the pod and the NAS, not code. RUNBOOK.md now has
+  the steps.
+- **Unblocked by:** One `vk restore <archive> --target /tmp/restore-drill` from a
+  pod session, a look at what came back, and a line here (or in RUNBOOK.md)
+  with the date, the archive and what was checked. And a sentence on where the
+  NAS copy goes offsite.
+- **Where:** `RUNBOOK.md`, `runtime/vk` (`restore`), Homelab's NAS and backup
+  configuration.
+
+## The pod's backups are written unencrypted
+
+- **What:** O-04 in the audit. `VK_BACKUP_PASSPHRASE` encrypts every archive,
+  and the Deployment does not set it, so the archives on the shared NAS share
+  hold every token, private key and OAuth login in cleartext.
+- **Why deferred:** The fix is in the Homelab repo, which is public, so the
+  passphrase belongs in a Secret the Deployment references, not in the
+  manifest; and whoever sets it has to keep a copy somewhere other than the
+  volume, or the archives become unreadable exactly when they are needed.
+- **Unblocked by:** A Secret with the passphrase, `VK_BACKUP_PASSPHRASE` from it
+  in `k8s/talos/apps/verksted/deployment.yaml`, and the passphrase in a password
+  manager. Existing cleartext archives age out after `VK_BACKUP_KEEP` nights.
+- **Where:** Homelab `k8s/talos/apps/verksted/deployment.yaml`; this repo
+  `runtime/vk`, `.env.example`.
+
+## Privilege separation on the pod
+
+- **What:** Root cause 1 in the audit, and O-08: the container runs as root
+  and the Deployment sets no `securityContext`, so the agents, the assistant's
+  chromium and the backend are one user, and an agent can read everything the
+  backend can. Several entries above wait on this (the assistant's chromium,
+  unattended runs reaching the backend, credentials on the tmux command line).
+- **Why deferred:** It is the audit's quarter-sized item: a user for the
+  backend, another for agents and chromium, file ownership on a volume that has
+  only ever had one owner, and the dind sidecar that makes the pod node-root
+  equivalent regardless.
+- **Unblocked by:** Doing it, starting with the Dockerfile's users and a
+  migration of the volume's ownership.
+- **Where:** `Dockerfile`, `backend/src/sessions-store.ts`, `backend/src/tmux.ts`,
+  Homelab `k8s/talos/apps/verksted/deployment.yaml`.
+
+## main's ruleset lets an admin push past it
+
+- **What:** O-18 in the audit. The ruleset on `main` requires four checks but
+  allows admin bypass and does not require a pull request, while the
+  dependabot auto-merge workflow's safety comment leans on it as the gate.
+- **Why deferred:** Requiring a PR for admins as well changes how the owner
+  works on this repo, which is theirs to decide rather than a fix to make.
+- **Unblocked by:** The owner's call on removing the bypass and requiring a PR.
+  Then `gh api -X PUT repos/mortennordbye/verksted/rulesets/20606001` with the
+  pull_request rule added and `bypass_actors` emptied.
+- **Where:** GitHub repository settings; `.github/workflows/dependabot-auto-merge.yml`.
