@@ -92,9 +92,35 @@ jobs:
           fi
           echo "clean: $(git rev-list --count "$BASE..$HEAD") commit(s), no AI attribution"
 
-  image:
+  # Whether a push to main changed anything the image is built from. Every
+  # build is promoted, and the Deployment is Recreate: a new image restarts the
+  # pod, and every tmux session on it goes with the old container. A push that
+  # only touched the docs has no business doing that (O-19).
+  changes:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [test, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.diff.outputs.build }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        # Anything that is not prose builds. A diff that cannot be taken (a
+        # force push, a first push) builds too: when in doubt, ship.
+        run: |
+          set +e
+          git diff --quiet "$BEFORE" HEAD -- . ':(exclude)*.md' ':(exclude)design/**'
+          rc=$?
+          set -e
+          if [ "$rc" = 0 ]; then echo "build=false" >> "$GITHUB_OUTPUT"; else echo "build=true" >> "$GITHUB_OUTPUT"; fi
+
+  image:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && needs.changes.outputs.build == 'true'
+    needs: [test, e2e, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -110,6 +136,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The SemVer tag the homelab Kargo Warehouse promotes, greatest first. It
+      # was the workflow's run number, which starts again at 1 if the workflow
+      # is renamed or recreated, and Kargo would then never pick a new build
+      # over 0.0.397 (O-20). The commit's own time only grows on main, and is
+      # already far past every run number there has been.
+      - id: version
+        run: echo "tag=0.0.$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
       - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         id: meta
         with:
@@ -117,8 +150,7 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha
-            # Monotonic SemVer tag the homelab Kargo Warehouse selects to promote.
-            type=raw,value=0.0.${{ github.run_number }}
+            type=raw,value=${{ steps.version.outputs.tag }}
       # Build once, prove it boots, then push. Tagging an image `latest` that
       # cannot start is the one CI failure that reaches the cluster.
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
@@ -127,7 +159,7 @@ jobs:
           target: runtime
           load: true
           tags: verksted:smoke
-          cache-from: type=gha
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
       - name: smoke-test the image
         run: |
           docker run -d --name smoke -p 8080:8080 \
@@ -182,5 +214,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # In the registry, beside the image, rather than the Actions cache:
+          # that one is capped at 10 GB per repository, and this image's layers
+          # had it at 8 with LRU eviction about to start throwing away the
+          # expensive ones (O-16). Not a SemVer tag, so Kargo never sees it.
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
