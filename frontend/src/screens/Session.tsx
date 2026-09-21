@@ -1,19 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import type {
   BranchSync,
-  FileDiff,
-  FileContent,
   GitFileStatus,
   GitStatus,
   Session as SessionInfo,
-  SessionFileDiff,
   Tree,
 } from "../../../shared/api";
 import { agoLabel, api, durLabel, usePoll } from "../api";
-import { diffLineClass } from "../diff";
-import { highlight } from "../highlight";
-import { lineRange } from "../lineRange";
 import { Badge, useNeedsYou } from "../components/Tabs";
 import TopBar, { BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -22,42 +16,24 @@ import ChangesPanel from "../components/ChangesPanel";
 import ChatPane from "../components/ChatPane";
 import BrowserPane from "../components/BrowserPane";
 import FileTree from "../components/FileTree";
+import FileViewer, { type FileTarget } from "../components/FileViewer";
 import GitPanel from "../components/GitPanel";
 import SearchPanel from "../components/SearchPanel";
 import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
-import { fileIcon } from "../fileicons";
 import Icon from "../components/Icon";
 import PageHeader from "../components/PageHeader";
 import Skeleton from "../components/Skeleton";
 import { readStoredNumber, readStored, writeStored } from "../storage";
 import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
-import { overlaysSettled, useOverlayDismiss } from "../useDismissOnBack";
+import { overlaysSettled } from "../useDismissOnBack";
+import { useUrlOverlay } from "../useUrlOverlay";
 // The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
 // down it is `dvh`, which needs none of this and cannot go stale — see the
 // shell below.
 import { useVisualViewport } from "../useVisualViewport";
-
-const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "ico"]);
-
-interface Viewed {
-  path: string;
-  content: string;
-  kind: "text" | "diff" | "image";
-  /**
-   * The version read off disk, for If-Match on save. Absent on a diff, an
-   * image, and on the placeholder shown when the read itself failed — which is
-   * also what says whether this file can be edited.
-   */
-  etag?: string;
-  /**
-   * The line to open on, 1-based. A search hit used to open its file at the
-   * top, and the one line you tapped was somewhere in a few hundred (F-36).
-   */
-  line?: number;
-}
 
 const SIDE_KEY = "vk.session.sideWidth";
 const RATIO_KEY = "vk.session.ratio";
@@ -300,135 +276,29 @@ export default function Session() {
   useEffect(() => writeStored(RATIO_KEY, String(ratio)), [ratio]);
   const splitBox = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
-  const [file, setFile] = useState<Viewed | null>(null);
-  /**
-   * The draft, when the file is open for editing. Null is reading.
-   *
-   * The backend has been able to take a save since the file viewer was written
-   * — GET /file returns an etag and PUT takes it as If-Match, which is the
-   * whole of what a shared working tree needs — and nothing ever sent one. So
-   * a typo in a config the agent is about to read meant opening a terminal.
-   */
-  const [draft, setDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const viewer = useUrlOverlay(["file", "diff", "line"]);
+  const { file: viewedPath, diff: viewedDiff, line: viewedLine } = viewer.values;
+  const viewed: FileTarget | null = viewedPath
+    ? {
+        path: viewedPath,
+        diff:
+          viewedDiff === "work" || viewedDiff === "staged" || viewedDiff === "range"
+            ? viewedDiff
+            : undefined,
+        line: Number(viewedLine) > 0 ? Number(viewedLine) : undefined,
+      }
+    : null;
+  const openFile = (path: string, line?: number) =>
+    viewer.show({ file: path, ...(line ? { line: String(line) } : {}) });
+  const openDiff = (f: GitFileStatus) =>
+    viewer.show({ file: f.path, diff: f.staged ? "staged" : "work" });
+  /** One file's diff over the session's own commit range, not the working tree. */
+  const openRangeDiff = (path: string) => viewer.show({ file: path, diff: "range" });
   const [confirm, confirmDialog] = useConfirm();
   // Kill and delete, which had no catch at all: over a tunnel that had dropped
   // the menu closed, the screen navigated away, and nothing said the pod had
   // not heard it.
   const { error: actError, run: act, clearError: clearActError } = useAction();
-
-  const closeFile = useCallback(async () => {
-    if (draft !== null && draft !== file?.content) {
-      const ok = await confirm({
-        title: "Discard the changes to this file?",
-        body: "They have not been saved, and the agent will not see them.",
-        action: "discard them",
-        danger: true,
-      });
-      if (!ok) return;
-    }
-    setDraft(null);
-    setSaveError(null);
-    setFile(null);
-  }, [confirm, draft, file]);
-
-  // The file viewer could only be closed by pointer: no Escape, and Back left
-  // the session entirely rather than closing it.
-  useOverlayDismiss(
-    file !== null,
-    useCallback(() => void closeFile(), [closeFile]),
-  );
-
-  /**
-   * Write the draft back, and refuse to if the file moved under it.
-   *
-   * The agent is editing the same tree from the other pane, so a blind
-   * overwrite is a real way to lose its work — hence the etag, and hence a 412
-   * that says to reopen rather than offering to force it.
-   */
-  async function saveFile() {
-    if (!session || !file || draft === null || file.etag === undefined) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const res = await fetch(
-        `/api/projects/${session.project}/file?path=${encodeURIComponent(file.path)}`,
-        {
-          method: "PUT",
-          headers: { "content-type": "application/octet-stream", "if-match": file.etag },
-          body: draft,
-        },
-      );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? `save failed (HTTP ${res.status})`);
-      }
-      const saved = (await res.json()) as { etag: string };
-      setFile({ ...file, content: draft, etag: saved.etag });
-      setDraft(null);
-    } catch (e) {
-      setSaveError((e as Error).message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function openFile(path: string, line?: number) {
-    if (!session) return;
-    // Whatever was being edited is not this file.
-    setDraft(null);
-    setSaveError(null);
-    if (IMAGE_EXTS.has(path.split(".").at(-1)!.toLowerCase())) {
-      setFile({ path, content: "", kind: "image" });
-      return;
-    }
-    try {
-      const f = await api<FileContent>(
-        `/api/projects/${session.project}/file?path=${encodeURIComponent(path)}`,
-      );
-      setFile({ ...f, kind: "text", line });
-    } catch (e) {
-      setFile({ path, content: `— ${(e as Error).message} —`, kind: "text" });
-    }
-  }
-
-  async function openDiff(f: GitFileStatus) {
-    if (!session) return;
-    // Whatever was being edited is not this file.
-    setDraft(null);
-    setSaveError(null);
-    try {
-      const d = await api<FileDiff>(
-        `/api/projects/${session.project}/diff?path=${encodeURIComponent(f.path)}${f.staged ? "&staged=true" : ""}`,
-      );
-      setFile({ path: f.path, content: d.diff || "— no changes —", kind: "diff" });
-    } catch (e) {
-      setFile({ path: f.path, content: `— ${(e as Error).message} —`, kind: "diff" });
-    }
-  }
-
-  /** One file's diff over the session's own commit range, not the working tree. */
-  async function openRangeDiff(path: string) {
-    if (!session) return;
-    // Whatever was being edited is not this file.
-    setDraft(null);
-    setSaveError(null);
-    try {
-      const d = await api<SessionFileDiff>(
-        `/api/sessions/${session.id}/changes/diff?path=${encodeURIComponent(path)}`,
-      );
-      setFile({
-        path,
-        content: d.diff
-          ? d.diff + (d.truncated ? "\n— too long, the rest is in the terminal —" : "")
-          : "— no changes —",
-        kind: "diff",
-      });
-    } catch (e) {
-      setFile({ path, content: `— ${(e as Error).message} —`, kind: "diff" });
-    }
-  }
 
   async function uploadFile(f: File) {
     if (!session) return;
@@ -521,49 +391,6 @@ export default function Session() {
       : viewLabel(views.find(viewOn) ?? "agent");
   // "chat" and "agent" are icons of their own; every other view is its own key.
   const currentPaneKey = pane === "tree" ? side : (views.find(viewOn) ?? "agent");
-
-  /**
-   * The open file as highlighted HTML, once highlight.js has been fetched.
-   *
-   * Null until then, which is the same thing it says for a language nothing
-   * knows — so the file is on screen as plain text from the first paint and
-   * gains its colours a moment later, instead of waiting for a third of a
-   * megabyte of grammars.
-   */
-  const [done, setDone] = useState<{ of: string; html: string } | null>(null);
-  useEffect(() => {
-    if (!file || file.kind !== "text") return;
-    let live = true;
-    void highlight(file.path, file.content).then((html) => {
-      if (live && html !== null) setDone({ of: file.content, html });
-    });
-    return () => {
-      live = false;
-    };
-  }, [file]);
-  // What was highlighted is only worth drawing over the text it was made from:
-  // the next file opens with the one before it still in state.
-  const highlighted = done && done.of === file?.content ? done.html : null;
-
-  /**
-   * Open on the line a search hit named: scrolled a third of the way down the
-   * viewer, and marked where the browser can mark a range without touching
-   * the markup (the CSS highlight API). Run again when the highlighted HTML
-   * replaces the plain text, which is a different element drawing the same
-   * lines.
-   */
-  const textRef = useRef<HTMLPreElement>(null);
-  useLayoutEffect(() => {
-    const pre = textRef.current;
-    if (!pre || !file?.line) return;
-    const range = lineRange(pre, file.line);
-    if (!range) return;
-    const box = pre.getBoundingClientRect();
-    pre.scrollTop += range.getBoundingClientRect().top - box.top - box.height / 3;
-    if (!("highlights" in CSS)) return;
-    CSS.highlights.set("vk-line", new Highlight(range));
-    return () => void CSS.highlights.delete("vk-line");
-  }, [file, highlighted]);
 
   // A session id the pod does not have used to sit on its skeletons for ever,
   // which is exactly what a push notification tapped after the session was
@@ -1280,130 +1107,13 @@ export default function Session() {
         </Sheet>
       )}
 
-      {file && (
-        <div
-          // Presentational: clicking away duplicates Escape, Back and the ✕ —
-          // through the same closeFile, which asks before throwing away an
-          // unsaved edit. This used to drop the file outright, so a mistimed
-          // tap next to the dialog lost whatever had been typed into it.
-          role="presentation"
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4"
-          onClick={(e) => e.target === e.currentTarget && void closeFile()}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label={file.path}
-            className="flex h-[80vh] w-full max-w-[860px] flex-col overflow-hidden rounded-xl border border-line bg-surface"
-          >
-            <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
-              <img
-                src={fileIcon(file.path.split("/").at(-1)!)}
-                alt=""
-                className="h-4 w-4 flex-none"
-              />
-              <span className="min-w-0 truncate">{file.path}</span>
-              {file.kind === "diff" && (
-                <span className="flex-none text-[10px] text-faint">diff</span>
-              )}
-              {session && file.kind !== "diff" && (
-                <a
-                  href={`/api/projects/${session.project}/raw?path=${encodeURIComponent(file.path)}&download=1`}
-                  title="download"
-                  aria-label="download"
-                  className="tap-sq ml-auto flex flex-none items-center justify-center px-2 text-faint hover:text-text"
-                >
-                  ⤓
-                </a>
-              )}
-              {/* Only a file actually read off disk can be written back: a
-                  diff, an image and a failed read all have no etag. */}
-              {file.kind === "text" &&
-                file.etag !== undefined &&
-                (draft === null ? (
-                  <button
-                    onClick={() => setDraft(file.content)}
-                    className="tap flex flex-none items-center px-2 text-faint hover:text-text"
-                  >
-                    edit
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => void saveFile()}
-                      disabled={saving || draft === file.content}
-                      className="tap flex flex-none items-center px-2 text-accent hover:brightness-110 disabled:opacity-40"
-                    >
-                      {saving ? "saving…" : "save"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setDraft(null);
-                        setSaveError(null);
-                      }}
-                      className="tap flex flex-none items-center px-2 text-faint hover:text-text"
-                    >
-                      cancel
-                    </button>
-                  </>
-                ))}
-              <button
-                onClick={() => void closeFile()}
-                aria-label="close"
-                className={`${file.kind === "diff" ? "ml-auto" : ""} tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text`}
-              >
-                ✕
-              </button>
-            </div>
-            {saveError && (
-              <div className="border-b border-line px-3.5 py-2 text-[12.5px] text-wait">
-                {saveError}
-              </div>
-            )}
-            {draft !== null ? (
-              <textarea
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                spellCheck={false}
-                aria-label={`${file.path} (editing)`}
-                className="flex-1 resize-none bg-term p-4 font-mono text-[12.5px] leading-relaxed text-text outline-none"
-              />
-            ) : file.kind === "image" && session ? (
-              <div className="flex flex-1 items-center justify-center overflow-auto bg-term p-4">
-                <img
-                  src={`/api/projects/${session.project}/raw?path=${encodeURIComponent(file.path)}`}
-                  alt={file.path}
-                  className="max-h-full max-w-full"
-                />
-              </div>
-            ) : file.kind === "diff" ? (
-              <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
-                {file.content.split("\n").map((line, i) => (
-                  <div key={i} className={diffLineClass(line)}>
-                    {line || " "}
-                  </div>
-                ))}
-              </pre>
-            ) : highlighted !== null ? (
-              <pre
-                ref={textRef}
-                className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap"
-              >
-                <code
-                  className="hljs !bg-transparent"
-                  dangerouslySetInnerHTML={{ __html: highlighted }}
-                />
-              </pre>
-            ) : (
-              <pre
-                ref={textRef}
-                className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text"
-              >
-                {file.content}
-              </pre>
-            )}
-          </div>
-        </div>
+      {session && (
+        <FileViewer
+          project={session.project}
+          sessionId={session.id}
+          target={viewed}
+          onClose={viewer.hide}
+        />
       )}
       {confirmDialog}
     </>

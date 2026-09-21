@@ -342,7 +342,16 @@ describe("the app in a real browser", () => {
 
     // The confirm has one button, the one that goes through with it; every
     // other way out means no. Escape here is "no", and the edit is still there.
-    await page.getByText("Discard the changes to this file?").waitFor({ timeout: 15_000 });
+    const ask = page.getByRole("dialog", { name: "Discard the changes to this file?" });
+    await ask.waitFor({ timeout: 15_000 });
+    // Focus inside it is what says it is listening: a key pressed in the frame
+    // between its paint and its effects still reaches the viewer under it.
+    await expect
+      .poll(
+        () => ask.evaluate((el: { matches(s: string): boolean }) => el.matches(":focus-within")),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
     await page.keyboard.press("Escape");
 
     await expect
