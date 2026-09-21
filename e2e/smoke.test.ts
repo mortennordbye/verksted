@@ -39,6 +39,20 @@ function git(repo: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
 }
 
+/**
+ * Until the screen has stopped drawing placeholders: the layout checks below
+ * measure what is there, and a skeleton is not what is there. A fixed pause
+ * was the wait, and on a cold CI runner it was sometimes too short (O-28).
+ * Bounded, and not a failure on its own: a panel whose data never comes in
+ * this fixture keeps its skeleton, and the check that follows says what it
+ * finds either way.
+ */
+async function settled(on: Page): Promise<void> {
+  await on
+    .waitForFunction('!document.querySelector(".animate-skeleton-in")', null, { timeout: 10_000 })
+    .catch(() => undefined);
+}
+
 beforeAll(async () => {
   const dist = path.join(ROOT, "frontend", "dist");
   if (!fs.existsSync(path.join(dist, "index.html"))) {
@@ -525,7 +539,7 @@ describe("the app in a real browser", () => {
       "/s/vk-demo-1",
     ]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
-      await page.waitForTimeout(300);
+      await settled(page);
       const wide = await page.evaluate(() => {
         // This closure runs in the browser, but it is compiled by the backend's
         // tsconfig, whose lib is ES2022 with no DOM — deliberately, since the
@@ -574,7 +588,7 @@ describe("the app in a real browser", () => {
   // which reaches the finger without growing the box, is not covered by this.
   it("gives a thumb something to hit on every control on settings", async () => {
     await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(500);
+    await settled(page);
     expect(await smallButtons()).toEqual([]);
   });
 
@@ -583,7 +597,7 @@ describe("the app in a real browser", () => {
   it("gives a thumb something to hit on the share and the thread", async () => {
     for (const route of ["/docs", "/ai"]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
-      await page.waitForTimeout(500);
+      await settled(page);
       expect([route, await smallButtons()]).toEqual([route, []]);
     }
   });
@@ -594,7 +608,7 @@ describe("the app in a real browser", () => {
   // also carries the back arrow, which is the only way up on that screen.
   it("gives a thumb something to hit on the session screen too", async () => {
     await page.goto(`${base}/s/vk-demo-1`, { waitUntil: "networkidle" });
-    await page.waitForTimeout(500);
+    await settled(page);
     expect(await smallButtons()).toEqual([]);
   });
 
@@ -604,7 +618,7 @@ describe("the app in a real browser", () => {
   it("gives a thumb something to hit on the project screen and the inbox", async () => {
     for (const route of ["/p/demo", "/runs"]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
-      await page.waitForTimeout(500);
+      await settled(page);
       expect([route, await smallButtons()]).toEqual([route, []]);
       expect([route, await narrowGlyphButtons()]).toEqual([route, []]);
     }
@@ -682,7 +696,7 @@ describe("the app in a real browser", () => {
   it("gives the tap-hit controls the 44px they are exempt on", async () => {
     for (const route of ["/settings", "/ai", "/s/vk-demo-1", "/s/vk-demo-1?side=files"]) {
       await page.goto(`${base}${route}`, { waitUntil: "networkidle" });
-      await page.waitForTimeout(500);
+      await settled(page);
       const bad = await page.evaluate(() => {
         // Not destructured: `getComputedStyle` called off `globalThis` throws
         // an illegal invocation without its receiver.

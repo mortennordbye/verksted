@@ -181,10 +181,12 @@ Applies to any project with a network, auth, or data surface — APIs, web apps,
 
 Single container, three parts (see SPEC.md for the full picture):
 
-- Backend: Node 22 + TypeScript + Fastify. REST under `/api`, a websocket bridging
+- Backend: Node 24 + TypeScript + Fastify. REST under `/api`, a websocket bridging
   xterm.js to `tmux attach` via node-pty, static serving of the built frontend.
 - Frontend: Vite + React + TypeScript + Tailwind v4 + @xterm/xterm. Three screens:
-  hub, project, session. mock.html in the repo root is the design reference.
+  hub, project, session, and since then Today, the inbox, the assistant, the documents
+  and settings. `design/mock.html` was the first design reference; the palette has since
+  moved to nordbye.it's (see `theme.css`), so it is a reference for layout, not colour.
 - Runtime: tmux + agent CLIs (claude, agy, codex) + gh/git. One tmux session per
   agent session; everything stateful lives under `/data` (the PVC).
 
@@ -224,6 +226,8 @@ process env into tmux for the CLIs. To add a var: extend `env.ts` + `.env.exampl
 
 ### Directory layout
 
+The files worth knowing first, not every file.
+
 ```
 shared/api.ts         # wire types shared by backend and frontend (types only)
 runtime/              # shipped into the image, not part of the build
@@ -243,6 +247,8 @@ backend/src/
 ├── tts.ts            # the assistant's voice: one warm Kokoro worker on the pod
 ├── env.ts            # validated env, fail fast
 ├── paths.ts          # path-scoping helper — the security surface
+├── origin.ts         # the Origin and Host checks: CSRF and DNS rebinding, with no auth
+├── exec.ts           # execFile with secrets redacted from what an error carries
 ├── chat.ts           # a session read back out of the transcript it writes
 ├── tui-prompt.ts     # the one scrape: what dialog the pane is drawing
 ├── tmux.ts           # execFile wrappers around tmux
@@ -253,16 +259,26 @@ backend/src/
 ├── events.ts         # one watcher -> every client: what the UI used to poll for
 ├── sweeper.ts        # the job that writes what reads used to: ends, measurements
 ├── serial.ts         # one chain per key, for read-modify-write over one file
-├── routes/           # projects, sessions, files, usage, maintainer (the queue)
-└── ws/attach.ts      # node-pty <-> tmux attach websocket bridge
+├── assistant.ts      # the assistant and its council: turns and tools
+├── assistant-taint.ts# what a turn has read closes what it may do next (A-01)
+├── git.ts            # every git the backend runs, with hooks and textconv off
+├── gh.ts             # the gh CLI, and what its errors mean
+├── settings-store.ts # agent credentials on the volume, and what reaches a session
+├── routes/           # one file per area: projects, sessions, files, feed, github, …
+└── ws/               # attach.ts (node-pty <-> tmux attach), browser.ts (the pane)
 backend/test/         # vitest; the path-traversal suite is the one that matters
 frontend/src/
-├── screens/          # Hub, Project, Session, Chat (assistant + council), Inbox, Settings
-├── components/       # Terminal, FileTree, TopBar, StatusChip
+├── screens/          # Today, Hub (the bench), Project, Session, Chat (assistant +
+│                     #   council), Inbox, Docs, Settings, Share
+├── components/       # Terminal, FileTree, FileViewer, TopBar, StatusChip, …
+│   ├── ui/           # Button, Field, SegTabs, Notice, Toast, Overlay: build on these
+│   ├── settings/     # one file per settings panel
+│   ├── terminal/     # the terminal's keys sheet, sign-in bar, and screen reads
 │   └── chat/         # the session-as-conversation view: turns, chips, cards
 ├── api.ts            # fetch helpers + usePoll
 ├── events.ts         # the shared EventSource usePoll takes its data from
-└── theme.css         # mock.html palette as Tailwind v4 @theme
+├── useUrlOverlay.ts  # an overlay whose being open is a search param
+└── theme.css         # the palette as Tailwind v4 @theme, and the `caps`, `tap` utilities
 e2e/                  # `make e2e` only: the built app in a real chromium
 ```
 

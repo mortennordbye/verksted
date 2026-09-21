@@ -89,6 +89,8 @@ describe("deleting a session from its own screen", () => {
     // history entry the actions sheet dropped on its way out.
     const confirm = page.getByRole("button", { name: "delete", exact: true });
     await confirm.waitFor({ timeout: 5_000 });
+    // A pause on purpose: what is checked is that nothing arrives during it.
+    // A slow runner can only make it pass for the wrong reason, never fail.
     await page.waitForTimeout(300);
     await confirm.waitFor({ timeout: 1_000 });
   });
@@ -98,7 +100,8 @@ describe("deleting a session from its own screen", () => {
     await page.waitForURL("**/p/demo", { timeout: 10_000 });
     // And stays there. The confirm drops its history entry with a Back of its
     // own, and one landing after the navigation took the page back to the
-    // session it had just deleted — under load, about one run in three.
+    // session it had just deleted — under load, about one run in three. A
+    // pause on purpose, for the same reason as the one above.
     await page.waitForTimeout(500);
     expect(new URL(page.url()).pathname).toBe("/p/demo");
     expect(fs.existsSync(path.join(sessionsDir, "vk-demo-1.json"))).toBe(false);
