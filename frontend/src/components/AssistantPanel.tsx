@@ -7,7 +7,7 @@ import { SkeletonLines } from "./Skeleton";
 import {
   POD_VOICE_KEY,
   VOICE_KEY,
-  audioPlayer,
+  playSample,
   canSpeak,
   pickVoice,
   sortVoices,
@@ -139,22 +139,7 @@ export default function AssistantPanel() {
     else removeStored(POD_VOICE_KEY);
     setSampling(true);
     try {
-      const res = await fetch("/api/assistant/speak", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: "Nothing needs you. Everything is quiet.",
-          ...(name ? { voice: name } : {}),
-        }),
-      });
-      if (!res.ok) return;
-      const url = URL.createObjectURL(await res.blob());
-      const audio = audioPlayer();
-      audio.src = url;
-      // This is a click, so playing here also unlocks the element for the
-      // replies that arrive later without one.
-      await audio.play().catch(() => undefined);
-      audio.onended = () => URL.revokeObjectURL(url);
+      await playSample("Nothing needs you. Everything is quiet.", name || undefined);
     } finally {
       setSampling(false);
     }

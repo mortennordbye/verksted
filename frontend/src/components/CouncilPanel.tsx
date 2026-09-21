@@ -9,7 +9,7 @@ import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
-import { audioPlayer, voiceLabel } from "../useSpeech";
+import { playSample, voiceLabel } from "../useSpeech";
 import Button from "./ui/Button";
 import { Input, Select, Textarea } from "./ui/Field";
 
@@ -51,22 +51,7 @@ function Voice({ member, voices }: { member: CouncilMember; voices: string[] }) 
     if (playing) return;
     setPlaying(true);
     try {
-      const res = await fetch("/api/assistant/speak", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: sampleFor(member).slice(0, 300),
-          ...(member.voice ? { voice: member.voice } : {}),
-        }),
-      });
-      if (!res.ok) return;
-      const url = URL.createObjectURL(await res.blob());
-      const audio = audioPlayer();
-      audio.src = url;
-      // This is a click, so playing here also unlocks the element for the
-      // replies that arrive later without one.
-      await audio.play().catch(() => undefined);
-      audio.onended = () => URL.revokeObjectURL(url);
+      await playSample(sampleFor(member).slice(0, 300), member.voice || undefined);
     } finally {
       setPlaying(false);
     }

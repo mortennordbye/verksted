@@ -202,6 +202,48 @@ export function audioPlayer(): HTMLAudioElement {
 }
 
 /**
+ * Say one line in a voice, from a tap: the settings page's "hear it".
+ *
+ * Two panels each had this, word for word, and both leaked the clip: the URL
+ * was only released by `ended`, which a refused `play()` never reaches, and
+ * which the next sample replaced before it fired. Released here on every way
+ * out. Resolves false when the pod has no voice or would not play it.
+ */
+let releaseSample: (() => void) | null = null;
+
+export async function playSample(text: string, voice?: string): Promise<boolean> {
+  const res = await fetch("/api/assistant/speak", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(voice ? { text, voice } : { text }),
+  }).catch(() => null);
+  if (!res?.ok) return false;
+  // The sample before this one, if it never got to its end.
+  releaseSample?.();
+  const url = URL.createObjectURL(await res.blob());
+  const audio = audioPlayer();
+  const release = () => {
+    URL.revokeObjectURL(url);
+    audio.removeEventListener("ended", release);
+    audio.removeEventListener("error", release);
+    if (releaseSample === release) releaseSample = null;
+  };
+  releaseSample = release;
+  audio.addEventListener("ended", release);
+  audio.addEventListener("error", release);
+  audio.src = url;
+  try {
+    // This is a click, so playing here also unlocks the element for the
+    // replies that arrive later without one.
+    await audio.play();
+    return true;
+  } catch {
+    release();
+    return false;
+  }
+}
+
+/**
  * Stop whatever is playing and leave the element primed, from inside a gesture.
  *
  * Both at once, and it has to be: swapping the source to the silent clip ends
