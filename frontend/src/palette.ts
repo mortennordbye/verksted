@@ -17,3 +17,18 @@ export function onPaletteAsked(open: () => void): () => void {
   addEventListener(EVENT, open);
   return () => removeEventListener(EVENT, open);
 }
+
+/**
+ * Open the keyboard shortcut sheet from anywhere: the `?` key, or the palette's
+ * own entry for it. Same shape as the palette's event, for the same reason.
+ */
+const SHORTCUTS = "vk:shortcuts";
+
+export function openShortcuts(): void {
+  dispatchEvent(new Event(SHORTCUTS));
+}
+
+export function onShortcutsAsked(open: () => void): () => void {
+  addEventListener(SHORTCUTS, open);
+  return () => removeEventListener(SHORTCUTS, open);
+}
