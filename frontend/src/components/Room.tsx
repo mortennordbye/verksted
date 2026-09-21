@@ -1,7 +1,7 @@
-import { memo, useMemo } from "react";
+import { Fragment, memo, useDeferredValue, useMemo } from "react";
 import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
-import { agoLabel } from "../api";
+import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
 import { MD, REMARK } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
@@ -97,11 +97,21 @@ const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; t
   );
 });
 
+/**
+ * The reply as it is written, drawn the way it will be kept. It used to be
+ * plain text until the entry landed and markdown after, so a list or a code
+ * block changed height under the reader at the moment they reached the end of
+ * it. Deferred, because the text grows ten times a second and a render that
+ * falls behind should drop frames, not queue them. The caret is `vk-writing`
+ * in theme.css: it has to sit after the last block, not under it.
+ */
 function Writing({ live }: { live: string }) {
+  const shown = useDeferredValue(live);
   return (
-    <div className="text-[15px] leading-[1.55] whitespace-pre-wrap">
-      {live}
-      <span className="ml-0.5 inline-block h-3.5 w-1.5 animate-blink bg-accent align-[-2px]" />
+    <div className="vk-writing text-[15px] leading-[1.55]">
+      <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
+        {cite(shown)}
+      </Markdown>
     </div>
   );
 }
@@ -143,9 +153,10 @@ const Bubble = memo(function Bubble({
         </div>
       )}
       {last && live === undefined && (
-        <span className="-mt-0.5 self-end font-mono text-[10px] leading-none text-faint">
-          {agoLabel(last.at)}
-        </span>
+        <Ago
+          at={last.at}
+          className="-mt-0.5 self-end font-mono text-[10px] leading-none text-faint"
+        />
       )}
     </div>
   );
@@ -162,7 +173,7 @@ const Card = memo(function Card({ who, entry }: { who: CouncilMember; entry: Ass
       <div className="flex items-center gap-2.5">
         <Portrait face={who.face} colour={who.colour} size={28} tone mood="idle" />
         <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
-        <span className="ml-auto font-mono text-[11px] text-faint">{agoLabel(entry.at)}</span>
+        <Ago at={entry.at} className="ml-auto font-mono text-[11px] text-faint" />
       </div>
       <Said entry={entry} />
     </div>
@@ -182,6 +193,11 @@ type Block =
  * the chair's replies gathered into runs. A run ends at anything of yours or a
  * specialist's, or at a pause longer than RUN_MS.
  */
+/** The entry a block opens with: its day, and a key that outlives the block growing. */
+function firstAt(b: Block): AssistantEntry {
+  return b.kind === "run" ? b.entries[0] : b.entry;
+}
+
 function blocks(entries: AssistantEntry[]): Block[] {
   const out: Block[] = [];
   for (const entry of entries) {
@@ -224,6 +240,35 @@ export default function Room({
   const writing = thinking && thread.live ? thread.live : undefined;
   const joinsLast = writing !== undefined && drawn.at(-1)?.kind === "run";
 
+  const draw = (b: Block, i: number) => {
+    if (b.kind === "user") {
+      const e = b.entry;
+      return (
+        <div className="animate-rise flex flex-col items-end gap-1.5">
+          {e.images?.map((name) => (
+            <img
+              key={name}
+              src={`/api/assistant/uploads/${name}`}
+              alt="attached"
+              className="max-h-52 max-w-[82%] rounded-xl"
+            />
+          ))}
+          {e.text && (
+            <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
+              {e.text}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (b.kind === "card") {
+      const who = members.find((m) => m.id === b.entry.member) ?? chair;
+      return <Card who={who} entry={b.entry} />;
+    }
+    const isLast = i === drawn.length - 1;
+    return <Bubble entries={b.entries} live={isLast && joinsLast ? writing : undefined} />;
+  };
+
   return (
     <div className="flex flex-col gap-3">
       {thread.entries.length === 0 && (
@@ -237,37 +282,13 @@ export default function Room({
       )}
 
       {drawn.map((b, i) => {
-        if (b.kind === "user") {
-          const e = b.entry;
-          return (
-            <div key={e.id} className="animate-rise flex flex-col items-end gap-1.5">
-              {e.images?.map((name) => (
-                <img
-                  key={name}
-                  src={`/api/assistant/uploads/${name}`}
-                  alt="attached"
-                  className="max-h-52 max-w-[82%] rounded-xl"
-                />
-              ))}
-              {e.text && (
-                <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
-                  {e.text}
-                </div>
-              )}
-            </div>
-          );
-        }
-        if (b.kind === "card") {
-          const who = members.find((m) => m.id === b.entry.member) ?? chair;
-          return <Card key={b.entry.id} who={who} entry={b.entry} />;
-        }
-        const isLast = i === drawn.length - 1;
+        const at = firstAt(b);
+        const before = i > 0 ? firstAt(drawn[i - 1]) : undefined;
         return (
-          <Bubble
-            key={b.entries[0].id}
-            entries={b.entries}
-            live={isLast && joinsLast ? writing : undefined}
-          />
+          <Fragment key={at.id}>
+            {newDay(before?.at, at.at) && <DayRule at={at.at} />}
+            {draw(b, i)}
+          </Fragment>
         );
       })}
 

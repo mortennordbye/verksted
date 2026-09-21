@@ -6,6 +6,7 @@ import type {
   CouncilMember,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { scrollBehavior } from "../motion";
 import { threadCost } from "../threadCost";
 import BrowserPane from "../components/BrowserPane";
 import { Link } from "react-router";
@@ -608,6 +609,10 @@ export default function Chat() {
    * a turn going the wrong way is stopped, and the correction is already queued.
    */
   const [queued, setQueued] = useState<{ text: string; images: string[] }[]>([]);
+  // A queued message the pod refused stops the queue, with itself still at the
+  // head of it. It used to be dropped into the field (or lost, if the field was
+  // in use) while everything behind it waited on a frame that might never come.
+  const [held, setHeld] = useState(false);
   // A POST is out but the socket may not have said "thinking" yet. Without
   // this, the queue would fire its next message into that gap and get the 409.
   const posting = useRef(false);
@@ -684,7 +689,7 @@ export default function Chat() {
    */
   useEffect(() => {
     if (!atLatest) return;
-    scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+    scrollTo({ top: document.documentElement.scrollHeight, behavior: scrollBehavior() });
   }, [thread?.entries.length, thread?.status, thread?.live, atLatest]);
 
   // Whether the bottom is on screen. The margin is generous on purpose: the
@@ -754,11 +759,11 @@ export default function Chat() {
       setQueued((q) => [...q, { text: value, images }]);
       return;
     }
-    await post(value, images, !spoken);
+    await post(value, images, spoken ? "spoken" : "typed");
   }
 
   /** One turn to the server. A failure puts what was sent back to be sent again. */
-  async function post(value: string, images: string[], restore: boolean) {
+  async function post(value: string, images: string[], from: "typed" | "spoken" | "queue") {
     setError(null);
     posting.current = true;
     try {
@@ -774,12 +779,17 @@ export default function Chat() {
           wait: false,
         }),
       });
-      setThread((held) => adopt(held, accepted));
+      setThread((had) => adopt(had, accepted));
+      setHeld(false);
     } catch (e) {
       setError((e as Error).message);
-      // Only into an empty field: a queued message failing must not overwrite
-      // whatever is being typed by then.
-      if (restore) setText((t) => (t.trim() ? t : value));
+      if (from === "queue") {
+        setQueued((q) => [{ text: value, images }, ...q]);
+        setHeld(true);
+        return;
+      }
+      // Only into an empty field, so it never overwrites what is being typed.
+      if (from === "typed") setText((t) => (t.trim() ? t : value));
       setPending((p) => [...images, ...p]);
     } finally {
       posting.current = false;
@@ -789,11 +799,11 @@ export default function Chat() {
   // The queue drains one message per idle moment. The next arrives with the
   // thread that ends this turn, whether from the POST or from the socket.
   useEffect(() => {
-    if (!thread || thinking || posting.current || !queued.length) return;
+    if (!thread || thinking || held || posting.current || !queued.length) return;
     const [next, ...rest] = queued;
     setQueued(rest);
-    void post(next.text, next.images, true);
-  }, [thread, thinking, queued]);
+    void post(next.text, next.images, "queue");
+  }, [thread, thinking, queued, held]);
 
   // Below send, which it calls: the lint's compiler check will not have a
   // callback reach a function declared further down.
@@ -1082,7 +1092,31 @@ export default function Chat() {
             </button>
           </div>
         )}
-        {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
+        {error && (
+          <div className="mb-2 flex items-center gap-2 text-[12.5px] text-fail">
+            <span className="min-w-0 flex-1">{error}</span>
+            {held && (
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setHeld(false);
+                }}
+                className="tap flex-none rounded-lg px-2 py-0.5 font-semibold ring-1 ring-fail/40 hover:brightness-110"
+              >
+                send again
+              </button>
+            )}
+            <button
+              type="button"
+              aria-label="dismiss the error"
+              onClick={() => setError(null)}
+              className="tap flex-none rounded-lg px-1.5 text-muted hover:text-text"
+            >
+              ×
+            </button>
+          </div>
+        )}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (
           <div className="mb-2 flex items-center gap-3 rounded-xl bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">
@@ -1132,7 +1166,11 @@ export default function Chat() {
                     ` · ${q.images.length} image${q.images.length === 1 ? "" : "s"}`}
                 </span>
                 <button
-                  onClick={() => setQueued((qs) => qs.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    setQueued((qs) => qs.filter((_, j) => j !== i));
+                    // Taking the refused one out is an answer to it too.
+                    if (i === 0) setHeld(false);
+                  }}
                   aria-label="remove from queue"
                   className="flex-none font-mono text-faint hover:text-fail"
                 >
@@ -1158,7 +1196,7 @@ export default function Chat() {
             Field on top, controls underneath; the audience sits in the same
             row as the send button, since who hears it and sending it are one
             decision. */}
-        <div className="rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 shadow-[0_20px_60px_rgba(0,0,0,.55)]">
+        <div className="rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 shadow-[0_20px_60px_rgba(0,0,0,.55)] focus-within:ring-1 focus-within:ring-accent/60">
           <textarea
             ref={grow}
             value={text}

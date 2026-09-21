@@ -31,6 +31,8 @@ export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sess
     }
     setOpen(true);
     if (detail || !tool.id) return;
+    // Opening it again is asking again; see PlanCard.
+    setFailedToLoad(false);
     try {
       const query = new URLSearchParams({ ref: tool.id });
       setDetail(await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`));
