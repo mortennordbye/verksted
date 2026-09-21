@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { PodFacts, Project, Session, UsageSummary } from "../../../shared/api";
+import type {
+  PodFacts,
+  Project,
+  Session,
+  Settings as SettingsInfo,
+  UsageSummary,
+} from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
 import Icon, { type IconName } from "../components/Icon";
@@ -186,6 +192,63 @@ function Band({
   );
 }
 
+/**
+ * What an empty bench needs before its first clone (F-49).
+ *
+ * The first thing a new pod is asked to do is clone a repo, and the first
+ * thing that fails is the clone, or the first agent, or the first commit:
+ * each for a credential that was never set. The settings page says all of
+ * that, but nothing pointed there. Shown only while there are no projects,
+ * which is exactly the window where it is the next step.
+ */
+function FirstRun() {
+  const { data: settings } = usePoll<SettingsInfo>("/api/settings", 60_000);
+  const isSet = (name: string) =>
+    settings?.vars.some(({ key: k, source }) => k === name && source !== "unset") ?? false;
+  const steps: [boolean, string, string][] = [
+    [isSet("GH_TOKEN"), "GH_TOKEN", "clone a private repo, push, and open pull requests"],
+    [
+      ["CLAUDE_CODE_OAUTH_TOKEN", "ANTIGRAVITY_API_KEY", "OPENAI_API_KEY"].some(isSet),
+      "an agent's sign-in",
+      "claude, antigravity or codex, so a session has someone in it",
+    ],
+    [
+      isSet("GIT_AUTHOR_NAME") && isSet("GIT_AUTHOR_EMAIL"),
+      "GIT_AUTHOR_NAME and _EMAIL",
+      "so the commits say who made them",
+    ],
+  ];
+  return (
+    <div className="mb-6 rounded-xl border border-dashed border-line px-4 py-5 text-[13px]">
+      <div className="mb-1 font-medium">No projects yet</div>
+      <p className="mb-3 text-muted">
+        Clone or init one above. The pod needs a few things first, all set in{" "}
+        <Link to="/settings?tab=agents" className="text-accent hover:underline">
+          settings
+        </Link>
+        :
+      </p>
+      <ul className="flex flex-col gap-1.5">
+        {steps.map(([done, what, why]) => (
+          <li key={what} className="flex items-baseline gap-2">
+            <Icon
+              name={done ? "check" : "alert"}
+              size={13}
+              className={`flex-none self-center ${done ? "text-run" : "text-wait"}`}
+            />
+            <span>
+              <span className="font-mono text-[12px]">{what}</span>{" "}
+              <span className="text-faint">
+                {settings === null ? "" : done ? "set" : "not set"} · {why}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function Hub() {
   const navigate = useNavigate();
   const {
@@ -330,11 +393,7 @@ export default function Hub() {
           </div>
         )}
 
-        {projects?.length === 0 && (
-          <div className="mb-6 rounded-xl border border-dashed border-line px-4 py-6 text-center font-mono text-[12.5px] text-faint">
-            no projects yet — clone or init one above
-          </div>
-        )}
+        {projects?.length === 0 && <FirstRun />}
 
         <div className="mb-9 grid grid-cols-[repeat(auto-fill,minmax(min(290px,100%),1fr))] gap-3">
           {(projects ?? []).map((p) => (
