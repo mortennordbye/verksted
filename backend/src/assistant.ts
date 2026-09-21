@@ -809,14 +809,24 @@ interface Speaker extends ToolPolicy {
  * the one way that happens is a permission prompt with nobody to answer it —
  * headless claude simply waits. Generous, because real work is slow.
  */
-const TURN_TIMEOUT_MS = 10 * 60_000;
+let TURN_TIMEOUT_MS = 10 * 60_000;
 
 /**
  * Shorter for an advisor, because a meeting waits for the slowest of them and
  * the browser is waiting for the meeting. An advisor reads state and says two
  * sentences; one that has not managed it in five minutes is stuck.
  */
-const MEMBER_TURN_TIMEOUT_MS = 5 * 60_000;
+let MEMBER_TURN_TIMEOUT_MS = 5 * 60_000;
+
+/** For tests: ten minutes is not something a suite can wait out. Returns a way back. */
+export function setTurnTimeouts(chairMs: number, memberMs: number): () => void {
+  const before = [TURN_TIMEOUT_MS, MEMBER_TURN_TIMEOUT_MS] as const;
+  TURN_TIMEOUT_MS = chairMs;
+  MEMBER_TURN_TIMEOUT_MS = memberMs;
+  return () => {
+    [TURN_TIMEOUT_MS, MEMBER_TURN_TIMEOUT_MS] = before;
+  };
+}
 
 /**
  * The two ways claude refuses a conversation id: asked to resume one it has no

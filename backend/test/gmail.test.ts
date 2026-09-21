@@ -277,6 +277,42 @@ describe("when Google says not now", () => {
     expect(asked).toBe(3);
   });
 
+  it("treats a 429 as not now, the same as a 503", async () => {
+    let asked = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) => {
+        const token = routed(url, init);
+        if (token) return token;
+        return ++asked === 1
+          ? Promise.resolve(Response.json({ error: { message: "Rate Limit" } }, { status: 429 }))
+          : fakeFetch(url, init);
+      }),
+    );
+
+    expect(await gmail.labels()).toEqual([{ id: "L1", name: "Existing" }]);
+    expect(asked).toBe(2);
+  });
+
+  it("does not ask again after a 403, which the next try will not change", async () => {
+    let asked = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) => {
+        const token = routed(url, init);
+        if (token) return token;
+        asked++;
+        return Promise.resolve(
+          Response.json({ error: { message: "Insufficient Permission" } }, { status: 403 }),
+        );
+      }),
+    );
+
+    // In Google's words, so the settings page can say which scope is missing.
+    await expect(gmail.labels()).rejects.toThrow(/Insufficient Permission/);
+    expect(asked).toBe(1);
+  });
+
   it("does not ask twice for a write, which may have landed the first time", async () => {
     let posts = 0;
     vi.stubGlobal(
