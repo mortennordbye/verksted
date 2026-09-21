@@ -314,3 +314,12 @@ convening is for judgement and not for fetching. Tool results stay in the
 conversation and are re-sent with every later turn, so each tool answers in the
 fewest lines that still carry the decision — `status` is one call where three
 lookups would be three round trips.
+
+What a thread has taken is kept beside it. Every run of the CLI ends with a
+result event that says what it used, and `assistant-usage.ts` appends that to
+`<thread>.usage.log`: one line per run, the chair's and each advisor's. The
+thread carries the sum (`usage.total`) and the size of the chair's last prompt
+(`usage.context`), which is the conversation as every new turn sends it again.
+The chat header shows the total, and the "start fresh" nudge appears once that
+prompt passes 100k tokens; a thread from before the measuring falls back to
+counting replies. Unattended turns are not measured here.

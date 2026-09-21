@@ -6,6 +6,7 @@ import type {
   CouncilMember,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { threadCost } from "../threadCost";
 import BrowserPane from "../components/BrowserPane";
 import { Link } from "react-router";
 import Portrait, { MEMBER_TEXT } from "../components/Face";
@@ -908,7 +909,7 @@ export default function Chat() {
    * spending it is meant to warn about.
    */
   const calls = thread?.entries.filter((e) => e.role === "assistant").length ?? 0;
-  const long = calls >= 15;
+  const { long, taken, carries } = threadCost(thread?.usage, calls);
 
   /** The header's second line: what it is doing, or how far the thread has come. */
   const lastEntry = thread?.entries.at(-1);
@@ -925,7 +926,7 @@ export default function Chat() {
             ? "writing…"
             : "reading…"
           : lastEntry
-            ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""} · last spoke ${agoLabel(lastEntry.at)}`
+            ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""}${taken && ` · ${taken}`} · last spoke ${agoLabel(lastEntry.at)}`
             : "here";
 
   return (
@@ -1086,8 +1087,7 @@ export default function Chat() {
         {long && !thinking && (
           <div className="mb-2 flex items-center gap-3 rounded-xl bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">
             <span className="min-w-0 flex-1">
-              {calls} replies in this thread, and every new one carries all of them. If the subject
-              has moved on, start fresh.
+              {carries} If the subject has moved on, start fresh.
             </span>
             <button
               onClick={() => void newThread()}

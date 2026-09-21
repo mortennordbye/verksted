@@ -16,3 +16,17 @@ export function bytes(n: number): string {
   }
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
+
+/** Tokens as a short figure: 41k, 1.2M. */
+export function tokens(n: number): string {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n);
+}
+
+/** Notional dollars: $0.42, $18, $1,204. */
+export function usd(n: number): string {
+  return n >= 100
+    ? `$${Math.round(n).toLocaleString()}`
+    : n >= 10
+      ? `$${n.toFixed(1)}`
+      : `$${n.toFixed(2)}`;
+}

@@ -9,6 +9,7 @@ import type {
   AssistantThreadSummary,
   AssistantTool,
   CouncilMember,
+  SessionUsage,
 } from "../../shared/api.js";
 import {
   memberPrompt,
@@ -29,6 +30,7 @@ import { transcriptPath } from "./claude-home.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
 import { noteTool } from "./assistant-taint.js";
+import { forgetUsage, recordUsage, threadUsage } from "./assistant-usage.js";
 import * as journal from "./journal-store.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
@@ -925,6 +927,7 @@ export async function deleteConversation(id: string): Promise<void> {
   }
   await fs.rm(threadPath(id), { force: true });
   await fs.rm(participantsPath(id), { force: true });
+  await forgetUsage(id);
   if (id === current) await writeTextAtomic(currentPath(), randomUUID());
   announce();
 }
@@ -944,6 +947,7 @@ export async function clearThreads(olderThanDays?: number, now = Date.now()): Pr
     }
     await fs.rm(threadPath(t.conversationId), { force: true });
     await fs.rm(participantsPath(t.conversationId), { force: true });
+    await forgetUsage(t.conversationId);
     deleted++;
   }
   return deleted;
@@ -1038,11 +1042,13 @@ async function appendEntry(
 export async function readThread(): Promise<AssistantThread> {
   const conversationId = await currentConversation();
   const speaking = speakingIn(conversationId);
+  const usage = await threadUsage(conversationId);
   return {
     conversationId,
     status: busy(conversationId) ? "thinking" : "idle",
     entries: await readEntries(conversationId),
     ...(speaking.length ? { speaking } : {}),
+    ...(usage ? { usage } : {}),
   };
 }
 
@@ -1153,6 +1159,8 @@ async function turn(o: {
   onSpawn: (child: Child) => void;
   /** Called as entries land, and with the part-written reply between them. */
   onChange: (live?: string) => void;
+  /** What the run took, once it has ended and said so. */
+  onUsage?: (taken: { usage: SessionUsage; context: number }) => Promise<void>;
 }): Promise<{ text: string }> {
   const { speaker, images, unattended } = o;
   // This run of the CLI, named. Everything the turn reaches carries it, which
@@ -1323,6 +1331,8 @@ async function turn(o: {
 
   for (const entry of finishStream(state)) await record(entry);
   const error = state.error;
+  // A turn that failed or ran out of time still took what it took.
+  if (state.usage) await o.onUsage?.({ usage: state.usage, context: state.context });
 
   if (raw.timedOut) {
     const text =
@@ -1623,6 +1633,8 @@ async function speak(o: {
       // phone is noise, and a chip saying who is speaking carries the same
       // information for none of the traffic.
       onChange: (live) => announce(member.chair ? live : ""),
+      onUsage: (taken) =>
+        recordUsage(threadId, { ...(member.chair ? {} : { member: member.id }), ...taken }),
     });
     return { text, held };
   } finally {
