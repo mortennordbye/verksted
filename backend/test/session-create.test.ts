@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { FakeBin } from "./helpers/fake-bin.js";
+import { FakeBin, tmuxLsRows } from "./helpers/fake-bin.js";
 
 /**
  * What the create-session route actually forwards to the store.
@@ -67,6 +67,26 @@ beforeEach(() => {
   }
   fake.reset();
   fake.reply("tmux", "ls", { stdout: "" });
+});
+
+describe("how much one pod will run (S-09)", () => {
+  it("refuses a session past the ceiling, and says which ceiling", async () => {
+    const running = Array.from({ length: 24 }, (_, i) => `vk-other-${i + 1}`);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(...running) });
+
+    const res = await create({ agent: "claude" });
+
+    expect(res.statusCode).toBe(429);
+    expect(res.json().error).toMatch(/24 sessions are already running/);
+    expect(fake.subcommand("tmux", "new-session")).toEqual([]);
+  });
+
+  it("starts one when there is room for it", async () => {
+    const running = Array.from({ length: 23 }, (_, i) => `vk-other-${i + 1}`);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(...running) });
+
+    expect((await create({ agent: "claude" })).statusCode).toBe(201);
+  });
 });
 
 describe("POST /api/projects/:name/sessions", () => {

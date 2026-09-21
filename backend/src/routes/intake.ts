@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import * as feed from "../feed-store.js";
+import { perMinute } from "../limits.js";
 
 /**
  * Intake: getting something to the assistant from outside the app.
@@ -16,6 +17,7 @@ export default async function intakeRoutes(app: FastifyInstance) {
   app.post<{ Body: { title?: string; text?: string; url?: string } }>(
     "/api/intake",
     {
+      config: perMinute(60),
       schema: {
         body: {
           type: "object",

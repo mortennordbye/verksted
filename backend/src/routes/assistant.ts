@@ -16,6 +16,7 @@ import * as toolLog from "../tool-log.js";
 import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
 import * as tts from "../tts.js";
 import { MAX_TEXT } from "../tts.js";
+import { perMinute } from "../limits.js";
 
 /**
  * The assistant's thread, and the one websocket that pushes it.
@@ -103,6 +104,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
   app.post<{ Querystring: { type: string } }>(
     "/api/assistant/uploads",
     {
+      config: perMinute(60),
       bodyLimit: 12 * 1024 * 1024,
       schema: {
         querystring: {

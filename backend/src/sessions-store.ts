@@ -15,6 +15,7 @@ import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
 import { env } from "./env.js";
 import { headCommit, syncDefaultBranch, workSince } from "./git.js";
+import { LimitError, MAX_LIVE_SESSIONS } from "./limits.js";
 import { resolveInsideRepos } from "./paths.js";
 import { keyedQueue } from "./serial.js";
 import { agentEnv } from "./settings-store.js";
@@ -952,6 +953,12 @@ export function createSession(
     // Start the agent from an up-to-date default branch. Reported back to the
     // UI: it is a no-op on a worktree or a dirty tree, and the user has to know.
     const sync = await syncDefaultBranch(projectDir, extraEnv);
+    // Inside the queue, so two creates cannot both see room for one. A tmux
+    // that cannot be counted is about to fail the launch anyway.
+    const live = await liveNames();
+    if (live && live.size >= MAX_LIVE_SESSIONS) {
+      throw new LimitError(`${MAX_LIVE_SESSIONS} sessions are already running; end one first`);
+    }
     const metas = await readAll();
     const seq = await nextSeq(project, metas);
     const meta: Meta = {

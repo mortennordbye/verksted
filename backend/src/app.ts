@@ -10,7 +10,9 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import helmet from "@fastify/helmet";
 import compress from "@fastify/compress";
+import rateLimit from "@fastify/rate-limit";
 import { env } from "./env.js";
+import { LimitError } from "./limits.js";
 import * as tmux from "./tmux.js";
 import { hostAllowed, isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js";
 import projectRoutes from "./routes/projects.js";
@@ -130,7 +132,8 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
    */
   app.setErrorHandler((err: FastifyError, req, reply) => {
     const status = err.statusCode ?? 500;
-    if (status >= 500) {
+    // A full volume is a 507, and its message is written for the person.
+    if (status >= 500 && !(err instanceof LimitError)) {
       req.log.error({ err }, "request failed");
       return reply.code(status).send({ error: "internal error" });
     }
@@ -184,6 +187,13 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // size on every cold load. The event stream is hijacked and the sockets are
   // upgrades, so neither passes through this.
   await app.register(compress, { threshold: 1024 });
+
+  // Per route, not global: the app polls, and a budget over everything would
+  // be one more way for the inbox to stop loading. The routes that start a
+  // process, write to the volume or spend a model call name their own (see
+  // limits.ts). Behind the ingress every caller is one address, so each of
+  // those is a budget for the route as a whole.
+  await app.register(rateLimit, { global: false });
 
   // What a client sends over a socket here is keystrokes, a paste, a resize or
   // a pointer move. The library's own ceiling is 100 MiB a message, read whole
