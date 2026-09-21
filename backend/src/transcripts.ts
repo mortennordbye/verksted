@@ -1,7 +1,6 @@
 import { createReadStream } from "node:fs";
 import readline from "node:readline";
-import { resolveInsideRepos } from "./paths.js";
-import { listSessions, readConv } from "./sessions-store.js";
+import { listSessions, readConv, sessionDir } from "./sessions-store.js";
 
 /**
  * What the person actually typed, read back out of finished sessions.
@@ -122,7 +121,7 @@ export async function recentPrompts(
     if (!conversationId) continue;
     let repoDir: string;
     try {
-      repoDir = resolveInsideRepos(session.project);
+      repoDir = sessionDir(session);
     } catch {
       // The repo has since been deleted; there is nothing to read.
       continue;

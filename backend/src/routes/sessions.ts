@@ -43,7 +43,7 @@ async function transcriptFor(id: string): Promise<string | null | undefined> {
   const conversationId = await store.readConv(id);
   if (!conversationId) return null;
   try {
-    return transcriptPath(resolveInsideRepos(session.project), conversationId);
+    return transcriptPath(store.sessionDir(session), conversationId);
   } catch {
     // The project has been deleted; there is no cwd to derive a path from.
     return null;
@@ -391,7 +391,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       let subagents: string | undefined;
       if (conversationId) {
         try {
-          subagents = subagentDir(resolveInsideRepos(session.project), conversationId);
+          subagents = subagentDir(store.sessionDir(session), conversationId);
         } catch {
           // The project is gone; a subagent chip then opens onto nothing.
         }
@@ -430,7 +430,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       // transcript. Its absence only costs the cheaper of the two routes.
       let repoDir: string | undefined;
       try {
-        repoDir = resolveInsideRepos(session.project);
+        repoDir = store.sessionDir(session);
       } catch {
         // The project has been deleted; every image falls back to its bytes.
       }
@@ -463,7 +463,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
         return { from: null, to: null, commits: [], files: [], truncated: false, review };
       }
       try {
-        const repoDir = resolveInsideRepos(session.project);
+        const repoDir = store.sessionDir(session);
         return { ...range, ...(await changesIn(repoDir, range.from, range.to)), review };
       } catch (err) {
         // The commit it started from is gone (the branch was reset), or the
@@ -497,7 +497,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       let repoDir: string;
       try {
         rel = repoRelPath(req.query.path);
-        repoDir = resolveInsideRepos(session.project);
+        repoDir = store.sessionDir(session);
       } catch {
         return reply.code(403).send({ error: "denied" });
       }
@@ -527,7 +527,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const range = await store.sessionRange(req.params.id);
       if (!range) return { diff: "", truncated: false };
       try {
-        return await rangeDiff(resolveInsideRepos(session.project), range.from, range.to);
+        return await rangeDiff(store.sessionDir(session), range.from, range.to);
       } catch (err) {
         req.log.warn(err, "session patch failed");
         return reply.code(409).send({ error: gitError(err) });

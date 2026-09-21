@@ -18,6 +18,8 @@ export interface Project {
 export interface Session {
   id: string;
   project: string;
+  /** Where it runs inside the project, when that is not its root: a desk task's directory. */
+  cwd?: string;
   agent: AgentName;
   title: string;
   createdAt: string;

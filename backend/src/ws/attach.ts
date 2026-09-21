@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import { spawn } from "node-pty";
 import type { WsClientMsg } from "../../../shared/api.js";
 import { env } from "../env.js";
-import { resolveInsideRepos } from "../paths.js";
 import * as store from "../sessions-store.js";
 import { agentEnv } from "../settings-store.js";
 import * as tmux from "../tmux.js";
@@ -59,7 +58,7 @@ export default async function attachRoutes(app: FastifyInstance) {
     if (req.query.shell === "1") {
       let projectDir: string;
       try {
-        projectDir = resolveInsideRepos(session.project);
+        projectDir = store.sessionDir(session);
       } catch {
         socket.close(4404, "no such session");
         return;

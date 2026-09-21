@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { transcriptPath } from "../src/claude-home.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -16,6 +17,7 @@ let reposDir: string;
 
 beforeAll(async () => {
   fake = FakeBin.install(["tmux"]);
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "vk-desk-home-"));
   reposDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-desk-repos-"));
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-desk-sess-"));
@@ -63,6 +65,30 @@ describe("a desk session", () => {
     expect(prompt).toContain("Task: Compare car insurance");
     expect(prompt).toContain(`documents are at ${process.env.DOCS_DIR}`);
     expect(prompt).toContain("no remote and nothing to push");
+  });
+
+  it("is read back from the directory it ran in, not from the desk's root (R-30)", async () => {
+    const session = (await app.inject({ url: "/api/sessions/vk-desk-1" })).json();
+    expect(session.cwd).toMatch(/^\d{4}-\d{2}-\d{2}-compare-car-insurance$/);
+
+    // Claude files a conversation under the directory it was started in.
+    const conv = "11111111-2222-4333-8444-555555555555";
+    const taskDir = fs.realpathSync(path.join(reposDir, "desk", session.cwd));
+    fs.writeFileSync(path.join(process.env.SESSIONS_DIR ?? "", "vk-desk-1.conv"), conv);
+    const transcript = transcriptPath(taskDir, conv);
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(
+      transcript,
+      JSON.stringify({
+        type: "assistant",
+        uuid: "a1",
+        timestamp: "2026-09-21T10:00:00.000Z",
+        message: { role: "assistant", content: [{ type: "text", text: "Three offers tabled." }] },
+      }) + "\n",
+    );
+
+    const chat = (await app.inject({ url: "/api/sessions/vk-desk-1/chat" })).json();
+    expect(chat.messages.map((m: { text: string }) => m.text)).toEqual(["Three offers tabled."]);
   });
 
   it("gives a second task of the same name a directory of its own", async () => {
