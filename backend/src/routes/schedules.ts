@@ -72,6 +72,14 @@ export default async function scheduleRoutes(app: FastifyInstance) {
     },
   );
 
+  /** Take the wave-off back: the undo on the card that was just dismissed. */
+  app.post<{ Params: { id: string } }>("/api/schedules/:id/undismiss", async (req, reply) => {
+    if (!(await store.undismissRun(req.params.id))) {
+      return reply.code(404).send({ error: "no such schedule" });
+    }
+    return { ok: true };
+  });
+
   app.post<{
     Body: {
       name: string;

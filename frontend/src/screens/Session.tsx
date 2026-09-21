@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import type {
   BranchSync,
@@ -13,6 +13,7 @@ import type {
 import { agoLabel, api, durLabel, usePoll } from "../api";
 import { diffLineClass } from "../diff";
 import { highlight } from "../highlight";
+import { lineRange } from "../lineRange";
 import { Badge, useNeedsYou } from "../components/Tabs";
 import TopBar, { BackButton } from "../components/TopBar";
 import { AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
@@ -51,6 +52,11 @@ interface Viewed {
    * also what says whether this file can be edited.
    */
   etag?: string;
+  /**
+   * The line to open on, 1-based. A search hit used to open its file at the
+   * top, and the one line you tapped was somewhere in a few hundred (F-36).
+   */
+  line?: number;
 }
 
 const SIDE_KEY = "vk.session.sideWidth";
@@ -368,7 +374,7 @@ export default function Session() {
     }
   }
 
-  async function openFile(path: string) {
+  async function openFile(path: string, line?: number) {
     if (!session) return;
     // Whatever was being edited is not this file.
     setDraft(null);
@@ -381,7 +387,7 @@ export default function Session() {
       const f = await api<FileContent>(
         `/api/projects/${session.project}/file?path=${encodeURIComponent(path)}`,
       );
-      setFile({ ...f, kind: "text" });
+      setFile({ ...f, kind: "text", line });
     } catch (e) {
       setFile({ path, content: `— ${(e as Error).message} —`, kind: "text" });
     }
@@ -538,6 +544,26 @@ export default function Session() {
   // What was highlighted is only worth drawing over the text it was made from:
   // the next file opens with the one before it still in state.
   const highlighted = done && done.of === file?.content ? done.html : null;
+
+  /**
+   * Open on the line a search hit named: scrolled a third of the way down the
+   * viewer, and marked where the browser can mark a range without touching
+   * the markup (the CSS highlight API). Run again when the highlighted HTML
+   * replaces the plain text, which is a different element drawing the same
+   * lines.
+   */
+  const textRef = useRef<HTMLPreElement>(null);
+  useLayoutEffect(() => {
+    const pre = textRef.current;
+    if (!pre || !file?.line) return;
+    const range = lineRange(pre, file.line);
+    if (!range) return;
+    const box = pre.getBoundingClientRect();
+    pre.scrollTop += range.getBoundingClientRect().top - box.top - box.height / 3;
+    if (!("highlights" in CSS)) return;
+    CSS.highlights.set("vk-line", new Highlight(range));
+    return () => void CSS.highlights.delete("vk-line");
+  }, [file, highlighted]);
 
   // A session id the pod does not have used to sit on its skeletons for ever,
   // which is exactly what a push notification tapped after the session was
@@ -1359,14 +1385,20 @@ export default function Session() {
                 ))}
               </pre>
             ) : highlighted !== null ? (
-              <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
+              <pre
+                ref={textRef}
+                className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap"
+              >
                 <code
                   className="hljs !bg-transparent"
                   dangerouslySetInnerHTML={{ __html: highlighted }}
                 />
               </pre>
             ) : (
-              <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text">
+              <pre
+                ref={textRef}
+                className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text"
+              >
                 {file.content}
               </pre>
             )}
