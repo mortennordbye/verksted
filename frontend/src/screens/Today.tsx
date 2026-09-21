@@ -211,12 +211,21 @@ function Composer({ name }: { name: string }) {
   const [reply, setReply] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const busy = asked !== null && reply === null && error === null;
+  /**
+   * Whether the answer's sheet is up. Its own state rather than `asked`,
+   * because the sheet refused to close while the turn ran — and a turn is
+   * allowed eleven minutes. The turn is posted to the thread either way, so
+   * putting the sheet away loses nothing; the line under the composer brings
+   * it back.
+   */
+  const [shown, setShown] = useState(false);
 
   async function send() {
     const value = text.trim();
     if (!value || busy) return;
     setText("");
     setAsked(value);
+    setShown(true);
     setReply(null);
     setError(null);
     try {
@@ -274,14 +283,24 @@ function Composer({ name }: { name: string }) {
           </button>
         </div>
       </div>
-      {asked !== null && (
-        <Sheet
-          title={name}
-          sub={asked}
-          onClose={() => {
-            if (!busy) setAsked(null);
-          }}
-        >
+      {asked !== null && !shown && (
+        <div className="mt-2 flex items-center gap-2 px-1 text-[12.5px] text-muted">
+          {busy && (
+            <span className="inline-block h-2 w-2 flex-none animate-pulse rounded-full bg-accent" />
+          )}
+          <span className="min-w-0 flex-1 truncate">
+            {busy ? "working on " : "answered "}“{asked}”
+          </span>
+          <button
+            onClick={() => setShown(true)}
+            className="tap flex-none text-accent hover:underline"
+          >
+            show
+          </button>
+        </div>
+      )}
+      {asked !== null && shown && (
+        <Sheet title={name} sub={asked} onClose={() => setShown(false)}>
           {busy && (
             <div className="flex items-center gap-2 text-[12.5px] text-muted">
               <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />

@@ -124,7 +124,7 @@ export default function TopBar({
     // the page's own ground with a hairline, the bar and whatever scrolled
     // under it read as one surface.
     <header
-      className={`sticky top-0 z-20 flex flex-none transform-gpu items-center gap-3 border-b border-line-strong bg-surface/95 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top))] shadow-[0_6px_20px_rgba(0,0,0,.35)] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top))] ${className}`}
+      className={`sticky top-0 z-20 flex flex-none transform-gpu items-center gap-3 border-b border-line-strong bg-surface/95 px-[18px] py-2.5 pt-[max(10px,env(safe-area-inset-top),var(--banner-h,0px))] shadow-[0_6px_20px_rgba(0,0,0,.35)] backdrop-blur-md min-[800px]:py-3.5 min-[800px]:pt-[max(14px,env(safe-area-inset-top),var(--banner-h,0px))] ${className}`}
     >
       {/* A phone's way up, where the bar has no room for the screens. On a wide
           screen every screen carries the same row of doors and the trail's own

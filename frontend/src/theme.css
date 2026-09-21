@@ -372,3 +372,15 @@ select:focus-visible {
    home indicator, so a bar padded for the indicator floats above the keys with
    a dead band under it — and on a phone that band is conversation. */
 @custom-variant kbd ([data-kbd="1"] &);
+
+/* "The phone tab bar is on screen": four screens mount it, it is gone at 800px
+   and while the keyboard is up. Something else fixed to the bottom of the
+   screen — the new-build banner — sat on top of it and took the tabs with it,
+   so this is how that one knows to stand above it instead. */
+@custom-variant over-tabs {
+  @media (width < 800px) {
+    :root:not([data-kbd="1"]):has([data-tabs]) & {
+      @slot;
+    }
+  }
+}

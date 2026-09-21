@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import type {
   BranchSync,
   FileDiff,
@@ -33,7 +33,7 @@ import Skeleton from "../components/Skeleton";
 import { readStoredNumber, readStored, writeStored } from "../storage";
 import { useAction } from "../useAction";
 import { useConfirm } from "../useConfirm";
-import { useOverlayDismiss } from "../useDismissOnBack";
+import { overlaysSettled, useOverlayDismiss } from "../useDismissOnBack";
 // The screen only sizes to `--vvh` while `data-kbd` is set. With the keyboard
 // down it is `dvh`, which needs none of this and cannot go stale — see the
 // shell below.
@@ -166,6 +166,58 @@ function PaneIcon({
   );
 }
 
+/**
+ * Which pane a phone shows and which tab the side panel is on, in the URL.
+ *
+ * They were state, and iOS evicts a backgrounded app often: coming back to a
+ * session you had left on its diff reopened it on the terminal, every time.
+ * `?side=changes` alone is also how the inbox links straight to a finished
+ * run's diff — arriving at the terminal of a session that has none is a dead
+ * end on a phone, where the sidebar is a tab rather than a column — so a side
+ * with no pane named means the side.
+ *
+ * A hook of its own so the screen's compiler pass does not have to reason
+ * about the `URLSearchParams` it reads, which it takes to be mutable and so
+ * stops trusting every state setter declared after it.
+ */
+function useView() {
+  const location = useLocation();
+  const [params, setParams] = useSearchParams();
+  const named = params.get("side");
+  const side: Side = SIDES.some((s) => s.key === named) ? (named as Side) : "files";
+  const pane: "tree" | "term" =
+    params.get("pane") === "tree" || (params.get("pane") === null && named !== null)
+      ? "tree"
+      : "term";
+  /**
+   * Replaced rather than pushed: a tab is where you are on this screen, not a
+   * place Back should step through. Written once any overlay closing with it
+   * has dropped its own history entry — the phone's picker sheet closes on the
+   * same tap, and a replace landing on the sheet's entry would take the marker
+   * that tells it the entry is its own.
+   */
+  const show = (next: { pane?: "tree" | "term"; side?: Side }) => {
+    const nextPane = next.pane ?? pane;
+    const nextSide = next.side ?? side;
+    void overlaysSettled().then(() =>
+      setParams(
+        (cur) => {
+          const out = new URLSearchParams(cur);
+          out.delete("pane");
+          out.delete("side");
+          if (nextPane === "tree" || nextSide !== "files") {
+            out.set("pane", nextPane);
+            out.set("side", nextSide);
+          }
+          return out;
+        },
+        { replace: true, state: location.state },
+      ),
+    );
+  };
+  return { pane, side, show };
+}
+
 export default function Session() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -175,10 +227,7 @@ export default function Session() {
   const location = useLocation();
   const { sync } = (location.state ?? {}) as { sync?: BranchSync };
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
-  // ?side=changes is how the inbox links straight to a finished run's diff:
-  // arriving at the terminal of a session that has none is a dead end on a
-  // phone, where the sidebar is a tab rather than a column.
-  const wantsSide = new URLSearchParams(location.search).get("side");
+  const { pane, side, show } = useView();
   const { data: session, notFound } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<Tree>(
     session ? `/api/projects/${session.project}/tree` : null,
@@ -193,8 +242,6 @@ export default function Session() {
   // keeps its own poll for every other screen; one extra GET every two minutes
   // on a desktop session is cheaper than a context for two call sites.
   const waiting = useNeedsYou();
-  const [pane, setPane] = useState<"tree" | "term">(wantsSide === "changes" ? "tree" : "term");
-  const [side, setSide] = useState<Side>(wantsSide === "changes" ? "changes" : "files");
   // Companion panes next to the agent terminal; on desktop all three can
   // share the screen, on mobile exactly one is visible at a time.
   const [shell, setShell] = useState(false);
@@ -576,7 +623,7 @@ export default function Session() {
             10px it sat under the Dynamic Island — eight keys that could be seen
             and not pressed. The inset costs rows the keyboard was going to take
             anyway; keys nobody can hit cost all of them. */}
-        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-[max(10px,env(safe-area-inset-top))] pb-0 desk:pt-[18px] desk:pb-6">
+        <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col px-[18px] pt-[max(10px,env(safe-area-inset-top),var(--banner-h,0px))] pb-0 desk:pt-[18px] desk:pb-6">
           {/* Phone folds this row into the pane strip below: four stacked bars
               before the first terminal row left the agent a fifth of the
               screen. The title lives in the top bar crumb there instead. */}
@@ -816,7 +863,7 @@ export default function Session() {
                   <button
                     key={t}
                     aria-pressed={side === t}
-                    onClick={() => setSide(t)}
+                    onClick={() => show({ side: t })}
                     className={`tap-hit flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] ${
                       side === t
                         ? "border-accent bg-surface-2 text-text"
@@ -894,7 +941,7 @@ export default function Session() {
                     // more — but it does not cover the camera, and zeroing the
                     // top inset too put the key bar under the Dynamic Island,
                     // where it could be seen and not pressed.
-                    "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col overflow-hidden bg-term pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:pb-0"
+                    "fixed inset-x-0 top-0 z-50 flex h-dvh flex-col overflow-hidden bg-term pt-[max(env(safe-area-inset-top),var(--banner-h,0px))] pr-[env(safe-area-inset-right)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] kbd:top-[var(--vvt,0px)] kbd:h-[var(--vvh,100dvh)] kbd:pb-0"
                   : // Square-bottomed and edge-to-edge on a phone, because it now
                     // ends where the screen does; the home-indicator inset is
                     // padding inside it, so its own background carries under the
@@ -1089,10 +1136,7 @@ export default function Session() {
                 label: sd.label,
                 hint: sd.hint,
                 on: pane === "tree" && side === sd.key,
-                go: () => {
-                  setPane("tree");
-                  setSide(sd.key);
-                },
+                go: () => show({ pane: "tree", side: sd.key }),
               })),
               ...views.map((v) => ({
                 key: v,
@@ -1100,7 +1144,7 @@ export default function Session() {
                 hint: viewHint(v),
                 on: pane === "term" && viewOn(v),
                 go: () => {
-                  setPane("term");
+                  show({ pane: "term" });
                   pickView(v);
                 },
               })),

@@ -34,7 +34,8 @@ function size(bytes: number): string {
 
 export default function Docs() {
   // The folder is in the URL, so back goes up rather than off the screen, and
-  // a document you were looking at is a link somebody can be sent.
+  // a folder is a link somebody can be sent. The open document is not (yet):
+  // see BACKLOG, "An open file or document is not in the URL".
   const [params, setParams] = useSearchParams();
   const dir = params.get("path") ?? "";
   const [query, setQuery] = useState("");

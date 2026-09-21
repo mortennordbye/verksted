@@ -24,9 +24,11 @@ export default function UpdateBanner() {
     },
   });
 
+  // Above the phone tab bar where there is one: it used to cover it, so the
+  // app told you it had a new build by taking away the way around it.
   if (!needRefresh) return null;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 flex items-center gap-3 border-t border-line bg-surface px-[18px] py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] text-[13px] text-muted">
+    <div className="fixed inset-x-0 bottom-0 z-50 flex items-center gap-3 border-t border-line bg-surface px-[18px] py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] text-[13px] text-muted over-tabs:bottom-[calc(55px+env(safe-area-inset-bottom))] over-tabs:pb-2.5">
       <span className="min-w-0 flex-1">a new build of verksted is ready</span>
       <button
         onClick={() => void updateServiceWorker(true)}

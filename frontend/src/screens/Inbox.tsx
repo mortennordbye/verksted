@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
@@ -407,11 +407,29 @@ export default function Inbox() {
   const { data: items, error: feedError, refresh } = usePoll<FeedItem[]>("/api/feed", 15_000);
   const { data: sessions } = usePoll<Session[]>("/api/sessions", 8_000);
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
-  const [source, setSource] = useState<FeedSource | "all">("all");
-  const [showDone, setShowDone] = useState(false);
+  /**
+   * The filters, in the URL. They were state, so a reload — or iOS bringing
+   * back an app it had evicted, which it does often — put the inbox back on
+   * "all" with the done and quiet items folded away, whatever you had been
+   * working through.
+   */
+  const [params, setParams] = useSearchParams();
+  const source: FeedSource | "all" = SOURCES.find((s) => s === params.get("source")) ?? "all";
+  const showDone = params.get("done") === "1";
   // Quiet items are the routine: shown on asking, so the ones that matter are
   // not a scroll down past thirty of them.
-  const [showQuiet, setShowQuiet] = useState(false);
+  const showQuiet = params.get("quiet") === "1";
+  /** Replaced, not pushed: a filter is how you are looking, not where you went. */
+  const filter = (key: "source" | "done" | "quiet", value: string | null) =>
+    setParams(
+      (cur) => {
+        const out = new URLSearchParams(cur);
+        if (value === null) out.delete(key);
+        else out.set(key, value);
+        return out;
+      },
+      { replace: true },
+    );
   // The list's own two writes. Apart, because triage is a model call that can
   // take minutes and must not hold up undo while it runs.
   const { busy: clearing, error: listError, run: runList } = useAction();
@@ -618,7 +636,7 @@ export default function Inbox() {
             {(["all", ...present] as (FeedSource | "all")[]).map((s) => (
               <button
                 key={s}
-                onClick={() => setSource(s)}
+                onClick={() => filter("source", s === "all" ? null : s)}
                 aria-pressed={source === s}
                 className={`tap rounded-full border px-2.5 py-1 text-[11.5px] ${
                   source === s
@@ -663,7 +681,7 @@ export default function Inbox() {
               </button>
             )}
             <button
-              onClick={() => setShowDone((d) => !d)}
+              onClick={() => filter("done", showDone ? null : "1")}
               aria-pressed={showDone}
               className={`tap rounded-[7px] border px-2.5 py-1 text-[11.5px] ${
                 showDone ? "border-accent/50 text-accent" : "border-line text-faint"
@@ -717,7 +735,7 @@ export default function Inbox() {
                 action={
                   s.key === "quiet" ? (
                     <button
-                      onClick={() => setShowQuiet((q) => !q)}
+                      onClick={() => filter("quiet", showQuiet ? null : "1")}
                       aria-expanded={showQuiet}
                       className="tap flex-none rounded-[7px] border border-line px-2.5 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
                     >

@@ -17,6 +17,18 @@ const goBack = async () => {
   });
 };
 
+/**
+ * Back as the browser does it: the traversal lands a task later and fires its
+ * own popstate. For the cases that have to see what happens after that task,
+ * which is where a declined close puts its entry back.
+ */
+const realBack = async () => {
+  await act(async () => {
+    history.back();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+};
+
 describe("useDismissOnBack", () => {
   beforeEach(() => {
     history.replaceState(null, "", "/s/vk-demo-1");
@@ -115,6 +127,35 @@ describe("useDismissOnBack", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect((history.state as { vkOverlay?: boolean }).vkOverlay).toBe(true);
     expect(history.length).toBe(before + 1);
+  });
+
+  /**
+   * F-10. A sheet running a git pull or a delete ignores its onClose, and the
+   * browser had popped the entry regardless — so the sheet stayed up with
+   * nothing under it, and the next Back left the screen from behind it,
+   * mid-operation. On Today that was a sheet you could not leave for eleven
+   * minutes, followed by a Back that took the whole screen with it.
+   */
+  it("puts its entry back when the overlay declines to close", async () => {
+    const declined = vi.fn();
+    renderHook(() => useDismissOnBack(true, declined));
+    await realBack();
+
+    expect(declined).toHaveBeenCalledTimes(1);
+    expect((history.state as { vkOverlay?: boolean }).vkOverlay).toBe(true);
+    // And the next Back is the overlay's again, not the screen's.
+    await realBack();
+    expect(declined).toHaveBeenCalledTimes(2);
+    expect(location.pathname).toBe("/s/vk-demo-1");
+  });
+
+  it("does not put it back for an overlay that did close", async () => {
+    let close = () => {};
+    const { unmount } = renderHook(() => useDismissOnBack(true, () => close()));
+    close = unmount;
+    await realBack();
+
+    expect((history.state as { vkOverlay?: boolean } | null)?.vkOverlay).toBeUndefined();
   });
 
   it("does not re-push when the callback identity changes each render", () => {

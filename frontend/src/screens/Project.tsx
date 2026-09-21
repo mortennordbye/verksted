@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import type {
   AgentName,
   CreatedSession,
@@ -18,7 +18,9 @@ import PollError from "../components/PollError";
 import SectionLabel from "../components/SectionLabel";
 
 /** Each view of a project wears the drawing of what it lists. */
-const TAB_ICON: Record<"sessions" | "prs" | "actions" | "schedules", IconName> = {
+const TABS = ["sessions", "prs", "actions", "schedules"] as const;
+
+const TAB_ICON: Record<(typeof TABS)[number], IconName> = {
   sessions: "terminal",
   prs: "pr",
   actions: "play",
@@ -115,7 +117,10 @@ export default function Project() {
   const [branchBusy, setBranchBusy] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"sessions" | "prs" | "actions" | "schedules">("sessions");
+  // In the URL, as Settings does it: a reload, or iOS bringing back an app it
+  // had evicted, used to land on the sessions tab whatever you were reading.
+  const [params, setParams] = useSearchParams();
+  const tab = TABS.find((t) => t === params.get("tab")) ?? "sessions";
   const [confirm, confirmDialog] = useConfirm();
 
   const active = sessions?.filter((s) => s.status !== "done") ?? [];
@@ -281,11 +286,11 @@ export default function Project() {
           aria-label="project view"
           className="mt-6 mb-4 flex gap-1.5 overflow-x-auto border-b border-line pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
-          {(["sessions", "prs", "actions", "schedules"] as const).map((t) => (
+          {TABS.map((t) => (
             <button
               key={t}
               aria-pressed={tab === t}
-              onClick={() => setTab(t)}
+              onClick={() => setParams(t === "sessions" ? {} : { tab: t }, { replace: true })}
               className={`tap flex flex-none items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12.5px] ${
                 tab === t
                   ? "border-accent bg-surface-2 text-text"
