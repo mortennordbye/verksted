@@ -71,7 +71,7 @@ function RunRow({ run, onClick }: { run: WorkflowRun; onClick: () => void }) {
     // as a div there was no way to reach it without a pointer.
     <button
       onClick={onClick}
-      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border border-line bg-surface px-[15px] py-[13px] text-left transition hover:border-faint ${live ? "" : "opacity-60"}`}
+      className={`flex w-full cursor-pointer items-center gap-3 rounded-[11px] border px-[15px] py-[13px] text-left transition hover:border-faint ${live ? "border-line bg-surface" : "border-line/60 bg-transparent"}`}
     >
       <StatusDot running={live} />
       <div className="min-w-0 flex-1">
