@@ -1,6 +1,7 @@
 import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import { openPalette } from "../palette";
 import { Badge, isTabRoute, TabLinks, useNeedsYou } from "./Tabs";
+import Icon from "./Icon";
 
 /**
  * The way up, as a pop rather than a push: pushing meant the browser's own Back
@@ -202,24 +203,11 @@ export default function TopBar({
             does not have, and nothing on a desk said it was there. */}
         <button
           onClick={openPalette}
-          title="jump to a project or session (⌘K)"
-          aria-label="jump to…"
+          title="search projects, sessions, the inbox and documents (⌘K)"
+          aria-label="search…"
           className="tap-sq flex flex-none items-center text-faint hover:text-text"
         >
-          <svg
-            viewBox="0 0 24 24"
-            width="17"
-            height="17"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.4-3.4" />
-          </svg>
+          <Icon name="search" size={17} />
         </button>
         <IconLink to="/settings" title="settings" label="Settings">
           <circle cx="12" cy="12" r="3" />

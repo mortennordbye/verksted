@@ -113,7 +113,7 @@ describe("the jump-to palette", () => {
         <App />
       </MemoryRouter>,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "jump to…" }));
-    expect(await screen.findByRole("dialog", { name: "Jump to" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "search…" }));
+    expect(await screen.findByRole("dialog", { name: "Search" })).toBeTruthy();
   });
 });

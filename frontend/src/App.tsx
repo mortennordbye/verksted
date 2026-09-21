@@ -1,13 +1,14 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate } from "react-router";
 import CommandPalette from "./components/CommandPalette";
+import ShortcutSheet from "./components/ShortcutSheet";
 import ConnectionBanner from "./components/ConnectionBanner";
 import ErrorBoundary from "./components/ErrorBoundary";
 import HashScroll from "./components/HashScroll";
 import Skeleton, { SkeletonList } from "./components/Skeleton";
 import UpdateBanner from "./components/UpdateBanner";
 import { Toaster } from "./components/ui/Toast";
-import { onPaletteAsked } from "./palette";
+import { onPaletteAsked, onShortcutsAsked } from "./palette";
 import Hub from "./screens/Hub";
 import NotFound from "./screens/NotFound";
 import Today from "./screens/Today";
@@ -77,6 +78,23 @@ export default function App() {
   // And the top bar's button, which is the phone's way in.
   useEffect(() => onPaletteAsked(() => setPalette(true)), []);
 
+  // `?` for the list of every other key, when it is not being typed into a
+  // field or pressed behind a dialog that has keys of its own.
+  const [shortcuts, setShortcuts] = useState(false);
+  useEffect(() => onShortcutsAsked(() => setShortcuts(true)), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "?" || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
+      if (document.querySelector('[role="dialog"]')) return;
+      e.preventDefault();
+      setShortcuts(true);
+    };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <>
       {/* Outside the boundary: both banners have to survive a screen crash —
@@ -84,6 +102,7 @@ export default function App() {
           cause of the crash in the first place. */}
       <ConnectionBanner />
       {palette && <CommandPalette onClose={() => setPalette(false)} />}
+      {shortcuts && <ShortcutSheet onClose={() => setShortcuts(false)} />}
       <ErrorBoundary>
         <HashScroll />
         <Suspense fallback={<ScreenFallback />}>
