@@ -37,7 +37,25 @@ export class GmailDenied extends Error {}
 /** A rule or a relabel with nothing to match or nothing to do. */
 export class RuleRefused extends Error {}
 
-async function accessToken(config: GmailConfig): Promise<string> {
+/**
+ * The access token, kept for as long as Google says it lasts (A-23).
+ *
+ * Every call used to trade the refresh token first, so setting up one filter
+ * with a new label was four trades and six requests where two would do, and
+ * each trade is a round trip to another continent before the one that matters.
+ * Keyed by what it was traded for, so signing in again or changing the client
+ * never serves the old account's token.
+ */
+let held: { key: string; token: string; until: number } | null = null;
+
+/** Forget the token. For tests, and for a call Google answered 401. */
+export function resetTokenCache(): void {
+  held = null;
+}
+
+async function accessToken(config: GmailConfig, now = Date.now()): Promise<string> {
+  const key = `${config.clientId}\n${config.refreshToken}`;
+  if (held && held.key === key && now < held.until) return held.token;
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -51,6 +69,7 @@ async function accessToken(config: GmailConfig): Promise<string> {
   });
   const body = (await res.json().catch(() => ({}))) as {
     access_token?: string;
+    expires_in?: number;
     error?: string;
     error_description?: string;
   };
@@ -59,6 +78,10 @@ async function accessToken(config: GmailConfig): Promise<string> {
       `could not refresh the Google token: ${body.error_description ?? body.error ?? res.status}`,
     );
   }
+  // A minute short of what Google says, so a token is never sent in its last
+  // seconds; one with no lifetime given is used once, as before.
+  const life = typeof body.expires_in === "number" ? (body.expires_in - 60) * 1000 : 0;
+  held = life > 0 ? { key, token: body.access_token, until: now + life } : null;
   return body.access_token;
 }
 
@@ -109,6 +132,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       if (res.ok) throw new GmailUnavailable("Gmail answered with something unreadable");
     }
     if (!res.ok) {
+      // Revoked or expired early: the next call trades for a new one.
+      if (res.status === 401) resetTokenCache();
       const message = data.error?.message ?? (res.statusText || String(res.status));
       if (res.status === 403) {
         throw new GmailDenied(
@@ -137,14 +162,20 @@ export async function labels(): Promise<GmailLabel[]> {
 }
 
 /** The label's id, creating it first if the account has none by that name. */
-async function labelId(name: string): Promise<string> {
-  const existing = (await labels()).find((l) => l.name === name);
-  if (existing) return existing.id;
+/**
+ * The id of a label, made if it is not there. `known` is the listing the
+ * caller already has, name to id: each caller used to be listed for again
+ * here, and once more after. What is made is added to it.
+ */
+async function labelId(name: string, known: Map<string, string>): Promise<string> {
+  const existing = known.get(name);
+  if (existing) return existing;
   const created = await call<RawLabel>("POST", "/labels", {
     name,
     labelListVisibility: "labelShow",
     messageListVisibility: "show",
   });
+  known.set(name, created.id);
   return created.id;
 }
 
@@ -205,7 +236,8 @@ export function checkRule(fields: RuleFields): void {
  */
 export async function createRule(fields: RuleFields): Promise<GmailRule> {
   checkRule(fields);
-  const addLabelIds = fields.label ? [await labelId(fields.label)] : [];
+  const known = new Map((await labels()).map((l) => [l.name, l.id]));
+  const addLabelIds = fields.label ? [await labelId(fields.label, known)] : [];
   const removeLabelIds = [
     ...(fields.archive ? ["INBOX"] : []),
     ...(fields.markRead ? ["UNREAD"] : []),
@@ -221,8 +253,7 @@ export async function createRule(fields: RuleFields): Promise<GmailRule> {
       ...(removeLabelIds.length ? { removeLabelIds } : {}),
     },
   });
-  const ls = await labels();
-  return ruleOf(raw, new Map(ls.map((l) => [l.id, l.name])));
+  return ruleOf(raw, new Map([...known].map(([name, id]) => [id, name])));
 }
 
 export async function deleteRule(id: string): Promise<void> {
@@ -305,7 +336,7 @@ export async function relabel(fields: RelabelFields): Promise<number> {
   if (!ids.length) return 0;
   const addLabelIds: string[] = [];
   for (const name of add) {
-    addLabelIds.push(SYSTEM_LABELS.has(name) ? name : (own.get(name) ?? (await labelId(name))));
+    addLabelIds.push(SYSTEM_LABELS.has(name) ? name : await labelId(name, own));
   }
   await call<unknown>("POST", "/messages/batchModify", { ids, addLabelIds, removeLabelIds });
   // The ids, because the search is not a record: what it finds tomorrow is not
