@@ -18,10 +18,19 @@ msg_file="$1"
 # POSIX awk rather than python3 or sed -i: a commit hook that fails is a commit
 # an agent cannot make, so this leans on what is guaranteed to be present.
 tmp_file="$msg_file.verksted-tmp"
+#
+# Every agent this pod runs, not only claude: codex and agy sign their work
+# too, and a co-author line naming any of them puts that name in the
+# contributors panel just the same. A bot's own trailer on its own commit
+# (dependabot) is not an agent's and stays. The "generated with" footer may
+# open with the robot emoji, hence the non-letters allowed before it, and names
+# the agent straight after, which is what keeps a body line about a generated
+# file out of it.
 awk '
-  tolower($0) ~ /^claude-session:/            { next }
-  tolower($0) ~ /^co-authored-by:.*claude/    { next }
-  tolower($0) ~ /^generated with.*claude/     { next }
+  { l = tolower($0) }
+  l ~ /^claude-session:/                                                  { next }
+  l ~ /^co-authored-by:.*(claude|anthropic|codex|openai|chatgpt|gemini|antigravity|jules)/ { next }
+  l ~ /^[^a-z]*generated (with|by) \[?(claude|codex|openai|chatgpt|gemini|antigravity)/ { next }
   { lines[++n] = $0 }
   END {
     while (n > 0 && lines[n] ~ /^[ \t]*$/) n--

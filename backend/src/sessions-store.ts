@@ -753,6 +753,13 @@ async function launchAgent(
   // can watch in the UI. POST /api/sessions/$VK_SESSION_ID/browser/start boots
   // it if nothing is connected yet.
   extraEnv.VK_SESSION_ID = meta.id;
+  // A repo's own core.hooksPath (husky sets one) outranks the system-wide one
+  // the attribution stripper is installed with, so in such a repo it never
+  // ran. Configuration given in the environment outranks the repo's, and the
+  // shipped hooks run the repo's own, husky's included (runtime/git-hooks).
+  extraEnv.GIT_CONFIG_COUNT = "1";
+  extraEnv.GIT_CONFIG_KEY_0 = "core.hooksPath";
+  extraEnv.GIT_CONFIG_VALUE_0 = "/etc/verksted/git-hooks";
   extraEnv.VK_BROWSER_CDP = `http://127.0.0.1:${meta.cdpPort ?? (await cdpPortFor(meta.id))}`;
   let command = base;
   if (meta.agent === "claude") {
