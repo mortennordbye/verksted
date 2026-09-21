@@ -19,8 +19,15 @@ const run = promisify(execFile);
 const SECRET_ASSIGNMENT =
   /\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSPHRASE|CREDENTIAL|_KEY|APIKEY)[A-Za-z0-9_]*)=\S+/g;
 
+/**
+ * The other place a credential travels: a remote written as
+ * `https://user:token@host/…`. git names the remote in most of what it says
+ * when a fetch or push fails, and the first line of that is shown to the client.
+ */
+const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi;
+
 export function redactSecrets(text: string): string {
-  return text.replace(SECRET_ASSIGNMENT, "$1=***");
+  return text.replace(SECRET_ASSIGNMENT, "$1=***").replace(URL_USERINFO, "$1***@");
 }
 
 /**
@@ -31,6 +38,17 @@ export function redactSecrets(text: string): string {
  * surface depends on. The signature says so rather than leaving the shell form
  * available.
  */
+/**
+ * How long a command gets when its caller did not say.
+ *
+ * None was the default, and several of these run inside a queue: session
+ * creation is serialised, so one `tmux new-session` that never came back held
+ * every later create behind it, the scheduler's included, until the pod was
+ * restarted. A minute is far past anything here that is working. A caller with
+ * a reason to wait longer passes its own `timeout`, and 0 still means none.
+ */
+const DEFAULT_TIMEOUT_MS = 60_000;
+
 export async function exec(
   file: string,
   args: readonly string[],
@@ -38,7 +56,11 @@ export async function exec(
 ): Promise<{ stdout: string; stderr: string }> {
   try {
     // No caller asks for a buffer, and the option is not in this signature.
-    return (await run(file, args as string[], opts)) as { stdout: string; stderr: string };
+    const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
+    return (await run(file, args as string[], { ...opts, timeout })) as {
+      stdout: string;
+      stderr: string;
+    };
   } catch (err) {
     // In place, so callers keep reading stderr, code and killed off the same
     // error they always did.

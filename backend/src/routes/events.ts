@@ -1,3 +1,4 @@
+import type { Writable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { subscribe } from "../events.js";
 
@@ -11,6 +12,59 @@ import { subscribe } from "../events.js";
  * The topics are published only on change, and on a quiet bench that is never.
  */
 const PING_MS = 10_000;
+
+/**
+ * How many streams at once. A tab holds one and the app runs on a handful of
+ * devices; past this it is a page reconnecting in a loop or something on the
+ * VPN that is not the app, and each one is a subscriber every publish writes to.
+ */
+const MAX_STREAMS = 32;
+
+/**
+ * How much unsent stream one client may hold before its frames are held back.
+ *
+ * A phone that is suspended keeps its socket and reads nothing. `write` does
+ * not fail for that, it buffers, so every change on the bench was kept for it
+ * in this process's memory, a whole session list at a time, until the tunnel
+ * finally dropped. A frame is the whole of its topic, so holding only the
+ * newest per topic loses nothing: that is all the client wanted anyway.
+ */
+const HIGH_WATER = 256 * 1024;
+/** A client that has read nothing for this long is cut off; EventSource comes back. */
+const STALLED_MS = 60_000;
+
+/** Writes to one client, held back while it is not reading. Exported for its test. */
+export function paced(res: Writable): {
+  ping: () => void;
+  send: (topic: string, json: string) => void;
+} {
+  const clogged = () => res.writableLength > HIGH_WATER;
+  const write = (topic: string, json: string) => res.write(`event: ${topic}\ndata: ${json}\n\n`);
+  // The newest frame per topic that a clogged client has not been sent.
+  const held = new Map<string, string>();
+  let stalledSince = 0;
+  res.on("drain", () => {
+    stalledSince = 0;
+    for (const [topic, json] of held) {
+      held.delete(topic);
+      write(topic, json);
+      if (clogged()) break;
+    }
+  });
+  return {
+    ping: () => {
+      if (!clogged()) return void write("ping", "{}");
+      // No ping either: its silence is how the client learns the stream is not
+      // delivering, which is true.
+      stalledSince ||= Date.now();
+      if (Date.now() - stalledSince > STALLED_MS) res.destroy();
+    },
+    send: (topic, json) => {
+      if (clogged() || held.size) held.set(topic, json);
+      else write(topic, json);
+    },
+  };
+}
 
 export default async function eventRoutes(app: FastifyInstance) {
   /**
@@ -39,6 +93,9 @@ export default async function eventRoutes(app: FastifyInstance) {
    * readable endpoint any page on the VPN could open cross-origin.
    */
   app.get("/api/events", (req, reply) => {
+    if (open.size >= MAX_STREAMS) {
+      return reply.code(503).header("retry-after", "5").send({ error: "too many event streams" });
+    }
     reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
@@ -52,12 +109,10 @@ export default async function eventRoutes(app: FastifyInstance) {
     reply.raw.write("retry: 2000\n\n");
     // At once, so a client that connects to a bench where nothing is happening
     // knows the stream works without waiting out a whole ping interval.
-    const ping = () => reply.raw.write("event: ping\ndata: {}\n\n");
+    const { ping, send } = paced(reply.raw);
     ping();
 
-    const detach = subscribe((topic, json) => {
-      reply.raw.write(`event: ${topic}\ndata: ${json}\n\n`);
-    });
+    const detach = subscribe(send);
 
     const pings = setInterval(ping, PING_MS);
     pings.unref?.();

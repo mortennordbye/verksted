@@ -154,7 +154,10 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
       : false,
   });
 
-  await app.register(websocket);
+  // What a client sends over a socket here is keystrokes, a paste, a resize or
+  // a pointer move. The library's own ceiling is 100 MiB a message, read whole
+  // into memory and handed to JSON.parse.
+  await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
   await app.register(projectRoutes);
   await app.register(sessionRoutes);
   await app.register(fileRoutes);
