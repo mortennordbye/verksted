@@ -49,7 +49,8 @@ if there is one, and `CLAUDE_*` (the sign-in). `GH_TOKEN`, the other agents'
 keys and the backend's own variables do not reach the CLI or the MCP servers it
 starts. Headroom's URL and password go only to a speaker that is offered
 headroom. To give a turn another variable, add it to `TURN_ENV_KEYS` in
-`assistant.ts`.
+`assistant-policy.ts`, which holds everything in this section: the built-ins,
+the rules, the MCP config and the environment.
 
 Everything else is the verksted MCP server (`runtime/verksted-mcp.mjs`), plus
 two that are the chair's alone: a headless Chromium it can navigate, click and

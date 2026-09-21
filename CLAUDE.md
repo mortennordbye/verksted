@@ -260,6 +260,7 @@ backend/src/
 ├── sweeper.ts        # the job that writes what reads used to: ends, measurements
 ├── serial.ts         # one chain per key, for read-modify-write over one file
 ├── assistant.ts      # the assistant and its council: turns and tools
+├── assistant-policy.ts# a speaker's argv and env: built-ins, rules, MCP config
 ├── assistant-taint.ts# what a turn has read closes what it may do next (A-01)
 ├── git.ts            # every git the backend runs, with hooks and textconv off
 ├── gh.ts             # the gh CLI, and what its errors mean
