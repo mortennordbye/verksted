@@ -23,6 +23,7 @@ import PollError from "../components/PollError";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
 import { AgentMark, StatusChip } from "../components/StatusChip";
+import { useUndo } from "../components/UndoBar";
 import Tabs from "../components/Tabs";
 import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
@@ -360,24 +361,42 @@ export default function Today() {
   const items = new Map((feed ?? []).map((i) => [i.id, i] as const));
   const ghDown = (feed ?? []).some((i) => i.id === "github:poller" && i.state !== "done");
 
-  async function dismiss(r: ScheduleRun) {
+  /**
+   * The two taps on this screen that take something off it. Neither asks
+   * first — they are triage, and a question per row is how triage stops
+   * happening — so both offer the way back instead (F-30).
+   */
+  const [offerUndo, undoBar] = useUndo();
+
+  /** A POST, then the list it changed. Says so on the screen if it fails. */
+  async function post(url: string, refresh: () => void, body?: unknown): Promise<boolean> {
     try {
-      await api(`/api/schedules/${r.scheduleId}/dismiss`, {
+      await api(url, {
         method: "POST",
-        body: JSON.stringify({ at: r.at }),
+        body: body === undefined ? undefined : JSON.stringify(body),
       });
-      refreshRuns();
+      refresh();
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }
 
-  async function closeLoop(slug: string) {
-    try {
-      await api(`/api/loops/${slug}/close`, { method: "POST" });
-      refreshLoops();
-    } catch (e) {
-      setError((e as Error).message);
+  async function dismiss(r: ScheduleRun) {
+    const id = r.scheduleId;
+    if (await post(`/api/schedules/${id}/dismiss`, refreshRuns, { at: r.at })) {
+      offerUndo(`waved off “${r.schedule}”`, () =>
+        post(`/api/schedules/${id}/undismiss`, refreshRuns).then(() => undefined),
+      );
+    }
+  }
+
+  async function closeLoop(slug: string, what: string) {
+    if (await post(`/api/loops/${slug}/close`, refreshLoops)) {
+      offerUndo(`closed “${what}”`, () =>
+        post(`/api/loops/${slug}/reopen`, refreshLoops).then(() => undefined),
+      );
     }
   }
 
@@ -594,7 +613,7 @@ export default function Today() {
                           )}
                         </Link>
                         <button
-                          onClick={() => void closeLoop(l.slug)}
+                          onClick={() => void closeLoop(l.slug, l.what)}
                           title="close this loop"
                           aria-label={`close ${l.what}`}
                           className="tap flex-none px-2.5 py-2 text-muted hover:text-wait"
@@ -843,6 +862,7 @@ export default function Today() {
           </aside>
         </div>
       </main>
+      {undoBar}
       <Tabs />
     </div>
   );

@@ -33,7 +33,8 @@ export default function SearchPanel({
   onOpenFile,
 }: {
   project: string;
-  onOpenFile: (path: string) => void;
+  /** `line` is the hit's, so the viewer opens on it rather than at the top. */
+  onOpenFile: (path: string, line?: number) => void;
 }) {
   const [q, setQ] = useState("");
   const [replace, setReplace] = useState("");
@@ -235,7 +236,7 @@ export default function SearchPanel({
               {fileHits.map((h, i) => (
                 <li key={`${h.line}-${i}`}>
                   <button
-                    onClick={() => onOpenFile(path)}
+                    onClick={() => onOpenFile(path, h.line)}
                     className="flex w-full items-baseline gap-2 rounded-md px-2.5 py-0.5 text-left text-muted hover:bg-surface-2 hover:text-text"
                   >
                     <span className="w-7 flex-none text-right text-[11px] text-faint">

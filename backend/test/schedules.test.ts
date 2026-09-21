@@ -323,6 +323,30 @@ describe("the store's own guards", () => {
     expect((await mine())[0].dismissed).toBe(false);
   });
 
+  // F-30. Dismissing is one tap on a card on Today, and had no way back.
+  it("takes a wave-off back", async () => {
+    const store = await import("../src/schedules-store.js");
+    const id = (await create({ name: "undo", project: "demo", cron: CRON, prompt: "x" })).json().id;
+    const mine = async () => (await store.listRuns(100)).filter((r) => r.scheduleId === id);
+    await store.recordRun(id, { sessionId: "vk-demo-30" });
+    fs.writeFileSync(path.join(sessionsDir, "vk-demo-30.report"), "failed: no sign-off\n");
+    await app.inject({
+      method: "POST",
+      url: `/api/schedules/${id}/dismiss`,
+      payload: { at: (await mine())[0].at },
+    });
+    expect((await mine())[0].dismissed).toBe(true);
+
+    const res = await app.inject({ method: "POST", url: `/api/schedules/${id}/undismiss` });
+    expect(res.statusCode).toBe(200);
+    expect((await mine())[0].dismissed).toBe(false);
+  });
+
+  it("404s taking back a wave-off on a schedule it does not have", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/schedules/nope-nope/undismiss" });
+    expect(res.statusCode).toBe(404);
+  });
+
   it("404s a dismissal of a run that never happened", async () => {
     const id = (await create({ name: "nope", project: "demo", cron: CRON, prompt: "x" })).json().id;
     const res = await app.inject({

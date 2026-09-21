@@ -358,6 +358,21 @@ export async function dismissRun(id: string, at: string): Promise<boolean> {
 }
 
 /**
+ * The way back from `dismissRun`. Only the verdict dismissed last is kept, so
+ * forgetting it brings back exactly the card that was waved off: an older one
+ * it replaced was for a verdict the schedule has since moved past.
+ */
+export async function undismissRun(id: string): Promise<boolean> {
+  return await edits(id, async () => {
+    const stored = await readStored(id);
+    if (!stored) return false;
+    const { dismissedVerdict: _dismissed, ...kept } = stored;
+    await write(kept);
+    return true;
+  });
+}
+
+/**
  * Every firing across every schedule, newest first — what happened while you
  * were not looking. Sessions are listed once and matched up here rather than
  * fetched per run: each lookup would otherwise shell out to tmux.

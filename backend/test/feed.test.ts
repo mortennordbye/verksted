@@ -187,6 +187,21 @@ describe("the loops", () => {
     expect((await loops.list("all")).find((l) => l.slug === undated.slug)!.state).toBe("closed");
   });
 
+  // F-30. Closing is one tap beside the row's own link on Today.
+  it("reopens a loop closed by mistake, as the same loop", async () => {
+    const loop = await loops.open({ what: "chase the plumber" });
+    await app.inject({ method: "POST", url: `/api/loops/${loop.slug}/close` });
+    expect((await loops.list()).map((l) => l.slug)).not.toContain(loop.slug);
+
+    const res = await app.inject({ method: "POST", url: `/api/loops/${loop.slug}/reopen` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ slug: loop.slug, state: "open", closedAt: null });
+    expect((await loops.list()).map((l) => l.slug)).toContain(loop.slug);
+
+    const gone = await app.inject({ method: "POST", url: "/api/loops/no-such-loop/reopen" });
+    expect(gone.statusCode).toBe(404);
+  });
+
   it("refuses a due date that is not a date", async () => {
     await expect(loops.open({ what: "x", due: "next week" })).rejects.toThrow(/YYYY-MM-DD/);
   });
