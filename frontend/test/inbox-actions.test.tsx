@@ -69,6 +69,9 @@ const row = async (title: string) => {
   return within(found as HTMLElement);
 };
 
+/** The row a title is on, whether or not it is showing. */
+const rowOf = (title: string) => screen.getByText(title).closest("[id]") as HTMLElement;
+
 describe("a row the pod refuses", () => {
   it("says so, and offers no undo for what did not happen", async () => {
     draw();
@@ -103,5 +106,62 @@ describe("a row the pod refuses", () => {
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("volume is full"));
     expect(screen.queryByRole("button", { name: "undo" })).toBeNull();
+    // And the rows it had hidden on the tap are back.
+    expect(rowOf("second thing").hidden).toBe(false);
+  });
+});
+
+/**
+ * F-32. Every triage tap was two round trips over WireGuard before anything
+ * moved — the POST, then the list read back — and "clear" was a POST per row.
+ */
+describe("a tap on the list", () => {
+  it("takes the row away before the pod has answered", async () => {
+    let answer: ((r: Response) => void) | undefined;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return new Promise<Response>((r) => (answer = r));
+      if (url.startsWith("/api/feed")) return Promise.resolve(json([item]));
+      return Promise.resolve(json([]));
+    });
+    draw();
+    const one = await row("review the parser PR");
+    fireEvent.click(one.getByRole("button", { name: "done" }));
+
+    // Nothing has come back yet, and the row is already out of the way —
+    // hidden rather than removed, so a refusal can bring it back with a reason.
+    await waitFor(() => expect(rowOf("review the parser PR").hidden).toBe(true));
+    expect(answer).toBeTruthy();
+  });
+
+  it("puts it back, with the reason, when the pod refuses", async () => {
+    draw();
+    const one = await row("review the parser PR");
+    fireEvent.click(one.getByRole("button", { name: "done" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("no such item");
+    expect(rowOf("review the parser PR").hidden).toBe(false);
+  });
+
+  it("clears a whole list in one request", async () => {
+    refuse = false;
+    const many = [item, { ...item, id: "github-2", title: "second thing" }];
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === "POST") return Promise.resolve(json({ changed: many.map((i) => i.id) }));
+      if (url.startsWith("/api/feed")) return Promise.resolve(json(many));
+      return Promise.resolve(json([]));
+    });
+    draw();
+    fireEvent.click(await screen.findByRole("button", { name: "clear 2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "mark 2 done" }));
+
+    expect((await screen.findByRole("status")).textContent).toContain("2 marked done");
+    const posts = (fetchMock.mock.calls as [string, RequestInit?][]).filter(
+      ([, init]) => init?.method === "POST",
+    );
+    expect(posts.map(([url]) => url)).toEqual(["/api/feed/state"]);
+    expect(JSON.parse(posts[0][1]!.body as string)).toEqual({
+      ids: ["github-1", "github-2"],
+      state: "done",
+    });
   });
 });

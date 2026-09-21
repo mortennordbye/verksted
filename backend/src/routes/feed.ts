@@ -50,6 +50,45 @@ export default async function feedRoutes(app: FastifyInstance) {
     },
   );
 
+  /**
+   * Many items to one state, in one request (F-32). "Clear" on the inbox was
+   * a POST per row in sequence, so a list of thirty was thirty round trips
+   * over the tunnel — and a phone that slept halfway down it left half a list
+   * cleared. The writes still happen one after another here, on the pod,
+   * where nothing sleeps. Says which ids it changed, so the undo offers back
+   * only those.
+   */
+  app.post<{ Body: { ids: string[]; state: string } }>(
+    "/api/feed/state",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["ids", "state"],
+          additionalProperties: false,
+          properties: {
+            ids: {
+              type: "array",
+              minItems: 1,
+              maxItems: 500,
+              items: { type: "string", maxLength: 300 },
+            },
+            // Not snoozed: a snooze is chosen per item, with its own until.
+            state: { enum: ["new", "seen", "done"] },
+          },
+        },
+      },
+    },
+    async (req): Promise<{ changed: string[] }> => {
+      const state = req.body.state as FeedItem["state"];
+      const changed: string[] = [];
+      for (const id of new Set(req.body.ids)) {
+        if (await feed.setState(id, state)) changed.push(id);
+      }
+      return { changed };
+    },
+  );
+
   /** What the assistant did about an item; the tool's write. */
   app.post<{ Params: { id: string }; Body: { did: string } }>(
     "/api/feed/:id/did",

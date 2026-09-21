@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
@@ -96,5 +96,24 @@ describe("a notification tapped while the app is open", () => {
     send(null);
 
     expect(screen.getByText("The share")).toBeTruthy();
+  });
+});
+
+/**
+ * F-35. The jump-to palette opened on Cmd/Ctrl+K and nothing else, which is
+ * no way in at all on a phone — and nothing on a desk said it was there.
+ */
+describe("the jump-to palette", () => {
+  it("opens from the top bar, without a keyboard", async () => {
+    // jsdom has no layout, so no scrollIntoView; the palette moves its
+    // highlight with one.
+    Element.prototype.scrollIntoView = vi.fn();
+    render(
+      <MemoryRouter initialEntries={["/docs"]}>
+        <App />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "jump to…" }));
+    expect(await screen.findByRole("dialog", { name: "Jump to" })).toBeTruthy();
   });
 });
