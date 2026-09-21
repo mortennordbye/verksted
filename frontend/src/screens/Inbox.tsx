@@ -5,6 +5,7 @@ import { agoLabel, api, usePoll } from "../api";
 import BandHeading from "../components/BandHeading";
 import type { IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
+import PollError from "../components/PollError";
 import { uncite } from "../components/chat/cite";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
@@ -401,7 +402,7 @@ function Row({
 }
 
 export default function Inbox() {
-  const { data: items, refresh } = usePoll<FeedItem[]>("/api/feed", 15_000);
+  const { data: items, error: feedError, refresh } = usePoll<FeedItem[]>("/api/feed", 15_000);
   const { data: sessions } = usePoll<Session[]>("/api/sessions", 8_000);
   const { data: loops } = usePoll<Loop[]>("/api/loops", 60_000);
   const [source, setSource] = useState<FeedSource | "all">("all");
@@ -673,6 +674,8 @@ export default function Inbox() {
         <div className="-mt-5 mb-5 hidden font-mono text-[11px] text-faint pointer-fine:block">
           j k move · o open · e done · s snooze
         </div>
+
+        <PollError error={feedError} what="the inbox" retry={refresh} />
 
         {/* This screen had no error state at all: clearing, undoing and sorting
             each rejected into the console, and the list simply stayed as it
