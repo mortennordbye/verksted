@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import type { FeedItem } from "../../shared/api.js";
 import { FakeBin } from "./helpers/fake-bin.js";
@@ -732,6 +732,58 @@ describe("the feed routes", () => {
       payload: { state: "done" },
     });
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("parses an item once for as many reads as it sits still (R-20)", async () => {
+    await feed.upsert(seen("github:20"));
+    await feed.upsert(seen("github:21"));
+    await feed.list();
+
+    const fsp = (await import("node:fs/promises")).default;
+    const reads = vi.spyOn(fsp, "readFile");
+    try {
+      for (let i = 0; i < 5; i++) await feed.list();
+      expect(reads).not.toHaveBeenCalled();
+
+      // And a change is a read of that one item, not of the feed.
+      await feed.setState("github:20", "done");
+      const after = await feed.list();
+      expect(after.find((i) => i.id === "github:20")?.state).toBe("done");
+      expect(reads).toHaveBeenCalledTimes(1);
+    } finally {
+      reads.mockRestore();
+    }
+  });
+
+  it("hands out copies, so what a caller does to an item stays the caller's", async () => {
+    await feed.upsert(seen("github:22"));
+    const [first] = (await feed.list()).filter((i) => i.id === "github:22");
+    first.title = "scribbled on";
+    const [again] = (await feed.list()).filter((i) => i.id === "github:22");
+    expect(again.title).not.toBe("scribbled on");
+  });
+
+  it("sees an item rewritten behind its back, same size and all", async () => {
+    await feed.upsert(seen("github:23"));
+    await feed.setState("github:23", "seen");
+    await feed.list();
+    // What `vk restore` or a hand on the volume does: not through this store.
+    const file = path.join(feedDir, "github_23.json");
+    const raw = fs.readFileSync(file, "utf8").replace('"seen"', '"done"');
+    fs.writeFileSync(`${file}.new`, raw);
+    fs.renameSync(`${file}.new`, file);
+
+    expect((await feed.list()).find((i) => i.id === "github:23")?.state).toBe("done");
+  });
+
+  it("files the bench once for callers that arrive together", async () => {
+    const { pollBench } = await import("../src/pollers.js");
+    const passes = await Promise.all([pollBench(), pollBench(), pollBench()]);
+    // One pass, one answer, handed to all three.
+    expect(new Set(passes).size).toBe(1);
+    fake.reset();
+    await Promise.all([pollBench(), pollBench(), pollBench()]);
+    expect(fake.subcommand("tmux", "ls").length).toBeLessThanOrEqual(1);
   });
 
   it("drops a verdict on a version that moved on while it was being judged (R-21)", async () => {

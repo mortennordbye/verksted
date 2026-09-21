@@ -33,6 +33,39 @@ function fileOf(id: string): string {
   return path.join(dir(), `${id.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 150)}.json`);
 }
 
+/**
+ * The last parse of each item, by file name, good for as long as the file's
+ * size and mtime say it has not moved.
+ *
+ * One open of the inbox lists the feed six times, because each step of
+ * `pollBench` changes it and the next has to see the change, and every one of
+ * those read and parsed every item on the volume (R-20). Most of a feed is
+ * items nobody has touched since they were filed. Tested against the file and
+ * not a clock, so a write from anywhere (this process, `vk restore`) is seen.
+ * What is handed out is a copy: callers change the items they are given.
+ *
+ * The inode is part of the test. Every write here is a rename of a new file,
+ * so it always moves, where "seen" becoming "done" inside one tick of a coarse
+ * mtime changes neither of the other two.
+ */
+const parsed = new Map<string, { ino: number; size: number; mtimeMs: number; item: FeedItem }>();
+
+/** Forget every cached read. For tests, which rewrite these files in place. */
+export function resetFeedCache(): void {
+  parsed.clear();
+}
+
+async function readFileCached(file: string): Promise<FeedItem> {
+  const { ino, size, mtimeMs } = await fs.stat(file);
+  const hit = parsed.get(file);
+  if (hit && hit.ino === ino && hit.size === size && hit.mtimeMs === mtimeMs) {
+    return structuredClone(hit.item);
+  }
+  const item = stored(await fs.readFile(file, "utf8"));
+  parsed.set(file, { ino, size, mtimeMs, item });
+  return structuredClone(item);
+}
+
 async function readAll(): Promise<FeedItem[]> {
   let names: string[];
   try {
@@ -41,14 +74,20 @@ async function readAll(): Promise<FeedItem[]> {
     return [];
   }
   const out: FeedItem[] = [];
+  const present = new Set<string>();
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
+    const file = path.join(dir(), name);
+    present.add(file);
     try {
-      out.push(stored(await fs.readFile(path.join(dir(), name), "utf8")));
+      out.push(await readFileCached(file));
     } catch {
       // One unreadable item loses one item, not the feed.
+      parsed.delete(file);
     }
   }
+  // What the sweep deleted should not be held for ever.
+  for (const file of parsed.keys()) if (!present.has(file)) parsed.delete(file);
   return out;
 }
 
@@ -70,7 +109,7 @@ function stored(json: string): FeedItem {
 
 export async function get(id: string): Promise<FeedItem | null> {
   try {
-    return stored(await fs.readFile(fileOf(id), "utf8"));
+    return await readFileCached(fileOf(id));
   } catch {
     return null;
   }

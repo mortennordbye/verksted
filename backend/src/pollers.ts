@@ -384,7 +384,19 @@ export function fadedMail(items: FeedItem[], now = Date.now()): string[] {
  * The bench's own lists, read now. Cheap enough to run every time the feed is
  * opened, which is also what makes the feed correct in a test with no timers.
  */
-export async function pollBench(): Promise<number> {
+export function pollBench(): Promise<number> {
+  // One pass at a time, shared. Three tabs and a phone each open the inbox, and
+  // each open ran the whole of this on top of the others: the same items filed
+  // and resolved four times over, interleaved.
+  benchPass ??= fileBench().finally(() => {
+    benchPass = null;
+  });
+  return benchPass;
+}
+
+let benchPass: Promise<number> | null = null;
+
+async function fileBench(): Promise<number> {
   const [sessions, runs, proposals] = await Promise.all([
     listSessions(),
     listRuns(),
