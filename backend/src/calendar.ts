@@ -190,23 +190,61 @@ const DAY = 86_400_000;
  */
 async function find(uid: string) {
   const client = await connect();
+  const calendars = await client.fetchCalendars();
+  const holds = (data: unknown): data is string =>
+    typeof data === "string" && parseIcs(data).some((e) => e.uid === uid);
+  const found = (object: Awaited<ReturnType<typeof client.fetchCalendarObjects>>[number]) => {
+    const data = object.data as string;
+    // A rule, or more than one VEVENT (a series with an occurrence moved):
+    // not a single thing to change, so a change to it has to say which part.
+    const series = /^RRULE[:;]/m.test(data) || data.split("BEGIN:VEVENT").length > 2;
+    return { client, object, data, series };
+  };
+
+  // Asked for by uid first (A-24). Every change and every removal used to
+  // download three years of every calendar and parse all of it to find one
+  // event, which on a busy account is megabytes and seconds per tap. A server
+  // that does not honour the filter answers with nothing or with an error,
+  // and either way the search below still finds what is there.
+  for (const calendar of calendars) {
+    try {
+      const objects = await client.fetchCalendarObjects({ calendar, filters: byUid(uid) });
+      const hit = objects.find((o) => holds(o.data));
+      if (hit) return found(hit);
+    } catch {
+      // Not a server that answers this; the scan is the answer.
+    }
+  }
+
   const now = Date.now();
   const timeRange = {
     start: new Date(now - 365 * DAY).toISOString(),
     end: new Date(now + 730 * DAY).toISOString(),
   };
-  for (const calendar of await client.fetchCalendars()) {
+  for (const calendar of calendars) {
     for (const object of await client.fetchCalendarObjects({ calendar, timeRange })) {
-      if (typeof object.data !== "string") continue;
-      if (!parseIcs(object.data).some((e) => e.uid === uid)) continue;
-      // A rule, or more than one VEVENT (a series with an occurrence moved):
-      // not a single thing to change, so a change to it has to say which part.
-      const series =
-        /^RRULE[:;]/m.test(object.data) || object.data.split("BEGIN:VEVENT").length > 2;
-      return { client, object, data: object.data, series };
+      if (holds(object.data)) return found(object);
     }
   }
   throw new CalendarNotFound(`no event with uid ${uid}`);
+}
+
+/** A calendar-query for the one object whose event has this UID (RFC 4791, 9.7.2). */
+function byUid(uid: string) {
+  return [
+    {
+      "comp-filter": {
+        _attributes: { name: "VCALENDAR" },
+        "comp-filter": {
+          _attributes: { name: "VEVENT" },
+          "prop-filter": {
+            _attributes: { name: "UID" },
+            "text-match": { _attributes: { collation: "i;octet" }, _text: uid },
+          },
+        },
+      },
+    },
+  ];
 }
 
 /**

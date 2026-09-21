@@ -26,7 +26,9 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
 
   if (url.includes("oauth2.googleapis.com/token")) {
     requests.push({ method, url });
-    return Promise.resolve(new Response(JSON.stringify({ access_token: "tok" }), { status: 200 }));
+    return Promise.resolve(
+      new Response(JSON.stringify({ access_token: "tok", expires_in: 3599 }), { status: 200 }),
+    );
   }
 
   const body = init.body ? JSON.parse(init.body) : undefined;
@@ -93,6 +95,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  gmail.resetTokenCache();
   requests.length = 0;
   userLabels = [{ id: "L1", name: "Existing", type: "user" }];
   filters = [];
@@ -291,5 +294,52 @@ describe("when Google says not now", () => {
       /Gmail API error/,
     );
     expect(posts).toBe(1);
+  });
+});
+
+describe("what a rule costs", () => {
+  const count = (match: (r: (typeof requests)[number]) => boolean) => requests.filter(match).length;
+
+  it("trades the token once and lists the labels once, new label and all", async () => {
+    // It was four trades and two identical listings for this one rule.
+    await gmail.createRule({ from: "a@b.no", label: "Brand new" });
+
+    expect(count((r) => r.url.includes("oauth2.googleapis.com/token"))).toBe(1);
+    expect(count((r) => r.url.endsWith("/labels") && r.method === "GET")).toBe(1);
+    expect(count((r) => r.url.endsWith("/labels") && r.method === "POST")).toBe(1);
+  });
+
+  it("names the label it just made in what it hands back", async () => {
+    const rule = await gmail.createRule({ from: "a@b.no", label: "Brand new" });
+    expect(rule.label).toBe("Brand new");
+  });
+
+  it("keeps the token across calls, and trades again once Google says it is no good", async () => {
+    await gmail.labels();
+    await gmail.labels();
+    expect(count((r) => r.url.includes("oauth2.googleapis.com/token"))).toBe(1);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string, init?: { method?: string; body?: string }) =>
+        url.includes("oauth2.googleapis.com/token")
+          ? fakeFetch(url, init)
+          : Promise.resolve(
+              new Response(JSON.stringify({ error: { message: "Invalid Credentials" } }), {
+                status: 401,
+              }),
+            ),
+      ),
+    );
+    await expect(gmail.labels()).rejects.toThrow(/Invalid Credentials/);
+    vi.stubGlobal("fetch", vi.fn(fakeFetch));
+    await gmail.labels();
+    expect(count((r) => r.url.includes("oauth2.googleapis.com/token"))).toBe(2);
+  });
+
+  it("creates a label once for a relabel that adds it, without listing again", async () => {
+    messages = [{ id: "m1" }];
+    await gmail.relabel({ query: "from:a@b.no", add: ["Brand new"] });
+    expect(count((r) => r.url.endsWith("/labels") && r.method === "GET")).toBe(1);
   });
 });

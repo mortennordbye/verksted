@@ -1099,6 +1099,24 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `call` in `backend/src/gmail.ts`, `connect` and `davFetch` in
   `backend/src/calendar.ts`, `withInbox` in `backend/src/mail.ts`.
 
+## Every mail and calendar call still opens its own connection
+
+- **What:** The cost of what is fetched is down (A-23, A-24, A-25): the Gmail
+  token is kept for its lifetime, an event is asked for by uid, and a message
+  is read by its text part. The cost of getting there is not. Each IMAP verb
+  is a fresh login, and each calendar call is tsdav's discovery (three
+  PROPFINDs) plus, on Google, a token trade of tsdav's own that the Gmail
+  cache cannot serve.
+- **Why deferred:** A kept connection needs an owner: idle timeouts, a server
+  that hangs up, a password changed on the settings page while it is open.
+  That is a small pool with its own tests, not a change to the callers, and the
+  tools are used a handful of times an hour.
+- **Unblocked by:** The assistant's mail or calendar tools feeling slow in use,
+  or a provider rate-limiting logins. For the calendar the cheap half is
+  keeping the discovered account and calendar list for a few minutes.
+- **Where:** `withClient` in `backend/src/mail.ts`, `connect` in
+  `backend/src/calendar.ts`.
+
 ## The resize race and the browser bridge are still untested
 
 - **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —

@@ -153,29 +153,101 @@ export async function search(query: string, limit = 20): Promise<MailSummary[]> 
 /** How much of a body a model is handed: enough to answer, not a newsletter. */
 export const BODY_BYTES = 12 * 1024;
 
-/** One message, as text. HTML-only mail is reduced to its text. */
+/**
+ * The most of one text part that is ever downloaded. Far more than is shown,
+ * because an HTML part is mostly markup and is cut after it is reduced.
+ */
+const PART_BYTES = 256 * 1024;
+
+/** One node of a message's structure, as far as this file reads it. */
+interface Part {
+  part?: string;
+  type?: string;
+  disposition?: string;
+  dispositionParameters?: Record<string, string>;
+  parameters?: Record<string, string>;
+  childNodes?: Part[];
+}
+
+function walk(node: Part, out: Part[] = []): Part[] {
+  out.push(node);
+  for (const child of node.childNodes ?? []) walk(child, out);
+  return out;
+}
+
+const fileName = (p: Part) => p.dispositionParameters?.filename ?? p.parameters?.name;
+const isAttachment = (p: Part) =>
+  p.disposition === "attachment" ||
+  (fileName(p) !== undefined && !p.type?.startsWith("text/") && !p.type?.startsWith("multipart/"));
+
+const cut = (text: string) =>
+  text.length > BODY_BYTES ? `${text.slice(0, BODY_BYTES)}\n[cut at ${BODY_BYTES} bytes]` : text;
+
+/**
+ * One message, as text. HTML-only mail is reduced to its text.
+ *
+ * A message with parts is read by its structure (A-25): the text part alone is
+ * downloaded, and the attachments are named from the structure without being
+ * fetched. It used to be the whole source, so reading the two lines above a
+ * twenty megabyte scan cost twenty megabytes, a parse of all of it, and then
+ * twelve kilobytes were kept. A message with no parts is its own text, so the
+ * whole of it is still what is fetched; so is one whose structure has no text
+ * part this can find, which is the old way and always works.
+ */
 export async function read(uid: number): Promise<MailMessage | null> {
   return withInbox(async (client) => {
-    const msg = await client.fetchOne(
+    const head = await client.fetchOne(
       String(uid),
-      { source: true, envelope: true, flags: true, uid: true },
+      { bodyStructure: true, envelope: true, flags: true, uid: true },
       { uid: true },
     );
-    if (!msg || !msg.source) return null;
-    const parsed = await simpleParser(msg.source);
-    const text = (parsed.text ?? htmlToText(parsed.html || "")).trim();
-    return {
-      ...summarise(msg),
-      to: (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
-        .map((t) => t.text)
-        .join(", "),
-      text:
-        text.length > BODY_BYTES
-          ? `${text.slice(0, BODY_BYTES)}\n[cut at ${BODY_BYTES} bytes]`
-          : text,
-      attachments: (parsed.attachments ?? []).map((a) => a.filename ?? "(unnamed)"),
-    };
+    if (!head) return null;
+    const parts = head.bodyStructure ? walk(head.bodyStructure) : [];
+    const body = parts.filter((p) => p.part && !isAttachment(p));
+    const chosen =
+      body.find((p) => p.type === "text/plain") ?? body.find((p) => p.type === "text/html");
+    if (chosen?.part) {
+      const { content } = await client.download(String(uid), chosen.part, {
+        uid: true,
+        maxBytes: PART_BYTES,
+      });
+      const chunks: Buffer[] = [];
+      for await (const chunk of content) chunks.push(chunk as Buffer);
+      const raw = Buffer.concat(chunks).toString("utf8");
+      const text = (chosen.type === "text/html" ? htmlToText(raw) : raw).trim();
+      if (text) {
+        return {
+          ...summarise(head),
+          to: (head.envelope?.to ?? [])
+            .map((t) => (t.name ? `${t.name} <${t.address ?? ""}>` : (t.address ?? "")))
+            .join(", "),
+          text: cut(text),
+          attachments: parts.filter(isAttachment).map((p) => fileName(p) ?? "(unnamed)"),
+        };
+      }
+    }
+    return readWhole(client, uid);
   });
+}
+
+/** The whole source, parsed. What `read` falls back on, and all a one-part message needs. */
+async function readWhole(client: ImapFlow, uid: number): Promise<MailMessage | null> {
+  const msg = await client.fetchOne(
+    String(uid),
+    { source: true, envelope: true, flags: true, uid: true },
+    { uid: true },
+  );
+  if (!msg || !msg.source) return null;
+  const parsed = await simpleParser(msg.source);
+  const text = (parsed.text ?? htmlToText(parsed.html || "")).trim();
+  return {
+    ...summarise(msg),
+    to: (parsed.to ? (Array.isArray(parsed.to) ? parsed.to : [parsed.to]) : [])
+      .map((t) => t.text)
+      .join(", "),
+    text: cut(text),
+    attachments: (parsed.attachments ?? []).map((a) => a.filename ?? "(unnamed)"),
+  };
 }
 
 /**
