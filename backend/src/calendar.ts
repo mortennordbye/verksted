@@ -1,5 +1,8 @@
+import fs from "node:fs/promises";
+import path from "node:path";
 import { createDAVClient } from "tsdav";
 import type { CalendarEvent } from "../../shared/api.js";
+import { env } from "./env.js";
 import { GOOGLE_CALDAV_URL, TOKEN_URL } from "./google-auth.js";
 import { sourceEnv } from "./settings-store.js";
 
@@ -294,15 +297,54 @@ async function listedOccurrence(uid: string, when: string): Promise<CalendarEven
  */
 export async function remove(uid: string, target: Target = {}): Promise<CalendarEvent> {
   const found = await find(uid);
+  const removed = await pick(found, uid, target);
+  // Before, not after: what is about to go is the only copy there is.
+  await keep(uid, found.data);
   if (found.series && !target.every) {
-    if (!target.occurrence) throw new CalendarRefused(WHICH);
-    const listed = await listedOccurrence(uid, target.occurrence);
-    await save(found, occurrenceRemove(found.data, target.occurrence));
-    return listed;
+    await save(found, occurrenceRemove(found.data, target.occurrence ?? ""));
+    return removed;
   }
   const res = await found.client.deleteCalendarObject({ calendarObject: found.object });
   if (!res.ok) throw new Error(`the calendar server refused the delete: ${res.status}`);
-  return firstEvent(found.data);
+  return removed;
+}
+
+/**
+ * What a removal would take, without taking it: the card shows this, and a
+ * removal that would be refused is refused as the card is filed.
+ */
+export async function peek(uid: string, target: Target = {}): Promise<CalendarEvent> {
+  return pick(await find(uid), uid, target);
+}
+
+async function pick(
+  found: Awaited<ReturnType<typeof find>>,
+  uid: string,
+  target: Target,
+): Promise<CalendarEvent> {
+  if (!found.series || target.every) return firstEvent(found.data);
+  if (!target.occurrence) throw new CalendarRefused(WHICH);
+  return listedOccurrence(uid, target.occurrence);
+}
+
+/** Where a removed event's file is kept. Nothing reads it but a person. */
+export function calendarTrashDir(): string {
+  return path.join(env.ASSISTANT_DIR, "calendar-trash");
+}
+
+/**
+ * The event as the server held it, written down before it is removed (A-08).
+ *
+ * CalDAV has no trash, and a series is years of history and every moved
+ * occurrence in one file. This is that file: importing it into any calendar
+ * app puts the event back, attendees and alarms included. The whole object is
+ * kept even when one occurrence goes, since the file before the change is what
+ * undoes the change.
+ */
+async function keep(uid: string, data: string): Promise<void> {
+  await fs.mkdir(calendarTrashDir(), { recursive: true });
+  const name = uid.replace(/[^A-Za-z0-9._@-]/g, "_").slice(0, 100);
+  await fs.writeFile(path.join(calendarTrashDir(), `${Date.now()}-${name}.ics`), data);
 }
 
 /**

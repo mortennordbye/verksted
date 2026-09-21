@@ -83,6 +83,8 @@ beforeAll(async () => {
   );
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-gmail-r-"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-gmail-s-"));
+  // A relabel is written to the mail log, which lives here.
+  process.env.ASSISTANT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-gmail-a-"));
   gmail = await import("../src/gmail.js");
 });
 
@@ -138,6 +140,18 @@ describe("relabel", () => {
       // Newsletters did not exist, so it was created first, as the third label.
       addLabelIds: ["L3"],
       removeLabelIds: ["L2", "INBOX"],
+    });
+    // And written down with the messages it touched: the search is not a
+    // record, since what it finds tomorrow is not what it found today.
+    const { mailLogDir } = await import("../src/mail-log.js");
+    const [file] = fs.readdirSync(mailLogDir());
+    const last = fs.readFileSync(path.join(mailLogDir(), file), "utf8").trim().split("\n").at(-1);
+    expect(JSON.parse(last ?? "{}")).toMatchObject({
+      verb: "relabel",
+      query: "label:h-m",
+      ids: ["m1", "m2"],
+      add: ["Newsletters"],
+      remove: ["H&M", "INBOX"],
     });
   });
 

@@ -896,7 +896,11 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   one.
 - **Unblocked by:** Wanting to see or clear rules without a chat turn. Then a
   `GET /api/mail/rules` list (already there) plus a table and a delete button
-  under the Mail tab, the same shape as the blocked-owners list.
+  under the Mail tab, the same shape as the blocked-owners list. The delete
+  route was removed when removing a filter became a card (A-08): a button
+  needs it back, and with it a way for the backend to tell the person's tap
+  from anything else on the pod asking, which is the per-boot secret S-05
+  describes.
 - **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
   `backend/src/routes/sources.ts` (`/api/mail/rules`).
 
@@ -944,30 +948,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/events.ts` (`SOURCES.sessions`),
   `backend/src/sessions-store.ts` (`readAll`, `listSessions`),
   `backend/src/maintenance.ts` (where a retention sweep belongs).
-
-## Three assistant tools change something that cannot be put back
-
-- **What:** `mail_rule_delete`, `mail_label_delete` and `calendar_delete` are
-  the only tools whose effect is neither read, reversible nor a card. A Gmail
-  filter's definition goes with the filter, a label comes off every message it
-  was on at once, and nothing puts a deleted event back — a whole series least
-  of all. They are the chair's alone, so the person said it in the chat, but
-  that is a weaker thing than a card showing what is about to go. This is A-08
-  in `FABLE-AUDIT-2026-09-19.md`.
-- **Why deferred:** Each needs a proposal kind of its own — a wire type, a
-  validator, a description, an executor and a card row — and the branch that
-  found them had already added two for the schedules. The effect is written
-  down in the policy table meanwhile, and a test pins the set at exactly these
-  three, so a fourth cannot join them quietly.
-- **Unblocked by:** Wanting any of the three to be undoable, or simply doing the
-  work. The cheaper half is worth doing first: write the deleted ICS to a trash
-  directory before `deleteCalendarObject`, and log every mail move and relabel
-  to an append-only file, which is what an undo would be replayed from.
-- **Where:** `runtime/verksted-mcp.mjs` (the POLICY table and the three tools),
-  `backend/src/routes/proposals.ts` (`ACTION`, `describe`, `validateAction`,
-  `execute`), `shared/api.ts` (`ProposalAction`),
-  `frontend/src/components/ProposalCard.tsx`, `backend/src/calendar.ts`
-  (`remove`), `backend/src/gmail.ts`.
 
 ## The assistant's chromium can still reach the pod's own API
 
@@ -1076,10 +1056,15 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   or a tool the chair itself can call to answer the question — the second is a
   policy decision, since it would let a turn read what earlier turns did.
   Nothing prunes the directory either: one line per changing call is small, but
-  retention belongs with the sweeper the audit's root cause 4 describes.
+  retention belongs with the sweeper the audit's root cause 4 describes. The
+  same goes for the two records an undo would be replayed from, which are also
+  written and never read or pruned: `mail-log/<day>.jsonl` (every move and
+  relabel, with the uids the messages have where they landed) and
+  `calendar-trash/` (a removed event's file, kept before it goes).
 - **Where:** `backend/src/tool-log.ts`, `POST /api/assistant/turn/tool` in
   `backend/src/routes/assistant.ts`, `recordCall` in
-  `runtime/verksted-mcp.mjs`.
+  `runtime/verksted-mcp.mjs`, `backend/src/mail-log.ts`, `keep` in
+  `backend/src/calendar.ts`.
 
 ## A scheduled assistant turn cannot be stopped from the app
 

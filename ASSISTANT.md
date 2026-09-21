@@ -81,11 +81,21 @@ is that same agent on a timer, holding whatever prompt was written into it, and
 running one now is that same agent with no timer at all — so those are cards
 too.
 
-Three tools are none of read, reversible or card: `mail_rule_delete`,
-`mail_label_delete` and `calendar_delete`. They are the chair's alone, so the
-person said it in the chat, but that is weaker than a card. They are marked
-`irreversible` in the table and a test pins the set at exactly three, so a
-fourth cannot join quietly. BACKLOG has what to do about them.
+No tool is `irreversible`: it is what a tool missing from the table reads as,
+and a test pins the set at empty, so one cannot be added quietly. The changes
+to the mail and the calendar that have no way back are cards: adding or
+removing a Gmail filter, deleting a label, and taking an event off the
+calendar. They have no HTTP route of their own. The tapped card is the only
+caller of the functions behind them, so nothing on the pod can do them by
+asking the backend instead. The card shows what the account holds (the filter,
+the event, the subjects), read as the card is filed, not what the model said.
+
+`mail_move` stays direct, because a move is undone by a move back: it takes
+`from`, and every move and relabel is written to
+`/data/assistant/mail-log/<day>.jsonl` with the uids the messages have where
+they landed. The trash and the junk folder are the exception, since the server
+empties them, so a move into either is a card. A removed event's file is kept
+in `/data/assistant/calendar-trash/` first.
 
 ### The arguments
 

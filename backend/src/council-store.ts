@@ -364,7 +364,7 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     chairOnly: true,
     private: true,
     outside: false,
-    effect: "reversible",
+    effect: "card",
   },
   {
     name: "mail_rule_delete",
@@ -372,7 +372,7 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     chairOnly: true,
     private: true,
     outside: false,
-    effect: "irreversible",
+    effect: "card",
   },
   {
     name: "mail_label_delete",
@@ -380,7 +380,7 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     chairOnly: true,
     private: true,
     outside: false,
-    effect: "irreversible",
+    effect: "card",
   },
   {
     name: "docs_catalogue",
@@ -460,7 +460,7 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     chairOnly: true,
     private: true,
     outside: false,
-    effect: "irreversible",
+    effect: "card",
   },
   {
     name: "recall",
@@ -652,7 +652,8 @@ export const SEEDS: Omit<CouncilMember, "chair">[] = [
       "and the chair proposes it. You can file: move what is plainly bulk or",
       "junk out of the inbox with mail_move, and say in one line what you moved",
       "and where. File only what you are sure of: anything you would have to",
-      "guess at stays in the inbox and goes in your answer instead.",
+      "guess at stays in the inbox and goes in your answer instead. A move into",
+      "the junk folder or the trash is a card the person taps, not a filing.",
     ].join("\n"),
     model: "sonnet",
     effort: "low",
