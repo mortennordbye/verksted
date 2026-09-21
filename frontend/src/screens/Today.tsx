@@ -22,7 +22,7 @@ import PageHeader from "../components/PageHeader";
 import PollError from "../components/PollError";
 import ProposalCard from "../components/ProposalCard";
 import Sheet from "../components/Sheet";
-import { AgentMark, StatusChip } from "../components/StatusChip";
+import { AgentMark, outcomeChip, StatusChip } from "../components/StatusChip";
 import { offerUndo } from "../components/ui/Toast";
 import Tabs from "../components/Tabs";
 import Skeleton from "../components/Skeleton";
@@ -77,15 +77,6 @@ const STALE_MS = 24 * 60 * 60_000;
 function stale(at: string): boolean {
   return Date.now() - Date.parse(at) >= STALE_MS;
 }
-
-const OUTCOME: Record<string, "run" | "wait" | "fail" | "idle"> = {
-  ok: "run",
-  attention: "wait",
-  failed: "fail",
-  blocked: "idle",
-  running: "run",
-  done: "idle",
-};
 
 /** The date as a person says it, in the browser's own language. */
 function dateLine(): string {
@@ -663,7 +654,7 @@ export default function Today() {
               {brief ? (
                 <div className="rounded-xl border border-accent/30 bg-accent-tint px-4 py-3">
                   <div className="mb-2 flex items-center gap-2 font-mono text-[11px] text-faint">
-                    <StatusChip kind={OUTCOME[brief.outcome] ?? "idle"} label={brief.outcome} />
+                    <StatusChip {...outcomeChip(brief.outcome)} />
                     <span className="truncate">{brief.schedule}</span>
                     <span className="ml-auto flex flex-none items-center gap-2">
                       {canSpeak() && (
@@ -854,7 +845,7 @@ export default function Today() {
                       to={r.sessionId ? `/s/${r.sessionId}` : "/runs"}
                       className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface"
                     >
-                      <StatusChip kind={OUTCOME[r.outcome] ?? "idle"} label={r.outcome} />
+                      <StatusChip {...outcomeChip(r.outcome)} />
                       <span className="min-w-0 flex-1 truncate text-[12.5px]">{r.schedule}</span>
                       <span className="flex-none font-mono text-[11px] text-faint">
                         {agoLabel(r.at)}

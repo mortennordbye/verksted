@@ -52,7 +52,7 @@ export default function BranchControl({
   const [error, setError] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
   const { data, refresh } = usePoll<GitBranches>(
-    open ? `/api/projects/${project}/git/branches` : null,
+    open ? `/api/projects/${encodeURIComponent(project)}/git/branches` : null,
     15_000,
   );
   const busy = working !== null;
@@ -79,7 +79,7 @@ export default function BranchControl({
   }
 
   const post = (op: string, body?: unknown) =>
-    api(`/api/projects/${project}/git/${op}`, {
+    api(`/api/projects/${encodeURIComponent(project)}/git/${op}`, {
       method: "POST",
       body: body ? JSON.stringify(body) : undefined,
       timeoutMs: GIT_TIMEOUT_MS,

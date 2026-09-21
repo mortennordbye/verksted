@@ -43,7 +43,10 @@ export default function PrPanel({
     data: prs,
     error,
     refresh,
-  } = usePoll<PullRequest[]>(`/api/projects/${project}/prs?state=${all ? "all" : "open"}`, 20_000);
+  } = usePoll<PullRequest[]>(
+    `/api/projects/${encodeURIComponent(project)}/prs?state=${all ? "all" : "open"}`,
+    20_000,
+  );
 
   return (
     <>
@@ -159,7 +162,7 @@ function PrSheet({
   const [diff, setDiff] = useState<PrDiff | null>(null);
   const [confirm, confirmDialog] = useConfirm();
   const { data: pr, refresh } = usePoll<PullRequestDetail>(
-    `/api/projects/${project}/prs/${number}`,
+    `/api/projects/${encodeURIComponent(project)}/prs/${number}`,
     30_000,
   );
 
@@ -179,7 +182,7 @@ function PrSheet({
   }
 
   const post = <T,>(op: string) =>
-    api<T>(`/api/projects/${project}/prs/${number}/${op}`, { method: "POST" });
+    api<T>(`/api/projects/${encodeURIComponent(project)}/prs/${number}/${op}`, { method: "POST" });
 
   async function merge() {
     const ok = await confirm({
@@ -242,7 +245,11 @@ function PrSheet({
           <Button
             onClick={() =>
               run(async () =>
-                setDiff(await api<PrDiff>(`/api/projects/${project}/prs/${number}/diff`)),
+                setDiff(
+                  await api<PrDiff>(
+                    `/api/projects/${encodeURIComponent(project)}/prs/${number}/diff`,
+                  ),
+                ),
               )
             }
             disabled={busy}
@@ -332,7 +339,7 @@ function CreatePrSheet({
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/projects/${project}/prs`, {
+      await api(`/api/projects/${encodeURIComponent(project)}/prs`, {
         method: "POST",
         body: JSON.stringify({ title: title.trim(), body, draft }),
       });

@@ -9,6 +9,7 @@ import PageHeader from "../components/PageHeader";
 import { SkeletonList } from "../components/Skeleton";
 import { Input } from "../components/ui/Field";
 import Icon from "../components/Icon";
+import { bytes } from "../format";
 
 /**
  * The share, looked at rather than searched.
@@ -22,18 +23,6 @@ import Icon from "../components/Icon";
  * path is resolved inside it by realpath, and there is deliberately no upload,
  * rename or delete — this screen is a pair of eyes, not a file manager.
  */
-
-function size(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["kB", "MB", "GB", "TB"];
-  let n = bytes / 1024;
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  return `${n < 10 ? n.toFixed(1) : Math.round(n)} ${units[i]}`;
-}
 
 export default function Docs() {
   // The folder is in the URL, so back goes up rather than off the screen, and
@@ -153,7 +142,7 @@ export default function Docs() {
                     {e.dir && "/"}
                   </span>
                   {!e.dir && (
-                    <span className="flex-none text-[11px] text-faint">{size(e.size)}</span>
+                    <span className="flex-none text-[11px] text-faint">{bytes(e.size)}</span>
                   )}
                   <span className="flex-none text-[11px] text-faint">{agoLabel(e.modified)}</span>
                 </button>

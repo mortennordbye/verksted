@@ -190,7 +190,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     fresh,
     refresh,
   } = usePoll<Schedule[]>(
-    project ? `/api/projects/${project}/schedules` : "/api/schedules",
+    project ? `/api/projects/${encodeURIComponent(project)}/schedules` : "/api/schedules",
     30_000,
   );
   // Only the global list needs the picker; a project-scoped one already knows.

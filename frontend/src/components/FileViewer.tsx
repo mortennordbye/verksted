@@ -56,13 +56,15 @@ async function load(project: string, sessionId: string, t: FileTarget): Promise<
     }
     if (t.diff) {
       const staged = t.diff === "staged" ? "&staged=true" : "";
-      const d = await api<FileDiff>(`/api/projects/${project}/diff?${q}${staged}`);
+      const d = await api<FileDiff>(
+        `/api/projects/${encodeURIComponent(project)}/diff?${q}${staged}`,
+      );
       return { path: t.path, content: d.diff || "— no changes —", kind: "diff" };
     }
     if (IMAGE_EXTS.has(t.path.split(".").at(-1)!.toLowerCase())) {
       return { path: t.path, content: "", kind: "image" };
     }
-    const f = await api<FileContent>(`/api/projects/${project}/file?${q}`);
+    const f = await api<FileContent>(`/api/projects/${encodeURIComponent(project)}/file?${q}`);
     return { ...f, kind: "text" };
   } catch (e) {
     return { path: t.path, content: `— ${(e as Error).message} —`, kind: t.diff ? "diff" : "text" };
@@ -180,19 +182,14 @@ export default function FileViewer({
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(
-        `/api/projects/${project}/file?path=${encodeURIComponent(file.path)}`,
+      const saved = await api<{ etag: string }>(
+        `/api/projects/${encodeURIComponent(project)}/file?path=${encodeURIComponent(file.path)}`,
         {
           method: "PUT",
           headers: { "content-type": "application/octet-stream", "if-match": file.etag },
           body: draft,
         },
       );
-      if (!res.ok) {
-        const body = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error ?? `save failed (HTTP ${res.status})`);
-      }
-      const saved = (await res.json()) as { etag: string };
       setFile({ ...file, content: draft, etag: saved.etag });
       setDraft(null);
     } catch (e) {
@@ -248,7 +245,7 @@ export default function FileViewer({
 
   if (!shown) return confirmDialog;
   const path = shown.path;
-  const raw = `/api/projects/${project}/raw?path=${encodeURIComponent(path)}`;
+  const raw = `/api/projects/${encodeURIComponent(project)}/raw?path=${encodeURIComponent(path)}`;
 
   return (
     <>

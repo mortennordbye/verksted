@@ -131,7 +131,7 @@ export default function GitPanel({
 
   const gitOp = (op: "stage" | "unstage" | "discard", paths: string[]) =>
     run(() =>
-      api(`/api/projects/${project}/git/${op}`, {
+      api(`/api/projects/${encodeURIComponent(project)}/git/${op}`, {
         method: "POST",
         body: JSON.stringify({ paths }),
       }),
@@ -161,7 +161,7 @@ export default function GitPanel({
 
   const commit = () =>
     run(async () => {
-      await api(`/api/projects/${project}/git/commit`, {
+      await api(`/api/projects/${encodeURIComponent(project)}/git/commit`, {
         method: "POST",
         body: JSON.stringify({ message: message.trim() }),
       });

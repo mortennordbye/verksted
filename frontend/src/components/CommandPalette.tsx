@@ -57,7 +57,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
         id: `p:${p.name}`,
         label: `~/${p.name}`,
         hint: `project · ${p.branch}${p.waiting ? ` · ${p.waiting} waiting` : ""}`,
-        to: `/p/${p.name}`,
+        to: `/p/${encodeURIComponent(p.name)}`,
       })),
       ...(sessions ?? [])
         .filter((s) => s.status !== "done")
