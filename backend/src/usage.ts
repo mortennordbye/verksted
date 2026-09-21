@@ -44,9 +44,11 @@ const EMPTY: SessionUsage = {
  * model id is not listed, so a new release counts as its siblings until this
  * table catches up. Prices as of 2026-06.
  */
+/** What a model the table does not know is priced as. */
+const OPUS = { match: /opus/, input: 5, output: 25 };
 const PRICES: { match: RegExp; input: number; output: number }[] = [
   { match: /fable|mythos/, input: 10, output: 50 },
-  { match: /opus/, input: 5, output: 25 },
+  OPUS,
   { match: /sonnet-5/, input: 2, output: 10 },
   { match: /sonnet/, input: 3, output: 15 },
   { match: /haiku/, input: 1, output: 5 },
@@ -57,7 +59,7 @@ export function priceOf(
   model: string | undefined,
   u: { input: number; output: number; cacheRead: number; cacheWrite: number },
 ): number {
-  const price = PRICES.find((p) => p.match.test(model ?? "")) ?? PRICES[1];
+  const price = PRICES.find((p) => p.match.test(model ?? "")) ?? OPUS;
   return (
     (u.input * price.input +
       u.cacheWrite * price.input * 1.25 +
@@ -194,7 +196,7 @@ const monthOf = (ms: number) => dayOf(ms).slice(0, 7);
 /** Every month from `from` to `to`, inclusive, as YYYY-MM. */
 function monthsBetween(from: string, to: string): string[] {
   const out: string[] = [];
-  let [y, m] = from.split("-").map(Number);
+  let [y = 0, m = 1] = from.split("-").map(Number);
   while (true) {
     const key = `${y}-${String(m).padStart(2, "0")}`;
     out.push(key);

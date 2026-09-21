@@ -72,7 +72,7 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   let i = lines.length - 1;
 
   // The sign-off, and any blank space under it.
-  while (i >= 0 && (!lines[i] || CAPTION_RE.test(lines[i]))) i--;
+  while (i >= 0 && (!lines[i] || CAPTION_RE.test(lines[i] ?? ""))) i--;
 
   // Options, upwards, newest number first. Two things sit between them and are
   // stepped over rather than treated as the end of the list: an AskUserQuestion
@@ -80,13 +80,13 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   // answers and the "chat about this" escape hatch below them.
   const options: TuiPrompt["options"] = [];
   while (i >= 0) {
-    const line = lines[i];
+    const line = lines[i] ?? "";
     const m = OPTION_RE.exec(line);
     if (m) {
       const box = m[3];
       options.unshift({
         number: Number(m[2]),
-        label: m[4].slice(0, MAX_LABEL),
+        label: (m[4] ?? "").slice(0, MAX_LABEL),
         selected: Boolean(m[1]),
         // Anything in the box but space is a tick; the CLI has used more than
         // one glyph for it.
@@ -112,7 +112,9 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   // One numbered line is a list item in something the agent printed. Two that
   // do not run consecutively are as well.
   if (options.length < 2 || options.length > MAX_OPTIONS) return null;
-  if (options.some((o, n) => n > 0 && o.number !== options[n - 1].number + 1)) return null;
+  if (options.some((o, n) => n > 0 && o.number !== (options[n - 1]?.number ?? NaN) + 1)) {
+    return null;
+  }
 
   // Everything above the options that is still part of the dialog, up to the
   // rule that separates it from the conversation. Read as paragraphs, because
@@ -121,7 +123,7 @@ export function parsePrompt(pane: string): TuiPrompt | null {
   // the sentence reliably.
   const body: string[] = [];
   for (let seen = 0; i >= 0 && seen < MAX_BODY_LINES; i--, seen++) {
-    const line = lines[i].trim();
+    const line = (lines[i] ?? "").trim();
     if (CHROME_RE.test(line) && line) break;
     if (OPTION_RE.test(line)) break;
     // The bullet the CLI puts on a prompt is not part of what it asked.
@@ -183,7 +185,7 @@ export function parseMode(pane: string): string | null {
   const lines = pane.split("\n").map((l) => l.replace(/\s+$/, ""));
   const tail = lines.filter(Boolean).slice(-MODE_TAIL_LINES);
   for (let i = tail.length - 1; i >= 0; i--) {
-    const hit = MODES.find((m) => m.re.test(tail[i]));
+    const hit = MODES.find((m) => m.re.test(tail[i] ?? ""));
     if (hit) return hit.label;
   }
   return null;
@@ -232,8 +234,8 @@ export function parseActivity(pane: string): { busy: boolean; doing: string | nu
   // pane is the turn that is running now — checked whether or not the hint
   // above was found, since a truncated pane can lose the hint and keep this.
   for (let i = lines.length - 1; i >= 0; i--) {
-    const m = ACTIVITY_RE.exec(lines[i]);
-    if (m) return { busy: true, doing: m[1].slice(0, MAX_QUESTION) };
+    const m = ACTIVITY_RE.exec(lines[i] ?? "");
+    if (m) return { busy: true, doing: (m[1] ?? "").slice(0, MAX_QUESTION) };
   }
   return { busy: hint, doing: null };
 }

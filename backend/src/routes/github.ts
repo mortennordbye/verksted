@@ -143,7 +143,7 @@ const limitQuery = {
  * resolved and validated by the time it gets here.
  */
 const prList = ttlCache(15_000, (key: string) => {
-  const [repoDir, state, limit] = key.split("\0");
+  const [repoDir = "", state = "", limit = ""] = key.split("\0");
   return ghJson<GhPr[]>(repoDir, [
     "pr",
     "list",
@@ -157,7 +157,7 @@ const prList = ttlCache(15_000, (key: string) => {
 });
 
 const runList = ttlCache(15_000, (key: string) => {
-  const [repoDir, limit] = key.split("\0");
+  const [repoDir = "", limit = ""] = key.split("\0");
   return ghJson<GhRun[]>(repoDir, ["run", "list", "--limit", limit, "--json", RUN_LIST_FIELDS]);
 });
 

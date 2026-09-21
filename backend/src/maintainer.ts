@@ -172,7 +172,7 @@ async function readQueue(repoDir: string, project: string): Promise<MaintainerIs
 
 /** Cached a minute per repo: the inbox polls, and three gh calls is a lot to repeat. */
 const cachedQueue = ttlCache(60_000, (key: string) => {
-  const [project, repoDir] = key.split("\0");
+  const [project = "", repoDir = ""] = key.split("\0");
   return readQueue(repoDir, project);
 });
 

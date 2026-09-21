@@ -91,8 +91,9 @@ export function parsePorcelainZ(stdout: string): PorcelainEntry[] {
     const entry = parts[i];
     // "XY " plus at least one character of path.
     if (!entry || entry.length < 4) continue;
-    const x = entry[0];
-    out.push({ x, y: entry[1], path: entry.slice(3) });
+    // At least four characters, so both status letters are there.
+    const x = entry.charAt(0);
+    out.push({ x, y: entry.charAt(1), path: entry.slice(3) });
     if (x === "R" || x === "C") i++;
   }
   return out;
@@ -174,7 +175,7 @@ export function parseNumstatZ(stdout: string): SessionChangedFile[] {
   const parts = stdout.split("\0");
   const out: SessionChangedFile[] = [];
   for (let i = 0; i < parts.length; i++) {
-    const m = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i]);
+    const m = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(parts[i] ?? "");
     if (!m) continue;
     // The rename shape: the two records after it are the old and the new path,
     // and the new one is what the file is called now.
@@ -216,8 +217,8 @@ export async function changesIn(
   );
   return {
     commits: lines.slice(0, MAX_COMMITS).map((l) => {
-      const [sha, subject] = l.split("\0");
-      return { sha, subject: subject ?? "" };
+      const [sha = "", subject = ""] = l.split("\0");
+      return { sha, subject };
     }),
     files: files.slice(0, MAX_FILES),
     truncated: lines.length > MAX_COMMITS || files.length > MAX_FILES,
@@ -290,7 +291,7 @@ export async function worktreeParent(dir: string): Promise<string | null> {
     if (!st.isFile()) return null;
     const gitfile = await fs.readFile(path.join(dir, ".git"), "utf8");
     const m = /^gitdir: (.+)\/\.git\/worktrees\//.exec(gitfile.trim());
-    return m ? path.basename(m[1]) : null;
+    return m?.[1] ? path.basename(m[1]) : null;
   } catch {
     return null;
   }

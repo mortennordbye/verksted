@@ -39,7 +39,7 @@ export default async function intakeRoutes(app: FastifyInstance) {
         id,
         source: "intake",
         at: new Date().toISOString(),
-        title: `from you: ${title || text.split("\n")[0].slice(0, 120) || url}`,
+        title: `from you: ${title || (text.split("\n")[0] ?? "").slice(0, 120) || url}`,
         detail: [text, link ?? url].filter(Boolean).join("\n").slice(0, 4000),
         link,
         version: "shared",

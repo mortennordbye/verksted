@@ -1,0 +1,12 @@
+// The source alone, held to noUncheckedIndexedAccess (O-29): an index into an
+// array or a record may miss, and this is where the backend splits gh output,
+// transcripts and tmux listings into fields that may not be there. The tests
+// index their own fixtures and mock calls, where a miss is the test failing
+// anyway, so they are checked by tsconfig.json without it.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src", "../shared"]
+}

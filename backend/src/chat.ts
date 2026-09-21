@@ -842,7 +842,10 @@ function shownInput(input: Record<string, unknown> | undefined, hasPatch: boolea
   if (hasPatch && typeof input.file_path === "string") return input.file_path;
   if (typeof input.command === "string") return input.command;
   const keys = Object.keys(input);
-  if (keys.length === 1 && typeof input[keys[0]] === "string") return input[keys[0]] as string;
+  const [only] = keys;
+  if (keys.length === 1 && only !== undefined && typeof input[only] === "string") {
+    return input[only];
+  }
   return JSON.stringify(input, null, 2);
 }
 

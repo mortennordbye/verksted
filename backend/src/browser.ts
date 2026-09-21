@@ -32,7 +32,7 @@ export function validNavUrl(url: string): string | null {
   if (url.length > 2000) return null;
   const scheme = /^([a-z][a-z0-9+.-]*):(.*)$/i.exec(url);
   // "localhost:8080/x" parses as scheme "localhost:" — treat host:port as schemeless.
-  const hostPort = scheme && /^\d+(\/.*)?$/.test(scheme[2]);
+  const hostPort = scheme && /^\d+(\/.*)?$/.test(scheme[2] ?? "");
   const withScheme = scheme && !hostPort ? url : `http://${url}`;
   try {
     const u = new URL(withScheme);
