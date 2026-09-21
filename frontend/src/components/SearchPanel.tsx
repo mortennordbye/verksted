@@ -67,7 +67,7 @@ export default function SearchPanel({
     try {
       const p = flagParams(flags);
       p.set("q", query);
-      setHits(await api<SearchHit[]>(`/api/projects/${project}/search?${p}`));
+      setHits(await api<SearchHit[]>(`/api/projects/${encodeURIComponent(project)}/search?${p}`));
     } catch (e) {
       setError((e as Error).message);
       setHits(null);
@@ -109,7 +109,7 @@ export default function SearchPanel({
     setBusy(true);
     setError(null);
     try {
-      const res = await api<ReplaceResult>(`/api/projects/${project}/replace`, {
+      const res = await api<ReplaceResult>(`/api/projects/${encodeURIComponent(project)}/replace`, {
         method: "POST",
         body: JSON.stringify({
           q: query,

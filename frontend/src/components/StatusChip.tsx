@@ -10,6 +10,27 @@ const styles = {
   idle: "text-faint border-line bg-surface-2",
 } as const;
 
+/**
+ * How a finished session's own verdict maps onto a chip. The bench and Today
+ * each kept a copy, and they had drifted: only one knew "blocked", only the
+ * other said "needs a look" rather than the raw word.
+ */
+const OUTCOME: Record<string, { kind: keyof typeof styles; label: string }> = {
+  ok: { kind: "run", label: "ok" },
+  attention: { kind: "wait", label: "needs a look" },
+  failed: { kind: "fail", label: "failed" },
+  blocked: { kind: "idle", label: "blocked" },
+  running: { kind: "run", label: "running" },
+  done: { kind: "idle", label: "done" },
+};
+
+export function outcomeChip(outcome: string | null | undefined): {
+  kind: keyof typeof styles;
+  label: string;
+} {
+  return OUTCOME[outcome ?? ""] ?? { kind: "idle", label: outcome ?? "done" };
+}
+
 export function StatusChip({ kind, label }: { kind: keyof typeof styles; label: string }) {
   return (
     <span

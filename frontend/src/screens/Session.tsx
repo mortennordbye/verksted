@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router";
 import type {
   BranchSync,
@@ -19,10 +19,11 @@ import FileTree from "../components/FileTree";
 import FileViewer, { type FileTarget } from "../components/FileViewer";
 import GitPanel from "../components/GitPanel";
 import SearchPanel from "../components/SearchPanel";
+import Splitter from "../components/Splitter";
 import PrPanel from "../components/PrPanel";
 import ActionsPanel from "../components/ActionsPanel";
 import Sheet from "../components/Sheet";
-import Icon from "../components/Icon";
+import Icon, { type IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
 import SegTabs from "../components/ui/SegTabs";
 import Skeleton from "../components/Skeleton";
@@ -72,56 +73,21 @@ type Side = (typeof SIDES)[number]["key"];
  * you aim at the second time; the label stays, because a folder and a globe
  * carry meaning but "actions" and "pull requests" both look like arrows.
  */
-const ICONS: Record<string, ReactNode> = {
-  files: <path d="M4 7a2 2 0 0 1 2-2h3l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" />,
-  git: (
-    <>
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="6" cy="18" r="3" />
-      <path d="M6 9v6M18 9a9 9 0 0 1-9 9" />
-      <circle cx="18" cy="6" r="3" />
-    </>
-  ),
-  search: (
-    <>
-      <circle cx="11" cy="11" r="7" />
-      <path d="m20 20-3.4-3.4" />
-    </>
-  ),
-  // A commit on a line: what this session added to the history.
-  changes: (
-    <>
-      <circle cx="12" cy="12" r="3.5" />
-      <path d="M3 12h5.5M15.5 12H21" />
-    </>
-  ),
-  prs: (
-    <>
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="18" cy="18" r="3" />
-      <path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7" />
-    </>
-  ),
-  runs: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="m10 8 6 4-6 4Z" />
-    </>
-  ),
-  chat: <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />,
-  agent: <path d="m4 17 6-6-6-6M12 19h8" />,
-  shell: (
-    <>
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      <path d="m7 9 3 3-3 3M13 15h4" />
-    </>
-  ),
-  browser: (
-    <>
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3a15 15 0 0 1 0 18 15 15 0 0 1 0-18Z" />
-    </>
-  ),
+/**
+ * Which drawn icon stands for each pane and side tab. The screen used to carry
+ * its own icon set and its own svg wrapper beside Icon.tsx, the same idea twice.
+ */
+const PANE_ICON: Record<string, IconName> = {
+  files: "folder",
+  git: "git",
+  search: "search",
+  changes: "changes",
+  prs: "pr",
+  runs: "play",
+  chat: "chat",
+  agent: "terminal",
+  shell: "shell",
+  browser: "browser",
 };
 
 function PaneIcon({
@@ -134,20 +100,12 @@ function PaneIcon({
   className?: string;
 }) {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      width={size}
-      height={size}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={`flex-none ${className ?? ""}`}
-      aria-hidden="true"
-    >
-      {ICONS[name]}
-    </svg>
+    <Icon
+      name={PANE_ICON[name] ?? "terminal"}
+      size={size}
+      strokeWidth={1.8}
+      className={className}
+    />
   );
 }
 
@@ -215,11 +173,11 @@ export default function Session() {
   const { pane, side, show } = useView();
   const { data: session, notFound } = usePoll<SessionInfo>(`/api/sessions/${id}`);
   const { data: tree, refresh: refreshTree } = usePoll<Tree>(
-    session ? `/api/projects/${session.project}/tree` : null,
+    session ? `/api/projects/${encodeURIComponent(session.project)}/tree` : null,
     8_000,
   );
   const { data: git, refresh: refreshGit } = usePoll<GitStatus>(
-    session ? `/api/projects/${session.project}/git` : null,
+    session ? `/api/projects/${encodeURIComponent(session.project)}/git` : null,
     8_000,
   );
   // The badge the top bar carried, which this screen no longer shows on a
@@ -260,7 +218,6 @@ export default function Session() {
    */
   const sideMin = side === "prs" || side === "runs" ? 340 : 160;
   const sideShown = Math.max(sideWidth, sideMin);
-  const sideDrag = useRef(false);
 
   useEffect(() => writeStored(SIDE_KEY, String(sideWidth)), [sideWidth]);
 
@@ -278,7 +235,6 @@ export default function Session() {
   const [ratio, setRatio] = useState(() => readStoredNumber(RATIO_KEY, 50, 20, 80));
   useEffect(() => writeStored(RATIO_KEY, String(ratio)), [ratio]);
   const splitBox = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
   const viewer = useUrlOverlay(["file", "diff", "line"]);
   const { file: viewedPath, diff: viewedDiff, line: viewedLine } = viewer.values;
   const viewed: FileTarget | null = viewedPath
@@ -305,16 +261,17 @@ export default function Session() {
 
   async function uploadFile(f: File) {
     if (!session) return;
-    // The result was never checked, so a rejected upload — too large, denied
-    // path, no disk — looked exactly like a successful one.
-    const res = await fetch(
-      `/api/projects/${session.project}/file?path=${encodeURIComponent(f.name)}`,
-      { method: "PUT", headers: { "content-type": "application/octet-stream" }, body: f },
+    // Through api(), which says when the pod is unreachable and does not wait
+    // on a dropped tunnel for minutes; the minute is for the bytes themselves.
+    await api(
+      `/api/projects/${encodeURIComponent(session.project)}/file?path=${encodeURIComponent(f.name)}`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/octet-stream" },
+        body: f,
+        timeoutMs: 60_000,
+      },
     );
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ?? `upload failed (HTTP ${res.status})`);
-    }
   }
 
   async function kill() {
@@ -330,7 +287,7 @@ export default function Session() {
     // did. A DELETE that never reached the pod used to navigate away all the
     // same, and the session was still running when the list painted again.
     if (await act(() => api(`/api/sessions/${session.id}`, { method: "DELETE" }))) {
-      void navigate(`/p/${session.project}`);
+      void navigate(`/p/${encodeURIComponent(session.project)}`);
     }
   }
 
@@ -347,7 +304,7 @@ export default function Session() {
     });
     if (!ok) return;
     if (await act(() => api(`/api/sessions/${session.id}?purge=1`, { method: "DELETE" }))) {
-      void navigate(`/p/${session.project}`);
+      void navigate(`/p/${encodeURIComponent(session.project)}`);
     }
   }
 
@@ -454,10 +411,13 @@ export default function Session() {
             settings in the sheet its ⋯ opens. */}
         <TopBar
           className="hidden desk:flex"
-          back={session ? `/p/${session.project}` : "/"}
+          back={session ? `/p/${encodeURIComponent(session.project)}` : "/"}
           crumb={
             session
-              ? [{ label: session.project, to: `/p/${session.project}` }, { label: session.title }]
+              ? [
+                  { label: session.project, to: `/p/${encodeURIComponent(session.project)}` },
+                  { label: session.title },
+                ]
               : []
           }
         />
@@ -568,7 +528,7 @@ export default function Session() {
               the way back, what you are looking at, and (in the sheet its ⋯
               opens) home, the inbox and its count, and settings. */}
           <div className="-mx-[18px] mb-2 flex flex-none items-center gap-2.5 border-b border-line px-[18px] pb-2.5 kbd:hidden desk:hidden">
-            <BackButton to={session ? `/p/${session.project}` : "/"} />
+            <BackButton to={session ? `/p/${encodeURIComponent(session.project)}` : "/"} />
             <button
               onClick={() => setPicker(true)}
               aria-haspopup="dialog"
@@ -659,44 +619,16 @@ export default function Session() {
                   while a wide monitor sat empty. Absolutely positioned on the
                   edge rather than a third grid column, so the mobile stacking
                   of this grid is untouched. */}
-              {/* A focusable separator is the WAI-ARIA window splitter pattern: it is an
-                  interactive widget, and the valuenow/min/max and arrow-key handling that
-                  pattern asks for is all right here. The rule only knows that "separator"
-                  is non-interactive by default. */}
-              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */}
-              <div
-                onPointerDown={(e) => {
-                  sideDrag.current = true;
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={(e) => {
-                  if (!sideDrag.current) return;
-                  const left = e.currentTarget.parentElement!.getBoundingClientRect().left;
-                  setSideWidth(Math.min(640, Math.max(sideMin, e.clientX - left)));
-                }}
-                onPointerUp={(e) => {
-                  sideDrag.current = false;
-                  e.currentTarget.releasePointerCapture(e.pointerId);
-                }}
-                onDoubleClick={() => setSideWidth(Math.max(250, sideMin))}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowLeft") setSideWidth((w) => Math.max(sideMin, w - 16));
-                  else if (e.key === "ArrowRight") setSideWidth((w) => Math.min(640, w + 16));
-                  else if (e.key === "Home") setSideWidth(Math.max(250, sideMin));
-                  else return;
-                  e.preventDefault();
-                }}
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="resize the sidebar"
-                aria-valuenow={sideShown}
-                aria-valuemin={sideMin}
-                aria-valuemax={640}
-                // Being focusable is what makes the splitter usable without a mouse.
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-                tabIndex={0}
-                title="drag to resize · double-click to reset · arrow keys"
-                className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 cursor-col-resize touch-none hover:bg-accent/60 desk:block"
+              <Splitter
+                label="resize the sidebar"
+                value={sideShown}
+                min={sideMin}
+                max={640}
+                step={16}
+                reset={Math.max(250, sideMin)}
+                at={(x, el) => x - el.parentElement!.getBoundingClientRect().left}
+                onChange={setSideWidth}
+                className="absolute top-0 -right-2.5 bottom-0 z-10 hidden w-2 desk:block"
               />
               <SegTabs
                 label="side panel"
@@ -909,45 +841,19 @@ export default function Session() {
                     )}
                   </div>
                   {(shell || browser) && (
-                    // The WAI-ARIA window splitter pattern again; see the sidebar
-                    // separator above.
-                    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
-                    <div
-                      onPointerDown={(e) => {
-                        dragging.current = true;
-                        e.currentTarget.setPointerCapture(e.pointerId);
+                    <Splitter
+                      label="resize the agent pane"
+                      value={ratio}
+                      min={20}
+                      max={80}
+                      step={2}
+                      reset={50}
+                      at={(x) => {
+                        const box = splitBox.current!.getBoundingClientRect();
+                        return ((x - box.left) / box.width) * 100;
                       }}
-                      onPointerMove={(e) => {
-                        if (!dragging.current || !splitBox.current) return;
-                        const box = splitBox.current.getBoundingClientRect();
-                        const pct = ((e.clientX - box.left) / box.width) * 100;
-                        setRatio(Math.min(80, Math.max(20, pct)));
-                      }}
-                      onPointerUp={(e) => {
-                        dragging.current = false;
-                        e.currentTarget.releasePointerCapture(e.pointerId);
-                      }}
-                      onDoubleClick={() => setRatio(50)}
-                      onKeyDown={(e) => {
-                        if (e.key === "ArrowLeft") setRatio((r) => Math.max(20, r - 2));
-                        else if (e.key === "ArrowRight") setRatio((r) => Math.min(80, r + 2));
-                        else if (e.key === "Home") setRatio(50);
-                        else return;
-                        e.preventDefault();
-                      }}
-                      // A 6px drag target was the only way to move this, which
-                      // is no way at all without a mouse.
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label="resize the agent pane"
-                      aria-valuenow={Math.round(ratio)}
-                      aria-valuemin={20}
-                      aria-valuemax={80}
-                      // Being focusable is what makes the splitter usable without a mouse.
-                      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
-                      tabIndex={0}
-                      title="drag to resize · double-click to reset · arrow keys"
-                      className="hidden w-1.5 flex-none cursor-col-resize touch-none bg-line hover:bg-accent/60 desk:block"
+                      onChange={setRatio}
+                      className="hidden w-1.5 flex-none bg-line desk:block"
                     />
                   )}
                   {shell && (

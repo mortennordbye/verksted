@@ -98,7 +98,8 @@ function SessionRow({ session, onDelete }: { session: Session; onDelete: () => v
 }
 
 export default function Project() {
-  const { name } = useParams<{ name: string }>();
+  // The route only matches with a name; "" keeps it a string for the URLs below.
+  const { name = "" } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const {
     data: sessions,
@@ -106,7 +107,7 @@ export default function Project() {
     loading: sessionsLoading,
     notFound,
     refresh: refreshSessions,
-  } = usePoll<Session[]>(`/api/projects/${name}/sessions`);
+  } = usePoll<Session[]>(`/api/projects/${encodeURIComponent(name)}/sessions`);
   const { data: projects, refresh: refreshProjects } = usePoll<ProjectInfo[]>(
     "/api/projects",
     10_000,
@@ -136,13 +137,16 @@ export default function Project() {
     setBranchBusy(true);
     setError(null);
     try {
-      const created = await api<{ name: string }>(`/api/projects/${name}/worktrees`, {
-        method: "POST",
-        body: JSON.stringify({ branch: value }),
-      });
+      const created = await api<{ name: string }>(
+        `/api/projects/${encodeURIComponent(name)}/worktrees`,
+        {
+          method: "POST",
+          body: JSON.stringify({ branch: value }),
+        },
+      );
       setBranching(false);
       setBranch("");
-      void navigate(`/p/${created.name}`);
+      void navigate(`/p/${encodeURIComponent(created.name)}`);
     } catch (e) {
       setError((e as Error).message);
       setBranching(false);
@@ -174,7 +178,7 @@ export default function Project() {
     if (deleting) return;
     setDeleting(true);
     try {
-      await api(`/api/projects/${name}`, { method: "DELETE" });
+      await api(`/api/projects/${encodeURIComponent(name)}`, { method: "DELETE" });
       void navigate("/bench");
     } catch (e) {
       setError((e as Error).message);
@@ -190,10 +194,13 @@ export default function Project() {
     if (starting) return;
     setStarting(true);
     try {
-      const session = await api<CreatedSession>(`/api/projects/${name}/sessions`, {
-        method: "POST",
-        body: JSON.stringify({ agent, resume }),
-      });
+      const session = await api<CreatedSession>(
+        `/api/projects/${encodeURIComponent(name)}/sessions`,
+        {
+          method: "POST",
+          body: JSON.stringify({ agent, resume }),
+        },
+      );
       // The session screen reports it when the repo could not be put on an
       // up-to-date main first.
       void navigate(`/s/${session.id}`, { state: { sync: session.sync } });
@@ -241,7 +248,7 @@ export default function Project() {
               {info ? (
                 <>
                   <BranchControl
-                    project={name!}
+                    project={name}
                     branch={info.branch}
                     onChanged={refreshProjects}
                     className="tap rounded-md border border-line bg-surface px-2 py-0.5 font-mono text-[13px] hover:border-faint hover:text-text"
@@ -339,8 +346,8 @@ export default function Project() {
           </>
         )}
 
-        {tab === "prs" && <PrPanel project={name!} onChanged={refreshProjects} />}
-        {tab === "actions" && <ActionsPanel project={name!} />}
+        {tab === "prs" && <PrPanel project={name} onChanged={refreshProjects} />}
+        {tab === "actions" && <ActionsPanel project={name} />}
         {tab === "schedules" && <SchedulesPanel project={name} />}
 
         <div className="mt-10 border-t border-line pt-4">

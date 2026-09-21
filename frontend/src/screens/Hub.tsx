@@ -8,7 +8,7 @@ import PageHeader from "../components/PageHeader";
 import PollError from "../components/PollError";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
-import { AgentMark, AgentTag, StatusChip, StatusDot } from "../components/StatusChip";
+import { AgentMark, AgentTag, outcomeChip, StatusChip, StatusDot } from "../components/StatusChip";
 import Sheet, { focusIfPointerFine } from "../components/Sheet";
 import ClusterPanel from "../components/ClusterPanel";
 import UsagePanel from "../components/UsagePanel";
@@ -17,19 +17,7 @@ import { readStored, writeStored } from "../storage";
 import Button from "../components/ui/Button";
 import { Input } from "../components/ui/Field";
 import Notice from "../components/ui/Notice";
-
-function gb(bytes: number): string {
-  return `${(bytes / 1024 ** 3).toFixed(1)}G`;
-}
-
-/** How a finished session's own verdict maps onto a chip. */
-const OUTCOME: Record<string, { kind: "run" | "wait" | "fail" | "idle"; label: string }> = {
-  ok: { kind: "run", label: "ok" },
-  attention: { kind: "wait", label: "needs a look" },
-  failed: { kind: "fail", label: "failed" },
-  done: { kind: "idle", label: "done" },
-  running: { kind: "run", label: "running" },
-};
+import { bytes } from "../format";
 
 /**
  * One session as a row you can act on.
@@ -47,7 +35,7 @@ function SessionCard({
   urgent?: boolean;
   compact?: boolean;
 }) {
-  const chip = OUTCOME[session.outcome] ?? OUTCOME.done;
+  const chip = outcomeChip(session.outcome);
   // One line: the mark, where it is, what it is, and how it went. The id and
   // the age are what a card has room for and a row does not — both are on the
   // session screen, and neither is why you are scanning this list.
@@ -247,7 +235,7 @@ export default function Hub() {
       setAdding(false);
       setInput("");
       refresh();
-      void navigate(`/p/${name}`);
+      void navigate(`/p/${encodeURIComponent(name)}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -354,7 +342,7 @@ export default function Hub() {
             // and "open in new tab" all worked nowhere before this.
             <Link
               key={p.name}
-              to={`/p/${p.name}`}
+              to={`/p/${encodeURIComponent(p.name)}`}
               className="flex flex-col gap-3 rounded-xl border border-line bg-surface p-4 text-left transition motion-safe:hover:-translate-y-px hover:border-accent-pastel"
             >
               <div className="flex items-center gap-2.5">
@@ -458,7 +446,7 @@ export default function Hub() {
               <Stat
                 icon="disk"
                 label="Data"
-                value={`${gb(facts.diskTotal - facts.diskFree)} / ${gb(facts.diskTotal)}`}
+                value={`${bytes(facts.diskTotal - facts.diskFree)} / ${bytes(facts.diskTotal)}`}
                 fraction={
                   facts.diskTotal > 0 ? (facts.diskTotal - facts.diskFree) / facts.diskTotal : null
                 }
@@ -470,8 +458,8 @@ export default function Hub() {
                 label="Memory"
                 value={
                   facts.memTotal > 0
-                    ? `${gb(facts.memUsed)} / ${gb(facts.memTotal)}`
-                    : gb(facts.memUsed)
+                    ? `${bytes(facts.memUsed)} / ${bytes(facts.memTotal)}`
+                    : bytes(facts.memUsed)
                 }
                 // memTotal is 0 when the pod has no limit set, and a meter with
                 // no ceiling is a bar that means nothing.

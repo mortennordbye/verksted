@@ -87,7 +87,10 @@ export function citePath(href: string): { to?: string; doc?: string; label: stri
       return { to: `/s/${id}`, label: id };
     case "pr": {
       const [project, number] = id.split("#");
-      return { to: `/p/${project}?side=prs`, label: number ? `${project} #${number}` : project };
+      return {
+        to: `/p/${encodeURIComponent(project)}?side=prs`,
+        label: number ? `${project} #${number}` : project,
+      };
     }
     default:
       return null;

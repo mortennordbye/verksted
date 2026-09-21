@@ -30,7 +30,7 @@ export default function ActionsPanel({ project }: { project: string }) {
     data: runs,
     error,
     refresh,
-  } = usePoll<WorkflowRun[]>(`/api/projects/${project}/runs`, 15_000);
+  } = usePoll<WorkflowRun[]>(`/api/projects/${encodeURIComponent(project)}/runs`, 15_000);
 
   return (
     <>
@@ -112,7 +112,7 @@ function RunSheet({
   // the run lands: usePoll clears its data when the path or interval changes, so
   // pausing would blank the sheet the user is reading.
   const { data: detail, refresh } = usePoll<WorkflowRunDetail>(
-    `/api/projects/${project}/runs/${id}`,
+    `/api/projects/${encodeURIComponent(project)}/runs/${id}`,
     10_000,
   );
 
@@ -132,7 +132,7 @@ function RunSheet({
   }
 
   const post = (op: string, body?: unknown) =>
-    api(`/api/projects/${project}/runs/${id}/${op}`, {
+    api(`/api/projects/${encodeURIComponent(project)}/runs/${id}/${op}`, {
       method: "POST",
       body: body ? JSON.stringify(body) : undefined,
     });
@@ -173,7 +173,11 @@ function RunSheet({
             <Button
               onClick={() =>
                 act(async () =>
-                  setLog(await api<RunLog>(`/api/projects/${project}/runs/${id}/log`)),
+                  setLog(
+                    await api<RunLog>(
+                      `/api/projects/${encodeURIComponent(project)}/runs/${id}/log`,
+                    ),
+                  ),
                 )
               }
               disabled={busy}

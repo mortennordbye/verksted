@@ -8,19 +8,12 @@ import "@xterm/xterm/css/xterm.css";
 import type { UploadedFile } from "../../../shared/api";
 import { copyText } from "../clipboard";
 import { readStoredNumber, writeStored } from "../storage";
-import Sheet from "./Sheet";
-import Icon from "./Icon";
-
-// Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
-// and copying these off a phone terminal is painful; we surface a tap target.
-const AUTH_URL_RE =
-  /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
-
-// A wrapped URL continuation row is one unbroken run of URL characters — no
-// spaces, since that's the only thing wrapping split. This is the reconnection
-// signal, and unlike "row is full" it never depends on the wrap width matching
-// the terminal's current cols (which a keyboard-driven resize can desync).
-const URL_CHARS_RE = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
+import { api } from "../api";
+import AuthLinkBar from "./terminal/AuthLinkBar";
+import { findAuthUrl, findMode, MODE_SEQ, MODES } from "./terminal/scrape";
+import { speechCtor, type Recognition } from "./terminal/speech";
+import { KEY, KEY_IDLE, KEY_LIT, KEY_PRESS, KEY_TIGHT, KEYS } from "./terminal/keys";
+import KeysSheet from "./terminal/KeysSheet";
 
 /**
  * How many bytes may be waiting to be drawn before the pod is asked to stop
@@ -30,160 +23,6 @@ const URL_CHARS_RE = /^[A-Za-z0-9\-._~:/?#[\]@!$&'()*+,;=%]+$/;
  */
 const WRITE_HIGH_WATER = 128 * 1024;
 const WRITE_LOW_WATER = 16 * 1024;
-
-/**
- * Most recent auth URL visible in the terminal, or null. Only the last ~400
- * rows are scanned — the sign-in URL is always the freshest thing on screen.
- *
- * A long URL is split across rows by xterm's wrapping or by the agent TUI
- * hard-wrapping. We find the row the URL starts on, then — only if it ran to
- * that row's end — keep appending following rows while each is a pure run of
- * URL characters. The first row that isn't (a blank line, prose, a prompt)
- * ends it. No reference to cols, so a resize between render and scan can't
- * truncate the result.
- */
-function findAuthUrl(term: Xterm): string | null {
-  const buf = term.buffer.active;
-  const start = Math.max(0, buf.length - 400);
-  const rows: string[] = [];
-  for (let i = start; i < buf.length; i++) {
-    const line = buf.getLine(i);
-    rows.push(line ? line.translateToString(true) : ""); // right-trimmed
-  }
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const m = rows[i].match(AUTH_URL_RE);
-    if (!m) continue;
-    let url = m[0];
-    // Continuation rows exist only if the URL reached this row's end.
-    if (rows[i].indexOf(m[0]) + m[0].length === rows[i].length) {
-      for (let j = i + 1; j < rows.length && URL_CHARS_RE.test(rows[j]); j++) {
-        url += rows[j];
-      }
-    }
-    return url;
-  }
-  return null;
-}
-
-// shift+tab: claude's permission-mode toggle.
-const MODE_SEQ = "\x1b[Z";
-
-/**
- * The permission mode as the agent prints it on its status line — the row the
- * on-screen keyboard covers, which is the whole reason for the chip.
- *
- * claude renders that line as `<symbol> <indicator> on`; the indicators below
- * are its full set, read off the CLI bundle rather than guessed. An unknown
- * one just leaves the chip reading "mode", same as before it could detect any.
- */
-const MODES: { re: RegExp; label: string; tone: string }[] = [
-  { re: /bypass permissions on\b/i, label: "bypass", tone: "border-fail text-fail" },
-  { re: /don['’]t ask on\b/i, label: "don't ask", tone: "border-fail text-fail" },
-  { re: /accept edits on\b/i, label: "accept edits", tone: "border-run text-run" },
-  { re: /auto mode on\b/i, label: "auto", tone: "border-run text-run" },
-  { re: /plan mode on\b/i, label: "plan", tone: "border-accent text-accent" },
-  { re: /manual mode on\b/i, label: "manual", tone: "border-line text-muted" },
-];
-
-/**
- * Permission mode currently shown on the terminal's status line, or null when
- * no line matches. Only the viewport is scanned — never the scrollback, where a
- * stale mode line from an earlier screen would win.
- */
-function findMode(term: Xterm): (typeof MODES)[number] | null {
-  const buf = term.buffer.active;
-  for (let i = buf.baseY + term.rows - 1; i >= buf.baseY; i--) {
-    const line = buf.getLine(i);
-    if (!line) continue;
-    const text = line.translateToString(true);
-    const hit = MODES.find((m) => m.re.test(text));
-    if (hit) return hit;
-  }
-  return null;
-}
-
-/**
- * The browser's dictation engine. The pod has no microphone and never will —
- * the phone in your hand does — so speech becomes text here and reaches the
- * agent as ordinary typing. Safari and Chrome both still expose it under the
- * webkit prefix. Needs a secure origin, same as push.
- */
-interface Recognition {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  start: () => void;
-  stop: () => void;
-  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-}
-
-function speechCtor(): (new () => Recognition) | null {
-  const w = window as unknown as {
-    SpeechRecognition?: new () => Recognition;
-    webkitSpeechRecognition?: new () => Recognition;
-  };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
-}
-
-/**
- * Special keys for touch screens, where the on-screen keyboard lacks them.
- *
- * `row` is which tier the key sits in. Row 1 is what you press while answering
- * an agent: it is always on screen and always fits one line. Row 2 is
- * everything else, one tap away in the `more` sheet.
- *
- * The split exists because these keys compete with the terminal for a phone
- * screen. They were one horizontal scroller of twenty-five controls, which put
- * two thirds of them off the edge behind a drag gesture nothing advertised;
- * then two stacked tiers, which is how four rows of keys came to sit above a
- * terminal with two lines left. A sheet costs the same tap the tier did and
- * takes none of the terminal.
- */
-const KEYS: { label: string; seq: string; title?: string; row: 1 | 2 }[] = [
-  { label: "esc", seq: "\x1b", row: 1 },
-  // Permission prompts are the single most common thing to answer from a
-  // phone, and both answers are one tap away here.
-  { label: "y", seq: "y", title: "answer yes", row: 1 },
-  { label: "n", seq: "n", title: "answer no", row: 1 },
-  // carriage return — submits the claude prompt / a pasted sign-in code
-  { label: "enter", seq: "\r", row: 1 },
-  { label: "↑", seq: "\x1b[A", row: 1 },
-  { label: "^C", seq: "\x03", row: 1 },
-  { label: "tab", seq: "\t", row: 2 },
-  // A newline without submitting: how you write a second line into a claude
-  // prompt, and unreachable from an on-screen keyboard otherwise.
-  { label: "⏎+", seq: "\x1b\r", title: "newline without sending", row: 2 },
-  { label: "/", seq: "/", row: 2 },
-  { label: "↓", seq: "\x1b[B", row: 2 },
-  { label: "←", seq: "\x1b[D", row: 2 },
-  { label: "→", seq: "\x1b[C", row: 2 },
-  { label: "^D", seq: "\x04", title: "end of input", row: 2 },
-  { label: "^R", seq: "\x12", title: "reverse history search", row: 2 },
-  { label: "^L", seq: "\x0c", title: "clear screen", row: 2 },
-  { label: "home", seq: "\x1b[H", title: "start of line", row: 2 },
-  { label: "end", seq: "\x1b[F", title: "end of line", row: 2 },
-];
-
-// Toolbar key styling. Tap feedback matters more here than it looks: on a phone
-// these keys are the whole keyboard, and a press that leaves no mark reads as a
-// press that didn't land. :active covers the finger-down moment; `flash` holds
-// the same look for a moment after release, which is what makes a quick tap
-// visible at all.
-const KEY_BOX =
-  "flex-none items-center justify-center rounded-md border px-2 py-1 font-mono text-[12px] transition-colors";
-/** In the `more` sheet, where there is room to be 44px tall, so it is. */
-const KEY = `tap ${KEY_BOX}`;
-/**
- * In the bar, where 44px of box is 16px of terminal: 44px to a finger, 28px to
- * the layout. `tap-hit`'s overlay overhangs the box by 8px a side, so the bar
- * needs a row gap wider than that — see the bar itself, and theme.css.
- */
-const KEY_TIGHT = `tap-hit ${KEY_BOX}`;
-const KEY_PRESS = "active:border-accent active:bg-accent/25 active:text-accent";
-const KEY_IDLE = "border-line text-muted";
-const KEY_LIT = "border-accent bg-accent/25 text-accent";
 
 /** How long a key keeps the pressed look after the finger lifts. */
 const FLASH_MS = 160;
@@ -251,12 +90,10 @@ export default function Terminal({
    */
   const dismissedUrls = useRef(new Set<string>());
   const [mode, setMode] = useState<(typeof MODES)[number] | null>(null);
-  const [copied, setCopied] = useState(false);
   const [pasteBlocked, setPasteBlocked] = useState(false);
   const [fontSize, setFontSize] = useState(storedFontSize);
   const [closeCode, setCloseCode] = useState<number | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const [code, setCode] = useState("");
   const [upload, setUpload] = useState<"idle" | "busy" | "failed">("idle");
   // Dictation: the run in progress, and whether the mic key is lit.
   const recognition = useRef<Recognition | null>(null);
@@ -436,12 +273,15 @@ export default function Terminal({
     for (const f of files) {
       const name = f.name || `pasted.${f.type.split("/")[1] ?? "png"}`;
       try {
-        const res = await fetch(
+        const { path } = await api<UploadedFile>(
           `/api/projects/${encodeURIComponent(project)}/upload?filename=${encodeURIComponent(name)}`,
-          { method: "POST", headers: { "content-type": "application/octet-stream" }, body: f },
+          {
+            method: "POST",
+            headers: { "content-type": "application/octet-stream" },
+            body: f,
+            timeoutMs: 60_000,
+          },
         );
-        if (!res.ok) throw new Error(String(res.status));
-        const { path } = (await res.json()) as UploadedFile;
         paths.push(path);
       } catch {
         failed = true;
@@ -461,28 +301,14 @@ export default function Terminal({
     sendImagesRef.current = sendImages;
   });
 
-  async function copyAuthUrl() {
-    if (!authUrl) return;
-    // copyText, not navigator.clipboard: the Clipboard API only exists in a
-    // secure context, and this app is served over plain HTTP on the VPN.
-    if (await copyText(authUrl)) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  }
-
   // Send the auth code the sign-in redirect handed back, plus Enter. A native
   // input field is where a phone can actually paste; the terminal can't.
-  function sendCode() {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    sendInput(trimmed + "\r");
-    setCode("");
+  function sendCode(code: string) {
+    sendInput(code + "\r");
     // Answered, so the link is done with — and the scan must not raise it again
     // off the scrollback it is still sitting in.
     if (authUrl) dismissedUrls.current.add(authUrl);
     setAuthUrl(null);
-    setCopied(false);
   }
 
   // Leaving the session must not leave the microphone open.
@@ -926,128 +752,33 @@ export default function Terminal({
       </div>
 
       {moreKeys && (
-        <Sheet
-          title="keys"
-          sub="what the on-screen keyboard has not got"
+        <KeysSheet
+          keyClass={keyClass}
+          sheetKey={sheetKey}
+          ctrl={ctrl}
+          onCtrl={() => {
+            ctrlArmed.current = !ctrlArmed.current;
+            setCtrl(ctrlArmed.current);
+          }}
+          pasteBlocked={pasteBlocked}
+          onPaste={pasteFromClipboard}
+          listening={listening}
+          onMic={toggleDictation}
+          upload={upload}
+          onImage={() => {
+            press("img");
+            picker.current?.click();
+          }}
+          onSend={sendInput}
+          onScroll={(pages) => scrollBy(pages * ((termRef.current?.rows ?? 24) - 2))}
+          onKeyboard={() => {
+            setMoreKeys(false);
+            termRef.current?.focus();
+          }}
+          fontSize={fontSize}
+          onFontSize={(n) => setFontSize(Math.min(FONT_MAX, Math.max(FONT_MIN, n)))}
           onClose={() => setMoreKeys(false)}
-        >
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              onClick={() =>
-                sheetKey("ctrl", () => {
-                  ctrlArmed.current = !ctrlArmed.current;
-                  setCtrl(ctrlArmed.current);
-                })
-              }
-              className={keyClass("ctrl", ctrl ? KEY_LIT : KEY_IDLE)}
-            >
-              ctrl
-            </button>
-            <button
-              onClick={() => sheetKey("paste", pasteFromClipboard)}
-              title={
-                pasteBlocked
-                  ? "the browser will not hand over the clipboard on this origin"
-                  : "paste the clipboard into the terminal"
-              }
-              className={keyClass("paste", pasteBlocked ? "border-fail text-fail" : KEY_IDLE)}
-            >
-              {pasteBlocked ? "no clipboard" : "paste"}
-            </button>
-            {speechCtor() && (
-              <button
-                onClick={() => sheetKey("mic", toggleDictation)}
-                title="dictate into the terminal"
-                className={keyClass("mic", listening ? KEY_LIT : KEY_IDLE)}
-              >
-                {listening ? "◉ mic" : "mic"}
-              </button>
-            )}
-            <button
-              onClick={() => {
-                press("img");
-                picker.current?.click();
-              }}
-              disabled={upload === "busy"}
-              className={keyClass("img", upload === "failed" ? "border-wait text-wait" : KEY_IDLE)}
-            >
-              {upload === "busy" ? "…" : upload === "failed" ? "img ✕" : "img"}
-            </button>
-            {KEYS.filter((k) => k.row === 2).map((k) => (
-              <button
-                key={k.label}
-                onClick={() => sheetKey(k.label, () => sendInput(k.seq))}
-                title={k.title}
-                aria-label={k.title ?? k.label}
-                className={keyClass(k.label)}
-              >
-                {k.label}
-              </button>
-            ))}
-            {/* A page of history at a time — the same scrollback the drag gesture
-            moves, not the PgUp/PgDn keys the agent would swallow.
-
-            Labelled in words rather than ⌨ ⇞ ⇟: no mono font here ships those
-            three, so each came from a fallback and rendered as an empty box. */}
-            <button
-              onClick={() => sheetKey("pgup", () => scrollBy((termRef.current?.rows ?? 24) - 2))}
-              title="scroll back"
-              className={keyClass("pgup")}
-            >
-              pg↑
-            </button>
-            <button
-              onClick={() => sheetKey("pgdn", () => scrollBy(-((termRef.current?.rows ?? 24) - 2)))}
-              title="scroll forward"
-              className={keyClass("pgdn")}
-            >
-              pg↓
-            </button>
-            {/* iOS drops the on-screen keyboard whenever focus moves — to the
-            file picker, a key, or nothing at all — and there is no way back
-            without tapping the terminal body, which in copy mode means
-            scrolling it. Closes the sheet first: it is asking for the keyboard,
-            which needs the space this is standing in. */}
-            <button
-              onClick={() => {
-                setMoreKeys(false);
-                termRef.current?.focus();
-              }}
-              title="show the keyboard"
-              aria-label="show the keyboard"
-              className={keyClass("kbd")}
-            >
-              kbd
-            </button>
-          </div>
-
-          {/* Font steppers: 13px is ~46 columns on a phone, and agent TUIs draw
-              for 80 — their boxes and diffs wrap into noise below that. Given
-              their own row with the current size shown, because two unlabelled
-              A's in a row of two dozen keys never said what they sized. */}
-          <div className="mt-3 flex items-center gap-1.5 border-t border-line pt-3">
-            <span className="mr-auto text-[13px] text-muted">text size</span>
-            <button
-              onClick={() => sheetKey("a-", () => setFontSize((n) => Math.max(FONT_MIN, n - 1)))}
-              title="smaller text (more columns)"
-              aria-label="smaller text"
-              className={keyClass("a-")}
-            >
-              A−
-            </button>
-            <span className="w-[52px] text-center font-mono text-[12px] text-faint">
-              {fontSize}px
-            </span>
-            <button
-              onClick={() => sheetKey("a+", () => setFontSize((n) => Math.min(FONT_MAX, n + 1)))}
-              title="larger text (fewer columns)"
-              aria-label="larger text"
-              className={keyClass("a+")}
-            >
-              A+
-            </button>
-          </div>
-        </Sheet>
+        />
       )}
       <div className="relative min-h-0 flex-1">
         <div ref={ref} className="absolute inset-0 p-2" />
@@ -1081,65 +812,14 @@ export default function Terminal({
         )}
       </div>
       {authUrl && (
-        <div className="flex flex-none flex-col gap-1.5 border-t border-line bg-surface px-2 py-1.5 font-mono text-[12px]">
-          <div className="flex items-center gap-2">
-            <span className="flex-none text-muted">sign-in link</span>
-            {/* Opacity on text is how a token ends up below 3:1: this is the
-                URL you are being asked to read off a phone. */}
-            <span className="min-w-0 flex-1 truncate text-faint">{authUrl}</span>
-            <a
-              href={authUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-none rounded-md border border-accent px-2 py-0.5 text-accent active:bg-surface-2"
-            >
-              open ↗
-            </a>
-            <button
-              onClick={copyAuthUrl}
-              className="flex-none rounded-md border border-line px-2 py-0.5 text-muted active:bg-surface-2"
-            >
-              {copied ? "copied" : "copy"}
-            </button>
-            <button
-              onClick={() => {
-                dismissedUrls.current.add(authUrl);
-                setAuthUrl(null);
-                setCopied(false);
-              }}
-              className="tap-sq flex flex-none items-center justify-center rounded-md px-1.5 py-0.5 text-muted active:bg-surface-2"
-              aria-label="dismiss sign-in link"
-            >
-              <Icon name="close" size={14} />
-            </button>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              sendCode();
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="paste the code here, then Send"
-              aria-label="sign-in code"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="send"
-              className="min-w-0 flex-1 rounded-md border border-line bg-term px-2 py-1 text-text placeholder:text-faint focus:border-accent focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="flex-none rounded-md border border-accent px-3 py-1 text-accent active:bg-surface-2"
-            >
-              send
-            </button>
-          </form>
-        </div>
+        <AuthLinkBar
+          url={authUrl}
+          onDismiss={() => {
+            dismissedUrls.current.add(authUrl);
+            setAuthUrl(null);
+          }}
+          onCode={sendCode}
+        />
       )}
     </div>
   );
