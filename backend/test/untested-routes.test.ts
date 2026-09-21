@@ -67,7 +67,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const s of (await app.inject({ url: "/api/schedules" })).json() as { id: string }[]) {
+  const all: { id: string }[] = (await app.inject({ url: "/api/schedules" })).json();
+  for (const s of all) {
     await app.inject({ method: "DELETE", url: `/api/schedules/${s.id}` });
   }
   await app.close();
@@ -93,7 +94,7 @@ describe("GET /api/runs", () => {
       url: "/api/schedules",
       payload: { name: "nightly", project: "demo", cron: "0 3 * * *", prompt: "look around" },
     });
-    const { id } = created.json() as { id: string };
+    const { id }: { id: string } = created.json();
     const file = path.join(schedulesDir, `${id}.json`);
     const stored = JSON.parse(fs.readFileSync(file, "utf8"));
     stored.runs = [
@@ -102,10 +103,9 @@ describe("GET /api/runs", () => {
     ];
     fs.writeFileSync(file, JSON.stringify(stored));
 
-    const runs = (await app.inject({ url: "/api/runs" })).json() as {
-      schedule: string;
-      error: string | null;
-    }[];
+    const runs: { schedule: string; error: string | null }[] = (
+      await app.inject({ url: "/api/runs" })
+    ).json();
     expect(runs.map((r) => r.schedule)).toEqual(["nightly", "nightly"]);
     expect(runs[0]?.error).toBe("gh is not signed in");
   });
