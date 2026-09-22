@@ -12,9 +12,13 @@ import type { FastifyInstance } from "fastify";
  * Everything here runs a real process as uid 1001, which the test container
  * (root) can do without that user existing, and asks the kernel what it could
  * reach: the API over loopback, git's own uid, the files the boot hands over.
+ *
+ * Only as root, which the dev container is and a CI runner is not: CI runs
+ * this file again under sudo (see ci.yml).
  */
 const run = promisify(execFile);
 const UID = 1001;
+const asRoot = describe.runIf(process.getuid?.() === 0);
 
 let tmp: string;
 let agentHome: string;
@@ -98,7 +102,7 @@ describe("finding the agent user", () => {
   });
 });
 
-describe("the API, asked by the agent user", () => {
+asRoot("the API, asked by the agent user", () => {
   it("refuses everything but a session's own few routes", async () => {
     agentUser.setAgent(agent(), "", [tmp]);
     expect(await statusAs(UID, "GET", "/api/sessions")).toBe(403);
@@ -132,7 +136,7 @@ describe("the API, asked by the agent user", () => {
   });
 });
 
-describe("what the backend runs for a session", () => {
+asRoot("what the backend runs for a session", () => {
   it("runs git as the agent user, with the agent's HOME", async () => {
     fs.chownSync(agentHome, UID, UID);
     agentUser.setAgent(agent(), "", [tmp]);
@@ -196,7 +200,7 @@ describe("what the backend runs for a session", () => {
   });
 });
 
-describe("a session under the agent user", () => {
+asRoot("a session under the agent user", () => {
   it("runs in the agent user's own tmux server, which the backend still drives", async () => {
     const socketDir = dir("tmux-test");
     fs.mkdirSync(socketDir, { mode: 0o700 });
@@ -220,7 +224,7 @@ describe("a session under the agent user", () => {
   });
 });
 
-describe("the boot that turns it on", () => {
+asRoot("the boot that turns it on", () => {
   it("hands over the repos and HOME, moves the assistant's transcripts and closes the rest", async () => {
     agentUser.setAgent(agent(), dir("run/tmux"), [tmp]);
     fs.mkdirSync(dir("repos/demo/src"), { recursive: true });

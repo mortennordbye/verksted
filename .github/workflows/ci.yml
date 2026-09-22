@@ -30,6 +30,10 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      # Privilege separation's tests switch uids, which needs root; `npm test`
+      # above skips them on the runner's own user.
+      - run: sudo --preserve-env=PATH npx vitest run test/agent-user.test.ts
+        working-directory: backend
       - run: npm run build
 
   # The browser half of the suite. It was `make e2e` only, which means it ran
