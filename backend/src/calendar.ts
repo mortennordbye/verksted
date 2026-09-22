@@ -65,8 +65,15 @@ export class CalendarRefused extends Error {}
  * request that asked, and the assistant's tool call behind it, for as long as
  * the socket lasted.
  */
+let davTimeoutMs = 20_000;
+
+/** For tests: a server that never answers, without waiting twenty seconds for it. */
+export function setDavTimeout(ms: number): void {
+  davTimeoutMs = ms;
+}
+
 const davFetch: typeof fetch = (input, init) =>
-  fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
+  fetch(input, { ...init, signal: AbortSignal.timeout(davTimeoutMs) });
 
 async function connect() {
   const config = await calendarConfig();
