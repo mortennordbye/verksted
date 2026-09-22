@@ -1130,6 +1130,35 @@ export interface AssistantThread {
  */
 export type AssistantFrame = Omit<AssistantThread, "entries"> & { entries?: AssistantEntry[] };
 
+/**
+ * One call the assistant made that changed something, as the tool log keeps
+ * it (backend/src/tool-log.ts). Reads are not logged.
+ */
+export interface ToolLogEntry {
+  at: string;
+  /** The CLI run the call belongs to, which is what a prompt injection acts within. */
+  turn: string;
+  /** The chair, or the advisor whose turn it was. */
+  speaker: string;
+  /** A turn nobody was reading. */
+  unattended: boolean;
+  tool: string;
+  /** From the tool policy table: reversible, card or irreversible. */
+  effect: string;
+  args: Record<string, unknown>;
+  ok: boolean;
+  /** What the tool answered, or why it did not. Trimmed: the line is the record, not the reply. */
+  result: string;
+}
+
+/** A day of the tool log, and the days there are, newest first. */
+export interface ToolLogDay {
+  days: string[];
+  /** The day shown; null when the log is empty. */
+  day: string | null;
+  entries: ToolLogEntry[];
+}
+
 /** The unattended turn in flight — a briefing, triage, the journal — or null. */
 export interface UnattendedRun {
   /** The schedule's name, or the job's: "triage", "journal", … */

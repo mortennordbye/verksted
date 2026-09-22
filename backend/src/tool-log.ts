@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { ToolLogDay, ToolLogEntry } from "../../shared/api.js";
 import { env } from "./env.js";
 import { today } from "./journal-store.js";
 
@@ -20,23 +21,6 @@ import { today } from "./journal-store.js";
  */
 export function toolLogDir(): string {
   return path.join(env.ASSISTANT_DIR, "tool-log");
-}
-
-export interface ToolLogEntry {
-  at: string;
-  /** The CLI run the call belongs to, which is what a prompt injection acts within. */
-  turn: string;
-  /** The chair, or the advisor whose turn it was. */
-  speaker: string;
-  /** A turn nobody was reading. */
-  unattended: boolean;
-  tool: string;
-  /** From the tool policy table: reversible, card or irreversible. */
-  effect: string;
-  args: Record<string, unknown>;
-  ok: boolean;
-  /** What the tool answered, or why it did not. Trimmed: the line is the record, not the reply. */
-  result: string;
 }
 
 /** What the tool answered is evidence, not content: a line, not a page. */
@@ -66,4 +50,33 @@ export async function record(entry: Omit<ToolLogEntry, "at">, now = new Date()):
   // O_APPEND: two advisors of a council meeting write this file at once, and a
   // line either lands whole or does not land.
   await fs.appendFile(path.join(toolLogDir(), `${today(now)}.jsonl`), `${line}\n`);
+}
+
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * One day of the log as the settings page reads it, and which days there are.
+ * No day means the newest one. A day is only ever a date, so the file it names
+ * cannot be anything but a day's log. A line that does not parse costs that
+ * line: a half-written last line is what a crash mid-append leaves.
+ */
+export async function readDay(day?: string): Promise<ToolLogDay> {
+  const days = (await fs.readdir(toolLogDir()).catch(() => []))
+    .filter((f) => f.endsWith(".jsonl") && DAY_RE.test(f.slice(0, -6)))
+    .map((f) => f.slice(0, -6))
+    .sort()
+    .reverse();
+  const shown = day ?? days[0] ?? null;
+  if (!shown || !DAY_RE.test(shown)) return { days, day: shown, entries: [] };
+  const text = await fs.readFile(path.join(toolLogDir(), `${shown}.jsonl`), "utf8").catch(() => "");
+  const entries: ToolLogEntry[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      entries.push(JSON.parse(line) as ToolLogEntry);
+    } catch {
+      // See above.
+    }
+  }
+  return { days, day: shown, entries };
 }

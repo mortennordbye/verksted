@@ -124,3 +124,36 @@ describe("the tool log", () => {
     expect(lines()).toEqual([]);
   });
 });
+
+describe("reading the tool log back", () => {
+  it("answers the newest day by default, a named day when asked, and which days there are", async () => {
+    await toolLog.record(CALL, new Date("2026-09-20T10:00:00Z"));
+    await toolLog.record({ ...CALL, tool: "calendar_update" }, new Date("2026-09-21T10:00:00Z"));
+    // What a crash mid-append leaves: the rest of the day still reads.
+    fs.appendFileSync(path.join(toolLog.toolLogDir(), "2026-09-21.jsonl"), '{"at":"2026-09-21T1');
+
+    const newest = (await app.inject({ url: "/api/assistant/tool-log" })).json();
+    expect(newest.days).toEqual(["2026-09-21", "2026-09-20"]);
+    expect(newest.day).toBe("2026-09-21");
+    expect(newest.entries.map((e: { tool: string }) => e.tool)).toEqual(["calendar_update"]);
+
+    const named = (await app.inject({ url: "/api/assistant/tool-log?day=2026-09-20" })).json();
+    expect(named.entries).toHaveLength(1);
+    expect(named.entries[0]).toMatchObject({ tool: "mail_move", args: CALL.args });
+  });
+
+  it("is empty rather than an error before anything was logged", async () => {
+    const res = await app.inject({ url: "/api/assistant/tool-log" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ days: [], day: null, entries: [] });
+  });
+
+  it("takes a date and nothing else for a day", async () => {
+    for (const day of ["../settings", "2026-9-1", "2026-09-21.jsonl"]) {
+      const res = await app.inject({
+        url: `/api/assistant/tool-log?day=${encodeURIComponent(day)}`,
+      });
+      expect(res.statusCode, day).toBe(400);
+    }
+  });
+});
