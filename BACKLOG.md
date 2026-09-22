@@ -1075,12 +1075,21 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   holds. What stays open until the egress NetworkPolicy exists is the ingress
   hostname: a request through it arrives from outside the pod and looks like
   the browser's.
-- **Why deferred:** Turning it on changes ownership across the volume (a
-  one-time `chown -R` of the repos and HOME) and belongs in the Homelab repo,
-  where a rollback plan and a backup first are part of the change.
-- **Unblocked by:** `VK_AGENT_USER=vk-agent` in the Deployment after a fresh
-  backup, a check on the pod that a session, the terminal, the session browser
-  and `vk feedback` still work, then a NetworkPolicy and `securityContext`.
+- **Why deferred:** Tried on 2026-09-22 (Homelab #1112, off again in #1115).
+  The first boot's `chown -R` finished (5.5 minutes, which needed the
+  startupProbe from #1114), but git and gh as uid 1001 were then refused
+  everywhere: `/data/repos` is `drwxrwxrwx 1001:1001` and
+  `runuser -u vk-agent -- ls /data/repos` still says Permission denied. The PVC
+  is Synology NFS (`syno-nfs-csi`), and the share decides access for non-root
+  uids by its own permissions; root is not squashed, which is the only reason
+  the backend works. The repos and HOME stay owned by 1001, which root does not
+  mind. The `securityContext` (no privilege escalation, RuntimeDefault seccomp)
+  is on.
+- **Unblocked by:** The NAS share `k8s-volumes` granting uid 1001: its NFS rule
+  or its shared folder permissions. Check it from the pod with
+  `runuser -u vk-agent -- ls /data/repos` before setting `VK_AGENT_USER` again,
+  then the session, terminal, session browser and `vk feedback` checks, then
+  an egress NetworkPolicy.
 - **Where:** `backend/src/agent-user.ts`, `agent-gate.ts`, `agent-setup.ts`,
   `Dockerfile`; Homelab `k8s/talos/apps/verksted/deployment.yaml`.
 
