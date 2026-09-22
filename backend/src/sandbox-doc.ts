@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { giveDirToAgent, giveToAgent } from "./agent-user.js";
 
 /**
  * A pointer to /etc/verksted/SANDBOX.md in each agent's *global* memory file,
@@ -138,6 +139,9 @@ export async function ensureSandboxNotes(
       const existing = await fs.readFile(file, "utf8").catch(() => "");
       const merged = mergeBlock(existing);
       if (merged !== existing) await fs.writeFile(file, merged);
+      // The agents' own files: under an agent user it edits them itself.
+      await giveDirToAgent(home, path.dirname(file));
+      await giveToAgent(file);
     } catch (err) {
       log.warn(err, `could not write the sandbox note to ${file}`);
     }

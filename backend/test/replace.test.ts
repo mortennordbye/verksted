@@ -30,6 +30,21 @@ describe("runReplace", () => {
     expect(fs.readFileSync(a, "utf8")).toBe("baz bar baz");
   });
 
+  it("does not write through a link swapped in for a listed file", async () => {
+    const outside = file("outside.txt", "token=foo");
+    const link = path.join(dir, "swapped.txt");
+    fs.symlinkSync(outside, link);
+    const result = await runReplace({
+      paths: [link],
+      source: "foo",
+      flags: "g",
+      replacement: "bar",
+      literal: true,
+    });
+    expect(fs.readFileSync(outside, "utf8")).toBe("token=foo");
+    expect(result).toEqual({ files: 0, replacements: 0 });
+  });
+
   it("keeps $-syntax literal for a plain-text search", async () => {
     const a = file("dollar.txt", "price");
     await runReplace({

@@ -885,30 +885,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
   `backend/src/routes/sources.ts` (`/api/mail/rules`).
 
-## Agent credentials still travel in the tmux command line
-
-- **What:** A session's environment reaches tmux as `-e KEY=VALUE` arguments
-  (`envArgs` in `backend/src/tmux.ts`, built from every settings var in
-  `sessions-store.ts`), so GH_TOKEN and CLAUDE_CODE_OAUTH_TOKEN are readable in
-  `/proc/<pid>/cmdline` for the life of the client, and again on every attach
-  (`ws/attach.ts`). The half that left the pod — the 500 body and the log line a
-  failed launch produced — is fixed: `exec.ts` redacts the assignments in the
-  error, and `app.ts` answers 5xx with nothing but "internal error". This is
-  S-03 in `FABLE-AUDIT-2026-09-19.md`.
-- **Why deferred:** It buys nothing on its own. Every session runs as the same
-  uid as the backend, so a process that can read another's cmdline can equally
-  `cat /data/settings.json` and get the same values with less effort. Moving the
-  secrets to a 0600 file the pane sources and deletes also touches how every
-  session, shell companion, restore and attach is launched, which is a lot of
-  moving parts for a boundary that is not one yet.
-- **Unblocked by:** Privilege separation on the pod — agents (and the assistant's
-  chromium) as an unprivileged user that cannot read the backend's files. That
-  is what turns both this and the proposal "tap" into real boundaries; it is
-  root cause 1 in the audit, and S-04(c), S-05 and S-08 wait on the same change.
-- **Where:** `backend/src/tmux.ts` (`envArgs`, `newSession`),
-  `backend/src/sessions-store.ts` (`launchAgent`), `backend/src/ws/attach.ts`,
-  `backend/src/exec.ts` (the redaction that stands in meanwhile).
-
 ## The event stream still sends the whole session history
 
 - **What:** `/api/events` publishes `listSessions()` in full, and nothing prunes
@@ -929,55 +905,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 - **Where:** `backend/src/events.ts` (`SOURCES.sessions`),
   `backend/src/sessions-store.ts` (`readAll`, `listSessions`),
   `backend/src/maintenance.ts` (where a retention sweep belongs).
-
-## The assistant's chromium can still reach the pod's own API
-
-- **What:** A turn that has read something of the person's loses its browser for
-  the rest of the turn, which closes the exfiltration path A-01 named. What is
-  not closed is the other half of that finding: the chair's chromium runs on the
-  pod, so it can open `http://127.0.0.1:<PORT>/` and any cluster-internal
-  address, and from a page on the app's own origin every fetch is same-origin.
-  A turn that has read nothing private could be talked into driving the browser
-  at `/api/settings/vars/:key/reveal` or `POST /api/proposals/:id/do`.
-- **Why deferred:** There is no clean way to fence it from where the backend
-  sits. Chromium's `--host-resolver-rules` only covers names, and the addresses
-  that matter here are literals, which skip the resolver entirely. The controls
-  that do work are a deny proxy in front of that browser, or a NetworkPolicy —
-  and the second is the same change as the rest of the privilege separation
-  work, which is where this belongs.
-- **Unblocked by:** Privilege separation on the pod (root cause 1 in the audit):
-  agents and the assistant's chromium under their own unix user, with egress
-  limited by a NetworkPolicy. A per-boot secret on `do`, `reveal` and session
-  creation is the cheaper half and closes the named routes on its own.
-- **Where:** `backend/src/browser.ts` (`launch`, the assistant's fixed id and
-  port), `backend/src/assistant.ts` (`mcpConfig`, the browser wrapper),
-  `backend/src/origin.ts`, and the Deployment in `mortennordbye/Homelab`.
-
-## An unattended run can still reach the backend it runs under
-
-- **What:** `vk-guard` now denies `curl`, `wget`, `nc` and friends aimed at
-  `127.0.0.1`, `localhost`, `::1` or `0.0.0.0`, which is the near half of
-  S-04(b) in `FABLE-AUDIT-2026-09-19.md`. The far half is untouched: the guard
-  reads command lines, so anything that reaches the backend without spelling
-  the address out — the ingress hostname, a script the run wrote and then ran,
-  a fetch inside a node process, the session's own playwright MCP — still gets
-  an unauthenticated API, because `origin.ts` accepts a request that carries no
-  Origin at all. `POST /api/projects/<p>/sessions` with `autoPermissions: true`
-  starts an agent that has no guard on it.
-- **Why deferred:** The fix is on the backend's side, not the guard's: a
-  per-boot secret, handed only to the HTML served through the ingress, required
-  on the routes that create sessions, reveal settings values and run a
-  proposal. That is a real change to how the frontend authenticates every
-  mutating call, and it lands next to the same routes root cause 1 will move
-  behind a second unix user, so doing it twice would be the waste.
-- **Unblocked by:** Deciding the shape of the per-boot secret (a header the
-  built index.html carries, or a cookie set on first load through the ingress)
-  and whether it applies to every mutating route or only the handful that
-  matter. Privilege separation makes it redundant for the unattended stages but
-  not for the assistant's browser, so it is worth having either way.
-- **Where:** `backend/src/origin.ts` (the no-Origin path), `runtime/vk-guard`
-  (the loopback rule, and the comment that says what it cannot do),
-  `backend/src/routes/sessions.ts`, `routes/settings.ts`, `routes/proposals.ts`.
 
 ## A member's tools are narrowed on read with nothing to say so
 
@@ -1122,19 +1049,29 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 
 ## Privilege separation on the pod
 
-- **What:** Root cause 1 in the audit, and O-08: the container runs as root
-  and the Deployment sets no `securityContext`, so the agents, the assistant's
-  chromium and the backend are one user, and an agent can read everything the
-  backend can. Several entries above wait on this (the assistant's chromium,
-  unattended runs reaching the backend, credentials on the tmux command line).
-- **Why deferred:** It is the audit's quarter-sized item: a user for the
-  backend, another for agents and chromium, file ownership on a volume that has
-  only ever had one owner, and the dind sidecar that makes the pod node-root
-  equivalent regardless.
-- **Unblocked by:** Doing it, starting with the Dockerfile's users and a
-  migration of the volume's ownership.
-- **Where:** `Dockerfile`, `backend/src/sessions-store.ts`, `backend/src/tmux.ts`,
-  Homelab `k8s/talos/apps/verksted/deployment.yaml`.
+- **What:** Root cause 1 in the audit, and O-08. The code is in: with
+  `VK_AGENT_USER=vk-agent` sessions, their agents, git, gh and every chromium
+  run as uid 1001, the backend refuses that uid's requests but for a
+  session's own few routes (`agent-gate.ts`), and the first boot hands the
+  repos and HOME to it and closes the backend's stores. It is off until the
+  pod sets the variable, and the pod still runs as root with no
+  `securityContext`, no NetworkPolicy, and a dind sidecar that is node-root
+  equivalent whatever the users are.
+- **What it closes once on:** a session, an unattended run and the
+  assistant's chromium reaching the API over loopback or a pod address (the
+  far half of S-04(b), and A-01's second half); credentials on the tmux
+  command line (S-03) become values the only other user on the pod already
+  holds. What stays open until the egress NetworkPolicy exists is the ingress
+  hostname: a request through it arrives from outside the pod and looks like
+  the browser's.
+- **Why deferred:** Turning it on changes ownership across the volume (a
+  one-time `chown -R` of the repos and HOME) and belongs in the Homelab repo,
+  where a rollback plan and a backup first are part of the change.
+- **Unblocked by:** `VK_AGENT_USER=vk-agent` in the Deployment after a fresh
+  backup, a check on the pod that a session, the terminal, the session browser
+  and `vk feedback` still work, then a NetworkPolicy and `securityContext`.
+- **Where:** `backend/src/agent-user.ts`, `agent-gate.ts`, `agent-setup.ts`,
+  `Dockerfile`; Homelab `k8s/talos/apps/verksted/deployment.yaml`.
 
 ## main's ruleset lets an admin push past it
 

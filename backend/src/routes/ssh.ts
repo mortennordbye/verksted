@@ -2,6 +2,7 @@ import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import { giveToAgent } from "../agent-user.js";
 import type { SshKey } from "../../../shared/api.js";
 import { env } from "../env.js";
 
@@ -13,8 +14,11 @@ function keyPath(name: string): string {
   return path.join(env.SSH_DIR, name);
 }
 
+// The keys are the sessions' own, for git over ssh, and the sessions run as
+// the agent user: everything written here is handed to it (agent-user.ts).
 async function ensureSshDir(): Promise<void> {
   await fs.mkdir(env.SSH_DIR, { recursive: true, mode: 0o700 });
+  await giveToAgent(env.SSH_DIR);
 }
 
 /**
@@ -33,6 +37,7 @@ async function ensureConfig(name: string): Promise<void> {
   const line = `IdentityFile ${keyPath(name)}`;
   if (!content.includes(`${line}\n`)) content += `${line}\n`;
   await fs.writeFile(config, content, { mode: 0o600 });
+  await giveToAgent(config);
 }
 
 async function dropFromConfig(name: string): Promise<void> {
@@ -120,6 +125,7 @@ export default async function sshRoutes(app: FastifyInstance) {
       }
       await fs.rename(tmp, file);
       await fs.writeFile(`${file}.pub`, publicHalf, { mode: 0o644 });
+      await giveToAgent(file, `${file}.pub`);
       await ensureConfig(name);
       return reply.code(201).send(await keyEntry(name));
     },
@@ -151,6 +157,7 @@ export default async function sshRoutes(app: FastifyInstance) {
       if (await taken(name)) return reply.code(409).send({ error: "key already exists" });
       const comment = (req.body.comment ?? "verksted").replace(/[^\w@.: -]/g, "");
       await exec("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", file]);
+      await giveToAgent(file, `${file}.pub`);
       await ensureConfig(name);
       return reply.code(201).send(await keyEntry(name));
     },

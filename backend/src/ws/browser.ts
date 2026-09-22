@@ -19,7 +19,7 @@ export default async function browserRoutes(app: FastifyInstance) {
     const port = await store.cdpPortFor(req.params.id);
     if (!port) return reply.code(409).send({ error: "no browser port" });
     try {
-      await browser.ensureBrowser(req.params.id, port);
+      await browser.ensureBrowser(session.id, port);
     } catch (err) {
       req.log.error(err, "browser launch failed");
       return reply.code(502).send({ error: "browser launch failed" });
@@ -46,7 +46,7 @@ export default async function browserRoutes(app: FastifyInstance) {
       }
       let entry: browser.BrowserEntry;
       try {
-        entry = await browser.ensureBrowser(id, port);
+        entry = await browser.ensureBrowser(session.id, port);
       } catch (err) {
         req.log.error(err, "browser launch failed");
         socket.close(4502, "browser launch failed");

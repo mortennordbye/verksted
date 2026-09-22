@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import { env } from "./env.js";
+import { configureAgent } from "./agent-user.js";
+import { prepareForAgents } from "./agent-setup.js";
 import { buildApp } from "./app.js";
 import { stopAll as stopTurns } from "./assistant-turn.js";
 import { sweepTempFiles } from "./atomic-json.js";
@@ -47,8 +49,24 @@ for (const [name, dir] of [
   }
 }
 
+// Who sessions run as (agent-user.ts). A name with no user behind it fails
+// the boot here rather than every session launch later.
+try {
+  configureAgent(env.VK_AGENT_USER, env.VK_TMUX_SOCKET, [
+    env.REPOS_DIR,
+    env.SESSIONS_DIR,
+    env.SSH_DIR,
+  ]);
+} catch (e) {
+  console.error(`env: ${(e as Error).message}`);
+  process.exit(1);
+}
+
 const app = await buildApp();
 setEventLogger(app.log);
+// Before anything writes into the repos or a session starts: the volume as
+// the agent user needs it. A no-op without one.
+await prepareForAgents(app.log);
 // Before the sessions start: agents read their global memory file when a
 // session begins, so a restored session should already find the note there.
 await ensureSandboxNotes(app.log);

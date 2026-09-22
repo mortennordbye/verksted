@@ -44,7 +44,20 @@ for (const abs of paths) {
     after = before.replace(re, replacement);
   }
   if (n > 0) {
-    fs.writeFileSync(abs, after);
+    // Not through a link: the agent owns the repo and can swap one in after rg
+    // listed the file, and this process may be root (see writeNoFollow).
+    const { O_WRONLY, O_TRUNC, O_NOFOLLOW } = fs.constants;
+    let fd;
+    try {
+      fd = fs.openSync(abs, O_WRONLY | O_TRUNC | O_NOFOLLOW);
+    } catch {
+      continue; // a link now, or gone
+    }
+    try {
+      fs.writeFileSync(fd, after);
+    } finally {
+      fs.closeSync(fd);
+    }
     files++;
     replacements += n;
   }

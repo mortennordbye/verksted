@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { spawn } from "node-pty";
 import type { WsClientMsg } from "../../../shared/api.js";
+import { asAgent, tmuxSocketArgs } from "../agent-user.js";
 import { env } from "../env.js";
 import * as store from "../sessions-store.js";
 import { agentEnv } from "../settings-store.js";
@@ -83,12 +84,16 @@ export default async function attachRoutes(app: FastifyInstance) {
     // closed socket.
     let pty: ReturnType<typeof spawn>;
     try {
-      pty = spawn("tmux", args, {
+      // The client as the agent user too, not only the server: the companion
+      // shell's new-session starts a server when none is up, and one started
+      // by root would open every later pane as root.
+      pty = spawn("tmux", [...tmuxSocketArgs(), ...args], {
         name: "xterm-256color",
         cols: clamp(req.query.cols, 2, 500, 80),
         rows: clamp(req.query.rows, 2, 300, 24),
         cwd: env.REPOS_DIR,
         env: tmux.UTF8_ENV,
+        ...asAgent(tmux.UTF8_ENV),
       });
     } catch (err) {
       req.log.error({ err, id }, "could not attach to tmux");

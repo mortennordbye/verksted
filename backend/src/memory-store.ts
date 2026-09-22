@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Memory, MemoryScope, MemoryType } from "../../shared/api.js";
+import { giveDirToAgent, giveToAgent } from "./agent-user.js";
 import { writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { MEMORY_FILES, mergeMarked } from "./sandbox-doc.js";
@@ -489,6 +490,10 @@ async function injectNow(home: string): Promise<void> {
       // Atomic, because an agent starting a session reads this file whenever it
       // likes, and a truncated one is a session told nothing at all.
       if (merged !== existing) await writeTextAtomic(file, merged);
+      // The rename leaves a file of the backend's where the agent's was; under
+      // an agent user it is handed back, or the agent can no longer edit it.
+      await giveDirToAgent(home, path.dirname(file));
+      await giveToAgent(file);
     } catch {
       // A memory that cannot be injected is still a memory; the next save
       // retries, and nothing here is worth failing a request over.

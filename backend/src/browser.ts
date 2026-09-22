@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
+import { agentUser, asAgent } from "./agent-user.js";
 import { chromium, type Browser, type CDPSession, type Page } from "playwright-core";
 import type { BrowserServerMsg } from "../../shared/api.js";
 
@@ -125,12 +126,23 @@ async function stopStream(entry: Entry): Promise<void> {
 
 async function launch(sessionId: string, port: number): Promise<Entry> {
   const dataDir = `/tmp/vk-browser-${sessionId}`;
+  // One a root run before privilege separation left behind is not writable
+  // by the agent user, and chromium would refuse to start on it. Only that
+  // one: the profile otherwise keeps the session's logins across a relaunch.
+  const agent = agentUser();
+  const owner = await fs.lstat(dataDir).then(
+    (s) => s.uid,
+    () => null,
+  );
+  if (agent && owner !== null && owner !== agent.uid) {
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
   const proc = spawn(
     chromium.executablePath(),
     [
       "--headless=new",
-      // The container runs as root without user namespaces; the pod is
-      // single-user behind the VPN.
+      // No user namespaces in the container, so chromium's own sandbox cannot
+      // start. What contains it instead is the agent user it runs as.
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
@@ -143,7 +155,9 @@ async function launch(sessionId: string, port: number): Promise<Entry> {
       "--window-size=1280,800",
       "about:blank",
     ],
-    { stdio: ["ignore", "ignore", "pipe"] },
+    // As the agent user: it browses whatever it is sent to, and the backend's
+    // API refuses that user (see agent-gate.ts).
+    { stdio: ["ignore", "ignore", "pipe"], ...asAgent() },
   );
   // Everything past the spawn has to clean up after itself. A chromium left
   // running holds the CDP port, so the next attempt cannot bind it and the

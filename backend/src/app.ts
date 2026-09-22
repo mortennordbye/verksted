@@ -14,6 +14,7 @@ import rateLimit from "@fastify/rate-limit";
 import { env } from "./env.js";
 import { LimitError } from "./limits.js";
 import * as tmux from "./tmux.js";
+import { agentMay } from "./agent-gate.js";
 import { hostAllowed, isWebsocketUpgrade, needsOriginCheck, originAllowed } from "./origin.js";
 import projectRoutes from "./routes/projects.js";
 import sessionRoutes from "./routes/sessions.js";
@@ -110,6 +111,14 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
     if (hostAllowed(req)) return;
     req.log.warn({ host: req.headers.host }, "blocked request for an unknown host");
     return refuse(req, reply, "host not allowed");
+  });
+
+  // Something an agent can steer gets its own few routes and nothing else;
+  // see agent-gate.ts. A no-op without an agent user.
+  app.addHook("onRequest", async (req, reply) => {
+    if (await agentMay(req)) return;
+    req.log.warn({ url: req.url.split("?")[0] }, "refused a request from an agent");
+    return refuse(req, reply, "not from an agent session");
   });
 
   // Deny cross-origin state changes and websocket upgrades before any route

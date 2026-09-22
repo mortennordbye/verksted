@@ -11,13 +11,13 @@ import path from "node:path";
  */
 
 /** The directory claude keeps one repo's conversations in. */
-export function claudeProjectDir(repoDir: string): string {
-  const home = process.env.HOME ?? "/data/home";
+export function claudeProjectDir(repoDir: string, home = process.env.HOME ?? "/data/home"): string {
   return path.join(home, ".claude", "projects", repoDir.replace(/\//g, "-"));
 }
 
-export function transcriptPath(repoDir: string, conversationId: string): string {
-  return path.join(claudeProjectDir(repoDir), `${conversationId}.jsonl`);
+/** `home` is the assistant's own when it has one (see assistantHome), the sessions' otherwise. */
+export function transcriptPath(repoDir: string, conversationId: string, home?: string): string {
+  return path.join(claudeProjectDir(repoDir, home), `${conversationId}.jsonl`);
 }
 
 /** Where the conversation's subagents keep theirs, one file each. */

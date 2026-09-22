@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { giveToAgent } from "./agent-user.js";
 import { env } from "./env.js";
 import { git } from "./git.js";
 import { resolveInsideRepos } from "./paths.js";
@@ -33,6 +34,7 @@ export async function ensureDesk(): Promise<string> {
     // Not there yet: made below.
   }
   await fs.mkdir(dir, { recursive: true });
+  await giveToAgent(dir);
   await git(dir, ["init", "-q", "-b", "main"]);
   await fs.writeFile(
     path.join(dir, "README.md"),
@@ -44,6 +46,7 @@ export async function ensureDesk(): Promise<string> {
       "",
     ].join("\n"),
   );
+  await giveToAgent(path.join(dir, "README.md"));
   const who = await identity();
   await git(dir, ["add", "-A"]);
   await git(dir, [...who, "commit", "-q", "-m", "Open the desk"]);
@@ -90,6 +93,7 @@ export async function newTask(
   }
   const dir = path.join(desk, rel);
   await fs.mkdir(dir, { recursive: true });
+  await giveToAgent(dir);
   const docs = await fs
     .stat(env.DOCS_DIR)
     .then((s) => (s.isDirectory() ? env.DOCS_DIR : null))
@@ -98,6 +102,7 @@ export async function newTask(
     path.join(dir, "TASK.md"),
     [`# ${title}`, "", ask.trim(), "", `Started ${new Date().toISOString()}.`, ""].join("\n"),
   );
+  await giveToAgent(path.join(dir, "TASK.md"));
   const prompt = [
     `Task: ${title}`,
     "",

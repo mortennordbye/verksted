@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import { agentUser, giveDirToAgent, giveToAgent } from "../agent-user.js";
 import type {
   FileDiff,
   GitBranches,
@@ -103,6 +104,10 @@ async function writeNoFollow(abs: string, body: Buffer): Promise<boolean> {
   }
   try {
     await fh.writeFile(body);
+    // A file the backend made is root's; the session that goes on editing it
+    // is the agent user (see agent-user.ts). On the descriptor, not the path.
+    const agent = agentUser();
+    if (agent) await fh.chown(agent.uid, agent.gid);
   } finally {
     await fh.close();
   }
@@ -233,8 +238,10 @@ async function excludeUploads(repoDir: string): Promise<void> {
     const file = path.resolve(repoDir, stdout.trim(), "info", "exclude");
     const cur = await fs.readFile(file, "utf8").catch(() => "");
     if (cur.split("\n").includes(".verksted/")) return;
-    await fs.mkdir(path.dirname(file), { recursive: true });
+    const made = await fs.mkdir(path.dirname(file), { recursive: true });
+    if (made) await giveDirToAgent(path.dirname(made), path.dirname(file));
     await fs.appendFile(file, `${!cur || cur.endsWith("\n") ? "" : "\n"}.verksted/\n`);
+    await giveToAgent(file);
   } catch {
     // not a git repo: nothing to exclude
   }
@@ -482,7 +489,8 @@ export default async function fileRoutes(app: FastifyInstance) {
         .replace(/\.(\d+)Z$/, "$1");
       const rel = `${UPLOAD_DIR}/${stamp}-${safe}`;
       await needRoom(repoDir, UPLOAD_NEEDS_BYTES, "take an upload");
-      await fs.mkdir(path.join(repoDir, UPLOAD_DIR), { recursive: true });
+      const made = await fs.mkdir(path.join(repoDir, UPLOAD_DIR), { recursive: true });
+      if (made) await giveDirToAgent(path.dirname(made), path.join(repoDir, UPLOAD_DIR));
       // Resolved after the mkdir, not before it: a repo that ships .verksted as
       // a symlink has just had "uploads" created wherever it points, and this
       // is what notices. The directory is the app's own, so an escape here is a

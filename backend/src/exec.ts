@@ -1,5 +1,6 @@
 import { execFile, type ExecFileOptions } from "node:child_process";
 import { promisify } from "node:util";
+import { asAgent } from "./agent-user.js";
 
 const run = promisify(execFile);
 
@@ -49,6 +50,19 @@ export function redactSecrets(text: string): string {
  */
 const DEFAULT_TIMEOUT_MS = 60_000;
 
+/**
+ * Commands that run as the agent user when there is one (see agent-user.ts).
+ *
+ * git reads the repo's own .git/config, which a session writes freely, and
+ * several things in it are commands git will start: a filter driver on add,
+ * status and checkout, gpg.program on a signed commit, core.sshCommand on a
+ * fetch. GIT_NO_REPO_CODE turns off the two it can, and root running the rest
+ * would hand a session root. As the agent user they are only the session's
+ * own power. gh drives git for the same repos, and its config lives in the
+ * agent's HOME.
+ */
+const AS_AGENT = new Set(["git", "gh"]);
+
 export async function exec(
   file: string,
   args: readonly string[],
@@ -57,7 +71,8 @@ export async function exec(
   try {
     // No caller asks for a buffer, and the option is not in this signature.
     const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
-    return (await run(file, args as string[], { ...opts, timeout })) as {
+    const who = AS_AGENT.has(file) ? asAgent(opts?.env ?? process.env) : {};
+    return (await run(file, args as string[], { ...opts, ...who, timeout })) as {
       stdout: string;
       stderr: string;
     };

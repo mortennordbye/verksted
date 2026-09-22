@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { CouncilMember } from "../../shared/api.js";
+import { agentUser } from "./agent-user.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { CHAIR_ID } from "./council-store.js";
 import { env } from "./env.js";
@@ -25,6 +26,16 @@ export interface ToolPolicy {
 }
 
 /** Where attached images land, outside any repo and readable by the agent. */
+/**
+ * The assistant's own HOME, when sessions run as the agent user: claude keeps
+ * a turn's transcript there, and a transcript holds whatever the turn read of
+ * the person's mail, calendar and documents. In the sessions' HOME the agent
+ * user could read every one. With no agent user it is the one HOME there is.
+ */
+export function assistantHome(): string {
+  return agentUser() ? path.join(env.ASSISTANT_DIR, "home") : (process.env.HOME ?? "/data/home");
+}
+
 export function uploadsDir(): string {
   return path.join(env.ASSISTANT_DIR, "uploads");
 }
@@ -206,6 +217,7 @@ export async function turnEnv(headroom: boolean): Promise<Record<string, string>
       out[key] = value;
     }
   }
+  out.HOME = assistantHome();
   return out;
 }
 
