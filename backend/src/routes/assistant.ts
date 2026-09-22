@@ -7,6 +7,7 @@ import type {
   AssistantThread,
   AssistantTool,
   AssistantVoices,
+  ToolLogDay,
   UnattendedRun,
 } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
@@ -339,6 +340,21 @@ export default async function assistantRoutes(app: FastifyInstance) {
       });
       return { recorded: true };
     },
+  );
+
+  /** A day of that log, for the settings page. No day is the newest one. */
+  app.get<{ Querystring: { day?: string } }>(
+    "/api/assistant/tool-log",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: { day: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" } },
+        },
+      },
+    },
+    (req): Promise<ToolLogDay> => toolLog.readDay(req.query.day),
   );
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));

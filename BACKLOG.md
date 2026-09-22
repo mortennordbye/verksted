@@ -1021,31 +1021,25 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `backend/src/council-store.ts` (`SEEDS`), and the member file at
   `$COUNCIL_DIR/ariel.json` on the pod, which the settings page edits.
 
-## The tool log is written and nothing reads it
+## Nothing the assistant changed can be put back from the log
 
 - **What:** Every call the assistant makes that changes something is appended to
   `/data/assistant/tool-log/<day>.jsonl` with its arguments in full (A-31), and
-  the only way to read it is a shell on the pod. The audit asks for the log as
-  the base for two things that are not here: an undo — replaying a move or a
-  relabel backwards, a trash directory for deleted ICS files, label and rule
-  snapshots — and an answer on screen to "what did it do last night".
-- **Why deferred:** The record has to exist before either can be built, and it
-  is the half that cannot be added after the fact: a night that was not logged
-  stays unlogged. What to show and what can be put back are separate decisions,
-  and undo needs a per-tool inverse rather than a reader.
-- **Unblocked by:** Deciding where it is read. A day's lines behind the inbox,
-  or a tool the chair itself can call to answer the question — the second is a
-  policy decision, since it would let a turn read what earlier turns did.
-  Nothing prunes the directory either: one line per changing call is small, but
-  retention belongs with the sweeper the audit's root cause 4 describes. The
-  same goes for the two records an undo would be replayed from, which are also
-  written and never read or pruned: `mail-log/<day>.jsonl` (every move and
-  relabel, with the uids the messages have where they landed) and
-  `calendar-trash/` (a removed event's file, kept before it goes).
-- **Where:** `backend/src/tool-log.ts`, `POST /api/assistant/turn/tool` in
-  `backend/src/routes/assistant.ts`, `recordCall` in
-  `runtime/verksted-mcp.mjs`, `backend/src/mail-log.ts`, `keep` in
-  `backend/src/calendar.ts`.
+  the settings page's Assistant tab reads it back a day at a time. The audit
+  also asks for an undo: replaying a move or a relabel backwards, putting a
+  deleted event back from `calendar-trash/`, restoring a label or rule from a
+  snapshot. The records an undo would be replayed from are written
+  (`mail-log/<day>.jsonl` with the uids the messages have where they landed,
+  `calendar-trash/`), and all three directories are pruned after 90 days.
+- **Why deferred:** An undo needs a per-tool inverse and a decision on what may
+  be undone how long after, which is a feature of its own rather than a reader.
+  The chair was deliberately not given the log as a tool: that would let a turn
+  read what earlier turns did.
+- **Unblocked by:** Deciding which tools get an undo, starting with `mail_move`
+  (the mail log already holds what a move back needs), and where the button
+  sits: on the log's row is the obvious place.
+- **Where:** `backend/src/tool-log.ts`, `backend/src/mail-log.ts`, `keep` in
+  `backend/src/calendar.ts`, `frontend/src/components/settings/ToolLog.tsx`.
 
 ## Only Gmail reads are retried, and nothing in the calendar is tested against a server
 

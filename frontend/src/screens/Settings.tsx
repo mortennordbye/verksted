@@ -26,6 +26,7 @@ import Backups from "../components/settings/Backups";
 import AppReset from "../components/settings/AppReset";
 import SshKeys from "../components/settings/SshKeys";
 import BlockedOwners from "../components/settings/BlockedOwners";
+import ToolLog from "../components/settings/ToolLog";
 
 function sourceChip(source: SettingVar["source"]) {
   if (source === "env") return <StatusChip kind="run" label="env" />;
@@ -149,6 +150,7 @@ export default function Settings() {
         {show("assistant") && <ProfilePanel />}
         {show("assistant") && <CouncilPanel />}
         {show("assistant") && <MemoryPanel />}
+        {show("assistant") && <ToolLog />}
         {show("sources") && <GoogleCalendar />}
         {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
         {show("agents") && (

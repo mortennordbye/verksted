@@ -53,6 +53,22 @@ describe("pruning the assistant's directory", () => {
     expect(log.info).toHaveBeenCalledOnce();
   });
 
+  it("keeps the change records for ninety days", async () => {
+    const oldLog = put("tool-log/2026-06-01.jsonl", 91);
+    const newLog = put("tool-log/2026-07-01.jsonl", 60);
+    const oldMail = put("mail-log/2026-06-01.jsonl", 91);
+    const oldEvent = put("calendar-trash/abc.ics", 91);
+    const newEvent = put("calendar-trash/def.ics", 45);
+
+    await pruneAssistant({ info: vi.fn() }, NOW);
+
+    expect(fs.existsSync(oldLog)).toBe(false);
+    expect(fs.existsSync(oldMail)).toBe(false);
+    expect(fs.existsSync(oldEvent)).toBe(false);
+    expect(fs.existsSync(newLog)).toBe(true);
+    expect(fs.existsSync(newEvent)).toBe(true);
+  });
+
   it("leaves a directory or a link alone, whatever its age", async () => {
     const sub = path.join(dir, "uploads", "nested");
     fs.mkdirSync(sub, { recursive: true });

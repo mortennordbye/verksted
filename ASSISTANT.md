@@ -150,6 +150,12 @@ back. That means a call that cannot be recorded has already happened, and
 refusing it then would be a lie: the model is told instead, in its own answer,
 where a person will see it.
 
+The settings page's Assistant tab reads it back a day at a time
+(`GET /api/assistant/tool-log?day=`). The assistant itself cannot: a turn that
+could read what earlier turns did is a policy change, not a reader. The log,
+the mail log and the calendar trash are pruned after 90 days
+(`assistant-retention.ts`).
+
 ## The rule that makes reading their mail safe
 
 The chair reads the mail, the documents, the calendar and the inbox. It also
