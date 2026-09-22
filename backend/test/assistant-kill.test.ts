@@ -82,7 +82,7 @@ describe("stopping a turn", () => {
 describe("a turn that never comes back (A-32)", () => {
   it("is stopped at its limit, with what it started, and says so in the thread", async () => {
     fs.rmSync(pidFile, { force: true });
-    const { setTurnTimeouts } = await import("../src/assistant.js");
+    const { setTurnTimeouts } = await import("../src/assistant-turn.js");
     const restore = setTurnTimeouts(300, 300);
     try {
       const res = await app.inject({
