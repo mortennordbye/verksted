@@ -1,3 +1,4 @@
+import { DomUtils, parseDocument } from "htmlparser2";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
@@ -430,21 +431,49 @@ export async function send(mail: {
   return { messageId: String(info.messageId ?? "") };
 }
 
-/** Tags out, entities in, whitespace folded: what a model needs of an HTML mail. */
+/** Elements that end a line when they close. */
+const BLOCK_TAGS = new Set(["p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"]);
+/** Elements whose content nobody reads: the head, code, and a template. */
+const SKIP_TAGS = new Set(["head", "style", "script", "template"]);
+/** Style that makes an element invisible however much text it holds. */
+const INVISIBLE_RE =
+  /display\s*:\s*none|visibility\s*:\s*hidden|font-size\s*:\s*0(?![.\d])|opacity\s*:\s*0(?![.\d])/i;
+
+/**
+ * Tags out, entities in, whitespace folded: what a model needs of an HTML mail.
+ *
+ * What the person cannot see is left out too. A mail that hides a paragraph
+ * with `display:none` or the `hidden` attribute shows the person one thing and
+ * would tell the model another, which is the shape of an instruction smuggled
+ * in for the model alone. Hidden means the element or an ancestor says so;
+ * the parser keeps the nesting a regex could not, so a hidden `<div>` full of
+ * `<div>`s ends where it ends and not at the first close tag inside it.
+ */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+  const root = parseDocument(html);
+  const out: string[] = [];
+  const walk = (node: (typeof root.children)[number]) => {
+    if (DomUtils.isText(node)) {
+      out.push(node.data);
+      return;
+    }
+    if (!DomUtils.isTag(node)) return;
+    const tag = node.name.toLowerCase();
+    if (SKIP_TAGS.has(tag)) return;
+    if ("hidden" in node.attribs || INVISIBLE_RE.test(node.attribs.style ?? "")) return;
+    if (tag === "br") {
+      out.push("\n");
+      return;
+    }
+    node.children.forEach(walk);
+    if (BLOCK_TAGS.has(tag)) out.push("\n");
+  };
+  root.children.forEach(walk);
+  return out
+    .join("")
+    .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
