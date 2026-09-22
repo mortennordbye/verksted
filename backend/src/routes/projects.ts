@@ -2,6 +2,7 @@ import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
+import { giveToAgent } from "../agent-user.js";
 import type { Project } from "../../../shared/api.js";
 import { env } from "../env.js";
 import { GIT_NO_REPO_CODE, git, worktreeParent } from "../git.js";
@@ -107,6 +108,8 @@ export default async function projectRoutes(app: FastifyInstance) {
         // dir is free
       }
       await fs.mkdir(dir);
+      // git runs as the agent user, and init writes into this directory.
+      await giveToAgent(dir);
       try {
         await exec("git", [...GIT_NO_REPO_CODE, "-C", dir, "init", "-b", "main"]);
       } catch (err) {

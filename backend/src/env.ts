@@ -153,4 +153,10 @@ export const env = {
   KOKORO_VOICES: process.env.KOKORO_VOICES ?? "/usr/local/share/kokoro/voices.bin",
   // Which of the model's voices the assistant speaks in by default.
   KOKORO_VOICE: process.env.KOKORO_VOICE ?? "af_heart",
+  // The unix user sessions, their agents and every chromium run as, so they
+  // cannot read what the backend keeps (see agent-user.ts). Empty runs them as
+  // the backend's own user, which is what the dev container and the tests do.
+  VK_AGENT_USER: process.env.VK_AGENT_USER ?? "",
+  // The agent user's tmux server, which the backend reaches as root by path.
+  VK_TMUX_SOCKET: process.env.VK_TMUX_SOCKET ?? "/run/verksted/tmux",
 };

@@ -17,6 +17,7 @@ import { env } from "./env.js";
 import * as journal from "./journal-store.js";
 import { noteTool } from "./assistant-taint.js";
 import {
+  assistantHome,
   ensureMcpConfig,
   holdsHeadroom,
   turnEnv,
@@ -390,7 +391,9 @@ export async function turn(o: {
   // restart during a first turn, a first turn that failed before claude got as
   // far as a session. From then on every turn of that thread passed the wrong
   // flag and failed, for good.
-  const resume = await exists(transcriptPath(env.REPOS_DIR, o.claudeConversationId));
+  const resume = await exists(
+    transcriptPath(env.REPOS_DIR, o.claudeConversationId, assistantHome()),
+  );
   let raw = await attempt(resume);
   // And where the guess is still wrong, claude says so before it has asked the
   // model anything, so the other flag costs one more spawn and no tokens.

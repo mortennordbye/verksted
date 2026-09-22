@@ -127,6 +127,12 @@ RUN curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.35/deb/Release.key \
 # build-up) and it does. Late enough that neither busts the chromium layer.
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libgomp1 tini \
     && rm -rf /var/lib/apt/lists/*
+# The user sessions, their agents and every chromium run as when VK_AGENT_USER
+# names it (backend/src/agent-user.ts): it owns the repos and its HOME on the
+# volume, and cannot read what the backend keeps there. Not the image's `node`
+# (uid 1000), so a file that user leaves on the volume is never mistaken for it.
+RUN useradd --uid 1001 --user-group --home-dir /data/home --no-create-home \
+      --shell /bin/bash vk-agent
 # The whole build output directory: whisper-cli links half a dozen ggml shared
 # objects that live beside it, and cherry-picking them is how this broke once.
 COPY --from=whisper /src/build/bin/ /opt/whisper/

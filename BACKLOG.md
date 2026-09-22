@@ -1122,19 +1122,22 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 
 ## Privilege separation on the pod
 
-- **What:** Root cause 1 in the audit, and O-08: the container runs as root
-  and the Deployment sets no `securityContext`, so the agents, the assistant's
-  chromium and the backend are one user, and an agent can read everything the
-  backend can. Several entries above wait on this (the assistant's chromium,
-  unattended runs reaching the backend, credentials on the tmux command line).
-- **Why deferred:** It is the audit's quarter-sized item: a user for the
-  backend, another for agents and chromium, file ownership on a volume that has
-  only ever had one owner, and the dind sidecar that makes the pod node-root
-  equivalent regardless.
-- **Unblocked by:** Doing it, starting with the Dockerfile's users and a
-  migration of the volume's ownership.
-- **Where:** `Dockerfile`, `backend/src/sessions-store.ts`, `backend/src/tmux.ts`,
-  Homelab `k8s/talos/apps/verksted/deployment.yaml`.
+- **What:** Root cause 1 in the audit, and O-08. The code is in: with
+  `VK_AGENT_USER=vk-agent` sessions, their agents, git, gh and every chromium
+  run as uid 1001, the backend refuses that uid's requests but for a
+  session's own few routes (`agent-gate.ts`), and the first boot hands the
+  repos and HOME to it and closes the backend's stores. It is off until the
+  pod sets the variable, and the pod still runs as root with no
+  `securityContext`, no NetworkPolicy, and a dind sidecar that is node-root
+  equivalent whatever the users are.
+- **Why deferred:** Turning it on changes ownership across the volume (a
+  one-time `chown -R` of the repos and HOME) and belongs in the Homelab repo,
+  where a rollback plan and a backup first are part of the change.
+- **Unblocked by:** `VK_AGENT_USER=vk-agent` in the Deployment after a fresh
+  backup, a check on the pod that a session, the terminal, the session browser
+  and `vk feedback` still work, then a NetworkPolicy and `securityContext`.
+- **Where:** `backend/src/agent-user.ts`, `agent-gate.ts`, `agent-setup.ts`,
+  `Dockerfile`; Homelab `k8s/talos/apps/verksted/deployment.yaml`.
 
 ## main's ruleset lets an admin push past it
 

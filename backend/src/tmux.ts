@@ -1,3 +1,4 @@
+import { asAgent, tmuxSocketArgs } from "./agent-user.js";
 import { exec } from "./exec.js";
 
 // The tmux server inherits its locale from whoever starts it; without UTF-8 it
@@ -42,7 +43,7 @@ export async function listSessionsDetail(): Promise<SessionActivity[]> {
   try {
     ({ stdout } = await exec(
       "tmux",
-      ["ls", "-F", "#{session_name}\t#{session_activity}\t#{pane_pid}"],
+      [...tmuxSocketArgs(), "ls", "-F", "#{session_name}\t#{session_activity}\t#{pane_pid}"],
       { timeout: 5_000 },
     ));
   } catch (err) {
@@ -93,6 +94,7 @@ export async function newSession(
   await exec(
     "tmux",
     [
+      ...tmuxSocketArgs(),
       "new-session",
       "-d",
       "-s",
@@ -102,10 +104,12 @@ export async function newSession(
       ...envArgs(extraEnv),
       `${command}; exec "\${SHELL:-/bin/sh}"`,
     ],
-    { env: UTF8_ENV },
+    // As the agent user when there is one: the first new-session starts the
+    // tmux server, and every pane it ever opens is then that user's.
+    { env: UTF8_ENV, ...asAgent(UTF8_ENV) },
   );
   // The web UI draws its own bar; tmux's would just eat a row.
-  await exec("tmux", ["set-option", "-g", "status", "off"]);
+  await exec("tmux", [...tmuxSocketArgs(), "set-option", "-g", "status", "off"]);
 }
 
 /**
@@ -121,10 +125,11 @@ export async function scrollHistory(name: string, lines: number): Promise<void> 
   const target = `=${name}:`;
   // Bounded: the caller queues keystrokes behind these, so a wedged tmux must
   // not hold the session's input hostage.
-  await exec("tmux", ["copy-mode", "-e", "-t", target], { timeout: 3000 });
+  await exec("tmux", [...tmuxSocketArgs(), "copy-mode", "-e", "-t", target], { timeout: 3000 });
   await exec(
     "tmux",
     [
+      ...tmuxSocketArgs(),
       "send-keys",
       "-t",
       target,
@@ -140,7 +145,9 @@ export async function scrollHistory(name: string, lines: number): Promise<void> 
 /** Return a scrolled pane to the live view; a no-op when it isn't in copy mode. */
 export async function exitCopyMode(name: string): Promise<void> {
   try {
-    await exec("tmux", ["send-keys", "-t", `=${name}:`, "-X", "cancel"], { timeout: 3000 });
+    await exec("tmux", [...tmuxSocketArgs(), "send-keys", "-t", `=${name}:`, "-X", "cancel"], {
+      timeout: 3000,
+    });
   } catch {
     // "not in a mode" — the pane was already live (tmux's own -e exit).
   }
@@ -161,9 +168,13 @@ export async function sendText(name: string, text: string, enter: boolean): Prom
   // Pane target, so the session part needs the trailing ":" — same as
   // scrollHistory. Bare "=name" is read as a pane name and never resolves.
   const target = `=${name}:`;
-  await exec("tmux", ["send-keys", "-t", target, "-l", "--", text], { timeout: 5_000 });
+  await exec("tmux", [...tmuxSocketArgs(), "send-keys", "-t", target, "-l", "--", text], {
+    timeout: 5_000,
+  });
   if (enter) {
-    await exec("tmux", ["send-keys", "-t", target, "Enter"], { timeout: 5_000 });
+    await exec("tmux", [...tmuxSocketArgs(), "send-keys", "-t", target, "Enter"], {
+      timeout: 5_000,
+    });
   }
 }
 
@@ -178,7 +189,9 @@ export async function sendText(name: string, text: string, enter: boolean): Prom
  * here and at the schema rather than being whatever arrived.
  */
 export async function sendKey(name: string, key: string): Promise<void> {
-  await exec("tmux", ["send-keys", "-t", `=${name}:`, key], { timeout: 5_000 });
+  await exec("tmux", [...tmuxSocketArgs(), "send-keys", "-t", `=${name}:`, key], {
+    timeout: 5_000,
+  });
 }
 
 /** The last `lines` rows of a pane, as plain text. */
@@ -187,7 +200,7 @@ export async function capturePane(name: string, lines: number): Promise<string> 
     "tmux",
     // -p to stdout, -J so a wrapped line comes back as one, -S -N for how far
     // back to start.
-    ["capture-pane", "-p", "-J", "-t", `=${name}:`, "-S", `-${lines}`],
+    [...tmuxSocketArgs(), "capture-pane", "-p", "-J", "-t", `=${name}:`, "-S", `-${lines}`],
     { timeout: 5_000, maxBuffer: 4 * 1024 * 1024, env: UTF8_ENV },
   );
   return stdout;
@@ -195,5 +208,5 @@ export async function capturePane(name: string, lines: number): Promise<string> 
 
 export async function killSession(name: string): Promise<void> {
   // "=" pins tmux to the exact name — never prefix-match e.g. a -shell sibling.
-  await exec("tmux", ["kill-session", "-t", `=${name}`]);
+  await exec("tmux", [...tmuxSocketArgs(), "kill-session", "-t", `=${name}`]);
 }

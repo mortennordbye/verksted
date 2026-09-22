@@ -10,6 +10,7 @@ import type {
   SessionUsage,
   SessionWork,
 } from "../../shared/api.js";
+import { agentUser, giveToAgent } from "./agent-user.js";
 import { sweepTempFiles, writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { closeBrowser, nextCdpPort } from "./browser.js";
 import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
@@ -160,7 +161,10 @@ export async function lastWords(id: string): Promise<{ line: string | null; tail
 export async function agentExited(id: string): Promise<number | null> {
   if (!SESSION_ID_RE.test(id)) return null;
   try {
-    const code = Number((await fs.readFile(exitPath(id), "utf8")).trim());
+    const text = (await fs.readFile(exitPath(id), "utf8")).trim();
+    // Empty is the file handed to the agent user before the run, not an exit.
+    if (!text) return null;
+    const code = Number(text);
     return Number.isFinite(code) ? code : 1;
   } catch {
     return null;
@@ -826,7 +830,22 @@ async function launchAgent(
     command += '; vk_code=$?; vk-signoff "$vk_code"; printf %s "$vk_code" > "$VK_EXIT_FILE"';
   }
 
+  await handOverSidecars(meta.id);
   await tmux.newSession(meta.id, projectDir, command, extraEnv);
+}
+
+/**
+ * The files a session writes from inside its pane: its state, its
+ * conversation id, its verdict and its exit code. Under the agent user it
+ * cannot make a file in this directory, which is the backend's, so they are
+ * made here and handed over. Opened for append, so what an earlier run of the
+ * same session wrote is kept. A no-op without an agent user.
+ */
+async function handOverSidecars(id: string): Promise<void> {
+  if (!agentUser()) return;
+  const files = [statePath(id), convPath(id), reportPath(id), exitPath(id)];
+  for (const file of files) await (await fs.open(file, "a")).close();
+  await giveToAgent(...files);
 }
 
 /**
