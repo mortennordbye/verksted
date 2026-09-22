@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseStream, toolDetail } from "../src/assistant-stream.js";
+import {
+  consumeChunk,
+  liveView,
+  newStreamState,
+  parseStream,
+  toolDetail,
+} from "../src/assistant-stream.js";
 
 /**
  * The CLI's stream-json shape belongs to the CLI, not to us, so these fixtures
@@ -188,6 +194,68 @@ describe("parseStream", () => {
 
     expect(out.entries).toEqual([{ role: "assistant", text: "Still fine.", tools: [] }]);
     expect(out.error).toBeNull();
+  });
+});
+
+/** One token-level event, as `--include-partial-messages` prints it. */
+function partial(event: unknown): string {
+  return JSON.stringify({ type: "stream_event", event });
+}
+
+describe("a turn in flight", () => {
+  it("shows what it is thinking and the tool it is reaching for, before either is done", () => {
+    const reached: string[] = [];
+    const state = newStreamState((name) => reached.push(name));
+    const lines = [
+      partial({
+        type: "content_block_delta",
+        delta: { type: "thinking_delta", thinking: "Check " },
+      }),
+      partial({
+        type: "content_block_delta",
+        delta: { type: "thinking_delta", thinking: "the site." },
+      }),
+      partial({
+        type: "content_block_start",
+        content_block: { type: "tool_use", name: "WebFetch" },
+      }),
+    ];
+
+    expect(consumeChunk(lines.join("\n") + "\n", state)).toEqual([]);
+    expect(liveView(state)).toEqual({
+      text: "",
+      thinking: "Check the site.",
+      tools: [{ name: "WebFetch", detail: "" }],
+    });
+    // Told as the call starts, not once it is complete: the taint rule wants it
+    // before anything the call brings back can be acted on.
+    expect(reached).toEqual(["WebFetch"]);
+  });
+
+  it("swaps the half-written call for the finished one, then clears once something is said", () => {
+    const state = newStreamState();
+    consumeChunk(
+      [
+        partial({
+          type: "content_block_delta",
+          delta: { type: "thinking_delta", thinking: "Hm." },
+        }),
+        partial({
+          type: "content_block_start",
+          content_block: { type: "tool_use", name: "WebFetch" },
+        }),
+        assistant([
+          { type: "tool_use", id: "t1", name: "WebFetch", input: { url: "https://pao.no" } },
+        ]),
+      ].join("\n") + "\n",
+      state,
+    );
+    expect(liveView(state).tools).toEqual([{ name: "WebFetch", detail: "https://pao.no" }]);
+
+    const said = consumeChunk(assistant([{ type: "text", text: "Booked out." }]) + "\n", state);
+
+    expect(said.map((e) => e.tools)).toEqual([[{ name: "WebFetch", detail: "https://pao.no" }]]);
+    expect(liveView(state)).toEqual({ text: "", thinking: "", tools: [] });
   });
 });
 

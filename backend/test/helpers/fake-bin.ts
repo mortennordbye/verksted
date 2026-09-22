@@ -33,6 +33,8 @@ export interface FakeCall {
    * `process.kill(pid, 0)` is how a test sees the first half.
    */
   pid: number;
+  /** What a reply that waited for stdin was given, logged under the bin "stdin". */
+  stdin?: string;
 }
 
 export interface Reply {
@@ -80,6 +82,13 @@ export interface Reply {
    * only shape in which output produced before a pause can be read after one.
    */
   holdMs?: number;
+  /**
+   * Wait for stdin to close before answering, and log what came in.
+   *
+   * The assistant starts its next turn before it is asked, and the question
+   * then goes in on stdin: that process is one that sits there until it does.
+   */
+  stdin?: boolean;
 }
 
 const HELPER = `
@@ -127,7 +136,15 @@ function finish(m) {
   if (m.holdMs) return void setTimeout(() => process.exit(m.code || 0), m.holdMs);
   process.exit(m.code || 0);
 }
-if (match && match.delayMs) {
+if (match && match.stdin) {
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (d) => (input += d));
+  process.stdin.on("end", () => {
+    fs.appendFileSync(logPath, JSON.stringify({ bin: "stdin", argv: [], pid: process.pid, stdin: input }) + "\\n");
+    finish(match);
+  });
+} else if (match && match.delayMs) {
   // A killed process must die rather than answer, which is the whole point of
   // being slow: the default SIGTERM handling does that while this timer waits.
   setTimeout(() => finish(match), match.delayMs);

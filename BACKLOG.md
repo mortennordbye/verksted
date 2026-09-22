@@ -3,6 +3,17 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## Messages waiting for the chair are lost when the pod restarts
+
+- **What:** A message sent while a turn runs now waits on the server rather
+  than in the browser tab. It waits in memory, so a pod restart mid-turn
+  drops it.
+- **Why deferred:** A restart mid-turn already ends the turn itself. The tab
+  queue lost messages on every reload, which is the case that was hurting.
+- **Unblocked by:** Losing one this way. Then write the queue beside the thread
+  file and read it back at start.
+- **Where:** `backend/src/assistant.ts` (`chat.queued`, `ask`, `drain`).
+
 ## A member seeded before a tool existed never gains it
 
 - **What:** Uriel on the pod holds `status, recall, list_memories, remember,

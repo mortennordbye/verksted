@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type {
   AssistantEntry,
+  AssistantQueued,
   AssistantSearchHit,
   AssistantThread,
   AssistantThreadSummary,
@@ -22,9 +23,11 @@ import {
   attendedBlocked,
   endTree,
   turn,
+  warmUp,
   type Child,
   type Speaker,
 } from "./assistant-turn.js";
+import type { LiveView } from "./assistant-stream.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
@@ -333,7 +336,12 @@ interface ChatState {
   thread: string | null;
   listeners: Set<Listener>;
   announceTimer: NodeJS.Timeout | null;
-  pendingLive: string;
+  pendingLive: LiveView | null;
+  /**
+   * What was sent while a turn ran. On the server rather than in the tab that
+   * sent it, where a reload or a phone locking lost it without a word.
+   */
+  queued: (AssistantQueued & { roundTable: boolean })[];
   /**
    * A mint in flight, so concurrent callers agree on one conversation.
    *
@@ -350,7 +358,8 @@ const chat: ChatState = {
   thread: null,
   listeners: new Set(),
   announceTimer: null,
-  pendingLive: "",
+  pendingLive: null,
+  queued: [],
   minting: null,
 };
 
@@ -441,7 +450,21 @@ type Listener = (thread: AssistantThread) => void;
 /** Subscribe to the thread's changes; returns the unsubscribe. */
 export function subscribe(fn: Listener): () => void {
   chat.listeners.add(fn);
+  warmChair();
   return () => chat.listeners.delete(fn);
+}
+
+/**
+ * Have the chair's next turn started and waiting, while somebody has the chat
+ * open: the minute a cold turn spends starting its servers is then spent before
+ * the question rather than after it. See `warmUp`.
+ */
+function warmChair(): void {
+  if (chat.turn || !chat.listeners.size) return;
+  void (async () => {
+    const threadId = await currentConversation();
+    await warmUp(await chairSpeaker(), threadId, () => !chat.turn);
+  })().catch(() => undefined);
 }
 
 /**
@@ -455,12 +478,17 @@ export function subscribe(fn: Listener): () => void {
  */
 const ANNOUNCE_MS = 100;
 
-async function push(live: string): Promise<void> {
-  const thread = { ...(await readThread()), live };
+async function push(live: LiveView | null): Promise<void> {
+  const thread: AssistantThread = {
+    ...(await readThread()),
+    ...(live?.text ? { live: live.text } : {}),
+    ...(live?.thinking ? { liveThinking: live.thinking } : {}),
+    ...(live?.tools.length ? { liveTools: live.tools } : {}),
+  };
   for (const fn of chat.listeners) fn(thread);
 }
 
-function announce(live = ""): void {
+function announce(live: LiveView | null = null): void {
   if (!chat.listeners.size) return;
   chat.pendingLive = live;
   if (chat.announceTimer) return;
@@ -503,6 +531,7 @@ export async function newConversation(): Promise<string> {
   const id = randomUUID();
   await writeTextAtomic(currentPath(), id);
   announce();
+  warmChair();
   return id;
 }
 
@@ -564,6 +593,7 @@ export async function openConversation(id: string): Promise<void> {
   }
   await writeTextAtomic(currentPath(), id);
   announce();
+  warmChair();
 }
 
 /**
@@ -743,7 +773,67 @@ export async function readThread(): Promise<AssistantThread> {
     entries: await readEntries(conversationId),
     ...(speaking.length ? { speaking } : {}),
     ...(usage ? { usage } : {}),
+    ...(chat.queued.length
+      ? { queued: chat.queued.map(({ id, text, images }) => ({ id, text, images })) }
+      : {}),
   };
+}
+
+/** More than this waiting is somebody's loop, not somebody typing. */
+const MAX_QUEUED = 10;
+
+/**
+ * Ask now, or as soon as the turn in front has ended.
+ *
+ * The chat's way in. `begin` still refuses a second turn outright, which is
+ * what a caller waiting on the answer wants to hear; somebody typing a
+ * correction while the chair is still talking wants it to go in next.
+ */
+export async function ask(
+  prompt: string,
+  images: string[] = [],
+  roundTable = false,
+): Promise<{ thread: AssistantThread; done: Promise<AssistantThread> | null }> {
+  if (!chat.turn) return begin(prompt, images, roundTable);
+  if (chat.queued.length >= MAX_QUEUED) {
+    throw new BusyError(`${MAX_QUEUED} messages are already waiting`);
+  }
+  chat.queued.push({ id: randomUUID(), text: prompt, images, roundTable });
+  announce();
+  return { thread: await readThread(), done: null };
+}
+
+/** Take a waiting message back before it goes in. */
+export function unqueue(id: string): boolean {
+  const at = chat.queued.findIndex((q) => q.id === id);
+  if (at === -1) return false;
+  chat.queued.splice(at, 1);
+  announce();
+  return true;
+}
+
+/**
+ * The next waiting message, once the turn in front has ended. One that cannot
+ * be asked (the day's ceiling) is said in the thread rather than dropped.
+ */
+function drain(): void {
+  if (chat.turn) return;
+  const next = chat.queued.shift();
+  if (!next) return;
+  begin(next.text, next.images, next.roundTable).then(
+    ({ done }) => done.catch(() => undefined),
+    async (err: unknown) => {
+      const threadId = await currentConversation();
+      await append(threadId, {
+        role: "assistant",
+        text: `"${next.text}" was waiting and could not be asked: ${err instanceof Error ? err.message : String(err)}`,
+        tools: [],
+        failed: true,
+      }).catch(() => undefined);
+      announce();
+      drain();
+    },
+  );
 }
 
 /**
@@ -1029,7 +1119,7 @@ async function speak(o: {
       // Only the chair streams its tokens: three advisors writing at once onto a
       // phone is noise, and a chip saying who is speaking carries the same
       // information for none of the traffic.
-      onChange: (live) => announce(member.chair ? live : ""),
+      onChange: (live) => announce(member.chair ? live : null),
       onUsage: (taken) =>
         recordUsage(threadId, { ...(member.chair ? {} : { member: member.id }), ...taken }),
     });
@@ -1188,6 +1278,7 @@ export async function begin(
     for (const key of [...running.keys()]) {
       if (running.get(key)?.threadId === threadId) running.delete(key);
     }
+    warmChair();
   };
   try {
     threadId = await currentConversation();
@@ -1260,6 +1351,8 @@ export async function begin(
   // attaches its own handler, and this one only keeps a rejection nobody has
   // picked up yet from ending the process.
   done.catch(() => undefined);
+  // Whatever was sent while this ran goes in now, however it ended.
+  done.then(drain, drain);
   return { thread: await readThread(), done };
 }
 
