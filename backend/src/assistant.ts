@@ -685,6 +685,29 @@ const threads = new Map<string, { size: number; mtimeMs: number; entries: Assist
  */
 const THREAD_CACHE = 4;
 
+/**
+ * Whether a line of a thread file is a turn.
+ *
+ * A line that parses is not yet a turn: `{}` is JSON, and so is a line somebody
+ * hand-edited down to half its fields. Search reads every thread there is and
+ * lowercases each turn's text, and the journal sorts a day's turns by `at`, so
+ * one such line in one old file used to throw from both — for every thread,
+ * on every call, until the file was found by hand. It costs its own turn now,
+ * the same as a line that will not parse.
+ */
+function isEntry(value: unknown): value is AssistantEntry {
+  const e = value as Partial<AssistantEntry> | null;
+  return (
+    !!e &&
+    typeof e === "object" &&
+    typeof e.id === "string" &&
+    (e.role === "user" || e.role === "assistant") &&
+    typeof e.text === "string" &&
+    Array.isArray(e.tools) &&
+    typeof e.at === "string"
+  );
+}
+
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
   const file = threadPath(conversationId, unattended);
   try {
@@ -696,7 +719,8 @@ async function readEntries(conversationId: string, unattended = false): Promise<
     for (const line of raw.split("\n")) {
       if (!line.trim()) continue;
       try {
-        entries.push(JSON.parse(line) as AssistantEntry);
+        const entry: unknown = JSON.parse(line);
+        if (isEntry(entry)) entries.push(entry);
       } catch {
         // One corrupt line loses one turn, not the whole conversation.
       }

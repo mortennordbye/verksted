@@ -627,6 +627,24 @@ describe("recall", () => {
     );
   });
 
+  it("walks past a line that parses but is not a turn, and still finds the rest", async () => {
+    // `{}` is JSON, and search reads every thread there is: one such line in
+    // one old file used to throw from every search, until somebody found it.
+    fake.reply("claude", "-p", { stdout: run("Kargo promotes it on merge to main.") });
+    await say("how does the homelab promotion work?");
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+    const old = fs.readdirSync(assistantDir).find((f) => f.endsWith(".jsonl"));
+    fs.appendFileSync(
+      path.join(assistantDir, old ?? ""),
+      `{}\n${JSON.stringify({ id: "half", role: "user", at: new Date().toISOString() })}\n`,
+    );
+
+    const res = await app.inject({ url: "/api/assistant/search?q=promotion" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hits).toHaveLength(1);
+  });
+
   it("requires every word, so a query narrows rather than widens", async () => {
     await say("the kargo promotion");
     await app.inject({ method: "POST", url: "/api/assistant/new" });
