@@ -14,6 +14,7 @@ import { ASSISTANT_CDP_PORT } from "./browser.js";
 import { transcriptPath } from "./claude-home.js";
 import { CHAIR_ID } from "./council-store.js";
 import { env } from "./env.js";
+import * as journal from "./journal-store.js";
 import { noteTool } from "./assistant-taint.js";
 import {
   ensureMcpConfig,
@@ -127,6 +128,53 @@ export interface Speaker extends ToolPolicy {
  */
 export const TURN_TIMEOUTS = { chair: 10 * 60_000, member: 5 * 60_000 };
 
+/**
+ * The most turns a day gets from somebody who is there (A-26).
+ *
+ * Not a budget: the person asking is paying for their own question, on their
+ * own bench. It is the backstop against the day that runs away — a thread
+ * resumed a hundred times with a meeting in every turn, a loop somebody wrote
+ * against the API — and it is wide enough that a long day never meets it.
+ * Turns rather than messages, for the reason the unattended ceiling gives: a
+ * round table is the chair twice and everyone once, so a ceiling that counted
+ * messages would let one line be eight calls. In memory like that one, so a
+ * restart forgets the day; a backstop that forgives a restart is still one.
+ */
+let MAX_ATTENDED_PER_DAY = 200;
+let attendedDay = "";
+let attendedToday = 0;
+
+function attendedCount(): number {
+  const day = journal.today();
+  if (day !== attendedDay) {
+    attendedDay = day;
+    attendedToday = 0;
+  }
+  return attendedToday;
+}
+
+/** Why a turn somebody is waiting for would be refused today, or null. */
+export function attendedBlocked(): string | null {
+  return attendedCount() >= MAX_ATTENDED_PER_DAY
+    ? `${MAX_ATTENDED_PER_DAY} turns already ran today; the ceiling resets at midnight`
+    : null;
+}
+
+/**
+ * For tests: two hundred turns is not something a suite can run. The day's
+ * count starts again at nothing, since every case before this one in the
+ * process has spent some of it. Returns a way back.
+ */
+export function setAttendedCeiling(n: number): () => void {
+  const before = { ceiling: MAX_ATTENDED_PER_DAY, today: attendedCount() };
+  MAX_ATTENDED_PER_DAY = n;
+  attendedToday = 0;
+  return () => {
+    MAX_ATTENDED_PER_DAY = before.ceiling;
+    attendedToday = before.today;
+  };
+}
+
 /** For tests: ten minutes is not something a suite can wait out. Returns a way back. */
 export function setTurnTimeouts(chairMs: number, memberMs: number): () => void {
   const before = { ...TURN_TIMEOUTS };
@@ -182,6 +230,9 @@ export async function turn(o: {
   onUsage?: (taken: { usage: SessionUsage; context: number }) => Promise<void>;
 }): Promise<{ text: string }> {
   const { speaker, images, unattended } = o;
+  // Counted as it starts, not as it is asked for: the message that opens a
+  // meeting is one turn here and several by the time the meeting ends.
+  if (!unattended) attendedToday = attendedCount() + 1;
   // This run of the CLI, named. Everything the turn reaches carries it, which
   // is what lets a read of something private cost this turn its browser
   // without costing the next one anything (see assistant-taint.ts).
