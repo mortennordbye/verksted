@@ -6,10 +6,19 @@ import type { Terminal as Xterm } from "@xterm/xterm";
  * of the buffer, kept apart from the component that draws it.
  */
 
-// Agent sign-in URLs (claude/codex/antigravity oauth + device flows). Selecting
-// and copying these off a phone terminal is painful; we surface a tap target.
+/**
+ * Agent sign-in URLs. Selecting and copying these off a phone terminal is
+ * painful; we surface a tap target.
+ *
+ * By host, not by a word in the path (F-09): any URL with `login` or `verify`
+ * in it used to raise the bar, so a file called login.ts in a diff, or a docs
+ * link in an agent's prose, was a sign-in link that could not be got rid of.
+ * The hosts are the identity providers of the agents this app runs — claude's
+ * two, codex's, antigravity's Google, and gh's device flow — and a provider
+ * moving is a line here, not a missed sign-in.
+ */
 export const AUTH_URL_RE =
-  /https?:\/\/[^\s]*(?:oauth|authorize|login|signin|sign-in|verify|\/device)[^\s]*/i;
+  /https?:\/\/(?:(?:claude\.ai|console\.anthropic\.com)\/oauth\/|auth\.openai\.com\/|accounts\.google\.com\/|github\.com\/login\/)\S*/i;
 
 // A wrapped URL continuation row is one unbroken run of URL characters — no
 // spaces, since that's the only thing wrapping split. This is the reconnection
