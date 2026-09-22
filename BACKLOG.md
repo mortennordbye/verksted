@@ -1075,29 +1075,6 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `withClient` in `backend/src/mail.ts`, `connect` in
   `backend/src/calendar.ts`.
 
-## The resize race and the browser bridge are still untested
-
-- **What:** `attach-ws.test.ts` now drives the terminal bridge end to end —
-  detach never kills, a shell pane gets its companion session, an unknown
-  session is refused, the client cap holds — which was O-24. Two things it
-  does not reach. The guard around `pty.resize` on a terminal whose process
-  has gone (R-23) is the one throw known to be able to take the backend down
-  and every agent with it, and `ws/browser.ts` is driven by no test at all.
-  The `uncaughtException` handler that closes the app before exiting is
-  bootstrap wiring in `index.ts` and is not reachable from a test either.
-- **Why deferred:** The exit race is inherently timing-dependent: `pty.onExit`
-  closes the socket, so a resize has to land in the same tick as the exit to
-  reach the throw at all. A test that waits for the exit tests nothing, and
-  one that races it is flaky. Writing that honestly is its own piece of work —
-  most likely a unit test of the message handler over a pty stub rather than
-  another end-to-end case.
-- **Unblocked by:** Deciding that a stubbed pty is worth it for this one path
-  (the rest of the bridge is better tested for real, as it now is), or finding
-  a way to make node-pty throw on demand.
-- **Where:** `backend/src/ws/attach.ts` (the `resize` branch of the message
-  handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
-  the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
-
 ## The per-session routes still ask tmux on every call
 
 - **What:** The last piece of the audit's root cause 4. The sweep, the
