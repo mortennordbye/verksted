@@ -4,6 +4,7 @@ import { env } from "./env.js";
 import { exec } from "./exec.js";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
 import { archiveOldSessions, backfillUsage, reapFinishedSessions } from "./sessions-store.js";
+import { pruneAssistant } from "./assistant-retention.js";
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -63,6 +64,7 @@ const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
  *   before, where it read up to 25 transcripts on somebody opening a page.
  * - retire the sessions that ended months ago, so the directory every reader
  *   walks stays about what is live rather than about everything that ever ran.
+ * - drop the assistant's unattended threads and uploads past a month (A-27).
  */
 export function startMaintenance(log: Logger): void {
   const idleSince = new Map<string, number>();
@@ -103,6 +105,11 @@ export function startMaintenance(log: Logger): void {
       await archiveOldSessions(log);
     } catch (err) {
       log.warn(err, "usage backfill and retirement failed");
+    }
+    try {
+      await pruneAssistant(log);
+    } catch (err) {
+      log.warn(err, "assistant prune failed");
     }
   };
   new Cron(HOUSEKEEPING_CRON, { protect: true, timezone: env.TZ }, () => void catchUp());

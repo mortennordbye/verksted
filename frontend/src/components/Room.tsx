@@ -1,4 +1,4 @@
-import { Fragment, memo, useDeferredValue, useMemo } from "react";
+import { Fragment, memo, useDeferredValue, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
 import Ago, { DayRule, newDay } from "./Ago";
@@ -18,6 +18,23 @@ import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
  * is the news there. What it keeps from a chat is the order: it is a
  * conversation, and a conversation reads top to bottom.
  */
+
+/**
+ * An image from the uploads directory, which keeps a month of them (A-27): an
+ * older one says so instead of drawing a broken-image mark.
+ */
+function Upload({ name, alt, className }: { name: string; alt: string; className: string }) {
+  const [gone, setGone] = useState(false);
+  if (gone) return <span className="text-[12px] text-faint italic">{alt} no longer kept</span>;
+  return (
+    <img
+      src={`/api/assistant/uploads/${name}`}
+      alt={alt}
+      className={className}
+      onError={() => setGone(true)}
+    />
+  );
+}
 
 function ToolChip({ name, detail }: { name: string; detail: string }) {
   return (
@@ -65,8 +82,8 @@ const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; t
               rel="noreferrer"
               className="block max-w-full"
             >
-              <img
-                src={`/api/assistant/uploads/${name}`}
+              <Upload
+                name={name}
                 alt="screenshot"
                 className="max-h-96 max-w-full rounded-lg ring-1 ring-line"
               />
@@ -282,10 +299,10 @@ export default function Room({
       return (
         <div className="animate-rise flex flex-col items-end gap-1.5">
           {e.images?.map((name) => (
-            <img
+            <Upload
               key={name}
-              src={`/api/assistant/uploads/${name}`}
-              alt="attached"
+              name={name}
+              alt="attached image"
               className="max-h-52 max-w-[82%] rounded-xl"
             />
           ))}

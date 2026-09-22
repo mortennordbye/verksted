@@ -543,25 +543,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   `launchAgent` already builds `claude --resume <id>` for restores),
   `frontend/src/screens/Assistant.tsx` (where the button goes)
 
-## Nothing prunes the assistant's own directory
-
-- **What:** `maintenance.ts` reaps idle session browsers and docker debris.
-  Nothing touches `ASSISTANT_DIR`: every conversation ever held, every
-  unattended run's thread, and every image pasted or uploaded into the chat
-  stays on the volume for good. Today that is 8 threads and 716 KB, which is
-  nothing — but a nightly briefing and a nightly harvest add roughly 700 threads
-  a year on their own, and `search` reads every file at the top level on every
-  recall.
-- **Why deferred:** Deleting somebody's conversation history is a decision, not
-  a cleanup: the whole point of recall is that an old thread is still worth
-  something. Uploads are the easy half and were not worth a pass on their own.
-- **Unblocked by:** Deciding a retention rule worth having — likeliest is
-  "unattended threads older than 30 days go, chats stay, uploads older than 30
-  days go", since the subdirectory split now makes the two separable. Then a
-  daily sweep beside the docker prune.
-- **Where:** `backend/src/maintenance.ts`, `backend/src/assistant.ts`
-  (`threadPath`, `uploadsDir`)
-
 ## "Ask before anything irreversible" is an instruction, not enforcement
 
 - **What:** Of the two house rules, "leave no sign an agent wrote this" is now
