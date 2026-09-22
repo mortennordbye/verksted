@@ -751,9 +751,17 @@ async function append(
   entry: Omit<AssistantEntry, "id" | "at">,
   unattended = false,
 ): Promise<AssistantEntry> {
-  const full: AssistantEntry = { ...entry, id: randomUUID(), at: new Date().toISOString() };
-  await appendEntry(conversationId, full, unattended);
-  return full;
+  return appendEntry(conversationId, stamp(entry), unattended);
+}
+
+/** An entry as it is written down: with its id, its time, and who said it if not the chair. */
+function stamp(entry: Omit<AssistantEntry, "id" | "at">, member?: string): AssistantEntry {
+  return {
+    ...entry,
+    ...(member ? { member } : {}),
+    id: randomUUID(),
+    at: new Date().toISOString(),
+  };
 }
 
 /** The same, for an entry already stamped — a member's turn builds its own. */
@@ -1101,6 +1109,29 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
 }
 
 /**
+ * An advisor speaking with nobody reading: its own voice and subject, its
+ * tools narrowed further by the unattended filter. The timeout is the
+ * caller's, since a briefing of its own gets a turn's worth and an answer
+ * inside a meeting gets a member's.
+ */
+async function unattendedSpeakerFor(
+  member: CouncilMember,
+  instructions: string,
+  timeoutMs: number,
+): Promise<Speaker> {
+  return {
+    id: member.id,
+    model: member.model,
+    effort: member.effort,
+    systemPrompt: memberPrompt(member, instructions, await renderForMember(member.id), true),
+    builtins: UNATTENDED_BUILTIN_TOOLS,
+    ...unattendedPolicy(member),
+    tools: member.tools,
+    timeoutMs,
+  };
+}
+
+/**
  * Everything one advisor can reach, said in the roster the chair routes from.
  *
  * Three sources, and only this file knows all three: the tools on the member,
@@ -1299,12 +1330,7 @@ async function speak(o: {
       images: o.images ?? [],
       unattended: false,
       sink: async (entry) => {
-        const full: AssistantEntry = {
-          ...entry,
-          ...(member.chair ? {} : { member: member.id }),
-          id: randomUUID(),
-          at: new Date().toISOString(),
-        };
+        const full = stamp(entry, member.chair ? undefined : member.id);
         if (o.interceptConvene && !held && full.role === "assistant" && conveneRequest(full.text)) {
           held = full;
           return full;
@@ -1821,21 +1847,7 @@ async function unattendedTurn(
   const member = memberId ? await getMember(memberId) : null;
   const speaker: Speaker =
     member && !member.chair
-      ? {
-          id: member.id,
-          model: member.model,
-          effort: member.effort,
-          systemPrompt: memberPrompt(
-            member,
-            config.instructions,
-            await renderForMember(member.id),
-            true,
-          ),
-          builtins: UNATTENDED_BUILTIN_TOOLS,
-          ...unattendedPolicy(member),
-          tools: member.tools,
-          timeoutMs: TURN_TIMEOUT_MS,
-        }
+      ? await unattendedSpeakerFor(member, config.instructions, TURN_TIMEOUT_MS)
       : {
           id: CHAIR_ID,
           model: own?.model ?? config.model,
@@ -1878,11 +1890,7 @@ async function unattendedTurn(
       images: [],
       unattended: true,
       sink: async (entry) => {
-        const full: AssistantEntry = {
-          ...entry,
-          id: randomUUID(),
-          at: new Date().toISOString(),
-        };
+        const full = stamp(entry);
         if (
           roster.length &&
           !heldBox.entry &&
@@ -1962,31 +1970,12 @@ async function unattendedMemberTurn(
 ): Promise<string> {
   const own = randomUUID();
   const { text } = await turn({
-    speaker: {
-      id: member.id,
-      model: member.model,
-      effort: member.effort,
-      systemPrompt: memberPrompt(
-        member,
-        config.instructions,
-        await renderForMember(member.id),
-        true,
-      ),
-      builtins: UNATTENDED_BUILTIN_TOOLS,
-      ...unattendedPolicy(member),
-      tools: member.tools,
-      timeoutMs: MEMBER_TURN_TIMEOUT_MS,
-    },
+    speaker: await unattendedSpeakerFor(member, config.instructions, MEMBER_TURN_TIMEOUT_MS),
     claudeConversationId: own,
     prompt,
     images: [],
     unattended: true,
-    sink: (entry) =>
-      appendEntry(
-        conversationId,
-        { ...entry, member: member.id, id: randomUUID(), at: new Date().toISOString() },
-        true,
-      ),
+    sink: (entry) => appendEntry(conversationId, stamp(entry, member.id), true),
     onSpawn: () => {},
     onChange: () => {},
   });
