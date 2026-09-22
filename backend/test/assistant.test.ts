@@ -418,6 +418,31 @@ describe("POST /api/assistant/messages, not waited for", () => {
 
     await settled();
   });
+
+  /**
+   * A-26. The only ceiling was on turns nobody asked for; a day of the
+   * person's own could run away without one, a thread resumed a hundred
+   * times with a meeting in every turn. Counted per turn started, refused
+   * before the question is put on record, and said in the reply.
+   */
+  it("refuses the turn past the day's ceiling, and says so", async () => {
+    const { setAttendedCeiling } = await import("../src/assistant-turn.js");
+    const restore = setAttendedCeiling(1);
+    try {
+      fake.reply("claude", "-p", { stdout: run("first") });
+      expect((await ask("one")).statusCode).toBe(202);
+      const before = (await settled()).entries.length;
+
+      const res = await ask("two");
+
+      expect(res.statusCode).toBe(429);
+      expect(res.json().error).toMatch(/1 turns already ran today/);
+      // Nothing on record for a question that was not asked.
+      expect((await app.inject({ url: "/api/assistant" })).json().entries).toHaveLength(before);
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe("the thread", () => {

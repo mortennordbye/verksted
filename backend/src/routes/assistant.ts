@@ -87,6 +87,8 @@ export default async function assistantRoutes(app: FastifyInstance) {
         if (err instanceof Error && /still running/.test(err.message)) {
           return reply.code(409).send({ error: err.message });
         }
+        // The day's ceiling: not a fault either, and not one to wait out.
+        if (err instanceof BusyError) return reply.code(429).send({ error: err.message });
         req.log.error(err, "assistant turn failed");
         return reply.code(502).send({ error: "the assistant could not be reached" });
       }

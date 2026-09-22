@@ -16,7 +16,14 @@ import {
   unattendedPrompt,
   type PromptContext,
 } from "./assistant-persona.js";
-import { TURN_TIMEOUTS, endTree, turn, type Child, type Speaker } from "./assistant-turn.js";
+import {
+  TURN_TIMEOUTS,
+  attendedBlocked,
+  endTree,
+  turn,
+  type Child,
+  type Speaker,
+} from "./assistant-turn.js";
 import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
@@ -34,6 +41,7 @@ import { forgetUsage, recordUsage, threadUsage } from "./assistant-usage.js";
 import * as journal from "./journal-store.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
+import { BusyError } from "./serial.js";
 import { readAssistantConfig } from "./settings-store.js";
 
 /**
@@ -1137,6 +1145,8 @@ export async function begin(
   // flag: everything below this line yields, and a guard that yields first is
   // one two requests walk through together.
   if (chat.turn) throw new Error("a turn is still running");
+  const blocked = attendedBlocked();
+  if (blocked) throw new BusyError(blocked);
   chat.turn = true;
 
   let threadId = "";

@@ -280,6 +280,13 @@ open is skipped rather than queued. Above 95% of the week's plan window the
 clock stops spending it altogether: a tick records why it declined and starts
 nothing. Pressing "run now" is somebody asking, and is subject to neither.
 
+The person's own day has a ceiling as well, a wide one: two hundred turns
+started from the chat, counted as the unattended ones are and forgotten by a
+restart the same way. It is not a budget but the backstop against a day that
+runs away, a thread resumed a hundred times with a meeting in every turn. Past
+it a message is refused before it is put on record, with a 429 the chat shows
+as the reason.
+
 ## The chat itself
 
 A turn streams. Entries are appended and announced as they complete rather than
