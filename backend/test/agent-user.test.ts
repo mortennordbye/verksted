@@ -281,14 +281,18 @@ asRoot("the boot that turns it on", () => {
     agentUser.setAgent(null);
     const { prepareForAgents } = await import("../src/agent-setup.js");
     const log = { info: () => {}, warn: () => {} };
+    // git under sudo checks ownership against SUDO_UID, and CI runs this file
+    // under sudo as uid 1001, the agent's own: without it, root as the pod is.
+    const { SUDO_UID: _sudo, ...gitEnv } = process.env;
+    const git = (...args: string[]) => run("git", args, { env: gitEnv });
     try {
-      await expect(run("git", ["-C", dir("repos/owned"), "status"])).rejects.toThrow(/dubious/);
+      await expect(git("-C", dir("repos/owned"), "status")).rejects.toThrow(/dubious/);
 
       await prepareForAgents(log);
 
       expect(fs.statSync(dir("repos/demo/src/a.ts")).uid).toBe(0);
       expect(fs.statSync(agentHome).uid).toBe(0);
-      await run("git", ["-C", dir("repos/owned"), "status"]);
+      await git("-C", dir("repos/owned"), "status");
       expect(fs.existsSync(path.join(back, "thread.jsonl"))).toBe(true);
       expect(fs.existsSync(path.join(back, "new.jsonl"))).toBe(true);
       expect(fs.existsSync(dir("sessions/.agent-owned"))).toBe(false);
