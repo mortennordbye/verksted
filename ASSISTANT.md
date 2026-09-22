@@ -303,7 +303,9 @@ thread file.
 Threads are one JSONL per conversation on the volume, mirroring what Claude
 keeps under `$HOME` — so `claude --resume <id>` opens exactly what the chat
 shows. Unattended threads go in a subdirectory, which is how `recall` avoids
-searching several hundred a year of the machine talking to itself.
+searching several hundred a year of the machine talking to itself. The daily
+housekeeping drops unattended threads and uploads older than 30 days
+(`assistant-retention.ts`); the person's own conversations are kept.
 
 ## Voice
 

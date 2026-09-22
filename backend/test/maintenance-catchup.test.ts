@@ -15,6 +15,7 @@ vi.mock("../src/sessions-store.js", () => ({
   archiveOldSessions: () => archiveOldSessions(),
   reapFinishedSessions: async () => [],
 }));
+vi.mock("../src/assistant-retention.js", () => ({ pruneAssistant: async () => 0 }));
 vi.mock("../src/browser.js", () => ({ closeBrowser: async () => {}, unwatchedBrowsers: () => [] }));
 vi.mock("../src/exec.js", () => ({ exec: async () => ({ stdout: "", stderr: "" }) }));
 
