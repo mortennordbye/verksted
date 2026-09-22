@@ -25,6 +25,8 @@ export interface AgentUser {
 
 let agent: AgentUser | null = null;
 let socket = "";
+/** Where the backend may hand a path over: the agent's HOME and these. */
+let roots: string[] = [];
 
 /** Read a user out of /etc/passwd; throws when there is none, so a typo fails the boot. */
 export function lookupUser(name: string, passwd = readFileSync("/etc/passwd", "utf8")): AgentUser {
@@ -37,17 +39,37 @@ export function lookupUser(name: string, passwd = readFileSync("/etc/passwd", "u
   throw new Error(`VK_AGENT_USER names "${name}", and there is no such user`);
 }
 
-/** Called once by the bootstrap; `name` empty keeps everything as the backend's own user. */
-export function configureAgent(name: string, tmuxSocket: string): AgentUser | null {
-  agent = name ? lookupUser(name) : null;
-  socket = agent ? tmuxSocket : "";
+/**
+ * Called once by the bootstrap; `name` empty keeps everything as the backend's
+ * own user. `handOver` is every directory besides the agent's HOME that the
+ * backend writes into for it.
+ */
+export function configureAgent(
+  name: string,
+  tmuxSocket: string,
+  handOver: string[],
+): AgentUser | null {
+  setAgent(name ? lookupUser(name) : null, tmuxSocket, handOver);
   return agent;
 }
 
 /** For tests: set the user directly, or clear it. */
-export function setAgent(user: AgentUser | null, tmuxSocket = ""): void {
+export function setAgent(user: AgentUser | null, tmuxSocket = "", handOver: string[] = []): void {
   agent = user;
   socket = user ? tmuxSocket : "";
+  roots = user ? [user.home, ...handOver].map((r) => path.resolve(r)) : [];
+}
+
+/**
+ * A chown by root is a way to hand anything on the volume to the agent, so it
+ * is refused outside the directories it is for, whatever the caller built.
+ */
+function handable(p: string): string {
+  const abs = path.resolve(p);
+  if (!roots.some((r) => abs === r || abs.startsWith(r + path.sep))) {
+    throw new Error(`not handing ${abs} to the agent user: outside its directories`);
+  }
+  return abs;
 }
 
 export function agentUser(): AgentUser | null {
@@ -87,7 +109,7 @@ export function asAgent(base: NodeJS.ProcessEnv = process.env): {
  */
 export async function giveToAgent(...paths: string[]): Promise<void> {
   if (!agent) return;
-  for (const p of paths) await fs.lchown(p, agent.uid, agent.gid);
+  for (const p of paths) await fs.lchown(handable(p), agent.uid, agent.gid);
 }
 
 /**
@@ -101,6 +123,6 @@ export async function giveDirToAgent(top: string, dir: string): Promise<void> {
   let at = top;
   for (const part of rel.split(path.sep)) {
     at = path.join(at, part);
-    await fs.lchown(at, agent.uid, agent.gid);
+    await fs.lchown(handable(at), agent.uid, agent.gid);
   }
 }

@@ -52,7 +52,11 @@ for (const [name, dir] of [
 // Who sessions run as (agent-user.ts). A name with no user behind it fails
 // the boot here rather than every session launch later.
 try {
-  configureAgent(env.VK_AGENT_USER, env.VK_TMUX_SOCKET);
+  configureAgent(env.VK_AGENT_USER, env.VK_TMUX_SOCKET, [
+    env.REPOS_DIR,
+    env.SESSIONS_DIR,
+    env.SSH_DIR,
+  ]);
 } catch (e) {
   console.error(`env: ${(e as Error).message}`);
   process.exit(1);

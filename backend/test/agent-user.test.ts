@@ -100,7 +100,7 @@ describe("finding the agent user", () => {
 
 describe("the API, asked by the agent user", () => {
   it("refuses everything but a session's own few routes", async () => {
-    agentUser.setAgent(agent());
+    agentUser.setAgent(agent(), "", [tmp]);
     expect(await statusAs(UID, "GET", "/api/sessions")).toBe(403);
     expect(await statusAs(UID, "GET", "/")).toBe(403);
     expect(await statusAs(UID, "POST", "/api/proposals/x/do")).toBe(403);
@@ -110,7 +110,7 @@ describe("the API, asked by the agent user", () => {
   });
 
   it("serves the backend's own processes, which run as root", async () => {
-    agentUser.setAgent(agent());
+    agentUser.setAgent(agent(), "", [tmp]);
     expect(await statusAs(0, "GET", "/api/sessions")).toBe(200);
   });
 
@@ -135,7 +135,7 @@ describe("the API, asked by the agent user", () => {
 describe("what the backend runs for a session", () => {
   it("runs git as the agent user, with the agent's HOME", async () => {
     fs.chownSync(agentHome, UID, UID);
-    agentUser.setAgent(agent());
+    agentUser.setAgent(agent(), "", [tmp]);
     const { stdout } = await exec("git", ["-c", "alias.who=!id -u; echo $HOME", "who"], {
       cwd: "/",
     });
@@ -143,7 +143,7 @@ describe("what the backend runs for a session", () => {
   });
 
   it("hands a file it wrote to the agent user, without following a link", async () => {
-    agentUser.setAgent(agent());
+    agentUser.setAgent(agent(), "", [tmp]);
     const file = dir("repos/written.txt");
     fs.writeFileSync(file, "x");
     const target = dir("root-only.txt");
@@ -158,8 +158,19 @@ describe("what the backend runs for a session", () => {
     expect(fs.statSync(target).uid).toBe(0);
   });
 
+  it("refuses to hand over anything outside the directories it is for", async () => {
+    agentUser.setAgent(agent(), "", [dir("repos")]);
+    const secret = dir("settings.json");
+    fs.writeFileSync(secret, "{}");
+
+    await expect(agentUser.giveToAgent(dir("repos/../settings.json"))).rejects.toThrow(/outside/);
+    await expect(agentUser.giveDirToAgent(tmp, dir("feed"))).rejects.toThrow(/outside/);
+    expect(fs.statSync(secret).uid).toBe(0);
+    expect(fs.statSync(dir("feed")).uid).toBe(0);
+  });
+
   it("leaves the agents' global memory files theirs after writing into them", async () => {
-    agentUser.setAgent(agent());
+    agentUser.setAgent(agent(), "", [tmp]);
     const home = dir("memhome");
     fs.mkdirSync(home);
     const { ensureSandboxNotes, MEMORY_FILES } = await import("../src/sandbox-doc.js");
@@ -191,7 +202,7 @@ describe("a session under the agent user", () => {
     fs.mkdirSync(socketDir, { mode: 0o700 });
     fs.chownSync(socketDir, UID, UID);
     fs.chownSync(agentHome, UID, UID);
-    agentUser.setAgent(agent(), path.join(socketDir, "tmux"));
+    agentUser.setAgent(agent(), path.join(socketDir, "tmux"), [tmp]);
     const tmux = await import("../src/tmux.js");
     try {
       await tmux.newSession("vk-agenttest-1", agentHome, "sleep 60");
@@ -211,7 +222,7 @@ describe("a session under the agent user", () => {
 
 describe("the boot that turns it on", () => {
   it("hands over the repos and HOME, moves the assistant's transcripts and closes the rest", async () => {
-    agentUser.setAgent(agent(), dir("run/tmux"));
+    agentUser.setAgent(agent(), dir("run/tmux"), [tmp]);
     fs.mkdirSync(dir("repos/demo/src"), { recursive: true });
     fs.writeFileSync(dir("repos/demo/src/a.ts"), "a");
     const slug = dir("repos").replace(/\//g, "-");

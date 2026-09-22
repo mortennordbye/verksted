@@ -842,7 +842,7 @@ async function launchAgent(
  * same session wrote is kept. A no-op without an agent user.
  */
 async function handOverSidecars(id: string): Promise<void> {
-  if (!agentUser()) return;
+  if (!agentUser() || !SESSION_ID_RE.test(id)) return;
   const files = [statePath(id), convPath(id), reportPath(id), exitPath(id)];
   for (const file of files) await (await fs.open(file, "a")).close();
   await giveToAgent(...files);
