@@ -3,6 +3,7 @@ import { Cron } from "croner";
 import { env } from "./env.js";
 import { exec } from "./exec.js";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
+import * as feed from "./feed-store.js";
 import { archiveOldSessions, backfillUsage, reapFinishedSessions } from "./sessions-store.js";
 import { pruneAssistant } from "./assistant-retention.js";
 
@@ -65,6 +66,8 @@ const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
  * - retire the sessions that ended months ago, so the directory every reader
  *   walks stays about what is live rather than about everything that ever ran.
  * - drop the assistant's unattended threads and uploads past a month (A-27).
+ * - sweep the feed: done items after a month, and items nothing has touched in
+ *   a month resolved first (R-20).
  */
 export function startMaintenance(log: Logger): void {
   const idleSince = new Map<string, number>();
@@ -110,6 +113,12 @@ export function startMaintenance(log: Logger): void {
       await pruneAssistant(log);
     } catch (err) {
       log.warn(err, "assistant prune failed");
+    }
+    try {
+      const n = await feed.sweep();
+      if (n) log.info(`feed: ${n} done item(s) swept`);
+    } catch (err) {
+      log.warn(err, "feed sweep failed");
     }
   };
   new Cron(HOUSEKEEPING_CRON, { protect: true, timezone: env.TZ }, () => void catchUp());

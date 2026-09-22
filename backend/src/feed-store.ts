@@ -9,6 +9,7 @@ import type {
 } from "../../shared/api.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
+import * as loops from "./loops-store.js";
 
 /**
  * The feed: things that happened, one JSON file per item.
@@ -217,18 +218,36 @@ export async function refile(seen: Seen): Promise<{ item: FeedItem; changed: boo
   return upsert(seen);
 }
 
-/** The feed as the screen reads it: newest first, snoozes that are over lifted. */
+function snoozeOver(item: FeedItem, now: string): boolean {
+  return item.state === "snoozed" && item.until !== null && item.until <= now;
+}
+
+/**
+ * The feed as the screen reads it: newest first, a snooze that is over shown
+ * as new. Only shown: the write is `liftSnoozes`, on the background pass, so a
+ * read never writes (R-33).
+ */
 export async function list(): Promise<FeedItem[]> {
   const now = new Date().toISOString();
   const items = await readAll();
   for (const item of items) {
-    if (item.state === "snoozed" && item.until && item.until <= now) {
+    if (snoozeOver(item, now)) {
       item.state = "new";
       item.until = null;
-      await write(item);
     }
   }
   return items.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** Write down the snoozes that are over, which `list` has been showing as new. */
+export async function liftSnoozes(): Promise<void> {
+  const now = new Date().toISOString();
+  for (const item of await readAll()) {
+    if (!snoozeOver(item, now)) continue;
+    item.state = "new";
+    item.until = null;
+    await write(item);
+  }
 }
 
 export async function untriaged(): Promise<FeedItem[]> {
@@ -326,12 +345,37 @@ export async function remove(id: string): Promise<void> {
   await fs.rm(fileOf(id), { force: true });
 }
 
+/** An item nothing has touched in this long is over, whatever state it was left in (R-20). */
+export const QUIET_DAYS = 30;
+
+/**
+ * Whether an untouched item may be aged out. Not the bench's rows or a
+ * poller's own error row: those are filed again for as long as they are true,
+ * and one aged out while still true would come back as new and push again.
+ * Not a snooze, which the person set an end to, and not an item a loop hangs
+ * still open on, since that loop closes when its item is done.
+ */
+function mayAge(item: FeedItem, looped: Set<string>): boolean {
+  return (
+    item.state !== "done" &&
+    item.state !== "snoozed" &&
+    item.source !== "bench" &&
+    !item.id.endsWith(":poller") &&
+    item.loop === null &&
+    !looped.has(item.id)
+  );
+}
+
 /**
  * Done items go after thirty days; nothing else is ever deleted here. A
- * proposal nobody tapped expires first, as a done item that says so.
+ * proposal nobody tapped expires first, as a done item that says so, and any
+ * other item nothing has written to for `QUIET_DAYS` is resolved the same way
+ * and goes with the done ones on a later pass. Untouched means the file: a
+ * triage, a state change or a new version all rewrite it.
  */
 export async function sweep(now = Date.now()): Promise<number> {
   let removed = 0;
+  const looped = new Set((await loops.list()).flatMap((l) => (l.from ? [l.from] : [])));
   for (const item of await readAll()) {
     if (
       item.source === "proposal" &&
@@ -339,6 +383,13 @@ export async function sweep(now = Date.now()): Promise<number> {
       now - Date.parse(item.at) >= PROPOSAL_DAYS * 86_400_000
     ) {
       await resolve(item.id, "expired untapped");
+      continue;
+    }
+    if (mayAge(item, looped)) {
+      const stat = await fs.stat(fileOf(item.id)).catch(() => null);
+      if (stat && now - stat.mtimeMs >= QUIET_DAYS * 86_400_000) {
+        await resolve(item.id, `quiet for ${QUIET_DAYS} days`);
+      }
       continue;
     }
     if (item.state !== "done") continue;

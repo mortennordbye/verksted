@@ -11,7 +11,7 @@ import { FakeBin } from "./helpers/fake-bin.js";
  *
  * What is pinned is the version rule (the same event is one item, a moved-on
  * event is new again whatever state it was in), that a poller's "over" resolves
- * rather than deletes, that the bench is polled on every read, the loop
+ * rather than deletes, that the bench is filed by the sweeper's pass, the loop
  * ordering, the retention sweep, and the shape of what a briefing is handed.
  */
 let app: FastifyInstance;
@@ -156,6 +156,56 @@ describe("the feed store", () => {
     const items = await feed.list();
     expect(items.find((i) => i.id === "github:2")!.state).toBe("new");
     expect(items.find((i) => i.id === "github:3")!.state).toBe("snoozed");
+    // Shown as new by the read, written as new by the background pass.
+    expect((await feed.get("github:2"))!.state).toBe("snoozed");
+    await feed.liftSnoozes();
+    expect((await feed.get("github:2"))!.state).toBe("new");
+    expect((await feed.get("github:3"))!.state).toBe("snoozed");
+  });
+
+  it("ages out an item nothing has touched in thirty days, and spares what is still live", async () => {
+    const now = Date.now();
+    const old = new Date(now - (feed.QUIET_DAYS + 1) * 86_400_000);
+    const age = (id: string) => {
+      const file = path.join(feedDir, `${id.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
+      fs.utimesSync(file, old, old);
+    };
+    await feed.upsert(seen("github:quiet"));
+    await feed.upsert(seen("github:fresh"));
+    await feed.upsert({ ...seen("bench:wait:vk-x-2"), source: "bench" });
+    await feed.upsert(seen("github:poller"));
+    await feed.upsert(seen("github:snoozed"));
+    await feed.setState("github:snoozed", "snoozed", "2099-01-01T00:00:00.000Z");
+    await feed.upsert(seen("github:tied"));
+    await feed.judge("github:tied", { urgency: "new", loop: "renew-the-domain" });
+    await feed.upsert(seen("github:opened"));
+    await loops.open({ what: "answer it", from: "github:opened" });
+    for (const id of [
+      "github:quiet",
+      "bench:wait:vk-x-2",
+      "github:poller",
+      "github:snoozed",
+      "github:tied",
+      "github:opened",
+    ]) {
+      age(id);
+    }
+
+    await feed.sweep(now);
+
+    const quiet = (await feed.get("github:quiet"))!;
+    expect(quiet.state).toBe("done");
+    expect(quiet.did).toBe(`quiet for ${feed.QUIET_DAYS} days`);
+    for (const id of [
+      "github:fresh",
+      "bench:wait:vk-x-2",
+      "github:poller",
+      "github:snoozed",
+      "github:tied",
+      "github:opened",
+    ]) {
+      expect((await feed.get(id))!.state, id).not.toBe("done");
+    }
   });
 
   it("resolves what is over rather than deleting it, and sweeps done after thirty days", async () => {
@@ -661,7 +711,7 @@ describe("the pollers", () => {
     expect((await feed.get("github:11"))!.state).toBe("new");
   });
 
-  it("polls the bench on every read of the feed, so the feed is never behind", async () => {
+  it("files the bench on the sweeper's pass, and a read of the feed only reads (R-33)", async () => {
     // A proposal on the volume becomes an item; keeping it ends the item.
     await app.inject({
       method: "POST",
@@ -669,9 +719,13 @@ describe("the pollers", () => {
       payload: { slug: "likes-tabs", text: "Prefers tabs.", type: "preference" },
     });
     let items = (await app.inject({ url: "/api/feed" })).json();
+    expect(items.map((i: { id: string }) => i.id)).not.toContain("memory:likes-tabs");
+    await pollers.pollBench();
+    items = (await app.inject({ url: "/api/feed" })).json();
     expect(items.map((i: { id: string }) => i.id)).toContain("memory:likes-tabs");
 
     await app.inject({ method: "DELETE", url: "/api/memory/proposed/likes-tabs" });
+    await pollers.pollBench();
     items = (await app.inject({ url: "/api/feed" })).json();
     const gone = items.find((i: { id: string }) => i.id === "memory:likes-tabs");
     expect(gone.state).toBe("done");

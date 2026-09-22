@@ -1,3 +1,4 @@
+import { pollBench } from "./pollers.js";
 import { sweepSessions } from "./sessions-store.js";
 
 interface Logger {
@@ -25,6 +26,7 @@ const EVERY_MS = 5_000;
  * The one job that writes what the reads used to write.
  *
  * `GET /api/sessions` stamped ends and measured; `GET /api/usage` backfilled;
+ * `GET /api/feed` filed the bench's own items (R-33);
  * every one of them from whichever client's timer happened to fire, several at
  * once, each over the whole history. What the volume did depended on who was
  * polling, which is where the sweep's stale-snapshot writes came from (R-09)
@@ -50,6 +52,12 @@ export function startSweeper(log: Logger): () => void {
     } catch (err) {
       // A repo deleted mid-measure, or tmux briefly unavailable. Next tick.
       log.warn(err, "session sweep failed");
+    }
+    try {
+      // After the sessions, so an end stamped this tick is filed this tick.
+      await pollBench();
+    } catch (err) {
+      log.warn(err, "bench filing failed");
     } finally {
       running = false;
     }
