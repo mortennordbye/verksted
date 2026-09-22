@@ -1,6 +1,11 @@
 import { Fragment, memo, useDeferredValue, useMemo, useState } from "react";
 import Markdown from "react-markdown";
-import type { AssistantEntry, AssistantThread, CouncilMember } from "../../../shared/api";
+import type {
+  AssistantEntry,
+  AssistantThread,
+  AssistantToolCall,
+  CouncilMember,
+} from "../../../shared/api";
 import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
 import CopyButton from "./chat/CopyButton";
@@ -38,10 +43,14 @@ function Upload({ name, alt, className }: { name: string; alt: string; className
   );
 }
 
-function ToolChip({ name, detail }: { name: string; detail: string }) {
+function ToolChip({ name, detail, running }: { name: string; detail: string; running?: boolean }) {
   return (
     <span className="inline-flex max-w-full items-center gap-2 rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-muted">
-      <span className="flex-none text-run">✓</span>
+      {running ? (
+        <span className="inline-block h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-accent" />
+      ) : (
+        <span className="flex-none text-run">✓</span>
+      )}
       <span className="truncate">
         {name}
         {detail && <span className="text-faint"> · {detail}</span>}
@@ -126,6 +135,43 @@ const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; t
  * falls behind should drop frames, not queue them. The caret is `vk-writing`
  * in theme.css: it has to sit after the last block, not under it.
  */
+/** A turn in flight: the tools it has reached for, what it is thinking, what it has written. */
+interface LiveTurn {
+  text: string;
+  thinking: string;
+  tools: AssistantToolCall[];
+}
+
+/**
+ * The turn as it happens. The last tool is the one running until something
+ * follows it; the thinking is its tail, since only where it has got to is news.
+ */
+function Working({ live }: { live: LiveTurn }) {
+  const thought = live.thinking.trim();
+  return (
+    <div className="flex flex-col gap-1.5">
+      {live.tools.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {live.tools.map((t, i) => (
+            <ToolChip
+              key={i}
+              name={t.name}
+              detail={t.detail}
+              running={!live.text && i === live.tools.length - 1}
+            />
+          ))}
+        </div>
+      )}
+      {thought && !live.text && (
+        <div className="text-[13px] leading-[1.45] whitespace-pre-wrap text-faint italic">
+          {thought.length > 400 ? `…${thought.slice(-400)}` : thought}
+        </div>
+      )}
+      {live.text && <Writing live={live.text} />}
+    </div>
+  );
+}
+
 function Writing({ live }: { live: string }) {
   const shown = useDeferredValue(live);
   return (
@@ -149,7 +195,7 @@ const Bubble = memo(function Bubble({
   onRetry,
 }: {
   entries: AssistantEntry[];
-  live?: string;
+  live?: LiveTurn;
   /** Given for the thread's last bubble when it ended badly: ask the same thing again. */
   onRetry?: () => void;
 }) {
@@ -173,7 +219,7 @@ const Bubble = memo(function Bubble({
       ))}
       {live !== undefined && (
         <div className={parts.length ? "mt-1 border-t border-line pt-1.5" : ""}>
-          <Writing live={live} />
+          <Working live={live} />
         </div>
       )}
       {last && live === undefined && (
@@ -285,7 +331,14 @@ export default function Room({
   const drawn = useMemo(() => blocks(thread.entries), [thread.entries]);
   // The answer being written joins the chair's last bubble when that is the
   // last thing on screen, and starts one of its own otherwise.
-  const writing = thinking && thread.live ? thread.live : undefined;
+  const writing: LiveTurn | undefined =
+    thinking && (thread.live || thread.liveThinking || thread.liveTools?.length)
+      ? {
+          text: thread.live ?? "",
+          thinking: thread.liveThinking ?? "",
+          tools: thread.liveTools ?? [],
+        }
+      : undefined;
   const joinsLast = writing !== undefined && drawn.at(-1)?.kind === "run";
 
   // The question a failed last turn was answering: the newest thing typed.
@@ -354,7 +407,7 @@ export default function Room({
       })}
 
       {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
-      {thinking && !thread.live && (
+      {thinking && writing === undefined && (
         <div className="flex items-center gap-2 text-[12.5px] text-muted">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
           thinking…

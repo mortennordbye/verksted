@@ -1095,6 +1095,14 @@ export interface AssistantThread {
    * over the socket, never from a plain GET.
    */
   live?: string;
+  /** What the chair is thinking right now, while it is. Never stored, like `live`. */
+  liveThinking?: string;
+  /**
+   * The tools the chair has reached for since it last said anything, the one
+   * being written included. They join the entry it writes next; until then
+   * this is the only place they show.
+   */
+  liveTools?: AssistantToolCall[];
   /**
    * Members with a turn in flight right now, by id. Only the chair streams its
    * tokens through `live`: three members writing at once onto a phone is noise,
@@ -1104,6 +1112,15 @@ export interface AssistantThread {
   speaking?: string[];
   /** Absent until the thread's first measured turn, and on threads older than the measuring. */
   usage?: AssistantThreadUsage;
+  /** What was sent while a turn ran, oldest first: each goes in as the one before it ends. */
+  queued?: AssistantQueued[];
+}
+
+/** A message waiting for the turn in front of it. */
+export interface AssistantQueued {
+  id: string;
+  text: string;
+  images: string[];
 }
 
 /**

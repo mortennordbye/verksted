@@ -102,6 +102,14 @@ export interface StreamState {
    */
   live: string;
   /**
+   * What the model is thinking right now, from thinking deltas. Shown and never
+   * stored, like `live`: "thinking…" over a minute of nothing was the complaint,
+   * and what it is reasoning about is the honest answer to "what is it doing".
+   */
+  thinking: string;
+  /** A tool call being written, named before its arguments have arrived. */
+  writingTool: string | null;
+  /**
    * Called the moment a tool is asked for, rather than when the entry carrying
    * it completes. Used to notice that a turn has fetched something: what that
    * costs it has to be decided before the next tool call, not after the model
@@ -122,7 +130,29 @@ export function newStreamState(onTool?: (name: string) => void): StreamState {
     toolNames: new Map(),
     buffer: "",
     live: "",
+    thinking: "",
+    writingTool: null,
   };
+}
+
+/** What a turn in flight has to show: the three things `live*` in the thread carry. */
+export interface LiveView {
+  text: string;
+  thinking: string;
+  tools: AssistantToolCall[];
+}
+
+/**
+ * The turn as it stands, for the screen. The tools are the calls made since
+ * anything was last said, which is what the finished entry will carry, plus the
+ * one being written, so a chip appears as the model reaches for the tool rather
+ * than once it has written a sentence after it.
+ */
+export function liveView(state: StreamState): LiveView {
+  const tools = state.writingTool
+    ? [...state.pendingTools, { name: state.writingTool, detail: "" }]
+    : state.pendingTools;
+  return { text: state.live, thinking: state.thinking, tools };
 }
 
 /** The four counts the API reports, under this app's names for them. */
@@ -150,9 +180,20 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
   // follows and is what actually gets stored; this is only what to show while
   // waiting for it.
   if (event.type === "stream_event") {
-    const inner = event.event as { type?: string; delta?: { type?: string; text?: string } };
-    if (inner?.type === "content_block_delta" && inner.delta?.type === "text_delta") {
+    const inner = event.event as {
+      type?: string;
+      delta?: { type?: string; text?: string; thinking?: string };
+      content_block?: { type?: string; name?: string };
+    };
+    if (inner?.type === "content_block_start" && inner.content_block?.type === "tool_use") {
+      state.writingTool = inner.content_block.name ?? null;
+      // Told as the call starts as well as once it is complete: the taint rule
+      // wants to know as early as there is anything to know.
+      if (state.writingTool) state.onTool?.(state.writingTool);
+    } else if (inner?.type === "content_block_delta" && inner.delta?.type === "text_delta") {
       state.live += inner.delta.text ?? "";
+    } else if (inner?.type === "content_block_delta" && inner.delta?.type === "thinking_delta") {
+      state.thinking += inner.delta.thinking ?? "";
     }
     return null;
   }
@@ -162,6 +203,7 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
     const prompt = tokens(message?.usage);
     if (prompt) state.context = prompt.input + prompt.cacheRead + prompt.cacheWrite;
     const blocks = Array.isArray(message?.content) ? message.content : [];
+    if (blocks.some((b) => b.type === "tool_use")) state.writingTool = null;
     const text = blocks
       .filter((b) => b.type === "text" && typeof b.text === "string")
       .map((b) => b.text!.trim())
@@ -182,6 +224,7 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       state.pendingTools = [];
       state.pendingShots = [];
       state.live = "";
+      state.thinking = "";
       return entry;
     }
     // A tool-only turn: whatever was being written was the model thinking out

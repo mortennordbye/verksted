@@ -410,11 +410,53 @@ describe("POST /api/assistant/messages, not waited for", () => {
     expect((await settled()).entries.at(-1).text).toBe("Two things need you.");
   });
 
-  it("still refuses a second turn at once, which is the one thing worth waiting to hear", async () => {
+  it("keeps a second message on the server, and asks it once the first is answered", async () => {
+    // It used to wait in the tab that sent it, and a reload lost it.
     fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
 
     expect((await ask("one")).statusCode).toBe(202);
-    expect((await ask("two")).statusCode).toBe(409);
+    const queued = await ask("two");
+    expect(queued.statusCode).toBe(202);
+    expect(queued.json().queued.map((q: { text: string }) => q.text)).toEqual(["two"]);
+
+    await vi.waitFor(
+      async () => {
+        const thread = (await app.inject({ url: "/api/assistant" })).json();
+        expect(thread.queued).toBeUndefined();
+        expect(thread.status).toBe("idle");
+        expect(thread.entries.map((e: { text: string }) => e.text)).toEqual([
+          "one",
+          "first",
+          "two",
+          "first",
+        ]);
+      },
+      { timeout: 5_000 },
+    );
+  });
+
+  it("lets a waiting message be taken back", async () => {
+    fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
+    await ask("one");
+    const [waiting] = (await ask("never mind")).json().queued;
+
+    const res = await app.inject({ method: "DELETE", url: `/api/assistant/queue/${waiting.id}` });
+
+    expect(res.statusCode).toBe(200);
+    const thread = await settled();
+    expect(thread.entries.map((e: { text: string }) => e.text)).toEqual(["one", "first"]);
+  });
+
+  it("still refuses a second turn to a caller waiting for the answer", async () => {
+    fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
+
+    expect((await ask("one")).statusCode).toBe(202);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/assistant/messages",
+      payload: { text: "two" },
+    });
+    expect(res.statusCode).toBe(409);
 
     await settled();
   });
@@ -713,6 +755,41 @@ describe("GET /api/assistant/stream", () => {
     });
     return { done };
   }
+
+  it("has the next turn started while the chat is open, and asks it on stdin", async () => {
+    // What a turn spent close to a minute on was the CLI starting its servers
+    // before it asked the model anything. With the chat open, that start has
+    // already happened by the time something is asked.
+    fake.reply("claude", "-p --input-format", { stdin: true, stdout: run("Ready.") });
+    const { buildApp } = await import("../src/app.js");
+    const server = await buildApp({ logger: false });
+    await server.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = server.server.address() as { port: number };
+    try {
+      const watching = listen(`ws://127.0.0.1:${port}/api/assistant/stream`, 1_500);
+      await vi.waitFor(() => expect(fake.argvFor("claude")).toHaveLength(1), { timeout: 3_000 });
+
+      await server.inject({
+        method: "POST",
+        url: "/api/assistant/messages",
+        payload: { text: "is Pao free on Saturday?" },
+      });
+      await watching.done;
+
+      const thread = (await server.inject({ method: "GET", url: "/api/assistant" })).json();
+      expect(thread.entries.at(-1).text).toBe("Ready.");
+      // The question went to the process that was waiting, and nothing was
+      // started cold for it: every call is one of the waiting kind.
+      const asked = fake.calls().find((c) => c.bin === "stdin");
+      expect(JSON.parse(asked!.stdin!)).toEqual({
+        type: "user",
+        message: { role: "user", content: "is Pao free on Saturday?" },
+      });
+      for (const argv of fake.argvFor("claude")) expect(argv[1]).toBe("--input-format");
+    } finally {
+      await server.close();
+    }
+  });
 
   it("sends the thread whole once, then leaves the entries out of the frames that add none", async () => {
     // Its own instance, because `inject` cannot upgrade — and everything in

@@ -48,12 +48,23 @@ const readPrivate = (turn: string) =>
 
 describe("a turn that reads something private", () => {
   it("closes the browser it had, and does not get it back by asking again", async () => {
+    // The CLI starts the browser's server before its first call on every chair
+    // turn, so a started browser is not a turn that has reached the web. This
+    // was a 403, and the chair could not read the calendar at all.
     expect((await start("turn-a")).statusCode).toBe(200);
     closed.length = 0;
 
-    // Nothing was fetched: opening the pane for a turn is not the same as that
-    // turn having reached the web, which the next case is about.
-    expect((await readPrivate("turn-a")).statusCode).toBe(403);
+    expect((await readPrivate("turn-a")).statusCode).toBe(200);
+    expect(closed).toEqual(["assistant"]);
+    expect((await start("turn-a")).statusCode).toBe(403);
+  });
+
+  it("is refused the read once the turn has used the browser", async () => {
+    const { noteTool } = await import("../src/assistant-taint.js");
+    expect((await start("turn-f")).statusCode).toBe(200);
+    noteTool("turn-f", "mcp__browser__browser_navigate");
+
+    expect((await readPrivate("turn-f")).statusCode).toBe(403);
   });
 
   it("closes it for a turn that only ever read", async () => {

@@ -63,11 +63,6 @@ export function noteTool(turn: string, name: string): void {
   if (WEB_TOOLS.has(name) || name.startsWith("mcp__browser")) remember(usedWeb, turn);
 }
 
-/** Called when the chair's browser is started for a turn. */
-export function noteWeb(turn: string | undefined): void {
-  if (turn !== undefined) remember(usedWeb, turn);
-}
-
 export function reachedTheWeb(turn: string | undefined): boolean {
   return turn !== undefined && usedWeb.has(turn);
 }

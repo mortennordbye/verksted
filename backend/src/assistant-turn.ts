@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AssistantEntry, SessionUsage } from "../../shared/api.js";
 import {
   consumeChunk,
   finishStream,
+  liveView,
   newStreamState,
   type Entry as StreamEntry,
+  type LiveView,
   type Shot,
 } from "./assistant-stream.js";
 import { ASSISTANT_CDP_PORT } from "./browser.js";
@@ -186,6 +188,229 @@ export function setTurnTimeouts(chairMs: number, memberMs: number): () => void {
   };
 }
 
+/** How one run of the CLI is started, fixed before its question is known. */
+interface Launch {
+  turnId: string;
+  args: (resume: boolean, prompt: string | null) => string[];
+  env: NodeJS.ProcessEnv;
+}
+
+/** A speaker's environment, less the turn id that names one run of it. */
+async function speakerEnv(speaker: Speaker, unattended: boolean): Promise<NodeJS.ProcessEnv> {
+  return {
+    ...(await turnEnv(holdsHeadroom(speaker.id === CHAIR_ID ? null : speaker.id, unattended))),
+    // Matches the mcpConfig() browser entry, which only exists for the
+    // chair's attended turns — this is the endpoint its wrapper connects to.
+    ...(speaker.id === CHAIR_ID && !unattended
+      ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
+      : {}),
+  };
+}
+
+async function prepare(
+  speaker: Speaker,
+  conversationId: string,
+  unattended: boolean,
+): Promise<Launch> {
+  // This run of the CLI, named. Everything the turn reaches carries it, which
+  // is what lets a read of something private cost this turn its browser
+  // without costing the next one anything (see assistant-taint.ts).
+  const turnId = randomUUID();
+  const mcpConfig = await ensureMcpConfig({
+    id: speaker.id,
+    unattended,
+    tools: speaker.tools,
+    turn: turnId,
+  });
+  const args = (resume: boolean, prompt: string | null) => [
+    "-p",
+    // No prompt is a process started ahead of its question, which then
+    // arrives on stdin as the one user message of the stream.
+    ...(prompt === null ? ["--input-format", "stream-json"] : [prompt]),
+    "--output-format",
+    "stream-json",
+    // stream-json refuses to stream without it.
+    "--verbose",
+    // Token deltas, so an answer appears as it is written. Without this the
+    // first text arrives only when the whole turn is done.
+    "--include-partial-messages",
+    ...(resume ? ["--resume", conversationId] : ["--session-id", conversationId]),
+    // Nobody is watching a headless run to approve a tool call, so what no
+    // allow rule covers is refused on the spot. `auto` hands those calls to a
+    // classifier instead, and a read outside the repos is one of them.
+    "--permission-mode",
+    "dontAsk",
+    "--mcp-config",
+    mcpConfig,
+    // Without this, MCP servers configured in $HOME join the ones here — and
+    // the allow list only auto-approves, so an unlisted server's tools would
+    // still be a classifier's call. The claim that this agent has exactly the
+    // verksted tools is only true with it.
+    "--strict-mcp-config",
+    // Images the user attached; the agent reads them from here by path.
+    "--add-dir",
+    uploadsDir(),
+    // Both default low: this agent summarises state and hands work off, and the
+    // model doing the actual engineering is the one in the session it starts.
+    "--model",
+    speaker.model,
+    "--effort",
+    speaker.effort,
+    "--tools",
+    speaker.builtins.join(","),
+    "--allowed-tools",
+    speaker.allowed.join(" "),
+    "--disallowed-tools",
+    speaker.denied.join(" "),
+    "--append-system-prompt",
+    speaker.systemPrompt,
+  ];
+
+  return { turnId, args, env: { ...(await speakerEnv(speaker, unattended)), VK_TURN: turnId } };
+}
+
+/** One run of the CLI, as its own process group, its output decoded as text. */
+function spawnCli(args: string[], childEnv: NodeJS.ProcessEnv, stdin: boolean): Child {
+  const child = spawn("claude", args, {
+    cwd: env.REPOS_DIR,
+    env: childEnv,
+    stdio: [stdin ? "pipe" : "ignore", "pipe", "pipe"],
+    // The leader of its own process group, so ending the turn ends what the
+    // turn started. See `endTree`.
+    detached: true,
+  });
+  live.add(child);
+  child.once("close", () => live.delete(child));
+  child.once("error", () => live.delete(child));
+  // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
+  // character in half wherever the pipe happens to break, and both halves come
+  // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
+  // marks, at random, in text that is then stored and read back for ever.
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  // A process that died before its question arrived must not take the
+  // backend with it when the question is written.
+  child.stdin?.on("error", () => undefined);
+  return child;
+}
+
+/**
+ * The chair's next turn, already running and waiting for its question.
+ *
+ * A cold turn spent close to a minute before its first word, and none of it was
+ * the model: the CLI starts the verksted, headroom and browser servers and
+ * waits for all three before it sends anything. Started while nobody is asking,
+ * that wait is over by the time somebody does, and the question goes in on
+ * stdin.
+ *
+ * One at a time, for the chair's attended turns only: that is who is waited
+ * for. It is only used if everything it was started with is still true, which
+ * `key` settles: a changed setting, roster or thread and it is ended instead,
+ * and the turn starts cold the way every turn used to.
+ */
+interface Warm {
+  key: string;
+  launch: Launch;
+  resume: boolean;
+  child: Child;
+  /** Whatever it printed before it was asked anything, replayed on adoption. */
+  out: string;
+  err: string;
+  exited: boolean;
+  onOut: (d: string) => void;
+  onErr: (d: string) => void;
+  expiry: NodeJS.Timeout;
+}
+
+let warm: Warm | null = null;
+/** Warm-ups and adoptions, one after another, so two never start two processes. */
+let warming: Promise<unknown> = Promise.resolve();
+
+/** How long a process waits for a question before it is ended. */
+const WARM_MS = 15 * 60_000;
+
+async function warmKey(speaker: Speaker, conversationId: string): Promise<string> {
+  const childEnv = await speakerEnv(speaker, false);
+  return createHash("sha256")
+    .update(JSON.stringify([conversationId, speaker, childEnv]))
+    .digest("hex");
+}
+
+function discardWarm(): void {
+  if (!warm) return;
+  clearTimeout(warm.expiry);
+  endTree(warm.child);
+  warm = null;
+}
+
+/**
+ * Start the chair's next turn now, so it is ready when it is asked for. Does
+ * nothing if one is already waiting with the same key.
+ *
+ * `idle` is asked last, right before the spawn: the CLI reads the conversation
+ * as it starts, so one started while a turn is still running would answer the
+ * next question without having seen the last answer.
+ */
+export function warmUp(
+  speaker: Speaker,
+  conversationId: string,
+  idle: () => boolean,
+): Promise<void> {
+  const run = warming.then(async () => {
+    const key = await warmKey(speaker, conversationId);
+    if (warm && warm.key === key && !warm.exited) return;
+    discardWarm();
+    const resume = await exists(transcriptPath(env.REPOS_DIR, conversationId, assistantHome()));
+    const launch = await prepare(speaker, conversationId, false);
+    if (!idle()) return;
+    const child = spawnCli(launch.args(resume, null), launch.env, true);
+    const w: Warm = {
+      key,
+      launch,
+      resume,
+      child,
+      out: "",
+      err: "",
+      exited: false,
+      onOut: (d) => (w.out += d),
+      onErr: (d) => (w.err = (w.err + d).slice(-4_000)),
+      expiry: setTimeout(() => {
+        if (warm === w) discardWarm();
+      }, WARM_MS),
+    };
+    w.expiry.unref();
+    child.stdout?.on("data", w.onOut);
+    child.stderr?.on("data", w.onErr);
+    child.once("close", () => {
+      w.exited = true;
+      if (warm === w) warm = null;
+    });
+    warm = w;
+  });
+  warming = run.catch(() => undefined);
+  return run;
+}
+
+/** Take the waiting process for this turn, or end it if it no longer fits. */
+function adoptWarm(speaker: Speaker, conversationId: string): Promise<Warm | null> {
+  const run = warming.then(async () => {
+    if (!warm) return null;
+    const key = await warmKey(speaker, conversationId);
+    const w = warm;
+    if (w.key !== key || w.exited) {
+      discardWarm();
+      return null;
+    }
+    warm = null;
+    clearTimeout(w.expiry);
+    w.child.stdout?.off("data", w.onOut);
+    w.child.stderr?.off("data", w.onErr);
+    return w;
+  });
+  warming = run.catch(() => undefined);
+  return run;
+}
+
 /**
  * The two ways claude refuses a conversation id: asked to resume one it has no
  * transcript of, or to name one it already has. Both were read off the real
@@ -225,8 +450,8 @@ export async function turn(o: {
   unattended: boolean;
   sink: (entry: Omit<AssistantEntry, "id" | "at">) => Promise<AssistantEntry>;
   onSpawn: (child: Child) => void;
-  /** Called as entries land, and with the part-written reply between them. */
-  onChange: (live?: string) => void;
+  /** Called as entries land, and with the turn as it stands between them. */
+  onChange: (live?: LiveView) => void;
   /** What the run took, once it has ended and said so. */
   onUsage?: (taken: { usage: SessionUsage; context: number }) => Promise<void>;
 }): Promise<{ text: string }> {
@@ -234,11 +459,6 @@ export async function turn(o: {
   // Counted as it starts, not as it is asked for: the message that opens a
   // meeting is one turn here and several by the time the meeting ends.
   if (!unattended) attendedToday = attendedCount() + 1;
-  // This run of the CLI, named. Everything the turn reaches carries it, which
-  // is what lets a read of something private cost this turn its browser
-  // without costing the next one anything (see assistant-taint.ts).
-  const turnId = randomUUID();
-
   // Claude reads an image by path with its own Read tool, so an attachment is
   // delivered as a line telling it where to look rather than as bytes on a
   // wire it has no way to receive.
@@ -246,63 +466,13 @@ export async function turn(o: {
     ? `${o.prompt}\n\n${images.map((n) => `[image: ${path.join(uploadsDir(), n)}]`).join("\n")}`
     : o.prompt;
 
-  const mcpConfig = await ensureMcpConfig({
-    id: speaker.id,
-    unattended,
-    tools: speaker.tools,
-    turn: turnId,
-  });
-  const args = (resume: boolean) => [
-    "-p",
-    withImages,
-    "--output-format",
-    "stream-json",
-    // stream-json refuses to stream without it.
-    "--verbose",
-    // Token deltas, so an answer appears as it is written. Without this the
-    // first text arrives only when the whole turn is done.
-    "--include-partial-messages",
-    ...(resume ? ["--resume", o.claudeConversationId] : ["--session-id", o.claudeConversationId]),
-    // Nobody is watching a headless run to approve a tool call, so what no
-    // allow rule covers is refused on the spot. `auto` hands those calls to a
-    // classifier instead, and a read outside the repos is one of them.
-    "--permission-mode",
-    "dontAsk",
-    "--mcp-config",
-    mcpConfig,
-    // Without this, MCP servers configured in $HOME join the ones here — and
-    // the allow list only auto-approves, so an unlisted server's tools would
-    // still be a classifier's call. The claim that this agent has exactly the
-    // verksted tools is only true with it.
-    "--strict-mcp-config",
-    // Images the user attached; the agent reads them from here by path.
-    "--add-dir",
-    uploadsDir(),
-    // Both default low: this agent summarises state and hands work off, and the
-    // model doing the actual engineering is the one in the session it starts.
-    "--model",
-    speaker.model,
-    "--effort",
-    speaker.effort,
-    "--tools",
-    speaker.builtins.join(","),
-    "--allowed-tools",
-    speaker.allowed.join(" "),
-    "--disallowed-tools",
-    speaker.denied.join(" "),
-    "--append-system-prompt",
-    speaker.systemPrompt,
-  ];
-
-  const childEnv = {
-    ...(await turnEnv(holdsHeadroom(speaker.id === CHAIR_ID ? null : speaker.id, unattended))),
-    // Matches the mcpConfig() browser entry, which only exists for the
-    // chair's attended turns — this is the endpoint its wrapper connects to.
-    ...(speaker.id === CHAIR_ID && !unattended
-      ? { VK_BROWSER_CDP: `http://127.0.0.1:${ASSISTANT_CDP_PORT}` }
-      : {}),
-    VK_TURN: turnId,
-  };
+  // A process started ahead of time for exactly this turn, when there is one:
+  // the CLI starts every MCP server before it asks the model anything, and
+  // that start is most of the wait between a question and its first word.
+  const adopted =
+    unattended || speaker.id !== CHAIR_ID ? null : await adoptWarm(speaker, o.claudeConversationId);
+  const launch = adopted?.launch ?? (await prepare(speaker, o.claudeConversationId, unattended));
+  const { turnId } = launch;
 
   // Entries are appended and announced the moment they complete, rather than
   // after the process exits: the model produces its first sentence while the
@@ -321,46 +491,58 @@ export async function turn(o: {
     await o.sink(shots?.length ? { ...entry, images: await saveShots(shots) } : entry);
   };
 
+  // When the prompt went in, for the one line of timing a turn logs.
+  let asked = 0;
   const attempt = (resume: boolean) => {
-    const child = spawn("claude", args(resume), {
-      cwd: env.REPOS_DIR,
-      env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
-      // The leader of its own process group, so ending the turn ends what the
-      // turn started. See `endTree`.
-      detached: true,
-    });
-    live.add(child);
-    child.once("close", () => live.delete(child));
-    child.once("error", () => live.delete(child));
-    // Decoded by the stream, not per chunk. `chunk.toString()` cuts a multi-byte
-    // character in half wherever the pipe happens to break, and both halves come
-    // back U+FFFD — so an æ, ø or å in a reply was replaced by a pair of question
-    // marks, at random, in text that is then stored and read back for ever.
-    child.stdout?.setEncoding("utf8");
-    child.stderr?.setEncoding("utf8");
+    const child = spawnCli(launch.args(resume, withImages), launch.env, false);
+    asked = Date.now();
     o.onSpawn(child);
     o.onChange();
     return collect(child);
   };
 
-  const collect = (child: Child) =>
+  /** The waiting process, handed its question, and read from where it had got to. */
+  const answer = (w: Warm) => {
+    o.onSpawn(w.child);
+    o.onChange();
+    const collected = collect(w.child, w.out, w.err);
+    asked = Date.now();
+    w.child.stdin?.end(
+      `${JSON.stringify({ type: "user", message: { role: "user", content: withImages } })}\n`,
+    );
+    return collected;
+  };
+
+  const collect = (child: Child, printed = "", errSoFar = "") =>
     new Promise<{ err: string; timedOut: boolean }>((resolve) => {
-      let err = "";
+      let err = errSoFar;
       let timedOut = false;
+      let heard = false;
       let queue: Promise<unknown> = Promise.resolve();
       const timer = setTimeout(() => {
         timedOut = true;
         endTree(child);
       }, speaker.timeoutMs);
-      child.stdout?.on("data", (d: string) => {
+      const onData = (d: string) => {
+        if (!heard && asked) {
+          heard = true;
+          // How long the wait for a first word was, and whether the process
+          // was already up: the one number that says where a slow turn went.
+          console.info(
+            `assistant turn ${turnId}: ${adopted ? "warm" : "cold"}, first output ${Date.now() - asked}ms after the prompt`,
+          );
+        }
         const entries = consumeChunk(d, state);
         if (!entries.length) {
-          // Nothing completed, but the live text moved: push it so the answer is
-          // visible as it lands. Throttled, since deltas arrive per token.
-          if (state.live !== lastLive) {
-            lastLive = state.live;
-            o.onChange(state.live);
+          // Nothing completed, but what is on screen moved: the answer, the
+          // thinking, a tool reached for. Pushed so the turn is visible as it
+          // happens rather than as "thinking…". Throttled, since deltas arrive
+          // per token.
+          const view = liveView(state);
+          const key = JSON.stringify(view);
+          if (key !== lastLive) {
+            lastLive = key;
+            o.onChange(view);
           }
           return;
         }
@@ -368,10 +550,13 @@ export async function turn(o: {
         // together must not interleave inside the thread file.
         queue = queue.then(async () => {
           for (const entry of entries) await record(entry);
-          lastLive = "";
-          o.onChange();
+          const view = liveView(state);
+          lastLive = JSON.stringify(view);
+          o.onChange(view);
         });
-      });
+      };
+      child.stdout?.on("data", onData);
+      if (printed) onData(printed);
       // Only ever read for its last three lines, and a CLI that is looping on an
       // error would otherwise be kept whole, in memory, for ten minutes.
       child.stderr?.on("data", (d: string) => (err = (err + d).slice(-4_000)));
@@ -391,10 +576,10 @@ export async function turn(o: {
   // restart during a first turn, a first turn that failed before claude got as
   // far as a session. From then on every turn of that thread passed the wrong
   // flag and failed, for good.
-  const resume = await exists(
-    transcriptPath(env.REPOS_DIR, o.claudeConversationId, assistantHome()),
-  );
-  let raw = await attempt(resume);
+  const resume =
+    adopted?.resume ??
+    (await exists(transcriptPath(env.REPOS_DIR, o.claudeConversationId, assistantHome())));
+  let raw = adopted ? await answer(adopted) : await attempt(resume);
   // And where the guess is still wrong, claude says so before it has asked the
   // model anything, so the other flag costs one more spawn and no tokens.
   if (!said && !raw.timedOut && WRONG_FLAG_RE.test(`${state.error ?? ""}\n${raw.err}`)) {

@@ -602,20 +602,6 @@ export default function Chat() {
   const grow = useGrow(text);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<string[]>([]);
-  /**
-   * What was sent while a turn was running, oldest first. The server takes one
-   * turn at a time and answers a second with a 409, so the rest wait here and
-   * go out one by one as each turn ends. Stop is the way to reach them sooner:
-   * a turn going the wrong way is stopped, and the correction is already queued.
-   */
-  const [queued, setQueued] = useState<{ text: string; images: string[] }[]>([]);
-  // A queued message the pod refused stops the queue, with itself still at the
-  // head of it. It used to be dropped into the field (or lost, if the field was
-  // in use) while everything behind it waited on a frame that might never come.
-  const [held, setHeld] = useState(false);
-  // A POST is out but the socket may not have said "thinking" yet. Without
-  // this, the queue would fire its next message into that gap and get the 409.
-  const posting = useRef(false);
   const [browsing, setBrowsing] = useState(false);
   // Gabriel's own browser (chair-only, see assistant.ts's mcpConfig). Not
   // remembered across reloads, the way the session screen's toggle isn't
@@ -690,7 +676,14 @@ export default function Chat() {
   useEffect(() => {
     if (!atLatest) return;
     scrollTo({ top: document.documentElement.scrollHeight, behavior: scrollBehavior() });
-  }, [thread?.entries.length, thread?.status, thread?.live, atLatest]);
+  }, [
+    thread?.entries.length,
+    thread?.status,
+    thread?.live,
+    thread?.liveThinking,
+    thread?.liveTools,
+    atLatest,
+  ]);
 
   // Whether the bottom is on screen. The margin is generous on purpose: the
   // composer and the tab bar sit over the last few lines.
@@ -755,17 +748,17 @@ export default function Chat() {
     const images = pending;
     if (!spoken) setText("");
     setPending([]);
-    if (thinking || posting.current) {
-      setQueued((q) => [...q, { text: value, images }]);
-      return;
-    }
     await post(value, images, spoken ? "spoken" : "typed");
   }
 
-  /** One turn to the server. A failure puts what was sent back to be sent again. */
-  async function post(value: string, images: string[], from: "typed" | "spoken" | "queue") {
+  /**
+   * One message to the server, which asks it now or queues it behind the turn
+   * that is running. The queue used to live here, and a reload or a phone
+   * locking lost what was in it. A failure puts what was sent back to be sent
+   * again.
+   */
+  async function post(value: string, images: string[], from: "typed" | "spoken" | "retry") {
     setError(null);
-    posting.current = true;
     try {
       // Answered as soon as the question is on record (`wait: false`): the
       // socket carries the turn, and a request held open for a whole meeting is
@@ -780,35 +773,18 @@ export default function Chat() {
         }),
       });
       setThread((had) => adopt(had, accepted));
-      setHeld(false);
     } catch (e) {
       setError((e as Error).message);
-      if (from === "queue") {
-        setQueued((q) => [{ text: value, images }, ...q]);
-        setHeld(true);
-        return;
-      }
       // Only into an empty field, so it never overwrites what is being typed.
       if (from === "typed") setText((t) => (t.trim() ? t : value));
       setPending((p) => [...images, ...p]);
-    } finally {
-      posting.current = false;
     }
   }
 
-  /** "try again" on a failed reply. Through the queue, so a second refusal is held, not lost. */
+  /** "try again" on a failed reply. Queued on the server if a turn is running. */
   function retry(text: string, images: string[]) {
-    setQueued((q) => [...q, { text: text === "(see image)" ? "" : text, images }]);
+    void post(text === "(see image)" ? "" : text, images, "retry");
   }
-
-  // The queue drains one message per idle moment. The next arrives with the
-  // thread that ends this turn, whether from the POST or from the socket.
-  useEffect(() => {
-    if (!thread || thinking || held || posting.current || !queued.length) return;
-    const [next, ...rest] = queued;
-    setQueued(rest);
-    void post(next.text, next.images, "queue");
-  }, [thread, thinking, queued, held]);
 
   // Below send, which it calls: the lint's compiler check will not have a
   // callback reach a function declared further down.
@@ -939,7 +915,11 @@ export default function Chat() {
         : thinking
           ? thread.live
             ? "writing…"
-            : "reading…"
+            : thread.liveTools?.length
+              ? `${thread.liveTools.at(-1)!.name}…`
+              : thread.liveThinking
+                ? "thinking…"
+                : "starting…"
           : lastEntry
             ? `${turns} turn${turns === 1 ? "" : "s"}${calls > turns ? ` · ${calls} replies` : ""}${taken && ` · ${taken}`} · last spoke ${agoLabel(lastEntry.at)}`
             : "here";
@@ -1100,18 +1080,6 @@ export default function Chat() {
         {error && (
           <div className="mb-2 flex items-center gap-2 text-[12.5px] text-fail">
             <span className="min-w-0 flex-1">{error}</span>
-            {held && (
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null);
-                  setHeld(false);
-                }}
-                className="tap flex-none rounded-lg px-2 py-0.5 font-semibold ring-1 ring-fail/40 hover:brightness-110"
-              >
-                send again
-              </button>
-            )}
             <button
               type="button"
               aria-label="dismiss the error"
@@ -1157,11 +1125,11 @@ export default function Chat() {
             ))}
           </div>
         )}
-        {queued.length > 0 && (
+        {thread?.queued && (
           <div className="mb-2 flex flex-col gap-1.5">
-            {queued.map((q, i) => (
+            {thread.queued.map((q) => (
               <div
-                key={`${i}-${q.text}`}
+                key={q.id}
                 className="flex items-center gap-2.5 rounded-xl bg-surface px-3 py-2 text-[13px]"
               >
                 <span className="flex-none text-[11.5px] text-faint">queued</span>
@@ -1171,11 +1139,11 @@ export default function Chat() {
                     ` · ${q.images.length} image${q.images.length === 1 ? "" : "s"}`}
                 </span>
                 <button
-                  onClick={() => {
-                    setQueued((qs) => qs.filter((_, j) => j !== i));
-                    // Taking the refused one out is an answer to it too.
-                    if (i === 0) setHeld(false);
-                  }}
+                  onClick={() =>
+                    void api(`/api/assistant/queue/${q.id}`, { method: "DELETE" }).catch(
+                      (e: Error) => setError(e.message),
+                    )
+                  }
                   aria-label="remove from queue"
                   className="flex-none font-mono text-faint hover:text-fail"
                 >

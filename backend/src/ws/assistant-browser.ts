@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { BrowserServerMsg, BrowserClientMsg } from "../../../shared/api.js";
 import * as browser from "../browser.js";
-import { barBrowsing, browsingBarred, noteWeb, reachedTheWeb } from "../assistant-taint.js";
+import { barBrowsing, browsingBarred, reachedTheWeb } from "../assistant-taint.js";
 import { handle } from "./browser.js";
 
 /**
@@ -53,9 +53,10 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
     if (browsingBarred(turn)) {
       return reply.code(403).send({ error: "this turn has read something private" });
     }
-    // Opening it counts as reaching the web even if no page is ever loaded:
-    // what follows must not be a private read.
-    noteWeb(turn);
+    // Not counted as reaching the web. The CLI starts every MCP server before
+    // it asks the model anything, so this runs at the start of every chair
+    // turn, and counting it refused each of them the calendar and the mail
+    // before a word was said. A browser call is what counts (noteTool).
     try {
       await browser.ensureBrowser(browser.ASSISTANT_BROWSER_ID, browser.ASSISTANT_CDP_PORT);
     } catch (err) {

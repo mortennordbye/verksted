@@ -20,6 +20,13 @@ journal. Everything it can do it does through that MCP server, whose every
 endpoint is one the app already validates — so the assistant has no privileges
 the app does not, and no way to run a command.
 
+Still one process per turn, but the chair's next one is started before it is
+asked for, while the chat is open: the CLI starts its MCP servers before its
+first model call, and a cold turn spent most of a minute there. The waiting
+process takes the question on stdin, and is ended instead of used if anything
+it was started with (settings, roster, thread) has changed since. A message sent
+while a turn runs waits on the server and goes in when that turn ends.
+
 The front door is **Today** (`/`): what is new, what needs you, what happened
 overnight. The chat (`/ai`) is how you follow up on it, the inbox (`/runs`) is
 where everything that wants a decision queues, and the bench (`/bench`) is the
@@ -175,7 +182,8 @@ So a turn holds one half or the other:
   fixed when the turn was spawned, so unlike the browser they cannot be taken
   back; the rule has to run the other way round for them. The backend notices
   as the stream reports each tool, which is before the next tool call rather
-  than after the sentence around it.
+  than after the sentence around it. A browser call counts; the browser's
+  server starting does not, since the CLI starts it on every chair turn.
 
 Per turn, because that is the unit a prompt injection acts within. The next
 turn holds everything again, and a person opening the browser pane themselves

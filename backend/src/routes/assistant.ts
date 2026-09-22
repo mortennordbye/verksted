@@ -71,17 +71,23 @@ export default async function assistantRoutes(app: FastifyInstance) {
       const text = req.body.text.trim();
       if (!text) return reply.code(400).send({ error: "say something" });
       try {
-        const { thread, done } = await assistant.begin(
+        if (req.body.wait === false) {
+          // Asked now, or queued behind the turn that is running: the socket
+          // carries both. What went wrong is in the thread by now (see
+          // `begin`); this is the copy for whoever reads the pod's log.
+          const { thread, done } = await assistant.ask(
+            text,
+            req.body.images ?? [],
+            req.body.roundTable === true,
+          );
+          done?.catch((err: unknown) => req.log.error(err, "assistant turn failed"));
+          return await reply.code(202).send(thread);
+        }
+        const { done } = await assistant.begin(
           text,
           req.body.images ?? [],
           req.body.roundTable === true,
         );
-        if (req.body.wait === false) {
-          // What went wrong is in the thread by now (see `begin`); this is the
-          // copy for whoever reads the pod's log.
-          done.catch((err: unknown) => req.log.error(err, "assistant turn failed"));
-          return await reply.code(202).send(thread);
-        }
         return await done;
       } catch (err) {
         // The only expected throw is "already running", which is a conflict
@@ -358,6 +364,24 @@ export default async function assistantRoutes(app: FastifyInstance) {
   );
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));
+
+  /** Take back a message that is still waiting for the turn in front of it. */
+  app.delete<{ Params: { id: string } }>(
+    "/api/assistant/queue/:id",
+    {
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", pattern: "^[0-9a-f-]{36}$" } },
+        },
+      },
+    },
+    (req, reply) =>
+      assistant.unqueue(req.params.id)
+        ? { removed: true }
+        : reply.code(404).send({ error: "not waiting" }),
+  );
 
   /** The briefing, triage or journal turn in flight, which the chat's stop does not reach. */
   app.get("/api/assistant/unattended", (): { running: UnattendedRun | null } => ({
