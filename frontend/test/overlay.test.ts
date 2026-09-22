@@ -24,8 +24,16 @@ const goBack = async () => {
  */
 const realBack = async () => {
   await act(async () => {
+    // Waited for, not timed: twenty milliseconds was enough on a laptop and
+    // not always on a runner, where the traversal's task landed after the
+    // assertion and the case failed one run in three.
+    const popped = new Promise<void>((resolve) => {
+      addEventListener("popstate", () => resolve(), { once: true });
+    });
     history.back();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await popped;
+    // The hook re-pushes a task after the popstate, so give it that task.
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
 
