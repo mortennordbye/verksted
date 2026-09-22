@@ -594,7 +594,9 @@ export async function watchUnattended(log: Logger, now = Date.now()): Promise<vo
 }
 
 /**
- * The feed's two timers: judge what has arrived, and sweep what is done.
+ * The feed's timer: judge what has arrived. Sweeping what is done moved to
+ * the daily housekeeping in maintenance.ts, which runs at a fixed hour and on
+ * boot, where a 24-hour interval from boot rarely ran at all (R-02).
  *
  * Here rather than in maintenance.ts, which reaps browsers and docker debris
  * and is imported by a route test before that test has set its directories:
@@ -613,10 +615,6 @@ export function startFeedWork(log: Logger): void {
   // Triage spaces itself out; this is only how often it is asked whether
   // anything is waiting to be judged.
   every(60_000, "triage", () => runTriage(log));
-  every(24 * 60 * 60_000, "feed sweep", async () => {
-    const n = await feed.sweep();
-    if (n) log.info(`feed: ${n} done item(s) swept`);
-  });
 }
 
 /**

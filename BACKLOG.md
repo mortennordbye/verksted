@@ -1104,69 +1104,22 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   handler), `backend/src/ws/browser.ts`, `backend/src/index.ts` (`shutdown`,
   the `uncaughtException` handler), `backend/test/attach-ws.test.ts`.
 
-## The feed is still filed from the GET that reads it
+## The per-session routes still ask tmux on every call
 
-- **What:** Most of the audit's root cause 4 has landed: the session sweep is a
-  background job and the list only reads, the usage backfill moved to the daily
-  maintenance pass, sessions that ended more than `RETAIN_DAYS` ago are retired
-  into a monthly archive, and every change to a session's metadata runs on one
-  chain per session. The feed is the part that did not move. `GET /api/feed`
-  still runs `pollBench`, which files and resolves items and lifts snoozes, so
-  opening the inbox is what makes the inbox correct (R-33). The cost of that is
-  down: an item is parsed once for as long as its file sits still, and callers
-  that arrive together share one pass. What is left of R-20 is that the pass
-  still lists the directory six times, and nothing ages out an item that never
-  reached `done`.
-- **Why deferred:** The comment on `pollBench` gives the reason it is there:
-  running it per open is also what makes the feed correct in a test with no
-  timers. Moving it to the sweeper means either accepting that a brand new
-  waiting session shows up a tick late, or teaching the tests to drive the
-  filing themselves, and the feed's tests are the ones that would have to say
-  which. That is a piece of work with its own shape, not a line to move.
-- **Unblocked by:** Deciding the inbox can be a tick behind. Then file from the
-  sweeper's pass, have the route read, pass one `feed.list()` through
-  `pollBench` instead of re-reading per section, and age out quiet items the
-  way the daily sweep ages out done ones.
-- **Where:** `backend/src/pollers.ts` (`pollBench`, `sessionItems`,
-  `supersededRuns`), `backend/src/routes/feed.ts`, `backend/src/feed-store.ts`,
-  `backend/src/sweeper.ts`, `backend/test/feed.test.ts`.
-
-## The list no longer re-reads the volume, but it still walks it, and GETs still write
-
-- **What:** R-07, R-10 and R-31 are done: a pass over the session list stats
-  each meta and report rather than reading and parsing them, a transcript is
-  summed off a stream instead of in one uninterrupted pass, no poller starts a
-  pass on top of one already running, and a malformed meta costs its own row
-  instead of the whole list. What is left of the audit's root cause 4 is the
-  structural half. The walk is still over everything that ever ran (145
-  sessions on the pod, one stat each, several times a minute) rather than over
-  what is still live, because nothing prunes session metadata or its `.report`,
-  `.exit` and `.conv` sidecars (R-08). And the writing still happens inside
-  reads: `GET /api/sessions` stamps ends and measures, `GET /api/usage`
-  backfills 25 metas, `GET /api/feed` runs `pollBench` and lifts snoozes, so
-  what the volume does depends on who is polling (R-33). R-09's stale-snapshot
-  write comes out of the same thing: the sweep no longer resurrects a session
-  deleted while it was being stamped, but its read-modify-write still does not
-  hold the id for the whole of it, so a review mark saved during a sweep can
-  still be lost. The queue that fixes that now exists and is used by every
-  write in the schedules store (`serial.ts`, R-11); adopting it for session
-  metadata means moving the sweep first, or every list waits behind a write.
-- **Why deferred:** Both want one background sweeper, and it is a bigger piece
-  than any of the findings it closes: the list's sweep has to move without the
-  UI losing the "a session that just died reads as done" latency it has now,
-  and around twenty tests call `listSessions` expecting the sweep to have
-  happened by the time it returns. Retention is a policy call on top of that —
-  how long history stays readable on the hub, and whether old runs are archived
-  into a monthly file or dropped — not something to pick while refactoring.
-- **Unblocked by:** Agreeing the retention window, then doing root cause 4 as
-  its own piece: one background job that sweeps, measures and backfills, GET
-  handlers that only read, an archive step for metas ended more than N days
-  ago, and cached liveness so the per-session routes stop spawning `tmux ls`
-  twice.
-- **Where:** `backend/src/sessions-store.ts` (`readAll`, `listSessions` and its
-  sweep, `reapFinishedSessions`), `backend/src/routes/usage.ts`
-  (`backfillUsage` on a GET), `backend/src/pollers.ts` (`pollBench` on
-  `GET /api/feed`), `backend/src/maintenance.ts`, `backend/src/events.ts`.
+- **What:** The last piece of the audit's root cause 4. The sweep, the
+  measuring, the usage backfill and the feed's filing all run in background
+  jobs now (`sweeper.ts`, the daily housekeeping), sessions ended more than
+  `RETAIN_DAYS` ago are archived, and no GET writes. What is left is that
+  liveness is not cached: a request about one session still runs `tmux ls`
+  for itself, and a screen that makes several such requests runs it several
+  times.
+- **Why deferred:** It costs a process spawn per request and nothing has been
+  measured to be slow because of it; a cache means deciding how stale "is it
+  alive" may be.
+- **Unblocked by:** A measurement that shows it matters, then the sweeper's own
+  `tmux ls` answer kept for one tick and read by the routes.
+- **Where:** `backend/src/tmux.ts`, `backend/src/sessions-store.ts`,
+  `backend/src/sweeper.ts`, `backend/src/routes/sessions.ts`.
 
 ## The restore has never been rehearsed
 

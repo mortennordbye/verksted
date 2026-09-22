@@ -381,8 +381,9 @@ export function fadedMail(items: FeedItem[], now = Date.now()): string[] {
 }
 
 /**
- * The bench's own lists, read now. Cheap enough to run every time the feed is
- * opened, which is also what makes the feed correct in a test with no timers.
+ * The bench's own lists, filed. Run by the sweeper on its five-second tick,
+ * not by the GET that reads the feed (R-33): what the volume does no longer
+ * depends on who has the inbox open, and the inbox is at most a tick behind.
  */
 export function pollBench(): Promise<number> {
   // One pass at a time, shared. Three tabs and a phone each open the inbox, and
@@ -425,13 +426,14 @@ async function fileBench(): Promise<number> {
     .map((i) => i.id);
   changed += await apply(proposalItems(proposals), gone, "reviewed");
   // Every source's items live on this volume, so tidying them costs a read and
-  // belongs here, on every open of the feed, not behind a remote poller's timer.
+  // belongs here, on the sweeper's tick, not behind a remote poller's timer.
   const items = await feed.list();
   for (const id of repeatedFailures(items)) await feed.resolve(id, "sent again");
   for (const id of fadedMail(items)) {
     await feed.fade(id, `no longer urgent after ${MAIL_URGENT_DAYS} days`);
   }
   await closeSettledLoops();
+  await feed.liftSnoozes();
   return changed;
 }
 

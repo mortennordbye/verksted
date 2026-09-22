@@ -3,7 +3,6 @@ import type { FeedItem, Loop } from "../../../shared/api.js";
 import * as feed from "../feed-store.js";
 import * as journal from "../journal-store.js";
 import * as loops from "../loops-store.js";
-import { pollBench } from "../pollers.js";
 import { runTriage } from "../scheduler.js";
 import { listSessions } from "../sessions-store.js";
 import { perMinute } from "../limits.js";
@@ -11,15 +10,12 @@ import { perMinute } from "../limits.js";
 /**
  * The feed and the loops, as the screen and the tools read them.
  *
- * Reading the feed polls the bench first: its lists are on this volume and
- * cheap, so the feed is never behind a timer for anything local. State is set
- * from the screen only; the assistant's one write here is `did`.
+ * Reads only read: the bench is filed by the sweeper (`pollBench`), so the
+ * feed is at most one of its ticks behind. State is set from the screen only;
+ * the assistant's one write here is `did`.
  */
 export default async function feedRoutes(app: FastifyInstance) {
-  app.get("/api/feed", async (): Promise<FeedItem[]> => {
-    await pollBench();
-    return feed.list();
-  });
+  app.get("/api/feed", async (): Promise<FeedItem[]> => feed.list());
 
   /** Judge what is waiting, now. The button for "why is this here". */
   app.post("/api/feed/triage", { config: perMinute(6) }, async (req) => ({
@@ -119,7 +115,6 @@ export default async function feedRoutes(app: FastifyInstance) {
    * turn of the run that asked.
    */
   app.get("/api/feed/material", async (): Promise<{ text: string }> => {
-    await pollBench();
     const [items, open, sessions, days] = await Promise.all([
       feed.list(),
       loops.list(),
