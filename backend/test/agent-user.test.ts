@@ -281,9 +281,12 @@ asRoot("the boot that turns it on", () => {
     agentUser.setAgent(null);
     const { prepareForAgents } = await import("../src/agent-setup.js");
     const log = { info: () => {}, warn: () => {} };
-    // git under sudo checks ownership against SUDO_UID, and CI runs this file
-    // under sudo as uid 1001, the agent's own: without it, root as the pod is.
-    const { SUDO_UID: _sudo, ...gitEnv } = process.env;
+    // git as root the way the pod runs it, whatever the machine running this
+    // says: under sudo git checks ownership against SUDO_UID (CI's is 1001, the
+    // agent's own), and a runner image may trust every directory in its system
+    // or global config.
+    const { SUDO_UID: _sudo, ...base } = process.env;
+    const gitEnv = { ...base, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" };
     const git = (...args: string[]) => run("git", args, { env: gitEnv });
     try {
       await expect(git("-C", dir("repos/owned"), "status")).rejects.toThrow(/dubious/);
