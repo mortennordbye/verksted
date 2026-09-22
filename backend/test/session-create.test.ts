@@ -177,4 +177,26 @@ describe("POST /api/projects/:name/sessions", () => {
 
     expect(next).toBe(`vk-demo-${seq + 1}`);
   });
+
+  /**
+   * R-01. A browser port went with a session for good: the used set was every
+   * meta on disk, ended or not, and the pool is two hundred wide, so creation
+   * would have stopped for good at the two hundredth session in history. The
+   * pod had 145 when this was found.
+   */
+  it("gives an ended session's browser port to the next one", async () => {
+    const portOf = (id: string): number =>
+      JSON.parse(fs.readFileSync(path.join(sessionsDir, `${id}.json`), "utf8")).cdpPort;
+    const first = (await create({ agent: "claude" })).json<{ id: string }>().id;
+    const live = (await create({ agent: "claude" })).json<{ id: string }>().id;
+    expect(portOf(live)).not.toBe(portOf(first));
+
+    // Ended, not purged: the meta stays, with endedAt on it.
+    expect((await app.inject({ method: "DELETE", url: `/api/sessions/${first}` })).statusCode).toBe(
+      200,
+    );
+    const next = (await create({ agent: "claude" })).json<{ id: string }>().id;
+
+    expect(portOf(next)).toBe(portOf(first));
+  });
 });
