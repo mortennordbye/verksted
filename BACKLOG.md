@@ -1041,19 +1041,17 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `backend/src/tool-log.ts`, `backend/src/mail-log.ts`, `keep` in
   `backend/src/calendar.ts`, `frontend/src/components/settings/ToolLog.tsx`.
 
-## Only Gmail reads are retried, and nothing in the calendar is tested against a server
+## Only Gmail reads are retried
 
 - **What:** A Gmail read that meets a 429 or a 5xx is asked again twice, and an
   HTML error body no longer surfaces as a parse error (A-21). The calendar and
-  IMAP have no retry at all, and the calendar's new per-request timeout
-  (`davFetch`) has no test: there is no fake DAV server in the suite, which is
-  the same gap A-32 lists for `find`, `put` and `remove`.
+  IMAP have no retry at all.
 - **Why deferred:** tsdav and imapflow each own their requests, so a retry
   there is a wrapper per call site rather than one loop, and writes must stay
-  out of it. A fake CalDAV server is its own piece of work, and the timeout was
-  not worth holding back for it.
-- **Unblocked by:** A small in-process DAV stub (PROPFIND, REPORT, PUT, DELETE)
-  that the calendar tests can point `CALDAV_URL` at.
+  out of it.
+- **Unblocked by:** A calendar or mail tool failing in use on a transient
+  error. `test/helpers/dav-server.ts` is the server a calendar retry would be
+  tested against.
 - **Where:** `call` in `backend/src/gmail.ts`, `connect` and `davFetch` in
   `backend/src/calendar.ts`, `withInbox` in `backend/src/mail.ts`.
 
