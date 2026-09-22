@@ -7,6 +7,7 @@ import type {
   AssistantThread,
   AssistantTool,
   AssistantVoices,
+  UnattendedRun,
 } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
 import { env } from "../env.js";
@@ -341,6 +342,13 @@ export default async function assistantRoutes(app: FastifyInstance) {
   );
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));
+
+  /** The briefing, triage or journal turn in flight, which the chat's stop does not reach. */
+  app.get("/api/assistant/unattended", (): { running: UnattendedRun | null } => ({
+    running: assistant.unattendedStatus(),
+  }));
+
+  app.post("/api/assistant/unattended/stop", () => ({ stopped: assistant.stopUnattended() }));
 
   app.post("/api/assistant/new", async (_req, reply) => {
     try {

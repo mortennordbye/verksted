@@ -326,11 +326,14 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
   let text: string;
   let failed: boolean;
   let turns: number;
+  let stopped: boolean;
   try {
-    ({ text, failed, turns } = await runUnattended(
+    ({ text, failed, turns, stopped } = await runUnattended(
       schedule.prompt,
       schedule.member,
       schedule.convenes,
+      null,
+      schedule.name,
     ));
   } catch (err) {
     // The reservation is the whole of what this run was going to cost, and a
@@ -343,6 +346,13 @@ async function briefing(id: string, schedule: Schedule, log: Logger): Promise<Ru
   // login fails every run, and a ceiling spent on failures takes the morning
   // briefing down with it on the day somebody would notice.
   refundCeiling(failed || !text ? reserved : reserved - turns);
+  if (stopped) {
+    // The person ended it from the settings page: recorded, and not pushed as
+    // a break, since they already know.
+    await schedules.recordRun(id, { error: "stopped from the app" });
+    log.info(`assistant schedule ${id} stopped from the app`);
+    return null;
+  }
   if (failed || !text) {
     const error = text || "the turn produced nothing";
     // The turn broke rather than the schedule deciding not to run: an expired
@@ -676,11 +686,17 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
     return false;
   }
   const { name } = await readAssistantConfig();
-  const { text, failed } = await runUnattended(said, "", false, {
-    model: env.ASSISTANT_MODEL,
-    effort: env.ASSISTANT_EFFORT,
-    systemPrompt: journalPrompt(name),
-  });
+  const { text, failed } = await runUnattended(
+    said,
+    "",
+    false,
+    {
+      model: env.ASSISTANT_MODEL,
+      effort: env.ASSISTANT_EFFORT,
+      systemPrompt: journalPrompt(name),
+    },
+    "journal",
+  );
   if (failed || !text.trim()) {
     refundCeiling(1);
     log.warn({ day }, `journal for ${day} failed: ${text || "the turn produced nothing"}`);
@@ -761,11 +777,17 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   const material = items
     .map((i) => `${i.id}\t${i.source}\t${i.title}\t${i.detail.replace(/\s+/g, " ")}`)
     .join("\n");
-  const { text, failed } = await runUnattended(material, "", false, {
-    model: env.ASSISTANT_MODEL,
-    effort: env.ASSISTANT_EFFORT,
-    systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
-  });
+  const { text, failed } = await runUnattended(
+    material,
+    "",
+    false,
+    {
+      model: env.ASSISTANT_MODEL,
+      effort: env.ASSISTANT_EFFORT,
+      systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
+    },
+    "triage",
+  );
   if (failed) {
     refundCeiling(1);
     log.warn({}, `triage failed: ${text || "the turn produced nothing"}`);
@@ -871,11 +893,17 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
   }
   const { name } = await readAssistantConfig();
   const material = batch.map((d) => `${d.rel}\n${d.head}\n`).join("\n");
-  const { text, failed } = await runUnattended(material, "", false, {
-    model: env.ASSISTANT_MODEL,
-    effort: env.ASSISTANT_EFFORT,
-    systemPrompt: cataloguePrompt(name),
-  });
+  const { text, failed } = await runUnattended(
+    material,
+    "",
+    false,
+    {
+      model: env.ASSISTANT_MODEL,
+      effort: env.ASSISTANT_EFFORT,
+      systemPrompt: cataloguePrompt(name),
+    },
+    "catalogue",
+  );
   if (failed) {
     refundCeiling(1);
     log.warn({}, `catalogue failed: ${text || "the turn produced nothing"}`);
@@ -949,11 +977,17 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
         }`,
     )
     .join("\n");
-  const { text, failed } = await runUnattended(material, "", false, {
-    model: env.ASSISTANT_MODEL,
-    effort: env.ASSISTANT_EFFORT,
-    systemPrompt: learningPrompt(name, await sortingRules()),
-  });
+  const { text, failed } = await runUnattended(
+    material,
+    "",
+    false,
+    {
+      model: env.ASSISTANT_MODEL,
+      effort: env.ASSISTANT_EFFORT,
+      systemPrompt: learningPrompt(name, await sortingRules()),
+    },
+    "learning",
+  );
   if (failed) {
     refundCeiling(1);
     log.warn({ day }, `learning failed: ${text || "the turn produced nothing"}`);

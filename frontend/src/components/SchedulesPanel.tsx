@@ -7,8 +7,10 @@ import type {
   Project,
   Schedule,
   Settings as SettingsInfo,
+  UnattendedRun,
 } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import Ago from "./Ago";
 import Icon from "./Icon";
 import { useConfirm } from "../useConfirm";
 import { ReportLine, StatusChip } from "./StatusChip";
@@ -31,6 +33,52 @@ function whenLabel(iso: string | null): string {
 function reportChip(report: string) {
   const kind = /^attention\b/i.test(report) ? "wait" : /^failed\b/i.test(report) ? "fail" : "run";
   return <ReportLine kind={kind} text={report} />;
+}
+
+/**
+ * The assistant turn running with nobody reading it — a briefing, triage, the
+ * journal — and a way to end it. One that wedges holds the queue for its whole
+ * ten minutes, and the chat's stop only reaches the conversation on screen.
+ * Its own busy state rather than the panel's: "run now" on an assistant
+ * schedule holds that one for the length of the very turn this would stop.
+ */
+function UnattendedNow() {
+  const { data, refresh } = usePoll<{ running: UnattendedRun | null }>(
+    "/api/assistant/unattended",
+    5_000,
+  );
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const running = data?.running;
+  if (!running) return null;
+  const stop = async () => {
+    setStopping(true);
+    setError(null);
+    try {
+      await api("/api/assistant/unattended/stop", { method: "POST" });
+      refresh();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setStopping(false);
+    }
+  };
+  return (
+    <Notice kind={error ? "fail" : "busy"} className="mb-3">
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span className="min-w-0 flex-1">
+          {error ?? (
+            <>
+              running now: <b>{running.label}</b>, started <Ago at={running.startedAt} />
+            </>
+          )}
+        </span>
+        <Button size="xs" variant="ghost-danger" onClick={() => void stop()} disabled={stopping}>
+          stop
+        </Button>
+      </span>
+    </Notice>
+  );
 }
 
 const CRON_PRESETS = [
@@ -364,6 +412,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         </Notice>
       )}
       {note && <div className="mb-3 text-[12.5px] text-muted">{note}</div>}
+      {!project && <UnattendedNow />}
       {/* The starters, until each exists. A bench without a morning briefing
           has no front page, and the button is the whole of setting one up. */}
       {!project &&

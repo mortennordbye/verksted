@@ -160,3 +160,53 @@ describe("adding a schedule", () => {
     expect(posted()[0].project).toBe("other");
   });
 });
+
+/**
+ * A briefing or triage turn that wedges held the unattended queue for ten
+ * minutes with nothing on screen saying so, and the chat's stop only reaches
+ * the conversation on screen.
+ */
+describe("the unattended turn in flight", () => {
+  it("is shown with a stop that ends it", async () => {
+    let running: unknown = { label: "nightly digest", startedAt: new Date().toISOString() };
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/api/assistant/unattended/stop" && init?.method === "POST") {
+        running = null;
+        return json({ stopped: true });
+      }
+      if (url === "/api/assistant/unattended") return json({ running });
+      if (url.startsWith("/api/settings")) return json({ schedulesPaused: false });
+      return json([]);
+    });
+    render(
+      <MemoryRouter>
+        <SchedulesPanel />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("nightly digest")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "stop" }));
+
+    await waitFor(() => expect(screen.queryByText("nightly digest")).toBeNull());
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) => url === "/api/assistant/unattended/stop" && init?.method === "POST",
+      ),
+    ).toBe(true);
+  });
+
+  it("is not on a project's own list", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      url === "/api/assistant/unattended"
+        ? json({ running: { label: "triage", startedAt: new Date().toISOString() } })
+        : json(url.startsWith("/api/settings") ? { schedulesPaused: false } : []),
+    );
+    render(
+      <MemoryRouter>
+        <SchedulesPanel project="demo" />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/recurring prompts/i);
+    expect(screen.queryByText("triage")).toBeNull();
+  });
+});

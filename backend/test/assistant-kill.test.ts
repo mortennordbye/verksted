@@ -104,3 +104,35 @@ describe("a turn that never comes back (A-32)", () => {
     }
   });
 });
+
+describe("stopping an unattended turn", () => {
+  it("ends a briefing from the app, which the chat's stop does not reach", async () => {
+    fs.rmSync(pidFile, { force: true });
+    const { runUnattended } = await import("../src/assistant.js");
+    const run = runUnattended("anything", "", false, null, "morning briefing");
+    expect(
+      await until(() => fs.existsSync(pidFile) && fs.readFileSync(pidFile, "utf8") !== ""),
+    ).toBe(true);
+    const child = Number(fs.readFileSync(pidFile, "utf8"));
+
+    const status = (await app.inject({ url: "/api/assistant/unattended" })).json();
+    expect(status.running.label).toBe("morning briefing");
+    // The chat's stop is for the conversation on screen.
+    expect((await app.inject({ method: "POST", url: "/api/assistant/stop" })).json()).toEqual({
+      stopped: false,
+    });
+    expect(gone(child)).toBe(false);
+
+    const res = await app.inject({ method: "POST", url: "/api/assistant/unattended/stop" });
+    expect(res.json()).toEqual({ stopped: true });
+
+    expect(await run).toMatchObject({ failed: true, stopped: true });
+    expect(await until(() => gone(child))).toBe(true);
+    expect((await app.inject({ url: "/api/assistant/unattended" })).json()).toEqual({
+      running: null,
+    });
+    expect(
+      (await app.inject({ method: "POST", url: "/api/assistant/unattended/stop" })).json(),
+    ).toEqual({ stopped: false });
+  });
+});

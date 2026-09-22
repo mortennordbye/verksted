@@ -280,6 +280,11 @@ open is skipped rather than queued. Above 95% of the week's plan window the
 clock stops spending it altogether: a tick records why it declined and starts
 nothing. Pressing "run now" is somebody asking, and is subject to neither.
 
+The unattended turn in flight is shown on the settings page's schedules list
+(`GET /api/assistant/unattended`) with a stop that ends it and everything it
+started (`POST /api/assistant/unattended/stop`). A stopped schedule run is
+recorded as "stopped from the app" and does not push.
+
 The person's own day has a ceiling as well, a wide one: two hundred turns
 started from the chat, counted as the unattended ones are and forgotten by a
 restart the same way. It is not a budget but the backstop against a day that

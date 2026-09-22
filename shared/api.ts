@@ -1130,6 +1130,13 @@ export interface AssistantThread {
  */
 export type AssistantFrame = Omit<AssistantThread, "entries"> & { entries?: AssistantEntry[] };
 
+/** The unattended turn in flight — a briefing, triage, the journal — or null. */
+export interface UnattendedRun {
+  /** The schedule's name, or the job's: "triage", "journal", … */
+  label: string;
+  startedAt: string;
+}
+
 export interface AssistantThreadSummary {
   conversationId: string;
   /** The first thing typed into it, cut to a line. */
