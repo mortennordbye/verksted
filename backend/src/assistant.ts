@@ -9,6 +9,7 @@ import type {
   AssistantThreadSummary,
   AssistantTool,
   CouncilMember,
+  UnattendedRun,
 } from "../../shared/api.js";
 import {
   memberPrompt,
@@ -385,6 +386,36 @@ function speakingIn(threadId: string): string[] {
  * alone and convenes nobody, so one boolean is still the whole story.
  */
 let unattendedRunning = false;
+
+/**
+ * What that turn is, for the settings page, and the processes it has out, so
+ * the page can end it. A briefing that wedges otherwise holds the queue for
+ * its full ten minutes with nothing on screen saying so. `stopped` is read by
+ * every spawn after the first: a stop between the chair's turn and the
+ * advisors' must keep the advisors from starting.
+ */
+let unattendedNow: (UnattendedRun & { children: Set<Child>; stopped: boolean }) | null = null;
+
+export function unattendedStatus(): UnattendedRun | null {
+  return unattendedNow && { label: unattendedNow.label, startedAt: unattendedNow.startedAt };
+}
+
+/** End the unattended turn in flight and everything it started. False when none was. */
+export function stopUnattended(): boolean {
+  if (!unattendedNow) return false;
+  unattendedNow.stopped = true;
+  for (const child of unattendedNow.children) endTree(child);
+  return true;
+}
+
+/** The `onSpawn` of every unattended turn: tracked, or ended at once after a stop. */
+function unattendedSpawn(child: Child): void {
+  const now = unattendedNow;
+  if (!now) return;
+  now.children.add(child);
+  child.once("close", () => now.children.delete(child));
+  if (now.stopped) endTree(child);
+}
 
 /**
  * The queue behind that boolean (R-13).
@@ -1459,12 +1490,14 @@ export function runUnattended(
    * offered, since a turn that must not call a tool must not convene either.
    */
   own: { model: string; effort: string; systemPrompt: string } | null = null,
-): Promise<{ text: string; failed: boolean; turns: number }> {
+  /** What the settings page calls it while it runs. */
+  label = "assistant",
+): Promise<{ text: string; failed: boolean; turns: number; stopped: boolean }> {
   if (unattendedWaiting >= MAX_UNATTENDED_WAITING) {
     return Promise.reject(new Error("too many unattended turns are already waiting"));
   }
   unattendedWaiting++;
-  const run = () => unattendedTurn(prompt, memberId, mayConvene, own);
+  const run = () => unattendedTurn(prompt, memberId, mayConvene, own, label);
   // Both arms: the turn in front failing is not this one's business.
   const mine = unattendedQueue.then(run, run);
   unattendedQueue = mine.catch(() => {});
@@ -1478,7 +1511,8 @@ async function unattendedTurn(
   memberId: string,
   mayConvene: boolean,
   own: { model: string; effort: string; systemPrompt: string } | null,
-): Promise<{ text: string; failed: boolean; turns: number }> {
+  label: string,
+): Promise<{ text: string; failed: boolean; turns: number; stopped: boolean }> {
   // The queue above is what keeps this to one at a time; this is the invariant
   // saying so, and nothing should ever reach it.
   if (unattendedRunning) throw new Error("an unattended turn is still running");
@@ -1530,6 +1564,13 @@ async function unattendedTurn(
           timeoutMs: TURN_TIMEOUTS.chair,
         };
   unattendedRunning = true;
+  const current = {
+    label,
+    startedAt: new Date().toISOString(),
+    children: new Set<Child>(),
+    stopped: false,
+  };
+  unattendedNow = current;
   let turns = 1;
   try {
     // Set from inside the sink below, which TypeScript cannot see through.
@@ -1553,7 +1594,7 @@ async function unattendedTurn(
         }
         return appendEntry(conversationId, full, true);
       },
-      onSpawn: () => {},
+      onSpawn: unattendedSpawn,
       onChange: () => {},
     });
 
@@ -1561,7 +1602,8 @@ async function unattendedTurn(
     const request = held ? conveneRequest(held.text) : null;
     // Parallel whatever it asked for: a round table is for a question someone
     // is waiting on an answer to, and nobody is reading this one.
-    const called = held ? (await convened(request?.line ?? held.text)).members : [];
+    const called =
+      held && !current.stopped ? (await convened(request?.line ?? held.text)).members : [];
     if (held && !called.length) await appendEntry(conversationId, held, true);
     if (held && called.length) {
       await appendEntry(
@@ -1590,19 +1632,26 @@ async function unattendedTurn(
         images: [],
         unattended: true,
         sink: (entry) => append(conversationId, entry, true),
-        onSpawn: () => {},
+        onSpawn: unattendedSpawn,
         onChange: () => {},
       });
     }
   } finally {
     unattendedRunning = false;
+    unattendedNow = null;
   }
   // `failed` is only written on a turn that went wrong, so its absence means
   // the turn was fine — and no entry at all means it produced nothing.
   const last = (await readEntries(conversationId, true))
     .filter((e) => e.role === "assistant" && !e.member && e.text.trim())
     .pop();
-  return { text: last?.text.trim() ?? "", failed: !last || last.failed === true, turns };
+  if (current.stopped) return { text: "", failed: true, turns, stopped: true };
+  return {
+    text: last?.text.trim() ?? "",
+    failed: !last || last.failed === true,
+    turns,
+    stopped: false,
+  };
 }
 
 /**
@@ -1627,7 +1676,7 @@ async function unattendedMemberTurn(
     images: [],
     unattended: true,
     sink: (entry) => appendEntry(conversationId, stamp(entry, member.id), true),
-    onSpawn: () => {},
+    onSpawn: unattendedSpawn,
     onChange: () => {},
   });
   return text;

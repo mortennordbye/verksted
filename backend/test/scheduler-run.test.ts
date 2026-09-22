@@ -25,6 +25,8 @@ let schedulesDir: string;
 let scheduler: typeof import("../src/scheduler.js");
 let store: typeof import("../src/schedules-store.js");
 let sessions: typeof import("../src/sessions-store.js");
+/** The copy the scheduler above holds: a test further down resets the module registry. */
+let assistant: typeof import("../src/assistant.js");
 
 const log = { info: () => {}, warn: () => {} };
 
@@ -147,6 +149,7 @@ beforeAll(async () => {
   scheduler = await import("../src/scheduler.js");
   store = await import("../src/schedules-store.js");
   sessions = await import("../src/sessions-store.js");
+  assistant = await import("../src/assistant.js");
 });
 
 afterAll(() => {
@@ -994,6 +997,30 @@ describe("a schedule that runs the assistant", () => {
     expect((await store.getSchedule(s.id))!.lastError).toBeTruthy();
     expect((await store.getSchedule(s.id))!.lastReport).toBeNull();
   });
+
+  it("records a turn stopped from the app as stopped, not as a break", async () => {
+    // The person ended it on the settings page, so there is nobody to wake.
+    fake.reply("claude", "-p", { stdout: "", holdMs: 60_000 });
+    const s = await assistantSchedule("what needs me today?");
+    const { stopUnattended, unattendedStatus } = assistant;
+
+    const run = scheduler.runSchedule(s.id, log);
+    try {
+      // Spawned, not only registered: what is stopped is the process.
+      for (let i = 0; i < 800 && !fake.argvFor("claude").length; i++) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(unattendedStatus()?.label).toBe("briefing");
+    } finally {
+      // Whatever happened above, the turn must not hold the queue for a minute.
+      stopUnattended();
+    }
+
+    expect(await run).toBeNull();
+    const after = (await store.listRuns()).find((r) => r.scheduleId === s.id)!;
+    expect(after.error).toBe("stopped from the app");
+    expect(after.outcome).not.toBe("failed");
+  }, 15_000);
 
   it("reads a turn that could not run as failed, not as a schedule holding off", async () => {
     // The one that cost five nights: a lapsed login made every assistant run

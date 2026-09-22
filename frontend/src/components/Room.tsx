@@ -27,6 +27,8 @@ function Upload({ name, alt, className }: { name: string; alt: string; className
   const [gone, setGone] = useState(false);
   if (gone) return <span className="text-[12px] text-faint italic">{alt} no longer kept</span>;
   return (
+    // onError is the image failing to load, not something a person does to it.
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <img
       src={`/api/assistant/uploads/${name}`}
       alt={alt}
