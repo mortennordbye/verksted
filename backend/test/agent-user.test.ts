@@ -266,4 +266,34 @@ asRoot("the boot that turns it on", () => {
     await prepareForAgents(log);
     expect(fs.statSync(dir("repos/demo/root.txt")).uid).toBe(0);
   });
+  it("gives it all back on the boot that turns it off, so git works as root again", async () => {
+    // Runs after the handover above, on the volume it left: the repos and HOME
+    // are the agent user's, the transcripts are in the assistant's own HOME.
+    await run("git", ["init", "-q", dir("repos/owned")]);
+    await run("chown", ["-R", `${UID}:${UID}`, dir("repos/owned")]);
+    const slug = dir("repos").replace(/\//g, "-");
+    // One written while the pod already ran the other way: kept, not clobbered.
+    const back = path.join(agentHome, ".claude", "projects", slug);
+    fs.mkdirSync(back, { recursive: true });
+    fs.writeFileSync(path.join(back, "new.jsonl"), "{}\n");
+    const home = process.env.HOME;
+    process.env.HOME = agentHome;
+    agentUser.setAgent(null);
+    const { prepareForAgents } = await import("../src/agent-setup.js");
+    const log = { info: () => {}, warn: () => {} };
+    try {
+      await expect(run("git", ["-C", dir("repos/owned"), "status"])).rejects.toThrow(/dubious/);
+
+      await prepareForAgents(log);
+
+      expect(fs.statSync(dir("repos/demo/src/a.ts")).uid).toBe(0);
+      expect(fs.statSync(agentHome).uid).toBe(0);
+      await run("git", ["-C", dir("repos/owned"), "status"]);
+      expect(fs.existsSync(path.join(back, "thread.jsonl"))).toBe(true);
+      expect(fs.existsSync(path.join(back, "new.jsonl"))).toBe(true);
+      expect(fs.existsSync(dir("sessions/.agent-owned"))).toBe(false);
+    } finally {
+      process.env.HOME = home;
+    }
+  });
 });

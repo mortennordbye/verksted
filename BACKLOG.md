@@ -1082,9 +1082,10 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
   `runuser -u vk-agent -- ls /data/repos` still says Permission denied. The PVC
   is Synology NFS (`syno-nfs-csi`), and the share decides access for non-root
   uids by its own permissions; root is not squashed, which is the only reason
-  the backend works. The repos and HOME stay owned by 1001, which root does not
-  mind. The `securityContext` (no privilege escalation, RuntimeDefault seccomp)
-  is on.
+  the backend works. Turned off, the boot now takes the repos and HOME back
+  (`takeBack` in agent-setup.ts): left owned by 1001, git refused every one of
+  them as root. The `securityContext` (no privilege escalation, RuntimeDefault
+  seccomp) is on.
 - **Unblocked by:** The NAS share `k8s-volumes` granting uid 1001: its NFS rule
   or its shared folder permissions. Check it from the pod with
   `runuser -u vk-agent -- ls /data/repos` before setting `VK_AGENT_USER` again,

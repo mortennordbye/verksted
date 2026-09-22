@@ -28,7 +28,7 @@ interface Logger {
  */
 export async function prepareForAgents(log: Logger): Promise<void> {
   const agent = agentUser();
-  if (!agent) return;
+  if (!agent) return takeBack(log);
   const owner = `${agent.uid}:${agent.gid}`;
 
   // Where the agent user's tmux server makes its socket.
@@ -40,16 +40,12 @@ export async function prepareForAgents(log: Logger): Promise<void> {
   const home = assistantHome();
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
 
-  const stamp = path.join(env.SESSIONS_DIR, ".agent-owned");
-  const first = await fs.access(stamp).then(
-    () => false,
-    () => true,
-  );
+  const first = !(await exists(stamp()));
   if (first) {
     await moveAssistantTranscripts(agent.home, home, log);
     const started = Date.now();
     await exec("chown", ["-R", "-h", owner, env.REPOS_DIR, agent.home], { timeout: 0 });
-    await fs.writeFile(stamp, `${new Date().toISOString()}\n`);
+    await fs.writeFile(stamp(), `${new Date().toISOString()}\n`);
     log.info(`handed the repos and ${agent.home} to ${agent.name} in ${Date.now() - started} ms`);
   } else {
     for (const dir of [env.REPOS_DIR, agent.home]) await fs.lchown(dir, agent.uid, agent.gid);
@@ -78,6 +74,36 @@ export async function prepareForAgents(log: Logger): Promise<void> {
   });
 }
 
+/** Written once the repos and HOME are the agent user's; what `takeBack` looks for. */
+const stamp = () => path.join(env.SESSIONS_DIR, ".agent-owned");
+
+async function exists(file: string): Promise<boolean> {
+  return fs.access(file).then(
+    () => true,
+    () => false,
+  );
+}
+
+/**
+ * The agent user turned off again, on a volume it was once on for: the repos,
+ * HOME and the assistant's transcripts come back to the backend, which runs
+ * everything again. Without this git refuses every repo ("dubious ownership":
+ * it will not work in one another user owns), so the projects, the GitHub
+ * feed and every session broke the moment the variable came out. Once, like
+ * the handover: the stamp goes with it, and turning it on again hands over in
+ * full.
+ */
+async function takeBack(log: Logger): Promise<void> {
+  if (!(await exists(stamp()))) return;
+  const home = process.env.HOME ?? "/data/home";
+  await moveAssistantTranscripts(path.join(env.ASSISTANT_DIR, "home"), home, log);
+  const started = Date.now();
+  const self = `${process.getuid?.() ?? 0}:${process.getgid?.() ?? 0}`;
+  await exec("chown", ["-R", "-h", self, env.REPOS_DIR, home], { timeout: 0 });
+  await fs.rm(stamp());
+  log.info(`took the repos and ${home} back from the agent user in ${Date.now() - started} ms`);
+}
+
 /**
  * The assistant runs with cwd REPOS_DIR, so its transcripts are one project
  * directory under claude's HOME; sessions run inside a repo and are others.
@@ -85,18 +111,26 @@ export async function prepareForAgents(log: Logger): Promise<void> {
 async function moveAssistantTranscripts(from: string, to: string, log: Logger): Promise<void> {
   const src = claudeProjectDir(env.REPOS_DIR, from);
   const dest = claudeProjectDir(env.REPOS_DIR, to);
+  let names: string[];
   try {
-    await fs.access(src);
+    names = await fs.readdir(src);
   } catch {
     return;
   }
-  await fs.mkdir(path.dirname(dest), { recursive: true, mode: 0o700 });
-  try {
-    await fs.rename(src, dest);
-    log.info(`moved the assistant's transcripts to ${dest}`);
-  } catch (err) {
-    // Left where they were, the old threads start fresh conversations: worse,
-    // and not a reason to keep the pod down.
-    log.warn(err, `could not move the assistant's transcripts from ${src}`);
+  await fs.mkdir(dest, { recursive: true, mode: 0o700 });
+  // One by one rather than the directory at once: the other side may already
+  // hold transcripts of its own, written while the pod ran the other way.
+  let moved = 0;
+  for (const name of names) {
+    if (await exists(path.join(dest, name))) continue;
+    try {
+      await fs.rename(path.join(src, name), path.join(dest, name));
+      moved++;
+    } catch (err) {
+      // Left where they were, the old threads start fresh conversations: worse,
+      // and not a reason to keep the pod down.
+      log.warn(err, `could not move ${name} from ${src}`);
+    }
   }
+  if (moved) log.info(`moved ${moved} of the assistant's transcripts to ${dest}`);
 }
