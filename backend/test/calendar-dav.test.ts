@@ -143,6 +143,16 @@ describe("the calendar over CalDAV", () => {
     expect(dav.objects.get(`${CALENDAR}review.ics`)?.data).toContain("SUMMARY:Review");
   });
 
+  it("puts an event that was taken off whole back on the calendar (backlog)", async () => {
+    dav.objects.set(`${CALENDAR}gone2.ics`, { data: event("gone2@x", "Dentist"), etag: '"1"' });
+    await calendar.remove("gone2@x");
+    expect([...dav.objects.values()].some((o) => o.data.includes("gone2@x"))).toBe(false);
+
+    const back = await calendar.restore("gone2@x", new Date().toISOString());
+    expect(back.summary).toBe("Dentist");
+    expect([...dav.objects.values()].some((o) => o.data.includes("gone2@x"))).toBe(true);
+  });
+
   it("gives up on a server that accepts a request and never answers", async () => {
     dav.hang = true;
     calendar.setDavTimeout(300);

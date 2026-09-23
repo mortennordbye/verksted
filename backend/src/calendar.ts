@@ -502,9 +502,28 @@ export async function restore(uid: string, before: string): Promise<CalendarEven
   }
   if (!best) throw new CalendarNotFound(`nothing is kept of ${uid} from before then`);
   const data = await fs.readFile(path.join(calendarTrashDir(), best.file), "utf8");
-  const found = await find(uid);
-  await keep(uid, found.data);
-  await save(found, data);
+  const found = await find(uid).catch((err: unknown) => {
+    if (err instanceof CalendarNotFound) return null;
+    throw err;
+  });
+  if (found) {
+    await keep(uid, found.data);
+    await save(found, data);
+    return firstEvent(data);
+  }
+  // Taken off whole: put the file back, on the calendar a new event goes to.
+  await withAccount(async ({ client, calendars }) => {
+    const user = (await calendarConfig())?.user;
+    const calendar =
+      calendars.find((c) => user && c.url.includes(encodeURIComponent(user))) ?? calendars[0];
+    if (!calendar) throw new CalendarUnavailable("the account has no calendar to write to");
+    const res = await client.createCalendarObject({
+      calendar,
+      filename: `${name}.ics`,
+      iCalString: data,
+    });
+    if (!res.ok) throw new Error(`the calendar server refused it back: ${res.status}`);
+  });
   return firstEvent(data);
 }
 

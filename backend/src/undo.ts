@@ -1,6 +1,6 @@
 import type { ToolLogEntry } from "../../shared/api.js";
 import { restore } from "./calendar.js";
-import { relabelIds } from "./gmail.js";
+import { createRule, relabelIds, type RuleFields } from "./gmail.js";
 import { move } from "./mail.js";
 import * as mailLog from "./mail-log.js";
 import * as toolLog from "./tool-log.js";
@@ -31,7 +31,7 @@ async function recordOf(day: string, entry: ToolLogEntry) {
   };
   const matches = records.filter((r) => {
     if (r.at > entry.at) return false;
-    if (entry.tool === "mail_move") {
+    if (entry.tool === "mail_move" || entry.tool === "card:mail_move") {
       return (
         r.verb === "move" &&
         r.to === args.to &&
@@ -64,11 +64,17 @@ export async function undo(day: string, at: string): Promise<string> {
   if (entry.undo !== "can") throw new UndoRefused(`${entry.tool} cannot be put back from here`);
 
   let said: string;
-  if (entry.tool === "calendar_update") {
+  if (entry.tool === "calendar_update" || entry.tool === "card:calendar_delete") {
     const uid = (entry.args as { uid?: unknown }).uid;
     if (typeof uid !== "string") throw new UndoRefused("that call names no event");
     const back = await restore(uid, entry.at);
     said = `"${back.summary}" is as it was`;
+  } else if (entry.tool === "card:mail_rule_delete") {
+    const rule = (entry.args as { rule?: RuleFields }).rule;
+    if (!rule) throw new UndoRefused("the card did not say what the filter was");
+    const { from, subject, query, label, archive, markRead } = rule;
+    await createRule({ from, subject, query, label, archive, markRead });
+    said = "the filter is back";
   } else {
     const record = await recordOf(day, entry);
     if (!record) throw new UndoRefused("there is no record of what that call changed");

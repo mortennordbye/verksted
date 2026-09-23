@@ -643,23 +643,19 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `design/mock-inbox.html`.
 
-## What a tapped card did cannot be put back from the log
+## A removed label and a sent mail cannot be put back
 
-- **What:** A move, a relabel and a calendar change the assistant made itself
-  are put back from their row in the settings page's log (`undo.ts`). What a
-  card did on a tap is not: a calendar event taken off, mail moved to the
-  trash or spam, a filter or label removed. The tap is not a line of the tool
-  log, so there is no row to put a button on, though `calendar-trash/` does
-  hold the file a removed event would be put back from.
-- **Why deferred:** A tapped card was already asked about once, and the record
-  of what it did lives in the feed item rather than the log. Putting one back
-  means giving the proposal route a log line of its own and an inverse per
-  card kind.
-- **Unblocked by:** Tapping a card by mistake. Then record `do` in the tool log
-  with the action, and add the inverse for `calendar_delete` first, since its
-  kept file is already there.
-- **Where:** `backend/src/routes/proposals.ts` (`do`), `backend/src/undo.ts`,
-  `backend/src/tool-log.ts` (`UNDOABLE`).
+- **What:** A tapped card is a line of the tool log (`card:<kind>`), and a
+  removed calendar event, mail moved to the trash or spam, and a removed Gmail
+  filter are put back from that row. A removed label is not: Gmail takes it off
+  every message it was on, and only the list of those messages would put it
+  back. A sent mail cannot be unsent.
+- **Why deferred:** The label needs the ids of what carried it read before the
+  delete, which the card's snapshot does not take today.
+- **Unblocked by:** Removing a label by mistake. Then record the message ids in
+  the snapshot and relabel them on undo.
+- **Where:** `backend/src/routes/proposals.ts` (`snapshot`, `mail_label_delete`),
+  `backend/src/undo.ts`.
 
 ## The per-session routes still ask tmux once per request
 

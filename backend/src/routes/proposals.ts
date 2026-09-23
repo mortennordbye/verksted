@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { GmailRule, ProposalAction } from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
 import * as feed from "../feed-store.js";
+import * as toolLog from "../tool-log.js";
 import * as gmail from "../gmail.js";
 import * as mail from "../mail.js";
 import { announce } from "../notifier.js";
@@ -403,6 +404,20 @@ export default async function proposalRoutes(app: FastifyInstance) {
     try {
       const did = await execute(app, item.action);
       await feed.resolve(item.id, did);
+      // What the tap did, as a line of the assistant's log: the log is where
+      // a change is found and put back, and a card's change is one too.
+      await toolLog
+        .record({
+          turn: item.id,
+          speaker: "you, by card",
+          unattended: false,
+          tool: `card:${item.action.kind}`,
+          effect: "card",
+          args: item.action as unknown as Record<string, unknown>,
+          ok: true,
+          result: did,
+        })
+        .catch((err: unknown) => req.log.warn(err, "the tapped card could not be logged"));
       return feed.get(item.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
