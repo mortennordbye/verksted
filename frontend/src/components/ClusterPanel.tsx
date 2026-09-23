@@ -58,7 +58,7 @@ function Section({ title, text }: { title: string; text: string }) {
         // These tables are wider than a phone and there is no shortening them
         // without dropping the columns Argo CD and Kargo chose to print, so
         // they scroll sideways inside their own box rather than the page.
-        <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[11.5px] leading-relaxed text-muted">
+        <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[11.5px] leading-relaxed text-muted scheme-dark">
           {text}
         </pre>
       )}

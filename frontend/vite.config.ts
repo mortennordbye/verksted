@@ -80,6 +80,15 @@ export default defineConfig({
   ],
   build: {
     /**
+     * Browsers that have light-dark(), so the minifier leaves it alone.
+     *
+     * Below these it rewrites every pair into two fallback variables, which
+     * resolve once on <html>: the whole page follows the mode, but a
+     * `scheme-dark` island inside it (the terminal) inherits the page's half
+     * instead of taking its own. iOS 17.5 and Chrome 123 are both from 2024.
+     */
+    cssTarget: ["chrome123", "edge123", "firefox120", "safari17.5"],
+    /**
      * The file-type icons are files, never data URIs.
      *
      * Vite inlines any asset under 4 KiB, and the icon theme is 1,226 SVGs of

@@ -13,7 +13,8 @@
       name="description"
       content="Self-hosted workbench for driving coding agents from a phone."
     />
-    <meta name="theme-color" content="#0f1216" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f9fbf9" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0a" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -22,6 +23,8 @@
     <link rel="icon" type="image/png" href="/icon-192.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>verksted</title>
+    <!-- Blocking on purpose: the chosen light or dark mode, before first paint. -->
+    <script src="/theme-mode.js"></script>
   </head>
   <body>
     <div id="root"></div>

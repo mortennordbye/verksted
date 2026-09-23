@@ -337,6 +337,7 @@ export default function Terminal({
    */
   useEffect(() => {
     const el = ref.current!;
+    const host = getComputedStyle(el);
     const term = new Xterm({
       cursorBlink: true,
       fontSize: storedFontSize(),
@@ -348,10 +349,13 @@ export default function Terminal({
       theme: {
         // The app's own ground and ink, read from the theme rather than written
         // again here: the terminal was a fourth near-black beside the three the
-        // palette has, and a light theme has to be able to reach it.
-        background: token("color-term", "#0a0a0a"),
-        foreground: token("color-text", "#e7e7e7"),
-        cursor: token("color-text", "#e7e7e7"),
+        // palette has. Read off the host as used colours, not as custom
+        // properties: those are light-dark() pairs, which xterm cannot parse,
+        // and the host is inside the terminal's dark island, so the pair
+        // resolves to its dark half in both modes.
+        background: host.backgroundColor,
+        foreground: host.color,
+        cursor: host.color,
         selectionBackground: "#2a3140",
         // ANSI 16 tuned to the app palette; stock xterm colors clash.
         black: "#22262e",
@@ -685,7 +689,9 @@ export default function Terminal({
   }, [disconnected, attempt, ended]);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    // `scheme-dark`: the terminal, its keys and its bars stay dark in light
+    // mode. Every token inside resolves to its dark half (theme.css).
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col text-text scheme-dark">
       {/* Above the terminal, not below: on a phone the on-screen keyboard
           overlays the bottom of the box and would hide a bottom key row. */}
       {/* One row, and it wraps rather than scrolls: a key that is off the edge
@@ -781,7 +787,7 @@ export default function Terminal({
         />
       )}
       <div className="relative min-h-0 flex-1">
-        <div ref={ref} className="absolute inset-0 p-2" />
+        <div ref={ref} className="absolute inset-0 bg-term p-2 text-text" />
         {scrolled && !disconnected && (
           <button
             onClick={() => tapKey("live", goLive)}

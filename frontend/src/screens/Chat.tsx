@@ -732,7 +732,7 @@ export default function Chat() {
                   : "Ask, or tell me something…"
           }
           fieldRef={grow}
-          className="shadow-[0_20px_60px_rgba(0,0,0,.55)]"
+          className="shadow-[0_20px_60px_light-dark(rgba(26,32,27,.14),rgba(0,0,0,.55))]"
         >
           {canSpeak() && canListen() && !thinking && (
             <button

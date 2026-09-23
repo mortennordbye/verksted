@@ -73,7 +73,7 @@ export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sess
       </button>
 
       {open && (
-        <div className="min-w-0 overflow-hidden rounded-md border border-line bg-term">
+        <div className="min-w-0 overflow-hidden rounded-md border border-line bg-term text-text scheme-dark">
           {!detail && !failedToLoad && <SkeletonLines count={3} className="px-2.5 py-2" />}
           {failedToLoad && (
             <p className="px-2.5 py-2 text-[11.5px] text-fail">could not read it back</p>

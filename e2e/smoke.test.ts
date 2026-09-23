@@ -811,35 +811,44 @@ describe("the app in a real browser", () => {
    * The lint rules see one element at a time; this sees the page as drawn,
    * which is where contrast and a name that never made it into the DOM show.
    */
-  it("passes axe on every screen", async () => {
-    // Its own context, and legacy mode, which runs axe inside the page: the
-    // default finishes in a second page it opens on the context, which a page
-    // from browser.newPage() will not allow. The app has no cross-origin
-    // frames for the default mode to reach anyway.
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    const phone = await context.newPage();
-    const found: string[] = [];
-    for (const route of [
-      "/today",
-      "/runs",
-      "/bench",
-      "/p/demo",
-      "/s/vk-demo-1",
-      "/docs",
-      "/settings",
-    ]) {
-      await phone.goto(`${base}${route}`, { waitUntil: "networkidle" });
-      const { violations } = await new AxeBuilder({ page: phone })
-        .setLegacyMode()
-        .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-        .analyze();
-      for (const v of violations) {
-        found.push(`${route} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+  it.each(["light", "dark"] as const)(
+    "passes axe on every screen, %s",
+    async (colorScheme) => {
+      // Its own context, and legacy mode, which runs axe inside the page: the
+      // default finishes in a second page it opens on the context, which a page
+      // from browser.newPage() will not allow. The app has no cross-origin
+      // frames for the default mode to reach anyway. Once per mode, as the
+      // system's: every colour is a light-dark() pair, and contrast is the
+      // finding a pair gets wrong on one side only.
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        colorScheme,
+      });
+      const phone = await context.newPage();
+      const found: string[] = [];
+      for (const route of [
+        "/today",
+        "/runs",
+        "/bench",
+        "/p/demo",
+        "/s/vk-demo-1",
+        "/docs",
+        "/settings",
+      ]) {
+        await phone.goto(`${base}${route}`, { waitUntil: "networkidle" });
+        const { violations } = await new AxeBuilder({ page: phone })
+          .setLegacyMode()
+          .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+          .analyze();
+        for (const v of violations) {
+          found.push(`${route} ${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(", ")}`);
+        }
       }
-    }
-    await context.close();
-    expect(found).toEqual([]);
-  }, 120_000);
+      await context.close();
+      expect(found).toEqual([]);
+    },
+    120_000,
+  );
 
   /**
    * F-48: the tunnel dropping, in a real browser. The unit tests fake a failed

@@ -35,7 +35,7 @@ export const MD: Components = {
   // A fenced block: the <code> above is still inside it, so the padding and
   // background come off here to avoid a box in a box.
   pre: ({ children }) => (
-    <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[12px] last:mb-0 [&_code]:bg-transparent [&_code]:p-0">
+    <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[12px] text-text scheme-dark last:mb-0 [&_code]:bg-transparent [&_code]:p-0">
       {children}
     </pre>
   ),

@@ -24,6 +24,7 @@ import GoogleCalendar from "../components/settings/GoogleCalendar";
 import Notifications from "../components/settings/Notifications";
 import Backups from "../components/settings/Backups";
 import AppReset from "../components/settings/AppReset";
+import Appearance from "../components/settings/Appearance";
 import SshKeys from "../components/settings/SshKeys";
 import BlockedOwners from "../components/settings/BlockedOwners";
 import GmailRules from "../components/settings/GmailRules";
@@ -284,6 +285,7 @@ export default function Settings() {
         {show("bench") && (
           <>
             <Backups />
+            <Appearance />
             <AppReset />
           </>
         )}

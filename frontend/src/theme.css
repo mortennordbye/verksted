@@ -46,54 +46,76 @@
     U+A720-A7FF;
 }
 
-/* The palette nordbye.it actually serves: its dark-mode custom properties,
-   copied rather than re-derived so the two cannot drift. mock.html is no longer
-   the reference. Only two values are not from the site, and both are marked
-   below — the site has no third surface and nothing it needs to call idle.
+/* The palette nordbye.it actually serves, both halves. Every colour is a
+   light-dark() pair, light first, and which half an element gets is its
+   `color-scheme`: set on <html> from the mode chosen in Settings (the rules
+   under `html` below, and public/theme-mode.js). The dark column is the site's
+   dark custom properties, copied rather than re-derived so the two cannot
+   drift. mock.html is no longer the reference.
 
-   The site is a light-and-dark system; only its dark half is here. Light mode
-   is every screen, the terminal and the native controls at once, so it is its
-   own job — see BACKLOG.md. */
+   The light column starts from the site's light brand tokens: bg #f9fbf9,
+   surface #f0f5f1, surface-2 #e7eee8, line #d1ddd3, line-2 #a6bfaa, fg
+   #1a201b, fg-2 #415344, fg-3 #5f7963, accent #378144, accent-3 #3d954c, warn
+   #956b23, danger #ca442f, ink #fff. Those are solved against the page, and
+   here nearly all text sits on a card or a tinted chip instead, where most of
+   them measure about 4.05:1. So every light text colour that differs from the
+   site is the smallest darkening, same hue and saturation, that clears 4.5:1
+   on --color-surface-2 and on its own 15% tint over --color-surface. Each one
+   says so where it is.
+
+   The terminal stays dark in both modes. Anything terminal-ish is a dark
+   island, an element with `scheme-dark`: light-dark() resolves per element, so
+   everything inside one takes the dark column without a second set of names. */
 @theme {
-  --color-bg: #0a0a0a;
-  --color-surface: #141414;
-  /* Interpolated. The site stops at one surface. */
-  --color-surface-2: #1c1c1c;
-  --color-line: #262626;
+  --color-bg: light-dark(#f9fbf9, #0a0a0a);
+  --color-surface: light-dark(#f0f5f1, #141414);
+  /* Dark interpolated, since the site stops at one dark surface. Light is the
+     brand's own third step. */
+  --color-surface-2: light-dark(#e7eee8, #1c1c1c);
+  --color-line: light-dark(#d1ddd3, #262626);
   /* The site's --line-2. Hover borders used to reach for --color-faint, which
      is a text colour doing a border's job. */
-  --color-line-strong: #3a3a3a;
-  --color-text: #e7e7e7;
-  --color-muted: #a5a5a5;
+  --color-line-strong: light-dark(#a6bfaa, #3a3a3a);
+  --color-text: light-dark(#1a201b, #e7e7e7);
+  --color-muted: light-dark(#415344, #a5a5a5);
   /* The site's --fg-3 is #7a7a7a, which measures 4.61:1 on the page but 4.29:1
      on a card and 3.97:1 on a tinted one — the same trap the blog's phase 7
      audit caught on this exact token. Here it carries every session id and meta
      line at 11-13px, all of it on cards, so it takes the smallest lightening
-     that clears 4.5:1 on all three grounds. */
-  --color-faint: #868686;
-  /* The site's --accent, which is also its --success. */
-  --color-accent: #51a45e;
-  /* Its --accent-3: hover borders and soft edges. */
-  --color-accent-pastel: #61b86f;
-  --color-accent-tint: rgba(81, 164, 94, 0.11);
+     that clears 4.5:1 on all three grounds. The light --fg-3, #5f7963, is the
+     same trap at 4.04:1 on surface-2: darkened. */
+  --color-faint: light-dark(#506654, #868686);
+  /* The site's --accent, which is also its --success. Light: #378144 is 4.06:1
+     on surface-2 and colours some fifty text links, so darkened. White on it
+     goes from 4.79:1 to 6.23:1. */
+  --color-accent: light-dark(#2f6d3a, #51a45e);
+  /* Its --accent-3: hover borders and soft edges. Decorative, so as is. */
+  --color-accent-pastel: light-dark(#3d954c, #61b86f);
+  --color-accent-tint: light-dark(rgba(47, 109, 58, 0.08), rgba(81, 164, 94, 0.11));
   /* The site's --accent-ink. White on this green is 3.08:1 and fails; the
      near-black is 6.43:1. Was written as a raw #16130a in twenty-one places, so
-     a change to --color-accent could not follow it. */
-  --color-on-accent: #0a0a0a;
+     a change to --color-accent could not follow it. Light: the site's white. */
+  --color-on-accent: light-dark(#fff, #0a0a0a);
   /* The same job on --color-fail, for a destructive confirm. It was the one
-     hex written inline outside the terminal theme. About 7:1. */
-  --color-on-fail: #1a0e0e;
+     hex written inline outside the terminal theme. About 7:1. Light: white,
+     6.24:1 on the light --color-fail. */
+  --color-on-fail: light-dark(#fff, #1a0e0e);
   /* States. A blog has no session that can be running or stuck, so these come
      from the site's semantic set where it has one: --warn for waiting, --danger
      for failed. Running takes --accent-2, the lighter step of the site's own
      green ramp, rather than the accent itself — "you can press this" and "this
-     is fine" must not be the same green. Separated by 1.7x in luminance. */
-  --color-run: #8ec798;
-  --color-wait: #bf9752;
-  --color-fail: #d18c82;
+     is fine" must not be the same green. Separated by 1.7x in luminance.
+
+     Light: the step away from the ground is the darker one, so running is a
+     derived #1e5428, 1.75x darker than the accent (the dark pair is 1.68x).
+     Waiting and failed are the site's #956b23 and #ca442f, darkened: both
+     measured 4.04:1 on surface-2. */
+  --color-run: light-dark(#1e5428, #8ec798);
+  --color-wait: light-dark(#7e5b1e, #bf9752);
+  --color-fail: light-dark(#ab3a28, #d18c82);
   /* Not from the site. A dot for a session that is doing nothing, so it is
-     meant to recede. */
-  --color-idle: #4a4a4a;
+     meant to recede. Light is derived for the same job: under 2:1 on a card. */
+  --color-idle: light-dark(#a9b8ac, #4a4a4a);
   /* Which CLI, and now in its own brand's hue: claude orange, antigravity
      Google blue, codex the monochrome OpenAI reads as on a dark ground. Three
      arbitrary hues meant the mark had to be learned; these are recognised.
@@ -103,36 +125,49 @@
      state chip in a list that carries both. The separation is chroma rather
      than hue: the states are deliberately muted pastels, so an agent mark is
      the saturated one. Same reason antigravity is Google's blue 400 and not
-     #4285f4, which measures 4.6:1 behind a 10.5px letter. */
-  --color-claude: #f08a4b;
-  --color-antigravity: #74a7f7;
-  --color-codex: #c3ccd2;
+     #4285f4, which measures 4.6:1 behind a 10.5px letter.
+
+     Light, all derived: Claude's orange, Google's blue 600 (#1a73e8) and a
+     slate for codex, each darkened until its letter clears 4.5:1 on its own
+     15% badge. */
+  --color-claude: light-dark(#a1460d, #f08a4b);
+  --color-antigravity: light-dark(#135dbe, #74a7f7);
+  --color-codex: light-dark(#58636c, #c3ccd2);
   /* Who on the council is speaking. A set of its own, because every other hue
      here already means something: the state trio says how a session is doing
      and the three above say which CLI is running, so an advisor tinted in one
      of those would read as a claim about the bench rather than a name. Muted
      against the agent brands for the same reason the states are — a saturated
      square is "which CLI", and this is only a label. All six clear 4.5:1 on
-     --color-surface at the 11px they are used at. */
-  --color-member-amber: #d3a75c;
-  --color-member-violet: #b294e0;
-  --color-member-teal: #5cb5ac;
-  --color-member-rose: #d98fa8;
-  --color-member-sky: #74a7c7;
-  --color-member-lime: #9cbb6a;
+     --color-surface at the 11px they are used at. Light, derived: each dark hue
+     darkened to clear 4.5:1 on surface-2 and on its own 15% tint. */
+  --color-member-amber: light-dark(#7e5c22, #d3a75c);
+  --color-member-violet: light-dark(#7641c8, #b294e0);
+  --color-member-teal: light-dark(#316b65, #5cb5ac);
+  --color-member-rose: light-dark(#a6385d, #d98fa8);
+  --color-member-sky: light-dark(#366786, #74a7c7);
+  --color-member-lime: light-dark(#536930, #9cbb6a);
   /* Was a fourth near-black. Matching --color-bg stops the terminal reading as
-     a panel sitting on a different theme. */
-  --color-term: #0a0a0a;
+     a panel sitting on a different theme. Every terminal-ish use is also a
+     `scheme-dark` island, so it is this dark half in both modes; the light half
+     is for the one box that holds either a terminal or the conversation, the
+     session's, which shows the conversation on the page's own ground. */
+  --color-term: light-dark(#f9fbf9, #0a0a0a);
+  /* Under a bar or a toast. Black at .35 is a smudge on a light ground; the
+     light half is the site's far shadow, tinted to its ink. */
+  --color-shadow: light-dark(rgba(26, 32, 27, 0.14), rgba(0, 0, 0, 0.35));
   /* Data ink for the hub's charts, assigned by role in a fixed order (1 = the
      first series, never cycled). None of the badge colours above pass a
      colour-vision check as bars on --color-surface: they are all too light for
      a mark, which is what makes them right for an 11px chip. These four do
      (validated: lightness band, chroma, CVD and normal-vision separation,
-     3:1 against the surface). */
+     3:1 against the surface). The first three clear 3:1 on the light surface
+     too; the fourth measures 2.78:1 there, so its light half is darkened to
+     3.85:1. */
   --color-chart-1: #3987e5;
   --color-chart-2: #d95926;
   --color-chart-3: #199e70;
-  --color-chart-4: #c98500;
+  --color-chart-4: light-dark(#a86f00, #c98500);
   --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", Menlo, monospace;
   /* The terminal's face. Not --font-mono: xterm measures one cell when it is
      built, and a web font that lands after that leaves every column off by
@@ -164,7 +199,7 @@
   }
   @keyframes pulse-run {
     50% {
-      box-shadow: 0 0 0 5px rgba(142, 199, 152, 0.14);
+      box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-run) 14%, transparent);
     }
   }
 
@@ -217,15 +252,24 @@ html {
      websockets and the terminal's scrollback position — and a downward swipe is
      exactly how you scroll a terminal that is already at the top. */
   overscroll-behavior: none;
-  /* Native form controls, checkboxes and scrollbars render light-themed
-     otherwise, against a deliberately dark palette. */
-  color-scheme: dark;
+  /* Which half of every light-dark() pair applies, and the native form
+     controls, checkboxes and scrollbars with it: the system's, unless a mode
+     chosen in Settings pins it (below). */
+  color-scheme: light dark;
   /* Never shorter than the screen. An installed iOS app lays a fixed element
      out against the wrong viewport while the document fits without scrolling,
      so the tab bar stood a status bar's height up on every short page: the
      inbox while it loads, an empty thread. #140 fixed that on the thread by
      making it scroll the page; a page with little on it did not. */
   min-height: calc(100% + env(safe-area-inset-top));
+}
+
+/* Set before first paint by public/theme-mode.js, from the Settings choice. */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {

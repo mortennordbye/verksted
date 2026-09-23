@@ -84,6 +84,17 @@ export default tseslint.config(
     extends: [tseslint.configs.disableTypeChecked],
   },
   {
+    // A classic script the page loads before first paint, outside the build
+    // and so outside any tsconfig: the syntactic rules only, as above.
+    files: ["frontend/public/**/*.js"],
+    languageOptions: {
+      globals: globals.browser,
+      sourceType: "script",
+      parserOptions: { projectService: false, project: null },
+    },
+    extends: [tseslint.configs.disableTypeChecked],
+  },
+  {
     files: ["frontend/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks, "jsx-a11y": jsxA11y },
     rules: {
