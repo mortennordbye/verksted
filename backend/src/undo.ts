@@ -1,6 +1,6 @@
 import type { ToolLogEntry } from "../../shared/api.js";
 import { restore } from "./calendar.js";
-import { createRule, relabelIds, type RuleFields } from "./gmail.js";
+import { createRule, MAX_LABELLED, relabelIds, restoreLabel, type RuleFields } from "./gmail.js";
 import { move } from "./mail.js";
 import * as mailLog from "./mail-log.js";
 import * as toolLog from "./tool-log.js";
@@ -75,6 +75,23 @@ export async function undo(day: string, at: string): Promise<string> {
     const { from, subject, query, label, archive, markRead } = rule;
     await createRule({ from, subject, query, label, archive, markRead });
     said = "the filter is back";
+  } else if (entry.tool === "card:mail_label_delete") {
+    const { name, messages, capped } = entry.args as {
+      name?: unknown;
+      messages?: unknown;
+      capped?: unknown;
+    };
+    if (typeof name !== "string" || !Array.isArray(messages)) {
+      throw new UndoRefused("the card did not record which messages carried the label");
+    }
+    const n = await restoreLabel(
+      name,
+      messages.filter((m): m is string => typeof m === "string"),
+    );
+    said = `the label ${name} is back on ${n} message${n === 1 ? "" : "s"}`;
+    if (capped === true) {
+      said += `; only the first ${MAX_LABELLED} were recorded, so any others are still without it`;
+    }
   } else {
     const record = await recordOf(day, entry);
     if (!record) throw new UndoRefused("there is no record of what that call changed");

@@ -263,10 +263,11 @@ export async function deleteRule(id: string): Promise<void> {
 /**
  * Delete one of the account's own labels, by name.
  *
- * The mail stays; the label comes off every message that had it, and nothing
- * later puts it back, which is why the tool is chair-only. A label a filter
- * still files into is refused: the filter would go on naming a label that is
- * gone, so that filter is removed first.
+ * The mail stays; the label comes off every message that had it, and only
+ * the ids the card recorded first (`labelled`) put it back, which is why the
+ * tool is chair-only. A label a filter still files into is refused: the
+ * filter would go on naming a label that is gone, so that filter is removed
+ * first.
  */
 export async function deleteLabel(name: string): Promise<void> {
   const [ls, data] = await Promise.all([
@@ -282,6 +283,33 @@ export async function deleteLabel(name: string): Promise<void> {
     );
   }
   await call<unknown>("DELETE", `/labels/${encodeURIComponent(label.id)}`);
+}
+
+/** The most message ids a deleted label's card keeps: one page of Gmail's listing. */
+export const MAX_LABELLED = 500;
+
+/**
+ * The ids of the messages carrying a label, read before it is deleted so the
+ * undo can put it back on them. `capped` when there were more than are kept.
+ */
+export async function labelled(labelId: string): Promise<{ ids: string[]; capped: boolean }> {
+  const found = await call<{ messages?: { id: string }[]; nextPageToken?: string }>(
+    "GET",
+    `/messages?${new URLSearchParams({ labelIds: labelId, maxResults: String(MAX_LABELLED) }).toString()}`,
+  );
+  return { ids: (found.messages ?? []).map((m) => m.id), capped: !!found.nextPageToken };
+}
+
+/**
+ * A deleted label made again by name, its old id being gone with it, and put
+ * back on the messages that carried it.
+ */
+export async function restoreLabel(name: string, ids: string[]): Promise<number> {
+  const id = await labelId(name, new Map((await labels()).map((l) => [l.name, l.id])));
+  if (ids.length) {
+    await call<unknown>("POST", "/messages/batchModify", { ids, addLabelIds: [id] });
+  }
+  return ids.length;
 }
 
 /** One sweep's worth, as mail.ts's move. A model that wants more asks twice. */

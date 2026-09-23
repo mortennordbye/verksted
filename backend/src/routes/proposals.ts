@@ -56,6 +56,11 @@ const ACTION = {
   },
 };
 
+function labelledText(a: { messages?: string[]; capped?: boolean }): string {
+  const n = a.messages?.length ?? 0;
+  return a.capped ? `more than ${n} messages` : `${n} message${n === 1 ? "" : "s"}`;
+}
+
 /** A filter on one line: what it matches, then what it does to a match. */
 function ruleText(r: Omit<GmailRule, "id" | "archive" | "markRead"> & Partial<GmailRule>): string {
   const match = [r.from && `from:${r.from}`, r.subject && `subject:${r.subject}`, r.query];
@@ -114,7 +119,7 @@ export function describe(a: ProposalAction): { title: string; detail: string } {
     case "mail_label_delete":
       return {
         title: `Delete the Gmail label ${a.name}`,
-        detail: "the mail stays; the label comes off every message and cannot be put back",
+        detail: `the mail stays; the label comes off ${labelledText(a)}, and can be put back from the log${a.capped ? ` on only the first ${gmail.MAX_LABELLED}` : ""}`,
       };
     case "calendar_delete":
       return {
@@ -239,7 +244,7 @@ export function validateAction(a: Record<string, unknown>): ProposalAction {
       gmail.checkRule(rule);
       return { kind: "mail_rule_put", ...rule };
     }
-    // The three below carry something read from the account (`snapshot`), and
+    // The four below carry something read from the account (`snapshot`), and
     // whatever the caller sent in its place is dropped here.
     case "mail_rule_delete":
       return {
@@ -306,11 +311,14 @@ async function snapshot(a: ProposalAction): Promise<ProposalAction> {
       if (!rule) throw new Unfileable(`no such filter: ${a.id}`);
       return { ...a, rule };
     }
-    case "mail_label_delete":
-      if (!(await gmail.labels()).some((l) => l.name === a.name)) {
-        throw new Unfileable(`no such label: ${a.name}`);
-      }
-      return a;
+    case "mail_label_delete": {
+      const label = (await gmail.labels()).find((l) => l.name === a.name);
+      if (!label) throw new Unfileable(`no such label: ${a.name}`);
+      // What carried it, which only the undo needs: Gmail takes the label off
+      // every message and keeps no list of them.
+      const { ids, capped } = await gmail.labelled(label.id);
+      return { kind: a.kind, name: a.name, messages: ids, ...(capped ? { capped } : {}) };
+    }
     case "calendar_delete": {
       const { summary, start, end, recurring, location } = await calendar.peek(a.uid, a);
       return {
@@ -402,7 +410,11 @@ export default async function proposalRoutes(app: FastifyInstance) {
     }
     if (item.state === "done") return reply.code(409).send({ error: `already ${item.did}` });
     try {
-      const did = await execute(app, item.action);
+      // A label is read again on the tap: what carries it now is what the
+      // delete takes it off, and what the log's undo puts it back on.
+      const action =
+        item.action.kind === "mail_label_delete" ? await snapshot(item.action) : item.action;
+      const did = await execute(app, action);
       await feed.resolve(item.id, did);
       // What the tap did, as a line of the assistant's log: the log is where
       // a change is found and put back, and a card's change is one too.
@@ -413,7 +425,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
           unattended: false,
           tool: `card:${item.action.kind}`,
           effect: "card",
-          args: item.action,
+          args: action,
           ok: true,
           result: did,
         })

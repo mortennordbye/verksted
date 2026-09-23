@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import type { FeedItem } from "../../shared/api.js";
+import type { FeedItem, ToolLogDay, ToolLogEntry } from "../../shared/api.js";
 
 /**
  * The mail and calendar changes with no way back, as cards (A-08, A-09).
@@ -24,6 +24,10 @@ let userLabels = [
   { id: "L2", name: "Unused", type: "user" },
 ];
 const gmailWrites: string[] = [];
+/** Which messages carry each label id, and whether Gmail has another page of them. */
+let carrying: Record<string, string[]> = {};
+let morePages = false;
+const batchModifies: unknown[] = [];
 
 function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
   const method = init.method ?? "GET";
@@ -31,7 +35,29 @@ function fakeFetch(url: string, init: { method?: string; body?: string } = {}) {
     Promise.resolve(new Response(status === 204 ? null : JSON.stringify(body), { status }));
   if (url.includes("oauth2.googleapis.com/token")) return json({ access_token: "tok" });
   if (method !== "GET") gmailWrites.push(`${method} ${url.split("/users/me")[1]}`);
+  if (url.endsWith("/labels") && method === "POST") {
+    const made = {
+      id: "L9",
+      type: "user",
+      name: (JSON.parse(init.body ?? "{}") as { name: string }).name,
+    };
+    userLabels = [...userLabels, made];
+    return json(made);
+  }
   if (url.endsWith("/labels")) return json({ labels: userLabels });
+  const listed = /\/messages\?(.*)$/.exec(url);
+  if (listed && method === "GET") {
+    const q = new URLSearchParams(listed[1]);
+    const ids = (carrying[q.get("labelIds") ?? ""] ?? []).slice(0, Number(q.get("maxResults")));
+    return json({
+      messages: ids.map((id) => ({ id })),
+      ...(morePages ? { nextPageToken: "p2" } : {}),
+    });
+  }
+  if (url.endsWith("/messages/batchModify")) {
+    batchModifies.push(JSON.parse(init.body ?? "{}"));
+    return json(null, 204);
+  }
   if (url.endsWith("/settings/filters") && method === "GET") return json({ filter: filters });
   if (url.endsWith("/settings/filters") && method === "POST") {
     const created = { id: "F2", ...(JSON.parse(init.body ?? "{}") as object) };
@@ -164,6 +190,9 @@ beforeEach(() => {
     { id: "L2", name: "Unused", type: "user" },
   ];
   gmailWrites.length = 0;
+  carrying = { L1: ["m1"], L2: ["m2", "m3"] };
+  morePages = false;
+  batchModifies.length = 0;
   objects = [
     { url: "cal/dentist.ics", data: event("dentist@x", "Dentist") },
     { url: "cal/standup.ics", data: event("standup@x", "Standup", "RRULE:FREQ=DAILY") },
@@ -176,6 +205,19 @@ const propose = (action: Record<string, unknown>) =>
   app.inject({ method: "POST", url: "/api/proposals", payload: { action } });
 const tap = (id: string) =>
   app.inject({ method: "POST", url: `/api/proposals/${encodeURIComponent(id)}/do` });
+/** The newest line of the log for a tapped card of this kind. */
+async function cardLine(tool: string): Promise<ToolLogEntry & { day: string }> {
+  const log = (await app.inject({ url: "/api/assistant/tool-log" })).json<ToolLogDay>();
+  const line = log.entries.filter((e) => e.tool === tool).at(-1);
+  if (!line || !log.day) throw new Error(`no ${tool} in the log`);
+  return { ...line, day: log.day };
+}
+const undoLine = (line: { day: string; at: string }) =>
+  app.inject({
+    method: "POST",
+    url: "/api/assistant/tool-log/undo",
+    payload: { day: line.day, at: line.at },
+  });
 
 describe("a Gmail filter", () => {
   it("is removed on the tap, and the card shows the filter the account holds", async () => {
@@ -221,6 +263,46 @@ describe("a Gmail label", () => {
     expect(gmailWrites).toEqual([]);
     await tap(res.json<FeedItem>().id);
     expect(gmailWrites).toEqual(["DELETE /labels/L2"]);
+  });
+
+  it("records what carried it on the tap, and the log puts it back on exactly those", async () => {
+    const res = await propose({ kind: "mail_label_delete", name: "Unused", messages: ["x9"] });
+    const item = res.json<FeedItem>();
+    // What the account says carries it, not what the caller sent.
+    expect(item.action).toEqual({
+      kind: "mail_label_delete",
+      name: "Unused",
+      messages: ["m2", "m3"],
+    });
+    expect(item.detail).toContain("comes off 2 messages");
+
+    // Labelled since the card was filed: the tap reads it again.
+    carrying.L2 = ["m2", "m3", "m4"];
+    await tap(item.id);
+    const line = await cardLine("card:mail_label_delete");
+    expect(line).toMatchObject({ undo: "can", args: { messages: ["m2", "m3", "m4"] } });
+
+    const back = await undoLine(line);
+    expect(back.statusCode).toBe(200);
+    expect(back.json().said).toBe("the label Unused is back on 3 messages");
+    // Made again by name, since its old id went with it, and put on those three.
+    expect(userLabels.find((l) => l.name === "Unused")?.id).toBe("L9");
+    expect(batchModifies).toEqual([{ ids: ["m2", "m3", "m4"], addLabelIds: ["L9"] }]);
+  });
+
+  it("says when there were more messages than it kept", async () => {
+    carrying.L2 = Array.from({ length: 600 }, (_, i) => `m${i}`);
+    morePages = true;
+    const res = await propose({ kind: "mail_label_delete", name: "Unused" });
+    const item = res.json<FeedItem>();
+    expect(item.detail).toContain("more than 500 messages");
+    await tap(item.id);
+    const line = await cardLine("card:mail_label_delete");
+    expect((line.args as { messages: string[] }).messages).toHaveLength(500);
+
+    const back = await undoLine(line);
+    expect(back.json().said).toMatch(/is back on 500 messages; only the first 500 were recorded/);
+    expect((batchModifies[0] as { ids: string[] }).ids).toHaveLength(500);
   });
 
   it("stays when a filter still files into it, and the card says why", async () => {

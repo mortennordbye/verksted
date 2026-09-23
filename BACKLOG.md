@@ -386,19 +386,19 @@ what unblocks it / where the code lives.
 - **Where:** `Dockerfile`, `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
   `runtime/vk-guard`, `backend/src/maintainer.ts` (`readContract`)
 
-## A removed label and a sent mail cannot be put back
+## A sent mail cannot be put back, and a removed label only onto 500 messages
 
 - **What:** A tapped card is a line of the tool log (`card:<kind>`), and a
-  removed calendar event, mail moved to the trash or spam, and a removed Gmail
-  filter are put back from that row. A removed label is not: Gmail takes it off
-  every message it was on, and only the list of those messages would put it
-  back. A sent mail cannot be unsent.
-- **Why deferred:** The label needs the ids of what carried it read before the
-  delete, which the card's snapshot does not take today.
-- **Unblocked by:** Removing a label by mistake. Then record the message ids in
-  the snapshot and relabel them on undo.
-- **Where:** `backend/src/routes/proposals.ts` (`snapshot`, `mail_label_delete`),
-  `backend/src/undo.ts`.
+  removed calendar event, mail moved to the trash or spam, a removed Gmail
+  filter and a removed label are put back from that row. A sent mail cannot be
+  unsent. A label is put back only on the first 500 messages that carried it
+  (one page of Gmail's listing); the undo says so when there were more.
+- **Why deferred:** Nothing takes a sent mail back. Keeping more than one page
+  of ids per card was not needed for the labels this account has.
+- **Unblocked by:** Deleting a label that carried more than 500 messages. Then
+  page through `labelled` and store the ids beside the log rather than in it.
+- **Where:** `backend/src/gmail.ts` (`labelled`, `restoreLabel`),
+  `backend/src/routes/proposals.ts` (`snapshot`), `backend/src/undo.ts`.
 
 ## Where the backups go offsite is not written down
 

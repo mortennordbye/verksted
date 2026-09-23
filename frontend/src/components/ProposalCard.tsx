@@ -187,8 +187,9 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
       )}
       {a.kind === "mail_label_delete" && (
         <div className="text-[13px]">
-          delete the label {a.name}; the mail stays, the label comes off every message and cannot be
-          put back
+          delete the label {a.name}; the mail stays, the label comes off{" "}
+          {a.capped ? `more than ${a.messages?.length} messages` : "every message"} and can be put
+          back from the log{a.capped ? " on the first ones only" : ""}
         </div>
       )}
       {a.kind === "calendar_delete" && (
