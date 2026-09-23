@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
+  AssistantConfig,
   AssistantEntry,
   AssistantFrame,
   AssistantThread,
@@ -275,7 +276,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
   app.get("/api/assistant/tools", (): Promise<AssistantTool[]> => assistant.listTools());
 
   app.put<{
-    Body: { name?: string; model?: string; effort?: string; instructions?: string };
+    Body: Partial<AssistantConfig>;
   }>(
     "/api/assistant/config",
     {
@@ -297,7 +298,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
       },
     },
     async (req) => {
-      await writeAssistantConfig(req.body as Parameters<typeof writeAssistantConfig>[0]);
+      await writeAssistantConfig(req.body);
       return readAssistantConfig();
     },
   );
@@ -443,7 +444,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
     try {
       return { conversationId: await assistant.newConversation() };
     } catch (err) {
-      return reply.code(409).send({ error: (err as Error).message });
+      return reply.code(409).send({ error: err instanceof Error ? err.message : String(err) });
     }
   });
 
@@ -477,7 +478,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
         await assistant.openConversation(req.params.id);
         return assistant.readThread();
       } catch (err) {
-        const message = (err as Error).message;
+        const message = err instanceof Error ? err.message : String(err);
         return reply.code(message === "no such thread" ? 404 : 409).send({ error: message });
       }
     },
@@ -499,7 +500,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
         await assistant.deleteConversation(req.params.id);
         return { deleted: true };
       } catch (err) {
-        const message = (err as Error).message;
+        const message = err instanceof Error ? err.message : String(err);
         return reply.code(message === "no such thread" ? 404 : 409).send({ error: message });
       }
     },
@@ -523,7 +524,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
         await assistant.renameThread(req.params.id, req.body.title);
         return { ok: true };
       } catch (err) {
-        const message = (err as Error).message;
+        const message = err instanceof Error ? err.message : String(err);
         return reply.code(message === "no such thread" ? 404 : 400).send({ error: message });
       }
     },
@@ -548,7 +549,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
           .header("content-disposition", `attachment; filename="${name}.md"`)
           .send(text);
       } catch (err) {
-        return reply.code(404).send({ error: (err as Error).message });
+        return reply.code(404).send({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   );

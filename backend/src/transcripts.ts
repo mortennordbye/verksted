@@ -1,5 +1,6 @@
 import { createReadStream } from "node:fs";
 import readline from "node:readline";
+import type { SessionPrompts } from "../../shared/api.js";
 import { listSessions, readConv, sessionDir } from "./sessions-store.js";
 
 /**
@@ -37,13 +38,6 @@ const MAX_PROMPT_CHARS = 400;
 const MAX_PROMPTS_PER_SESSION = 12;
 /** Across the whole answer. A night that hits this had a very busy day. */
 const MAX_TOTAL_CHARS = 8_000;
-
-export interface SessionPrompts {
-  sessionId: string;
-  project: string;
-  endedAt: string | null;
-  prompts: string[];
-}
 
 // Where claude keeps a conversation, and its subagents' conversations beside
 // it (once interleaved into the parent's file, tagged `isSidechain`; the
