@@ -36,6 +36,32 @@ jobs:
         working-directory: backend
       - run: npm run build
 
+  # Trial: the same suite through the dev image, as `make test` runs it, to
+  # time it against the job above on the same commit (BACKLOG, "Run CI through
+  # the containers").
+  test-in-container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: verksted-dev:ci
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+      - run: docker run --rm -v "$PWD:/app" -w /app verksted-dev:ci sh -c "npm ci && npm test"
+
   # The browser half of the suite. It was `make e2e` only, which means it ran
   # when someone remembered — and the app is edited by unattended agents, whose
   # only signal is what CI says. A bundle that fails to load or a route that
