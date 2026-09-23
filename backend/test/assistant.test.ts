@@ -631,6 +631,75 @@ describe("the thread", () => {
     expect(ids).toEqual([open]);
   });
 
+  it("finds a thread by what was said in it, and says where (C-30)", async () => {
+    const thread = (id: string, texts: string[]) =>
+      fs.writeFileSync(
+        path.join(assistantDir, `${id}.jsonl`),
+        texts
+          .map((text, i) =>
+            JSON.stringify({
+              id: `e${i}`,
+              at: `2026-01-0${i + 1}T00:00:00Z`,
+              role: "user",
+              text,
+              tools: [],
+            }),
+          )
+          .join("\n") + "\n",
+      );
+    thread("66666666-6666-4666-8666-666666666666", ["rent", "The Kargo promotion runs on merge"]);
+    thread("77777777-7777-4777-8777-777777777777", ["something else entirely"]);
+
+    const found = (await app.inject({ url: "/api/assistant/threads?q=kargo%20merge" })).json();
+    expect(found).toHaveLength(1);
+    expect(found[0].conversationId).toBe("66666666-6666-4666-8666-666666666666");
+    expect(found[0].match).toContain("Kargo promotion");
+  });
+
+  it("names a thread by hand, and goes back to its first line when the name is cleared", async () => {
+    await say("a long first question about the cluster");
+    const id = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    const rename = (title: string) =>
+      app.inject({ method: "PUT", url: `/api/assistant/threads/${id}/title`, payload: { title } });
+    const title = async () => (await app.inject({ url: "/api/assistant/threads" })).json()[0];
+
+    expect((await rename("  Cluster\nupgrade  ")).statusCode).toBe(200);
+    expect(await title()).toMatchObject({ title: "Cluster upgrade", renamed: true });
+    // A search reads the name too.
+    expect((await app.inject({ url: "/api/assistant/threads?q=upgrade" })).json()).toHaveLength(1);
+
+    await rename("");
+    expect((await title()).title).toBe("a long first question about the cluster");
+    expect((await title()).renamed).toBeUndefined();
+    expect(
+      (
+        await app.inject({
+          method: "PUT",
+          url: "/api/assistant/threads/33333333-3333-4333-8333-333333333333/title",
+          payload: { title: "x" },
+        })
+      ).statusCode,
+    ).toBe(404);
+  });
+
+  it("exports a thread as markdown, with who said what", async () => {
+    await say("what is on today?");
+    const id = (await app.inject({ url: "/api/assistant" })).json().conversationId;
+    await app.inject({
+      method: "PUT",
+      url: `/api/assistant/threads/${id}/title`,
+      payload: { title: "Today: plan/ok?" },
+    });
+
+    const res = await app.inject({ url: `/api/assistant/threads/${id}/export` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/markdown");
+    expect(res.headers["content-disposition"]).toBe('attachment; filename="Today-planok.md"');
+    expect(res.body).toMatch(/^# Today: plan\/ok\?\n/);
+    expect(res.body).toContain("## You ·");
+    expect(res.body).toContain("what is on today?");
+  });
+
   it("refuses to open a thread that is not there", async () => {
     const res = await app.inject({
       method: "POST",

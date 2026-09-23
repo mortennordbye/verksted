@@ -784,9 +784,10 @@ forget, propose_memory` and none of the mail, calendar or document tools it
 
 ## The chat view is polled, not pushed
 
-- **What:** `ChatPane` runs its own 3s timer against `GET /api/sessions/:id/chat`
-  with a `since` cursor, and a second 3s timer against `/prompt` while something
-  is being asked. The `/api/events` SSE stream carries neither.
+- **What:** `useSessionChat` polls `GET /api/sessions/:id/chat` with a `since`
+  cursor, and `usePanePrompt` polls `/prompt` while the session is live, each
+  one request at a time, 3s after the last answer. The `/api/events` SSE stream
+  carries neither.
 - **Why deferred:** The stream broadcasts two global topics whose payload every
   client wants identically — that is what makes one server-side watcher cheaper
   than N clients polling. A session's chat is per-session and per-client, since
@@ -800,7 +801,7 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   kept as the backstop — `fs.watch` on the NFS-backed `/data` volume is not
   reliable enough to be the only signal.
 - **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
-  (`TOPICS`), `frontend/src/components/ChatPane.tsx`
+  (`TOPICS`), `frontend/src/useSessionChat.ts`, `frontend/src/usePanePrompt.ts`
 
 ## Nothing in CI reads a real transcript, and the chat view now leans on six shapes
 

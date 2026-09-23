@@ -5,6 +5,7 @@ import { useConfirm } from "../../useConfirm";
 import Icon from "../Icon";
 import Sheet from "../Sheet";
 import Skeleton from "../Skeleton";
+import { Input } from "../ui/Field";
 
 /**
  * Every conversation this room has had: switch to one, start one, delete one,
@@ -30,11 +31,45 @@ export default function Threads({
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [confirm, dialog] = useConfirm();
+  const [query, setQuery] = useState("");
+  /** The thread being renamed, and the name typed so far. */
+  const [naming, setNaming] = useState<{ id: string; title: string } | null>(null);
+  // A search asks the server, which reads what was said in every thread
+  // (C-30). A quarter second after the last key, so typing a word is one
+  // request rather than one per letter.
   useEffect(() => {
-    api<AssistantThreadSummary[]>("/api/assistant/threads")
-      .then(setThreads)
-      .catch((e: Error) => setError(e.message));
-  }, [version]);
+    let live = true;
+    const q = query.trim();
+    const timer = setTimeout(
+      () => {
+        api<AssistantThreadSummary[]>(
+          `/api/assistant/threads${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+        )
+          .then((t) => live && setThreads(t))
+          .catch((e: Error) => live && setError(e.message));
+      },
+      q ? 250 : 0,
+    );
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [version, query]);
+
+  async function rename() {
+    if (!naming) return;
+    setError(null);
+    try {
+      await api(`/api/assistant/threads/${naming.id}/title`, {
+        method: "PUT",
+        body: JSON.stringify({ title: naming.title }),
+      });
+      setNaming(null);
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
 
   const others = (threads ?? []).filter((t) => t.conversationId !== current);
 
@@ -107,7 +142,19 @@ export default function Threads({
           <Icon name="compose" size={15} />
           new thread
         </button>
-        {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
+        <Input
+          type="search"
+          label="search the threads"
+          placeholder="search what was said"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="mb-3 w-full"
+        />
+        {error && (
+          <div role="alert" className="mb-2 text-[12.5px] text-fail">
+            {error}
+          </div>
+        )}
         {threads === null && !error && (
           <div className="flex flex-col gap-1.5">
             {[0, 1, 2].map((i) => (
@@ -116,7 +163,9 @@ export default function Threads({
           </div>
         )}
         {threads?.length === 0 && (
-          <div className="text-sm text-muted">nothing said in here yet</div>
+          <div className="text-sm text-muted">
+            {query.trim() ? "no thread said that" : "nothing said in here yet"}
+          </div>
         )}
         <div className="flex flex-col gap-1.5">
           {threads?.map((t) => {
@@ -130,19 +179,73 @@ export default function Threads({
                     : "bg-surface-2/60 hover:bg-surface-2"
                 }`}
               >
+                {naming?.id === t.conversationId ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void rename();
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1.5"
+                  >
+                    <Input
+                      label="the thread's name"
+                      placeholder="empty goes back to its first line"
+                      value={naming.title}
+                      onChange={(e) => setNaming({ ...naming, title: e.target.value })}
+                      className="min-w-0 flex-1"
+                    />
+                    <button
+                      type="submit"
+                      className="tap flex-none rounded-lg px-2 text-[12.5px] font-semibold text-accent"
+                    >
+                      save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNaming(null)}
+                      className="tap flex-none rounded-lg px-1.5 text-[12.5px] text-muted"
+                    >
+                      cancel
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => void open(t.conversationId)}
+                    disabled={here}
+                    title={here ? "the thread open now" : "open this thread"}
+                    className="tap flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2 text-left disabled:cursor-default"
+                  >
+                    <span className="w-full truncate text-[13.5px]">{t.title}</span>
+                    {t.match && (
+                      <span className="line-clamp-2 w-full text-[12px] text-muted">{t.match}</span>
+                    )}
+                    <span className="font-mono text-[11px] text-faint">
+                      {here ? "open now" : agoLabel(t.at)} · {t.turns} turn
+                      {t.turns === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => void open(t.conversationId)}
-                  disabled={here}
-                  title={here ? "the thread open now" : "open this thread"}
-                  className="tap flex min-w-0 flex-1 flex-col items-start gap-0.5 px-3 py-2 text-left disabled:cursor-default"
+                  onClick={() =>
+                    setNaming({ id: t.conversationId, title: t.renamed ? t.title : "" })
+                  }
+                  title="rename this thread"
+                  aria-label={`rename the thread "${t.title}"`}
+                  className="tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-lg text-faint hover:bg-surface-2 hover:text-text"
                 >
-                  <span className="w-full truncate text-[13.5px]">{t.title}</span>
-                  <span className="font-mono text-[11px] text-faint">
-                    {here ? "open now" : agoLabel(t.at)} · {t.turns} turn
-                    {t.turns === 1 ? "" : "s"}
-                  </span>
+                  <Icon name="rename" size={15} />
                 </button>
+                <a
+                  href={`/api/assistant/threads/${t.conversationId}/export`}
+                  download
+                  title="download as markdown"
+                  aria-label={`download the thread "${t.title}" as markdown`}
+                  className="tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-lg text-faint hover:bg-surface-2 hover:text-text"
+                >
+                  <Icon name="download" size={15} />
+                </a>
                 <button
                   type="button"
                   onClick={() => void remove(t)}
@@ -156,7 +259,8 @@ export default function Threads({
             );
           })}
         </div>
-        {others.length > 0 && (
+        {/* Not while searching: it clears every old thread, not the ones found. */}
+        {others.length > 0 && !query.trim() && (
           <button
             type="button"
             onClick={() => void clearOld()}

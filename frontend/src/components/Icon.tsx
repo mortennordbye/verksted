@@ -151,6 +151,7 @@ const PATHS = {
       <path d="M18.4 2.6a2.1 2.1 0 1 1 3 3L12 15l-4 1 1-4z" />
     </>
   ),
+  rename: <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" />,
   close: <path d="M18 6 6 18M6 6l12 12" />,
   pull: <path d="M12 3v12M6 11l6 6 6-6M5 21h14" />,
   push: <path d="M12 21V9M6 13l6-6 6 6M5 3h14" />,

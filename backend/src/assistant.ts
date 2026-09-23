@@ -45,7 +45,7 @@ import { forgetUsage, recordUsage, threadUsage } from "./assistant-usage.js";
 import * as journal from "./journal-store.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
-import { BusyError } from "./serial.js";
+import { BusyError, keyedQueue } from "./serial.js";
 import { readAssistantConfig } from "./settings-store.js";
 
 /**
@@ -551,28 +551,117 @@ function titleOf(entries: AssistantEntry[]): string {
  * one to go back to. Meetings held when the council was a room of its own are
  * threads like any other, and open the same way.
  */
-export async function listThreads(): Promise<AssistantThreadSummary[]> {
+export async function listThreads(query = ""): Promise<AssistantThreadSummary[]> {
   let names: string[];
   try {
     names = await fs.readdir(env.ASSISTANT_DIR);
   } catch {
     return [];
   }
+  // With a query, only the threads that said it, each with where (C-30). All
+  // words required, the way `search` matches; the open thread is included,
+  // since this is the person looking, not the chair.
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const titles = await readTitles();
   const out: AssistantThreadSummary[] = [];
   for (const name of names) {
     const id = name.replace(/\.jsonl$/, "");
     if (id === name || !CONV_RE.test(id)) continue;
     const entries = await readEntries(id);
     if (!entries.length) continue;
+    const title = titles[id] || titleOf(entries);
+    let match: string | undefined;
+    if (words.length) {
+      const hit = entries.find((e) => words.every((w) => e.text.toLowerCase().includes(w)));
+      if (hit) match = around(hit.text, hit.text.toLowerCase().indexOf(words[0] ?? ""), 40, 120);
+      else if (!words.every((w) => title.toLowerCase().includes(w))) continue;
+    }
     out.push({
       conversationId: id,
-      title: titleOf(entries),
+      title,
       // Not empty: checked above.
       at: entries.at(-1)!.at,
       turns: entries.filter((e) => e.role === "user").length,
+      ...(titles[id] ? { renamed: true } : {}),
+      ...(match ? { match } : {}),
     });
   }
   return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+/**
+ * Names given to threads by hand, by id. One small file beside the threads
+ * rather than a line in each: a thread file is append-only, and its title is
+ * otherwise read off its first message.
+ */
+function titlesPath(): string {
+  return path.join(env.ASSISTANT_DIR, "titles.json");
+}
+
+async function readTitles(): Promise<Record<string, string>> {
+  try {
+    return JSON.parse(await fs.readFile(titlesPath(), "utf8")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+const titleEdits = keyedQueue();
+
+/** Name a thread, or with an empty title go back to its first message. */
+export async function renameThread(id: string, title: string): Promise<void> {
+  if (!CONV_RE.test(id)) throw new Error("not a thread id");
+  try {
+    await fs.access(threadPath(id));
+  } catch {
+    throw new Error("no such thread");
+  }
+  const clean = title.replace(/\s+/g, " ").trim().slice(0, 120);
+  await titleEdits("titles", async () => {
+    const titles = await readTitles();
+    if (clean) titles[id] = clean;
+    else delete titles[id];
+    await writeJsonAtomic(titlesPath(), titles);
+  });
+}
+
+/** A deleted thread's name goes with it. */
+async function forgetTitle(id: string): Promise<void> {
+  await titleEdits("titles", async () => {
+    const titles = await readTitles();
+    if (!(id in titles)) return;
+    delete titles[id];
+    await writeJsonAtomic(titlesPath(), titles);
+  });
+}
+
+/**
+ * A thread as markdown, for keeping somewhere else: who said what, when, and
+ * which tools it used. The whole of it, not the tail the screen holds.
+ */
+export async function exportThread(id: string): Promise<{ title: string; text: string }> {
+  if (!CONV_RE.test(id)) throw new Error("not a thread id");
+  const entries = await readEntries(id);
+  if (!entries.length) throw new Error("no such thread");
+  const title = (await readTitles())[id] || titleOf(entries);
+  const names = new Map((await listMembers()).map((m) => [m.id, m.name]));
+  const chairName = (await chair()).name;
+  const parts = [`# ${title}`, ""];
+  for (const e of entries) {
+    const who =
+      e.role === "user" ? "You" : e.member ? (names.get(e.member) ?? e.member) : chairName;
+    parts.push(`## ${who} · ${e.at}`, "");
+    const tools = e.tools.filter((t) => t.name !== "handoff");
+    if (tools.length) {
+      parts.push(
+        tools.map((t) => `- _${t.name}${t.detail ? `: ${t.detail}` : ""}_`).join("\n"),
+        "",
+      );
+    }
+    if (e.images?.length) parts.push(`_${e.images.length} image(s)_`, "");
+    if (e.text.trim()) parts.push(e.text.trim(), "");
+  }
+  return { title, text: parts.join("\n") };
 }
 
 /**
@@ -620,6 +709,7 @@ export async function deleteConversation(id: string): Promise<void> {
   await fs.rm(threadPath(id), { force: true });
   await fs.rm(participantsPath(id), { force: true });
   await forgetUsage(id);
+  await forgetTitle(id);
   if (id === current) await writeTextAtomic(currentPath(), randomUUID());
   announce();
 }
@@ -640,6 +730,7 @@ export async function clearThreads(olderThanDays?: number, now = Date.now()): Pr
     await fs.rm(threadPath(t.conversationId), { force: true });
     await fs.rm(participantsPath(t.conversationId), { force: true });
     await forgetUsage(t.conversationId);
+    await forgetTitle(t.conversationId);
     deleted++;
   }
   return deleted;
