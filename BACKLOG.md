@@ -422,41 +422,23 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`), `runtime/vk-guard`,
   `runtime/git-hooks/`
 
-## The harvest has only read scheduled-run transcripts, and nothing guards the shape
+## Nobody has yet judged what the harvest and the learning pass propose
 
-- **What:** Two halves, one now answered. `transcripts.ts` has been run against
-  real transcripts in the pod (2026-08-08): seven finished sessions, seven typed
-  turns, no model output and no tool results — the `origin.kind === "human"`
-  filter holds on real data. But all seven were _scheduled_ sessions, where the
-  single human turn is the prompt verksted submitted, so the harvest has still
-  never read a conversation a person actually typed into, which is where the
-  durable facts are and where the judgement is hard. And nothing in CI reads a
-  real transcript, so a future CLI release renaming `origin` would silently
-  harvest nothing (safe) or, if the shape moved the other way, start including
-  tool results (not safe).
-- **Why deferred:** The first half needs interactive sessions to end and a night
-  to pass. The second is the same class as the gh fixture entry above.
-- **Unblocked by:** Reading the inbox after a day with real interactive work in
-  it, and judging whether what it proposed was worth keeping. For the shape
-  guard: a check that reads one real transcript from `$HOME/.claude/projects/`
-  in the pod and asserts a human turn comes out and no tool result does. Worth
-  pinning the claude version in the image and re-checking on each bump.
-- **Where:** `backend/src/transcripts.ts` (`promptsIn`),
-  `backend/test/transcripts.test.ts`
-
-## A harvest proposing the same rejected fact every night
-
-- **What:** Dropping a proposal leaves no trace, which is what makes the queue
-  feel clean. The cost is that nothing remembers the rejection: if the same
-  session's prompts are read again — a harvest run twice by hand, or a
-  look-back window widened past a day — the same fact is proposed again and has
-  to be dropped again. The nightly window makes this unlikely rather than
-  impossible.
-- **Why deferred:** The fix is a tombstone file per rejected slug, which is
-  state that exists only to remember a "no" and has to be pruned itself. Not
-  worth it before it is annoying in practice.
-- **Unblocked by:** Dropping the same proposal twice and being irritated by it.
-- **Where:** `backend/src/memory-store.ts` (`dropProposal`)
+- **What:** The shape guard is in: `transcript-check.ts` reads the newest real
+  transcript every day, the way both the chat view and the harvest read it, and
+  files an inbox item if either finds nothing (checked against the pod's
+  largest transcripts on 2026-09-23: turns, chips, images, a question and a plan
+  card, and five kinds of rail all came out). What is left is the judgement: on
+  2026-09-23 the queue held 24 proposals, most of them sorting rules from the
+  learning pass, and none had been kept or dropped.
+- **Why deferred:** Whether a proposal is worth keeping is the person's call,
+  and it is the only way to learn whether the harvest's output is useful.
+- **Unblocked by:** Going through the queue once (Settings, Memory, or the
+  inbox). Keep what is right and drop the rest: a dropped proposal is now
+  remembered and not proposed again for 90 days, and the learning pass is shown
+  both what is waiting and what was turned down.
+- **Where:** `backend/src/memory-store.ts` (`propose`, `dropProposal`),
+  `backend/src/assistant-jobs.ts` (`runLearning`, `sortingRules`).
 
 ## Assistant M4: memory has a budget but no compaction
 
@@ -653,25 +635,6 @@ what unblocks it / where the code lives.
   reliable enough to be the only signal.
 - **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
   (`TOPICS`), `frontend/src/useSessionChat.ts`, `frontend/src/usePanePrompt.ts`
-
-## Nothing in CI reads a real transcript, and the chat view now leans on six shapes
-
-- **What:** Every fixture in `backend/test/chat.test.ts` is hand-written. The
-  chat view reads six load-bearing shapes out of the transcript now — human
-  turns, tool calls and their results, `task_reminder` attachments, `pr-link`
-  and `permission-mode` entries, `AskUserQuestion` and `ExitPlanMode` payloads,
-  and the `subagents/` directory — where before it read two. A CLI release that
-  renames or moves any of them shows up as a silently emptier view, with every
-  test still green.
-- **Why deferred:** Same reason as the entry above about `transcripts.ts`, which
-  this widens rather than replaces: a check that reads a real transcript needs
-  one to exist, which is true in the pod and not in CI.
-- **Unblocked by:** A check that runs in the pod against one real file from
-  `$HOME/.claude/projects/` and asserts that a turn, a chip, a rail, an image
-  reference and a question all come out of it. The parser is pure, so this is a
-  script and an assertion rather than a harness.
-- **Where:** `backend/src/chat.ts` (`parseTranscript`, `findDetail`),
-  `backend/test/chat.test.ts`
 
 ## A subagent's conversation is read at a fixed window with no way to page back
 

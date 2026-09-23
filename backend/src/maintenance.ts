@@ -3,6 +3,7 @@ import { Cron } from "croner";
 import { env } from "./env.js";
 import { exec } from "./exec.js";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
+import { reportTranscripts } from "./transcript-check.js";
 import * as feed from "./feed-store.js";
 import { archiveOldSessions, reapFinishedSessions } from "./session-reaper.js";
 import { backfillUsage } from "./sessions-store.js";
@@ -116,6 +117,11 @@ export function startMaintenance(log: Logger): void {
       if (n) log.info(`feed: ${n} done item(s) swept`);
     } catch (err) {
       log.warn(err, "feed sweep failed");
+    }
+    try {
+      await reportTranscripts(log);
+    } catch (err) {
+      log.warn(err, "transcript check failed");
     }
   };
   new Cron(HOUSEKEEPING_CRON, { protect: true, timezone: env.TZ }, () => void catchUp());

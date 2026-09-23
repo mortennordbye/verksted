@@ -329,11 +329,20 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
  * delete, which is the whole reason they are memories rather than weights.
  */
 async function sortingRules(): Promise<string> {
-  const facts = await memory.list();
-  return facts
+  const line = (text: string) => text.replace(/\s*\n\s*/g, " ");
+  const kept = (await memory.list())
     .filter((m) => m.type === "preference")
-    .map((m) => `- ${m.text.replace(/\s*\n\s*/g, " ")}`)
-    .join("\n");
+    .map((m) => `- ${line(m.text)}`);
+  // Waiting for a decision and turned down are rules too, as far as proposing
+  // goes: the pass was shown only what was kept, and proposed the same idea
+  // again each night until somebody got round to the queue.
+  const waiting = (await memory.listProposals()).map(
+    (m) => `- (waiting for a decision) ${line(m.text)}`,
+  );
+  const refused = Object.values(await memory.droppedProposals()).map(
+    (d) => `- (turned down: do not propose it again) ${line(d.text)}`,
+  );
+  return [...kept, ...waiting, ...refused].join("\n");
 }
 
 /**
