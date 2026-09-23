@@ -64,4 +64,12 @@ describe("Composer (C-22)", () => {
     fireEvent.keyDown(screen.getByLabelText("message"), { key: "Enter" });
     expect(blocked.onSend).not.toHaveBeenCalled();
   });
+
+  it("attaches images dropped on it (C-30)", () => {
+    const { onAttach } = setup();
+    const shot = image("drop.png");
+    const card = screen.getByLabelText("message").parentElement as HTMLElement;
+    fireEvent.drop(card, { dataTransfer: { types: ["Files"], files: [shot] } });
+    expect(onAttach).toHaveBeenCalledWith([shot]);
+  });
 });

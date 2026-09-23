@@ -1,4 +1,4 @@
-import { useRef, type ReactNode, type Ref } from "react";
+import { useRef, useState, type DragEvent, type ReactNode, type Ref } from "react";
 
 /**
  * The composer's icons, drawn rather than typed.
@@ -89,6 +89,9 @@ export default function Composer({
   children?: ReactNode;
 }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  /** Files are being dragged over the card: it lights up as the place to drop. */
+  const [over, setOver] = useState(false);
+  const carriesFiles = (e: DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
 
   function take(files: File[]) {
     const images = files.filter((f) => f.type.startsWith("image/"));
@@ -100,8 +103,28 @@ export default function Composer({
   }
 
   return (
+    // A file dropped on the card attaches it, the desktop's third way in beside
+    // the button and a paste (C-30). Not a control of its own: the attach
+    // button is the keyboard's way to the same thing.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
-      className={`rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 focus-within:ring-1 focus-within:ring-accent/60 ${className}`}
+      onDragOver={(e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false);
+      }}
+      onDrop={(e) => {
+        if (!carriesFiles(e)) return;
+        e.preventDefault();
+        setOver(false);
+        take(Array.from(e.dataTransfer.files));
+      }}
+      className={`rounded-3xl bg-surface-2 px-4 pt-3.5 pb-3 focus-within:ring-1 focus-within:ring-accent/60 ${
+        over ? "ring-2 ring-accent" : ""
+      } ${className}`}
     >
       <input
         ref={fileRef}

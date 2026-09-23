@@ -398,7 +398,19 @@ export default async function assistantRoutes(app: FastifyInstance) {
     }
   });
 
-  app.get("/api/assistant/threads", () => assistant.listThreads());
+  app.get<{ Querystring: { q?: string } }>(
+    "/api/assistant/threads",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: { q: { type: "string", maxLength: 200 } },
+        },
+      },
+    },
+    (req) => assistant.listThreads(req.query.q ?? ""),
+  );
 
   app.post<{ Params: { id: string } }>(
     "/api/assistant/threads/:id/open",
@@ -440,6 +452,54 @@ export default async function assistantRoutes(app: FastifyInstance) {
       } catch (err) {
         const message = (err as Error).message;
         return reply.code(message === "no such thread" ? 404 : 409).send({ error: message });
+      }
+    },
+  );
+
+  app.put<{ Params: { id: string }; Body: { title: string } }>(
+    "/api/assistant/threads/:id/title",
+    {
+      schema: {
+        params: threadId,
+        body: {
+          type: "object",
+          required: ["title"],
+          additionalProperties: false,
+          properties: { title: { type: "string", maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        await assistant.renameThread(req.params.id, req.body.title);
+        return { ok: true };
+      } catch (err) {
+        const message = (err as Error).message;
+        return reply.code(message === "no such thread" ? 404 : 400).send({ error: message });
+      }
+    },
+  );
+
+  // Markdown, as a download: the name is the title, reduced to what every
+  // filesystem takes, since it lands in a header.
+  app.get<{ Params: { id: string } }>(
+    "/api/assistant/threads/:id/export",
+    { schema: { params: threadId } },
+    async (req, reply) => {
+      try {
+        const { title, text } = await assistant.exportThread(req.params.id);
+        const name =
+          title
+            .replace(/[^A-Za-z0-9 ._-]+/g, "")
+            .trim()
+            .slice(0, 60)
+            .replace(/\s+/g, "-") || "thread";
+        return reply
+          .header("content-type", "text/markdown; charset=utf-8")
+          .header("content-disposition", `attachment; filename="${name}.md"`)
+          .send(text);
+      } catch (err) {
+        return reply.code(404).send({ error: (err as Error).message });
       }
     },
   );

@@ -1191,6 +1191,10 @@ export interface AssistantThreadSummary {
   at: string;
   /** How many things were typed into it. */
   turns: number;
+  /** The title was given by hand rather than read off the first message. */
+  renamed?: boolean;
+  /** With a search: the words around where the thread said it. */
+  match?: string;
 }
 
 /**

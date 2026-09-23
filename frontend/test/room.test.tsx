@@ -119,3 +119,17 @@ describe("Room (C-19, C-26)", () => {
     expect(screen.queryByText("thinking…")).toBeNull();
   });
 });
+
+describe("Room (C-30)", () => {
+  it("opens an image you attached full size, rather than in a new tab", () => {
+    render(
+      <Room
+        thread={thread([entry("user", "look", { images: ["a.png"] })])}
+        members={[]}
+        chair={chair}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /full size/ }));
+    expect(screen.getByRole("dialog", { name: "attached image" })).toBeTruthy();
+  });
+});

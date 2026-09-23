@@ -12,6 +12,7 @@ import CopyButton from "./chat/CopyButton";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
+import Overlay from "./ui/Overlay";
 
 /**
  * The room: one person to talk to, and everything said in it.
@@ -40,6 +41,43 @@ function Upload({ name, alt, className }: { name: string; alt: string; className
       className={className}
       onError={() => setGone(true)}
     />
+  );
+}
+
+/**
+ * An image you attached, which opens full size over the thread on a tap
+ * (C-30). A new tab, the way a screenshot the chair took opens, is a dead end
+ * in the installed app: there is no tab bar to come back through.
+ */
+function Attached({ name }: { name: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="show the attached image full size"
+        className="block max-w-[82%]"
+      >
+        <Upload name={name} alt="attached image" className="max-h-52 max-w-full rounded-xl" />
+      </button>
+      {open && (
+        <Overlay
+          label="attached image"
+          onClose={() => setOpen(false)}
+          className="max-h-[92dvh] max-w-[96vw] overflow-auto rounded-xl bg-bg p-1"
+        >
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="close the image"
+            className="block"
+          >
+            <Upload name={name} alt="attached image" className="max-h-[90dvh] max-w-full" />
+          </button>
+        </Overlay>
+      )}
+    </>
   );
 }
 
@@ -356,12 +394,7 @@ export default function Room({
       return (
         <div className="animate-rise flex flex-col items-end gap-1.5">
           {e.images?.map((name) => (
-            <Upload
-              key={name}
-              name={name}
-              alt="attached image"
-              className="max-h-52 max-w-[82%] rounded-xl"
-            />
+            <Attached key={name} name={name} />
           ))}
           {e.text && (
             <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
