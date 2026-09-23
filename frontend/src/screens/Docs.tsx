@@ -9,6 +9,7 @@ import PageHeader from "../components/PageHeader";
 import { SkeletonList } from "../components/Skeleton";
 import { Input } from "../components/ui/Field";
 import Icon from "../components/Icon";
+import Notice from "../components/ui/Notice";
 import { bytes } from "../format";
 import PollError from "../components/PollError";
 
@@ -86,10 +87,10 @@ export default function Docs() {
         />
 
         {error && (
-          <div className="mb-4 text-[12.5px] text-wait">
-            {/* 503 is the honest case: no share is mounted at DOCS_DIR. */}
+          // note, not fail: 503 is the honest case, no share mounted at DOCS_DIR.
+          <Notice kind="note" className="mb-4">
             {error}
-          </div>
+          </Notice>
         )}
 
         {search.length >= 2 ? (

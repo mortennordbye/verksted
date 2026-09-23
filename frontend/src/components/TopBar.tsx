@@ -17,9 +17,9 @@ export function BackButton({ to }: { to: string }) {
     <button
       onClick={() => (history.length > 1 ? navigate(-1) : navigate(to))}
       aria-label="back"
-      className="tap-sq flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 font-mono text-[13px] text-muted hover:border-faint hover:text-text"
+      className="tap-sq flex-none rounded-[7px] border border-line bg-surface px-2.5 py-1.5 text-muted hover:border-faint hover:text-text"
     >
-      ←
+      <Icon name="back" size={14} />
     </button>
   );
 }

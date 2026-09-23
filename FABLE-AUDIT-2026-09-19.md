@@ -1165,6 +1165,16 @@ All nine below were fixed on 2026-09-23, each with a test that fails without the
 - F-39, F-40: the blocked-owner button is `tap-sq` with the close icon and an `aria-label`.
 - O-06: the dependabot.yml header names agy as the exception.
 
+Later the same day:
+
+- F-23: the error lines in Docs, the session browser, the council panel and the calendar month are `Notice`s,
+  so each is announced.
+- F-27: the listed glyph controls are drawn icons (`back`, `forward`, `close`). The calendar month's ‹ › were
+  not on the list and are still glyphs.
+- F-29: the command palette says which read failed rather than "nothing matches".
+- C-06: `findImage` and `findDetail` skip a line that does not contain the ref before parsing it.
+- R-17: `browser-mcp.sh` is written with `writeTextAtomic`.
+
 What each one was:
 
 - **R-19.** The GitHub poller's error item still uses `feed.upsert` with a message-based version
