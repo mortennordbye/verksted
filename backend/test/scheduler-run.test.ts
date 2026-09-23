@@ -938,7 +938,9 @@ describe("a schedule that runs the assistant", () => {
     expect(overflow).toBeNull();
     expect((await store.getSchedule(s.id))!.lastError).toContain("already ran today");
     expect(fake.argvFor("claude")).toHaveLength(60);
-  });
+    // Sixty-one real process spawns, one after another: near the default 5 s
+    // on a busy runner.
+  }, 30_000);
 
   /**
    * R-13. Two unattended turns must not run at once, and the second one used
