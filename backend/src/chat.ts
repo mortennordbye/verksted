@@ -996,7 +996,8 @@ async function widening<T>(file: string, find: (text: string) => T | null): Prom
 export async function readDetail(
   file: string | null,
   ref: string,
-  opts: { subagentDir?: string } = {},
+  /** `bytes` is the subagent's window: its "load earlier". */
+  opts: { subagentDir?: string; bytes?: number } = {},
 ): Promise<ChatDetail> {
   if (!file) return { kind: "none" };
   let found: FoundDetail | null;
@@ -1010,7 +1011,7 @@ export async function readDetail(
   }
   if (!found) return { kind: "none" };
   if (found.kind !== "agent-ref") return found;
-  return readSubagent(opts.subagentDir, found.agentId, found.description);
+  return readSubagent(opts.subagentDir, found.agentId, found.description, opts.bytes);
 }
 
 /**
@@ -1028,6 +1029,7 @@ async function readSubagent(
   dir: string | undefined,
   agentId: string,
   description: string,
+  bytes = SUBAGENT_WINDOW,
 ): Promise<ChatDetail> {
   // The id is checked where it is read, but it is joined onto a path here, so
   // it is checked again next to the join it could escape.
@@ -1047,7 +1049,7 @@ async function readSubagent(
   }
   let window: { text: string; truncated: boolean };
   try {
-    window = await tail(`${base}.jsonl`, SUBAGENT_WINDOW);
+    window = await tail(`${base}.jsonl`, Math.min(Math.max(bytes, SUBAGENT_WINDOW), MAX_WINDOW));
   } catch {
     // It ran, but nothing of it was kept — or it is still being written.
     return { kind: "agent", agentType, description, messages: [], truncated: false };

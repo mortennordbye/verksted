@@ -368,7 +368,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * transcript answers "nothing to show" rather than saying whether it ever
    * existed.
    */
-  app.get<{ Params: { id: string }; Querystring: { ref: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
     "/api/sessions/:id/chat/detail",
     {
       schema: {
@@ -378,7 +378,12 @@ export default async function sessionRoutes(app: FastifyInstance) {
           additionalProperties: false,
           // No window: see the image route above. A chip still on screen must
           // open whatever the tail has slid past since it was drawn.
-          properties: { ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" } },
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            // A subagent's own window, for its "load earlier"; the parent's
+            // is still the whole file, as above.
+            bytes: { type: "integer", minimum: 1, maximum: MAX_WINDOW },
+          },
         },
       },
     },
@@ -397,7 +402,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
           // The project is gone; a subagent chip then opens onto nothing.
         }
       }
-      return readDetail(file ?? null, req.query.ref, { subagentDir: subagents });
+      return readDetail(file ?? null, req.query.ref, {
+        subagentDir: subagents,
+        bytes: req.query.bytes,
+      });
     },
   );
 

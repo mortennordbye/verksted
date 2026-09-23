@@ -619,21 +619,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
   (`TOPICS`), `frontend/src/useSessionChat.ts`, `frontend/src/usePanePrompt.ts`
 
-## A subagent's conversation is read at a fixed window with no way to page back
-
-- **What:** Opening an Agent chip reads the last 64 kB of that subagent's
-  transcript, and says so when that did not reach the start. There is no "load
-  earlier" for it the way there is for the conversation itself.
-- **Why deferred:** A subagent is opened to find out what one delegated job
-  concluded, and the conclusion is the last thing it wrote — which the tail
-  always contains. A second window control on a nested view is more UI than the
-  question deserves until somebody actually wants to scroll one.
-- **Unblocked by:** Wanting to read a long subagent run rather than its result.
-  `readDetail` already takes a window for the parent; this would be the same
-  parameter threaded one level down.
-- **Where:** `backend/src/chat.ts` (`SUBAGENT_WINDOW`, `readSubagent`),
-  `frontend/src/components/chat/ToolChip.tsx`
-
 ## Still outside the maintainer
 
 - **What:** Three things the plan named and left out on purpose. cargo and go

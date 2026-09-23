@@ -1176,6 +1176,34 @@ describe("subagents", () => {
     ]);
   });
 
+  it("reads further back into a long subagent run when asked to (backlog)", async () => {
+    const conversationDir = path.join(transcriptDir("demo"), CONV, "subagents");
+    fs.mkdirSync(conversationDir, { recursive: true });
+    // Longer than the first window: the opening turn falls outside it.
+    const long = [
+      side("The very first thing it did."),
+      ...Array.from({ length: 80 }, (_, i) => side(`${"step ".repeat(200)}${i}`)),
+    ];
+    fs.writeFileSync(path.join(conversationDir, "agent-long01.jsonl"), long.join("\n") + "\n");
+    writeTranscript("demo", [
+      calls("Agent", { description: "A long job" }, "ag9"),
+      returned("ag9", { agentId: "long01", status: "done" }),
+    ]);
+    const read = async (bytes?: number) =>
+      (
+        await app.inject({
+          url: `/api/sessions/${SESSION}/chat/detail?ref=ag9${bytes ? `&bytes=${bytes}` : ""}`,
+        })
+      ).json<{ truncated: boolean; messages: { text: string }[] }>();
+
+    const first = await read();
+    expect(first.truncated).toBe(true);
+    expect(first.messages.map((m) => m.text)).not.toContain("The very first thing it did.");
+    const wider = await read(256_000);
+    expect(wider.truncated).toBe(false);
+    expect(wider.messages[0]?.text).toBe("The very first thing it did.");
+  });
+
   it("says nothing rather than guessing when the subagent kept no file", async () => {
     writeTranscript("demo", [
       calls("Agent", { description: "gone" }, "ag2"),
