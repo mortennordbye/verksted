@@ -369,23 +369,6 @@ what unblocks it / where the code lives.
 - **Where:** `runtime/verksted-mcp.mjs` (`call`, `reason`), `tsconfig.runtime.json`,
   `backend/src/routes/assistant.ts`, `backend/src/routes/memory.ts`, `shared/api.ts`
 
-## The image is scanned but carries no SBOM or provenance
-
-- **What:** CI now fails a push when trivy finds a fixable CRITICAL in the
-  image, and files everything HIGH and above under code scanning. What it does
-  not produce is a bill of materials or a signed statement of how the image was
-  built, so "which image had that package" can only be answered by re-scanning
-  whatever is still in the registry.
-- **Why deferred:** Scanning answers the question that was actually being asked
-  (is there a known hole in what is running). An SBOM is for answering it
-  backwards, after an advisory lands, and it is only worth its keep with
-  retention to go with it — which GHCR has none of here (O-17).
-- **Unblocked by:** An advisory that has to be traced to a specific deployed
-  tag, or deciding the GHCR retention question. `docker/build-push-action`
-  takes `sbom: true` and `provenance: mode=max`, so the change itself is two
-  lines.
-- **Where:** `.github/workflows/ci.yml` (the `image` job)
-
 ## Assistant M1: open the assistant's conversation in a terminal
 
 - **What:** Headless claude records its conversation under `$HOME` exactly as

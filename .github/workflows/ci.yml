@@ -232,3 +232,7 @@ jobs:
           # expensive ones (O-16). Not a SemVer tag, so Kargo never sees it.
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache,mode=max
+          # What is in each pushed image, and how it was built, attached to it:
+          # "which deployed tag had that package" is then read, not re-scanned.
+          sbom: true
+          provenance: mode=max
