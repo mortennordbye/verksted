@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { PlanSample, PlanUsage } from "../../shared/api.js";
+import { writeTextAtomic } from "./atomic-json.js";
 import { ttlCache } from "./cache.js";
 import { claudeCredentialsFile } from "./claude-home.js";
 import { env } from "./env.js";
@@ -223,6 +224,33 @@ export async function planHistory(sinceMs: number): Promise<PlanSample[]> {
     }
   }
   return out;
+}
+
+/**
+ * Drop the samples older than `beforeMs` (R-08): a line an hour is 8760 a year,
+ * and the usage page only ever reads the last week. A torn line goes with them.
+ */
+export async function prunePlanHistory(beforeMs: number): Promise<number> {
+  let raw: string;
+  try {
+    raw = await fs.readFile(historyFile(), "utf8");
+  } catch {
+    return 0;
+  }
+  const lines = raw.split("\n").filter(Boolean);
+  const kept = lines.filter((line) => {
+    try {
+      const s = JSON.parse(line) as PlanSample;
+      return typeof s.at === "string" && Date.parse(s.at) >= beforeMs;
+    } catch {
+      return false;
+    }
+  });
+  if (kept.length === lines.length) return 0;
+  // An hourly append landing between the read and the rename is lost; one
+  // sample a year is not worth a lock.
+  await writeTextAtomic(historyFile(), kept.map((l) => `${l}\n`).join(""));
+  return lines.length - kept.length;
 }
 
 const SAMPLE_EVERY_MS = 60 * 60_000;

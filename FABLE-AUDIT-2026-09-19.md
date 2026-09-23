@@ -1174,6 +1174,9 @@ Later the same day:
 - F-29: the command palette says which read failed rather than "nothing matches".
 - C-06: `findImage` and `findDetail` skip a line that does not contain the ref before parsing it.
 - R-17: `browser-mcp.sh` is written with `writeTextAtomic`.
+- O-05: the agent CLIs (`runtime/cli`) no longer auto-merge; everything else non-major still does, by decision.
+- R-08: `plan.jsonl` lines and closed loops older than a year are pruned nightly. The session archive is kept
+  on purpose (the usage page's all-time totals), and transcripts belong to the CLI.
 
 What each one was:
 
