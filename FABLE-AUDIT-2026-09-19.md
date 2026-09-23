@@ -1181,6 +1181,11 @@ Later the same day:
   open thread has a find box (`useFindMarks`, shared with the document viewer); your last message can be put
   back in the composer to edit and send again. By decision that is a new message, not a rewind: claude keeps
   the conversation, and the one flag that would rewind it (`--resume-session-at`) is undocumented.
+- C-35, P7-6: one `UserBubble` for the four user-message copies, one `EFFORTS`, and chat's error line, LivePrompt's
+  actions and the thread's find field on the `ui/` primitives. Left on purpose: the two ToolChips (a static
+  label in the assistant's replies, and a session's expandable call that loads its detail), the two
+  stick-to-bottom scrolls (the window in one, an element that keeps its place on a prepend in the other), and
+  the icon buttons, pills and chips, for which `ui/` has no primitive.
 
 What each one was:
 

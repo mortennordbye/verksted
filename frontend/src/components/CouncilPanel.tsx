@@ -10,6 +10,7 @@ import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { playSample, voiceLabel } from "../useSpeech";
+import { EFFORTS } from "./AssistantPanel";
 import Button from "./ui/Button";
 import Notice from "./ui/Notice";
 import { Input, Select, Textarea } from "./ui/Field";
@@ -26,7 +27,6 @@ import { useConfirm } from "../useConfirm";
  * The chair is shown but not editable here; it is the assistant, and it is
  * edited in the panel above.
  */
-const EFFORTS: AssistantEffort[] = ["low", "medium", "high", "xhigh", "max"];
 const COLOURS: CouncilColour[] = ["amber", "violet", "teal", "rose", "sky", "lime"];
 
 /**

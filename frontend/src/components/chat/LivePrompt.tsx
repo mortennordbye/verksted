@@ -1,4 +1,5 @@
 import type { Session, TuiPrompt } from "../../../../shared/api";
+import Button from "../ui/Button";
 
 /**
  * What the session is being asked right now, and the buttons to answer it.
@@ -80,13 +81,14 @@ export default function LivePrompt({
             numbered dialog — so the next thing this strip draws is its own
             "submit answers" button, from the same parse. */}
         {prompt.multiSelect && (
-          <button
+          <Button
+            variant="primary"
             onClick={() => void onKey("right")}
             disabled={sending}
-            className="tap self-start rounded-md border border-accent px-2.5 py-1 text-[12.5px] text-accent disabled:opacity-50"
+            className="self-start"
           >
             review and submit →
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -110,19 +112,12 @@ export default function LivePrompt({
     return (
       <div className="flex flex-none flex-wrap items-center gap-2 border-t border-wait/40 bg-wait/5 px-3.5 py-2 text-[12.5px] text-wait">
         <span className="min-w-0 flex-1">it is waiting for you, and I cannot read the dialog</span>
-        <button
-          onClick={onOpenTerminal}
-          className="tap rounded-md border border-accent px-2.5 py-1 text-accent"
-        >
+        <Button variant="primary" onClick={onOpenTerminal}>
           open terminal
-        </button>
-        <button
-          onClick={() => void onKey("escape")}
-          disabled={sending}
-          className="tap rounded-md border border-line px-2.5 py-1 text-muted disabled:opacity-50"
-        >
+        </Button>
+        <Button onClick={() => void onKey("escape")} disabled={sending}>
           esc
-        </button>
+        </Button>
       </div>
     );
   }

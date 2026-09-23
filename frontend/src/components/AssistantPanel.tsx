@@ -26,7 +26,8 @@ import { toast } from "./ui/Toast";
  * settings page that cannot name a new one is worse than one that lets a typo
  * through and says so on the next turn.
  */
-const EFFORTS: AssistantConfig["effort"][] = ["low", "medium", "high", "xhigh", "max"];
+/** The council offers the same choices; one list for both (C-35). */
+export const EFFORTS: AssistantConfig["effort"][] = ["low", "medium", "high", "xhigh", "max"];
 
 /**
  * What it can do, listed here so it never has to say so in a reply.

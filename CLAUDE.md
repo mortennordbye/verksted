@@ -308,7 +308,8 @@ e2e/                  # `make e2e` only: the built app in a real chromium
 - UI primitives live in `frontend/src/components/ui/`: `Button` (and `buttonClass` for
   links), `Input`/`Textarea`/`Select` (a `label` is required), `SegTabs`, `Notice`,
   `Overlay` (every modal, on Radix Dialog) and `toast`/`offerUndo`. Build on them rather
-  than pasting class strings; the chat screens are the part not yet moved over.
+  than pasting class strings. The chat's remaining hand-drawn controls are icon buttons,
+  pills and chips, which have no primitive yet; a user message is `chat/UserBubble`.
 
 ### Code quality
 
