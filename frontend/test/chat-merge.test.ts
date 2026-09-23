@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../../shared/api";
-import { merge } from "../src/components/ChatPane";
+import { merge } from "../src/useSessionChat";
 
 /**
  * How the session chat takes a poll's answer.

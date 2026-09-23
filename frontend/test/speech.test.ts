@@ -194,3 +194,24 @@ describe("useSpeech.speak", () => {
     await waitFor(() => expect(spoken).toEqual(["Still say it."]));
   });
 });
+
+describe("useSpeech.listen (C-20)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("says the microphone was refused instead of going quiet", async () => {
+    vi.stubGlobal("MediaRecorder", class {});
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () => Promise.reject(new DOMException("denied", "NotAllowedError")),
+      },
+    });
+    const { result } = renderHook(() => useSpeech(() => {}));
+    await act(() => result.current.listen());
+    expect(result.current.error).toBe("the microphone was refused");
+    expect(result.current.listening).toBe(false);
+
+    act(() => result.current.clearError());
+    expect(result.current.error).toBeNull();
+  });
+});

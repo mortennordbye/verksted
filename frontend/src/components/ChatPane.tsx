@@ -1,17 +1,12 @@
-import { Fragment, memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useLayoutEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
-import type {
-  ChatMessage,
-  ChatTodo,
-  ChatToolCall,
-  Session,
-  SessionChat,
-  SessionPrompt,
-  TuiPrompt,
-  UploadedFile,
-} from "../../../shared/api";
+import type { ChatMessage, ChatTodo, Session, UploadedFile } from "../../../shared/api";
 import { api } from "../api";
+import { useDraft } from "../useDraft";
 import { useGrow } from "../useGrow";
+import { usePanePrompt } from "../usePanePrompt";
+import { useSessionChat } from "../useSessionChat";
+import Composer from "./chat/Composer";
 import AskCard from "./chat/AskCard";
 import Images from "./chat/Images";
 import LivePrompt from "./chat/LivePrompt";
@@ -239,7 +234,10 @@ const Turn = memo(function Turn({
  */
 function Activity({ busy, doing }: { busy: boolean; doing: string | null }) {
   return (
-    <div className="flex flex-none items-center gap-2 border-t border-line px-3.5 py-1.5 text-[11.5px]">
+    <div
+      role="status"
+      className="flex flex-none items-center gap-2 border-t border-line px-3.5 py-1.5 text-[11.5px]"
+    >
       <span
         className={`h-1.5 w-1.5 flex-none rounded-full ${busy ? "animate-pulse bg-run" : "bg-idle"}`}
       />
@@ -250,108 +248,6 @@ function Activity({ busy, doing }: { busy: boolean; doing: string | null }) {
   );
 }
 
-/** A message sent from here that the transcript has not echoed back yet. */
-interface Echo {
-  text: string;
-  at: number;
-}
-
-/** How long an unmatched echo stays on screen before it is assumed swallowed. */
-const ECHO_TTL_MS = 90_000;
-
-/** Tail of the transcript to ask for; "load earlier" widens it. Matches the
-    backend's default, and its ceiling. */
-const WINDOW = 256_000;
-const MAX_WINDOW = 8_000_000;
-
-/**
- * Whether a poll's answer says what is already held.
- *
- * For the small fixed-shape things that arrive on every poll whether or not
- * they have changed — the checklist, the calls in flight, the dialog. They are
- * a handful of small objects, so this costs nothing next to what it saves:
- * handing React a new array every three seconds re-renders everything built
- * from it, and one of them is watched by the effect that decides where the
- * conversation is scrolled to.
- */
-function unchanged(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
-}
-
-/**
- * Whether two readings of the same message say the same thing.
- *
- * Cheap on purpose, and deliberately not a deep compare: this runs over every
- * held message every three seconds, and what it guards is object identity. A
- * message that has not changed must come back as the *same object*, or every
- * bubble in the conversation re-parses its markdown on every poll.
- *
- * What can actually change after a message is first written is a card closing
- * and a turn growing another tool chip. Text is immutable once the entry is in
- * the transcript.
- */
-function same(a: ChatMessage, b: ChatMessage): boolean {
-  return (
-    a.text === b.text &&
-    a.tools.length === b.tools.length &&
-    a.ask?.answered === b.ask?.answered &&
-    a.plan?.approved === b.plan?.approved &&
-    // The chosen answers, which change without `answered` doing so on a
-    // multi-question card answered one at a time.
-    a.ask?.questions.map((q) => q.chosen.join()).join("|") ===
-      b.ask?.questions.map((q) => q.chosen.join()).join("|")
-  );
-}
-
-/**
- * The conversation so far, plus whatever the last poll said.
- *
- * By id rather than by position: the newest turn is deliberately re-sent on
- * every poll (see readChat), and a widened window overlaps what is already
- * held, so the transcript's own id is the authority.
- *
- * Upsert rather than append. The server does not only add messages, it changes
- * ones it has already sent — a question card is written when the question is
- * put and mutated when the answer arrives. Appending by unseen id meant a
- * card that had been answered minutes ago was still on screen asking, with
- * its buttons live, for the rest of the session.
- */
-export function merge(
-  prev: ChatMessage[],
-  incoming: ChatMessage[],
-  /**
-   * True when `incoming` is a whole window rather than what is new since the
-   * last poll — the first load, and every widening of it. Then `incoming` is
-   * the conversation's order and prev is a suffix of it, so appending by
-   * unseen id would put the older half at the bottom.
-   */
-  whole = false,
-): ChatMessage[] {
-  const held = new Map(prev.map((m) => [m.id, m]));
-  if (whole) {
-    // Reuse the object already on screen wherever it still says the same
-    // thing: a widened window re-sends everything the narrow one held, and
-    // handing every bubble a new object would re-parse the whole conversation.
-    const out = incoming.map((m) => {
-      const was = held.get(m.id);
-      return was && same(was, m) ? was : m;
-    });
-    return out.length === prev.length && out.every((m, i) => m === prev[i]) ? prev : out;
-  }
-  let changed = false;
-  for (const m of incoming) {
-    const was = held.get(m.id);
-    if (was && same(was, m)) continue;
-    held.set(m.id, m);
-    changed = true;
-  }
-  // Nothing new and nothing moved: the same array, so nothing re-renders.
-  if (!changed) return prev;
-  // Insertion order holds the conversation's order: `held` was built from the
-  // list already on screen, and a replacement keeps its place in a Map.
-  return [...held.values()];
-}
-
 export default function ChatPane({
   session,
   onOpenTerminal,
@@ -360,30 +256,29 @@ export default function ChatPane({
   /** Switches the pane to the terminal; the way out of a dialog nothing here can read. */
   onOpenTerminal: () => void;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [pending, setPending] = useState<ChatToolCall[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [todos, setTodos] = useState<ChatTodo[]>([]);
-  const [mode, setMode] = useState("");
-  const [bytes, setBytes] = useState(WINDOW);
-  const [loading, setLoading] = useState(true);
+  const {
+    messages,
+    pending,
+    truncated,
+    todos,
+    mode,
+    loading,
+    error: readError,
+    echoes,
+    echo,
+    widen,
+  } = useSessionChat(session.id);
+  const live = session.status !== "done";
+  const { prompt, mode: paneMode, busy, doing, look } = usePanePrompt(session.id, live);
   const [error, setError] = useState<string | null>(null);
-  const [text, setText] = useState("");
+  // Kept per session across a tap away or a reload (C-21).
+  const [text, setText] = useDraft(`vk.draft.session.${session.id}`);
   const [sending, setSending] = useState(false);
-  const [echoes, setEchoes] = useState<Echo[]>([]);
-  const [prompt, setPrompt] = useState<TuiPrompt | null>(null);
-  const [paneMode, setPaneMode] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [doing, setDoing] = useState<string | null>(null);
   const [attaching, setAttaching] = useState(false);
-  const lookNow = useRef<(() => Promise<void>) | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
   /** The same thing the effect reads, for the thing the screen draws. */
   const [away, setAway] = useState(false);
-  /** Which session the messages on screen belong to; see the poll effect. */
-  const shownFor = useRef<string | null>(null);
   /**
    * How far from the bottom the reader was when "load earlier" was pressed.
    *
@@ -393,145 +288,6 @@ export default function ChatPane({
    */
   const keepPlace = useRef<{ fromBottom: number; count: number } | null>(null);
   const grow = useGrow(text);
-  const live = session.status !== "done";
-
-  /**
-   * Poll, and append.
-   *
-   * Not usePoll: this is the one screen that accumulates rather than replaces.
-   * Each request carries the newest timestamp already held, so a poll that
-   * finds nothing new costs one repeated turn instead of the whole window every
-   * few seconds down a phone tunnel. usePoll would key its effect on that
-   * changing URL and reset the list on every new message, which is the opposite
-   * of what a conversation wants.
-   */
-  useEffect(() => {
-    let stopped = false;
-    let since: string | null = null;
-    let conversation: string | null = null;
-    // Widening the window is not a change of session: what is on screen is
-    // still true, and the wider answer is a superset of it. Blanking it to
-    // skeletons and then landing the reader at the bottom of a longer list was
-    // the opposite of what "load earlier" is for.
-    if (shownFor.current !== session.id) {
-      shownFor.current = session.id;
-      setMessages([]);
-      setPending([]);
-      setTodos([]);
-      setMode("");
-      setLoading(true);
-    }
-
-    async function tick() {
-      // A tick with nothing to go on asks for the window whole, which is the
-      // first one after mounting and after every widening.
-      const whole = !since;
-      const query = new URLSearchParams({ bytes: String(bytes) });
-      if (since) query.set("since", since);
-      let chat: SessionChat;
-      try {
-        chat = await api<SessionChat>(`/api/sessions/${session.id}/chat?${query}`);
-      } catch (e) {
-        if (!stopped) setError((e as Error).message);
-        return;
-      }
-      if (stopped) return;
-      setError(null);
-      setLoading(false);
-      // A different conversation is a different transcript, and the timestamp
-      // held is meaningless against it. Drop everything and let the next tick
-      // fetch the new one whole.
-      if (conversation !== null && chat.conversationId !== conversation) {
-        since = null;
-        setMessages([]);
-        conversation = chat.conversationId;
-        return;
-      }
-      conversation = chat.conversationId;
-      setTruncated(chat.truncated);
-      // Replaced rather than appended: both are what the window last saw, so
-      // they arrive on every poll including the ones that carry no new turns.
-      // Kept by reference when they say the same thing, because a new array
-      // every three seconds is a re-render of the whole conversation every
-      // three seconds — and `pending` is what the scroll effect watches.
-      setPending((prev) => (unchanged(prev, chat.pending) ? prev : chat.pending));
-      setTodos((prev) => (unchanged(prev, chat.todos) ? prev : chat.todos));
-      setMode(chat.permissionMode);
-      if (chat.messages.length) {
-        since = chat.messages.at(-1)!.at || since;
-        setMessages((prev) => merge(prev, chat.messages, whole));
-        // Anything the transcript now shows as said is no longer in flight.
-        const said = chat.messages.filter((m) => m.role === "user").map((m) => m.text);
-        setEchoes((prev) =>
-          prev.filter((e) => !said.includes(e.text) && Date.now() - e.at < ECHO_TTL_MS),
-        );
-      }
-    }
-
-    void tick();
-    const timer = setInterval(() => {
-      if (!document.hidden) void tick();
-    }, 3_000);
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-    };
-  }, [session.id, bytes]);
-
-  /**
-   * The pane, scraped: what dialog it is drawing, and which mode it is in.
-   *
-   * The one thing on this screen that does not come from the transcript, and it
-   * is deliberately its own request rather than part of `/chat` — that endpoint
-   * is a file read and cannot drift from what happened, and folding a scrape
-   * into it would make the whole conversation only as trustworthy as the
-   * scrape. See the route's own note.
-   *
-   * Both readings come off one capture. Polled whenever the session is live,
-   * because the mode is worth knowing at any moment; the interval is the chat's
-   * own, since neither answer changes faster than that except when somebody
-   * here presses something — and that path calls `look` directly.
-   */
-  useEffect(() => {
-    if (!live) {
-      setPrompt(null);
-      setPaneMode(null);
-      setBusy(false);
-      setDoing(null);
-      return;
-    }
-    let stopped = false;
-    async function look() {
-      try {
-        const res = await api<SessionPrompt>(`/api/sessions/${session.id}/prompt`);
-        if (stopped) return;
-        // Same reason as the poll's: a dialog nobody has touched is a new
-        // object on every capture, and it is drawn above the conversation.
-        setPrompt((prev) => (unchanged(prev, res.prompt) ? prev : res.prompt));
-        setPaneMode(res.mode);
-        setBusy(res.busy);
-        setDoing(res.doing);
-      } catch {
-        // A pane that cannot be read is not a pane that is asking anything.
-        if (!stopped) {
-          setPrompt(null);
-          setPaneMode(null);
-          setBusy(false);
-          setDoing(null);
-        }
-      }
-    }
-    void look();
-    lookNow.current = look;
-    const timer = setInterval(() => {
-      if (!document.hidden) void look();
-    }, 3_000);
-    return () => {
-      stopped = true;
-      lookNow.current = null;
-      clearInterval(timer);
-    };
-  }, [session.id, live]);
 
   /**
    * Follow the conversation, unless the reader has scrolled up to read
@@ -593,7 +349,7 @@ export default function ChatPane({
     } catch (e) {
       setError((e as Error).message);
     }
-    await lookNow.current?.();
+    await look();
   }
 
   /**
@@ -620,7 +376,7 @@ export default function ChatPane({
       setSending(false);
     }
     // Same reason as `press`: a ticked box changes the pane and nothing else.
-    await lookNow.current?.();
+    await look();
   }
 
   /**
@@ -636,14 +392,13 @@ export default function ChatPane({
    * Whatever landed gets named even if a later one failed: three screenshots
    * where the second timed out should still put two paths in the field.
    */
-  async function attach(files: File[]) {
-    const images = files.filter((f) => f.type.startsWith("image/"));
+  async function attach(images: File[]) {
     if (!images.length || attaching) return;
     setAttaching(true);
     setError(null);
     const paths: string[] = [];
     let failed = false;
-    for (const f of images.slice(0, 4)) {
+    for (const f of images) {
       // A file off the clipboard can arrive nameless, and the route needs one.
       const name = f.name || `pasted.${f.type.split("/")[1] ?? "png"}`;
       try {
@@ -669,8 +424,11 @@ export default function ChatPane({
     if (!failed) grow.current?.focus();
   }
 
-  async function send(value: string) {
-    if (!value.trim() || sending) return;
+  async function send(raw: string) {
+    // Trimmed before it goes, so the echo matches what the transcript keeps: an
+    // attached path leaves a trailing space, and the server trims (C-14).
+    const value = raw.trim();
+    if (!value || sending) return;
     setSending(true);
     setError(null);
     try {
@@ -678,7 +436,7 @@ export default function ChatPane({
         method: "POST",
         body: JSON.stringify({ text: value, enter: true }),
       });
-      setEchoes((prev) => [...prev, { text: value, at: Date.now() }]);
+      echo(value);
       setText("");
     } catch (e) {
       setError((e as Error).message);
@@ -708,6 +466,8 @@ export default function ChatPane({
             atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
             setAway(!atBottom.current);
           }}
+          role="log"
+          aria-label="the conversation"
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3.5 py-3.5"
         >
           {truncated && (
@@ -719,7 +479,7 @@ export default function ChatPane({
                 keepPlace.current = el
                   ? { fromBottom: el.scrollHeight - el.scrollTop, count: messages.length }
                   : null;
-                setBytes((b) => Math.min(b * 4, MAX_WINDOW));
+                widen();
               }}
               className="mx-auto flex-none rounded-full border border-line px-3 py-1 text-[11.5px] text-muted hover:border-faint hover:text-text"
             >
@@ -760,8 +520,8 @@ export default function ChatPane({
           {/* Sent from here, not yet in the transcript. An agent that is busy
             queues a prompt rather than taking it, so this can sit for a while —
             which is the honest picture of what happened to it. */}
-          {echoes.map((e, i) => (
-            <div key={`e${i}`} className="flex justify-end">
+          {echoes.map((e) => (
+            <div key={`e${e.at}`} className="flex justify-end">
               <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent-tint px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-text ring-1 ring-accent/30">
                 {e.text}
               </div>
@@ -798,94 +558,44 @@ export default function ChatPane({
           is a state of its own, and LivePrompt draws it with the answers. */}
       {live && !prompt && session.status !== "waiting" && <Activity busy={busy} doing={doing} />}
 
-      {error && (
-        <div className="flex-none border-t border-line px-3.5 py-1.5 text-[12.5px] text-fail">
-          {error}
+      {(error ?? readError) && (
+        <div
+          role="alert"
+          className="flex-none border-t border-line px-3.5 py-1.5 text-[12.5px] text-fail"
+        >
+          {error ?? readError}
         </div>
       )}
 
       {live && (
-        <div className="flex flex-none items-end gap-2 border-t border-line px-3 py-2.5 focus-within:border-accent/60">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(e) => {
-              if (e.target.files) void attach(Array.from(e.target.files));
-              e.target.value = "";
-            }}
-          />
-          {/* The phone half of pasting: there is no clipboard route for a
-              screenshot on iOS, so the photo library and the camera stand in
-              for one. */}
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={attaching}
-            aria-label="attach an image"
-            title="upload an image for it to read"
-            className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-line-strong hover:text-text disabled:opacity-40"
-          >
-            {attaching ? "…" : "img"}
-          </button>
-          <textarea
-            ref={grow}
+        <div className="flex-none border-t border-line px-2.5 pt-2.5 pb-2.5">
+          <Composer
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter sends, shift+enter breaks the line — the same bargain the
-              // assistant's composer makes.
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(text);
-              }
-            }}
-            onPaste={(e) => {
-              // `files` alone is not enough: a screenshot taken with
-              // Win+Shift+S sits on the clipboard as a bitmap rather than as a
-              // file, and not every browser synthesises a File for it — `items`
-              // carries it and `files` stays empty. A paste carrying only text
-              // falls through and pastes as it always did.
-              const data = e.clipboardData;
-              const carried = data.files.length
-                ? Array.from(data.files)
-                : Array.from(data.items)
-                    .filter((i) => i.kind === "file")
-                    .map((i) => i.getAsFile())
-                    .filter((f): f is File => f !== null);
-              const images = carried.filter((f) => f.type.startsWith("image/"));
-              if (!images.length) return;
-              e.preventDefault();
-              void attach(images);
-            }}
-            rows={1}
+            onChange={setText}
+            onSend={() => void send(text)}
+            onAttach={(files) => void attach(files)}
+            onRefused={setError}
+            attaching={attaching}
+            canSend={!sending && !!text.trim()}
+            label="message the agent"
             placeholder={`say something to ${session.agent}…`}
-            aria-label="message the agent"
-            className="max-h-40 min-h-[24px] flex-1 resize-none bg-transparent text-[15px] outline-none placeholder:text-faint"
-          />
-          {/* Only while it is actually doing something — an esc against an
-              idle prompt clears whatever you were halfway through typing. The
-              status cannot say that (it reads "running" for an agent sat at an
-              empty prompt too); the pane can, which is what `busy` is. */}
-          {busy && (
-            <button
-              onClick={() => void press("escape")}
-              aria-label="interrupt"
-              title="stop what it is doing"
-              className="tap-sq flex-none rounded-lg border border-line px-2.5 py-1.5 font-mono text-[12px] text-muted hover:border-fail/50 hover:text-fail"
-            >
-              esc
-            </button>
-          )}
-          <button
-            onClick={() => void send(text)}
-            disabled={sending || !text.trim()}
-            aria-label="send"
-            className="tap-sq flex-none rounded-lg bg-accent px-3 py-1.5 font-mono text-[13px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-40"
+            fieldRef={grow}
           >
-            ↑
-          </button>
+            {/* Only while it is actually doing something — an esc against an
+                idle prompt clears whatever you were halfway through typing. The
+                status cannot say that (it reads "running" for an agent sat at
+                an empty prompt too); the pane can, which is what `busy` is. */}
+            {busy && (
+              <button
+                onClick={() => void press("escape")}
+                aria-label="interrupt"
+                title="stop what it is doing"
+                className="tap-sq flex h-9 flex-none items-center rounded-xl px-2.5 font-mono text-[12px] text-muted hover:bg-line-strong/40 hover:text-fail"
+              >
+                esc
+              </button>
+            )}
+          </Composer>
         </div>
       )}
     </div>

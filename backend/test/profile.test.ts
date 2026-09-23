@@ -65,6 +65,26 @@ describe("the profile", () => {
     for (const line of lines) expect(text).toContain(`- ${line}`);
   });
 
+  it("refuses a save made over a line added since the page read it (C-11)", async () => {
+    const base = (await app.inject({ url: "/api/profile" })).json().text as string;
+    await app.inject({ method: "POST", url: "/api/profile/lines", payload: { text: "New." } });
+    const stale = await app.inject({
+      method: "PUT",
+      url: "/api/profile",
+      payload: { text: "edited", base },
+    });
+    expect(stale.statusCode).toBe(409);
+    expect((await app.inject({ url: "/api/profile" })).json().text).toContain("- New.");
+
+    const now = (await app.inject({ url: "/api/profile" })).json().text as string;
+    const ok = await app.inject({
+      method: "PUT",
+      url: "/api/profile",
+      payload: { text: `${now}edited\n`, base: now },
+    });
+    expect(ok.statusCode).toBe(200);
+  });
+
   it("refuses to grow past its budget, since every byte is re-sent every turn", async () => {
     const res = await app.inject({
       method: "PUT",

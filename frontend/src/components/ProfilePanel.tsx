@@ -24,29 +24,41 @@ const HINT = [
 ].join(" ");
 
 export default function ProfilePanel() {
-  const { data } = usePoll<Profile>("/api/profile", 60_000);
+  const { data, fresh, refresh } = usePoll<Profile>("/api/profile", 60_000);
   const [draft, setDraft] = useState<string | null>(null);
+  /** The server's text the draft started from, sent with the save (C-11). */
+  const [base, setBase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // The server's text until the first keystroke, then the draft: a poll
   // landing mid-sentence must not overwrite what is being typed. A line the
-  // assistant adds while this is open lands on the next visit rather than
-  // under the cursor.
+  // assistant adds while this is open is not lost either: the save names the
+  // text it started from, and the server refuses it if that has changed.
   const shown = draft ?? data?.text ?? "";
 
   async function save() {
     if (draft === null) return;
     setError(null);
     try {
-      const next = await api<Profile>("/api/profile", {
+      await api<Profile>("/api/profile", {
         method: "PUT",
-        body: JSON.stringify({ text: draft }),
+        body: JSON.stringify({ text: draft, ...(base !== null ? { base } : {}) }),
       });
-      setDraft(next.text);
+      setDraft(null);
+      setBase(null);
+      refresh();
       toast("saved");
     } catch (e) {
       setError((e as Error).message);
     }
+  }
+
+  /** After a refused save: the server's text again, and the draft gone. */
+  function reload() {
+    setDraft(null);
+    setBase(null);
+    setError(null);
+    refresh();
   }
 
   const used = new TextEncoder().encode(shown).length;
@@ -64,12 +76,18 @@ export default function ProfilePanel() {
       <div className="flex flex-col gap-2 rounded-[11px] border border-line bg-surface px-[15px] py-3">
         {/* Not an empty textarea while it loads: that showed the hint, which
             reads as "nothing written yet" and invites typing over the real text. */}
-        {data === null && draft === null ? (
+        {/* Nor an editable one before a fresh answer: the first paint is last
+            visit's text from the cache, and a draft started from it would
+            save over whatever has been added since (C-11). */}
+        {(data === null || !fresh) && draft === null ? (
           <Skeleton className="block h-[214px] rounded-[7px] border border-line bg-surface-2" />
         ) : (
           <Textarea
             value={shown}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              if (draft === null) setBase(data?.text ?? "");
+              setDraft(e.target.value);
+            }}
             rows={10}
 
             placeholder={HINT}
@@ -89,6 +107,11 @@ export default function ProfilePanel() {
             <Notice kind="fail" small>
               {error}
             </Notice>
+          )}
+          {error && draft !== null && (
+            <Button onClick={reload} variant="ghost">
+              discard mine and reload
+            </Button>
           )}
           <span
             className={`ml-auto font-mono text-[11px] ${used > budget ? "text-fail" : "text-faint"}`}

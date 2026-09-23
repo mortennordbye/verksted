@@ -148,8 +148,10 @@ interface LiveTurn {
  */
 function Working({ live }: { live: LiveTurn }) {
   const thought = live.thinking.trim();
+  // Hidden from a screen reader: it changes ten times a second, and the log
+  // around it announces the entry once it is written (C-19).
   return (
-    <div className="flex flex-col gap-1.5">
+    <div aria-hidden="true" className="flex flex-col gap-1.5">
       {live.tools.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {live.tools.map((t, i) => (
@@ -383,8 +385,19 @@ export default function Room({
     );
   };
 
+  // Who else has a turn in flight: the specialists do not stream their words,
+  // so their faces are the only sign they are answering (C-26).
+  const speaking = (thread.speaking ?? [])
+    .map((id) => members.find((m) => m.id === id))
+    .filter((m): m is CouncilMember => !!m && !m.chair);
+
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      role="log"
+      aria-live="polite"
+      aria-label="the conversation"
+      className="flex flex-col gap-3"
+    >
       {thread.entries.length === 0 && (
         <div className="mt-8 text-center">
           <div className="text-[13.5px] text-muted">nothing said yet</div>
@@ -407,8 +420,18 @@ export default function Room({
       })}
 
       {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
-      {thinking && writing === undefined && (
-        <div className="flex items-center gap-2 text-[12.5px] text-muted">
+      {thinking && speaking.length > 0 && (
+        <div aria-hidden="true" className="flex items-center gap-2 text-[12.5px] text-muted">
+          <span className="flex -space-x-1.5">
+            {speaking.map((m) => (
+              <Portrait key={m.id} face={m.face} colour={m.colour} size={22} tone mood="speaking" />
+            ))}
+          </span>
+          {speaking.map((m) => m.name).join(", ")} answering…
+        </div>
+      )}
+      {thinking && writing === undefined && speaking.length === 0 && (
+        <div aria-hidden="true" className="flex items-center gap-2 text-[12.5px] text-muted">
           <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-accent" />
           thinking…
         </div>

@@ -168,6 +168,25 @@ describe("the calendar", () => {
     expect(dentist.url).toBeNull();
   });
 
+  it("keeps an invite's URL only when it is a web page (C-23)", () => {
+    const invite = (url: string) =>
+      [
+        "BEGIN:VCALENDAR",
+        "BEGIN:VEVENT",
+        "UID:u1",
+        "DTSTART:20260830T080000Z",
+        "SUMMARY:Call",
+        `URL:${url}`,
+        "END:VEVENT",
+        "END:VCALENDAR",
+      ].join("\r\n");
+    expect(calendar.parseIcs(invite("javascript:alert(1)"))[0].url).toBeNull();
+    expect(calendar.parseIcs(invite("data:text/html,x"))[0].url).toBeNull();
+    expect(calendar.parseIcs(invite("https://meet.example/x"))[0].url).toBe(
+      "https://meet.example/x",
+    );
+  });
+
   it("files only what starts soon and has somewhere to be", () => {
     const now = Date.parse("2026-08-30T07:45:00.000Z");
     const events = calendar.parseIcs(ICS);

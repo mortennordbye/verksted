@@ -59,14 +59,38 @@ describe("CouncilPanel (C-31)", () => {
 
   it("opens a new member's form at the end, where their card will be", async () => {
     const { default: CouncilPanel } = await import("../src/components/CouncilPanel");
-    vi.spyOn(window, "prompt").mockReturnValue("zadkiel");
     const { container } = render(<CouncilPanel />);
     fireEvent.click(screen.getByRole("button", { name: /add someone/ }));
+    fireEvent.change(screen.getByLabelText(/their id/), { target: { value: "zadkiel" } });
+    fireEvent.click(screen.getByRole("button", { name: "add" }));
 
     const grid = container.querySelector(".grid") as HTMLElement;
     expect(grid.children).toHaveLength(MEMBERS.length + 1);
     expect(
       within(grid.lastElementChild as HTMLElement).getAllByRole("textbox").length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe("CouncilPanel (C-27)", () => {
+  it("asks before removing someone, and removes nobody on the way", async () => {
+    const { api } = await import("../src/api");
+    const { default: CouncilPanel } = await import("../src/components/CouncilPanel");
+    render(<CouncilPanel />);
+    vi.mocked(api).mockClear();
+    fireEvent.click(screen.getAllByRole("button", { name: "edit" })[1]);
+    fireEvent.click(screen.getByRole("button", { name: "remove" }));
+
+    expect(await screen.findByText("Remove Uriel?")).toBeTruthy();
+    expect(vi.mocked(api).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+  });
+
+  it("refuses an id already on the bench", async () => {
+    const { default: CouncilPanel } = await import("../src/components/CouncilPanel");
+    render(<CouncilPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /add someone/ }));
+    fireEvent.change(screen.getByLabelText(/their id/), { target: { value: "uriel" } });
+    fireEvent.click(screen.getByRole("button", { name: "add" }));
+    expect(screen.getByText("@uriel is already on the bench")).toBeTruthy();
   });
 });

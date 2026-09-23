@@ -12,6 +12,7 @@ import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { playSample, voiceLabel } from "../useSpeech";
 import Button from "./ui/Button";
 import { Input, Select, Textarea } from "./ui/Field";
+import { useConfirm } from "../useConfirm";
 
 /**
  * The council: who else answers, and what each of them may look at.
@@ -94,6 +95,9 @@ export default function CouncilPanel() {
   const [editing, setEditing] = useState<CouncilMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<string[]>([]);
+  /** The id being typed for a new member, or null while nobody is being added. */
+  const [newId, setNewId] = useState<string | null>(null);
+  const [confirm, dialog] = useConfirm();
 
   useEffect(() => {
     void api<AssistantVoices>("/api/assistant/voices")
@@ -121,7 +125,15 @@ export default function CouncilPanel() {
     }
   }
 
-  async function remove(id: string) {
+  async function remove(member: CouncilMember) {
+    const ok = await confirm({
+      title: `Remove ${member.name || member.id}?`,
+      body: "Their persona, their tools and the notes they keep go with them. This cannot be undone.",
+      action: "remove",
+      danger: true,
+    });
+    if (!ok) return;
+    const id = member.id;
     setError(null);
     try {
       await api(`/api/council/${id}`, { method: "DELETE" });
@@ -132,13 +144,21 @@ export default function CouncilPanel() {
     }
   }
 
+  // An inline field rather than window.prompt, which is unreadable on a phone
+  // (C-27).
   function add() {
-    const id = window.prompt("A short id, lowercase, which is what @addresses them:")?.trim();
+    const id = (newId ?? "").trim();
     if (!id) return;
     if (!/^[a-z][a-z0-9-]{0,31}$/.test(id)) {
       setError("an id is lowercase letters, digits and dashes, starting with a letter");
       return;
     }
+    if (members.some((m) => m.id === id)) {
+      setError(`@${id} is already on the bench`);
+      return;
+    }
+    setError(null);
+    setNewId(null);
     setEditing(blank(id));
   }
 
@@ -294,11 +314,7 @@ export default function CouncilPanel() {
           cancel
         </button>
         {members.some((m) => m.id === editing.id) && (
-          <Button
-            variant="ghost-danger"
-            onClick={() => void remove(editing.id)}
-            className="ml-auto"
-          >
+          <Button variant="ghost-danger" onClick={() => void remove(editing)} className="ml-auto">
             remove
           </Button>
         )}
@@ -419,13 +435,38 @@ export default function CouncilPanel() {
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={add}
-        className="tap mt-2 rounded-[7px] border border-dashed border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-line-strong"
-      >
-        + add someone
-      </button>
+      {newId === null ? (
+        <button
+          type="button"
+          onClick={() => setNewId("")}
+          className="tap mt-2 rounded-[7px] border border-dashed border-line px-2.5 py-1.5 text-[12.5px] text-muted hover:border-line-strong"
+        >
+          + add someone
+        </button>
+      ) : (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            add();
+          }}
+          className="mt-2 flex flex-wrap items-end gap-2"
+        >
+          <Input
+            label="their id, which is what @addresses them"
+            placeholder="lowercase, e.g. zadkiel"
+            value={newId}
+            onChange={(e) => setNewId(e.target.value.toLowerCase())}
+            className="w-56"
+          />
+          <Button type="submit" variant="primary" disabled={!newId.trim()}>
+            add
+          </Button>
+          <Button type="button" onClick={() => setNewId(null)}>
+            cancel
+          </Button>
+        </form>
+      )}
+      {dialog}
     </section>
   );
 }
