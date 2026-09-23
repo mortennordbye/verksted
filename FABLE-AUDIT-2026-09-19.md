@@ -2,6 +2,9 @@
 
 Audited at commit `ca1c0c7` on `main`. About 68k lines across backend, frontend, runtime, tests and docs.
 
+**Status:** every finding was re-checked against `main` at `01c2e97` on 2026-09-23. See Part 10 at the end:
+none is fully open, and about 30 are partly fixed with a gap left in the repo's code.
+
 ## How this was done
 
 Six read-only reviews ran in parallel, one per area, each reading its files in full:
@@ -1117,3 +1120,168 @@ Worth saying, because the audit above is a list of faults in a codebase that get
 - **Build and CI.** Multi-stage with build-time self-tests (a real Kokoro synthesis, `whisper-cli --help`, `agy --version`), the image is booted and curled before it is pushed, read-only default workflow token, thoughtful dependabot ignores, secret scanning and push protection on, zero open alerts, attribution enforced at two layers.
 - **Tests.** 841 backend tests against 20.5k source lines, with real `rg`, fake-bin helpers, path traversal and guard suites, real-pane fixtures for the TUI scrape. ESLint is type-aware with `no-floating-promises`, and every disabled rule has a written reason.
 - **Comments explain why.** Nearly every timer, cap and odd choice carries its reason. That is what made this audit possible in a day, and it is also why several findings are "the comment says X, the code now does Y": the comments are the spec, and a few have been overtaken.
+
+---
+
+## Part 10: Status check, 2026-09-23
+
+Every finding above was checked against `main` at `01c2e97`. The check ran as six read-only reviews, one per part
+(Parts 6 and 7 together), each reading the current code and not trusting comments or commit subjects. Most
+commits do not name the IDs they fix, so the verdicts come from the code.
+
+Verdicts: **fixed** (the problem is gone), **partial** (some of it remains, said below), **open** (still as
+described), **not code** (what is left needs the pod, the NAS or Homelab, not this repo).
+
+| Part                | Findings | Fixed | Partial | Open | Left only on the pod |
+| ------------------- | -------- | ----- | ------- | ---- | -------------------- |
+| 1 Assistant backend | 32       | 25    | 7       | 0    | A-01 (b), (c)        |
+| 2 Chat view         | 38       | 35    | 3       | 0    |                      |
+| 3 Security          | 13       | 8     | 2       | 0    | S-04 (b), S-05       |
+| 4 Reliability       | 35       | 29    | 6       | 0    |                      |
+| 5 Frontend          | 49       | 43    | 6       | 0    |                      |
+| 6 Build, CI, docs   | 42       | 35    | 2       | 0    | O-03, O-04, O-08     |
+| 7 Structure         | 8        | 3     | 5       | 0    | P7-1                 |
+
+None of the gaps below had a BACKLOG.md entry when this was written.
+
+### Bugs still in the code
+
+- **R-19.** The GitHub poller's error item still uses `feed.upsert` with a message-based version
+  (`pollers.ts:612-621`) and is resolved on success (`:585`). The same error coming back later stays done and
+  never reaches the inbox again. Mail and calendar use `feed.refile`; this one should too.
+- **R-31.** Schedules, loops and the feed parse with an `as T` cast and no shape check. A `{}` or `null` file
+  throws in the sort (`schedules-store.ts:195` `a.createdAt.localeCompare`, `feed-store.ts` `list`
+  `b.at.localeCompare`) and takes that store's whole list down. Only sessions have a guard (`isMeta`).
+- **R-13 (residual).** A full unattended queue throws `BusyError` from `runUnattended`, and the assistant-jobs
+  callers (`assistant-jobs.ts:153-176`) do not catch it, so the reserved ceiling slot is never handed back.
+- **R-04 (residual).** In `stageRun` (`scheduler.ts:340-353`) the worktree exists before its session does. For
+  the whole of `claimIssue` (gh, up to 60 s), `stagePrompt` and `createSession`, a done earlier build session
+  with the same worktree name is not in `held`, so a watcher tick in that window can remove the new tree.
+- **S-08 (repo half).** `validNavUrl` (`browser.ts:32-44`) accepts any http(s) host, so the session browser can
+  open `127.0.0.1`, link-local addresses and cluster services. This part does not wait on the agent user.
+- **S-10 (not in the audit).** `GIT_CONFIG_PARAMETERS` and the other `GIT_CONFIG_*` names are not on the
+  settings blocklist (`settings-store.ts:93-114`). Session launch overwrites `GIT_CONFIG_COUNT`/`KEY_0`
+  (`session-launch.ts:139-141`), but `GIT_CONFIG_PARAMETERS` would reach every session's git.
+- **F-29.** Backoff is everywhere, but Settings (`/api/settings`), Session (tree, git), SchedulesPanel, PrPanel,
+  ActionsPanel, MemoryPanel, CommandPalette and Docs search still ignore `error`, so a 500 reads as empty.
+- **F-39, F-40.** The blocked-owner `×` (`BlockedOwners.tsx:80`) has `tap` (height only) and no padding, about
+  8 px wide, and its accessible name is "×" (a `title`, no `aria-label`). The e2e width check
+  (`narrowGlyphButtons`, `smoke.test.ts:687`) names this button but only runs on `/p/demo` and `/runs`.
+- **O-06 (docs).** The header of `.github/dependabot.yml` says nothing moves without a PR, which is not true
+  of agy.
+
+### Part 1: assistant backend
+
+Fixed: A-02 to A-26, A-29, A-30 (A-02 `verksted-mcp.mjs:895-976`; A-04 `assistant-policy.ts:335`; A-06
+`assistant-policy.ts:52-60, 104-118, 173-216`; A-13 `assistant-turn.ts:289`; A-14 `assistant-turn.ts:363,
+579-587`; A-15 `assistant-turn.ts:83-97`; A-20 `routes/assistant.ts:83-93`; A-29 one `POLICY` table checked by
+`assistant-tools.test.ts:511`).
+
+- **A-01, partial.** (a) is done: `assistant-taint.ts` and `ws/assistant-browser.ts:22-45` close the chair's
+  browser after a private read, and refuse a private read after browsing. (b) and (c) depend on
+  `agent-gate.ts:31`, a no-op without `VK_AGENT_USER`: the assistant's chromium can still reach
+  `127.0.0.1:<PORT>` and cluster services. No `--host-resolver-rules`, no per-boot secret. `IMAP_PASSWORD` and
+  the other source keys can still be revealed (only `GOOGLE_REFRESH_TOKEN` is excluded).
+- **A-27, partial.** Retention is in (`assistant-retention.ts`), but `search` and `listThreads` still parse every
+  thread file (`assistant.ts:204-225, 554-588`); the cache holds 4 threads.
+- **A-28, partial.** Policy, turn runner, taint, stream and usage are split out; meetings and unattended runs
+  are still in `assistant.ts` (1922 lines), and hold-convene-then-close is still written twice
+  (`runChair` `:1250/1543`, `unattendedTurn` `:1829/1841`), the duplication A-04 came from.
+- **A-31, partial.** Tool log, undo, tiers, cost, export, fenced outside text and hidden HTML are done. Left:
+  speech to text is English only (`transcribe.ts:23`, `ggml-base.en.bin`); no injection regression suite with
+  canary mails against a real model; no server-side thread compaction, only the "getting long" notice.
+- **A-32, partial.** Most tests exist. Missing: a turn hitting `TURN_TIMEOUTS`, ended through `endTree` and
+  reported; stop pressed between a held convene reply and its append.
+
+### Part 2: chat view
+
+Fixed: C-01 to C-05, C-07 to C-29, C-31 to C-34, C-36 to C-38 (C-02 `useSessionChat.ts` `merge`; C-03
+`LivePrompt.tsx:98-128`; C-17 `Dock.tsx`; C-19 `role="log"` in `Room.tsx:429`, `ChatPane.tsx:469`; C-22 one
+`chat/Composer.tsx`; C-38 tests for all five suggested cases).
+
+- **C-06, partial.** The 3 s poll is answered from a stat cache (`chat.ts:686-700`). `findImage`
+  (`chat.ts:1077-1081`) and `findDetail` still `JSON.parse` every line, base64 included, before checking `ref`.
+- **C-30, partial.** Copy, retry, thread search, rename, export, drag and drop and a lightbox are in. Missing:
+  syntax highlighting in chat code blocks, a copy button per code block, edit and resend, search inside the
+  open thread.
+- **C-35, partial.** Two `ToolChip`s (`Room.tsx:84`, `chat/ToolChip.tsx`); `EFFORTS` twice
+  (`AssistantPanel.tsx:29`, `CouncilPanel.tsx:28`); user-bubble markup four times with two size sets
+  (`ChatPane.tsx:180, 525` vs `Room.tsx:400`, `Chat.tsx:563`).
+
+### Part 3: security
+
+Fixed: S-01 (`origin.ts:79-90`, `app.ts:110-114`), S-02 (`Share.tsx:38-84`, `frame-ancestors 'self'`), S-06
+(helmet, `app.ts:160-195`), S-07 (`writeNoFollow`, `leafInsideRepos`, `GIT_NO_REPO_CODE`), S-09 (rate limits,
+ceilings, disk checks), S-10 (blocklist, but see above), S-11 (`ssh.ts:113-126`), S-12 (`push.ts:114`,
+`app-path.ts`), S-13 (redaction, `maxPayload`).
+
+- **S-03, partial.** Errors are redacted (`exec.ts:20-32, 82-84`) and 5xx answers say "internal error". The
+  secrets still reach tmux as `-e KEY=VALUE` (`tmux.ts:80, 118`, `ws/attach.ts:75`), readable in
+  `/proc/*/cmdline`; BACKLOG accepts that once the agent user is on. The redaction only matches names with
+  TOKEN, SECRET, PASSWORD, PASSPHRASE, CREDENTIAL, `_KEY` or APIKEY.
+- **S-04, not code.** `vk-guard` is rewritten and tested (`vk-guard.test.ts`). What is left is what no lexical
+  guard can do (variables in refspecs, scripts written then run, reads plus egress); it needs the agent user
+  and an egress NetworkPolicy.
+- **S-05, not code.** Documented as a convenience (`SECURITY.md:35-38`); the boundary is the uid check in
+  `agent-gate.ts:109-114`, off on the pod.
+- **S-07 residual.** pull, push and fetch run with the full `process.env` (`files.ts:799, 841, 867`); repo
+  config such as filter drivers or `core.sshCommand` runs as root until the agent user is on.
+- **S-08, partial.** Chromium runs as the agent user when one is set (`browser.ts:127-160`); on the pod it is
+  root with `--no-sandbox` and per-session CDP ports. The URL filter is above.
+- **S-12 residual.** Push endpoints may be any `https://` host (`push.ts:14`); the optional allowlist was not
+  done.
+- **S-13 residual.** `GET /api/cluster` is still a plain GET (the Host check now blocks rebinding); the shared
+  ServiceAccount token is RBAC.
+
+### Part 4: reliability
+
+Fixed: R-01, R-03 to R-07, R-09 to R-18, R-20 to R-27, R-29, R-30, R-32 to R-34 (R-05 `seq.json`; R-11
+`keyedQueue`; R-12 waits by schedule; R-18 `atomic-json.ts` syncs; R-23 `index.ts:137-154`; R-25 `paced`; R-26
+pty pause and resume; R-34 the split in #264).
+
+- **R-02, partial.** Backups and the feed jobs run on croner with a boot catch-up; the docker prune is still a
+  24 h `setInterval` from boot (`maintenance.ts:130-141`), accepted in a comment.
+- **R-08, partial.** Metas and sidecars archive at 90 days (`session-reaper.ts:134-158`). `plan.jsonl` gains a
+  line an hour forever (`plan.ts:193`); closed loops, transcripts and the monthly archives are never pruned.
+- **R-17 residual.** `browser-mcp.sh` is a plain `fs.writeFile` on every launch (`claude-hooks.ts:155`).
+- **R-19, R-31, R-13, R-04.** See "Bugs still in the code".
+- **R-28, partial.** `/api/health` carries the build, `/api/ready` exists, the service worker offers a reload.
+  No metrics endpoint, no `x-vk-build` header, and the build id is the frontend hash, not the git SHA.
+- **R-35, partial.** Most named tests exist. `startMaintenance`, `startNotifier`, `startPollers`, `startWatch`
+  and `startFeedWork` return no stop handle; no literal test with more than 200 ended metas.
+
+### Part 5: frontend
+
+Fixed: F-01 to F-22, F-24, F-25, F-28, F-30 to F-38, F-40 to F-44, F-46 to F-49 (F-01 `events.ts:51-56`; F-02
+`Terminal.tsx:581, 607, 664`; F-22 `ui/Overlay.tsx`; F-34 search params and `HashScroll.tsx`; F-35 palette button
+`TopBar.tsx:205`). F-43 still shows a notification when the app is open on that session, on purpose: iOS
+requires one per push.
+
+- **F-23, partial.** Bare error lines with no `role="alert"`: `Docs.tsx:83`, `BrowserPane.tsx:333`;
+  `CouncilPanel.tsx:345` hand-rolls its box; `assistant/Month.tsx:88`.
+- **F-26, partial.** The mono label is a utility; the sans uppercase label is pasted six times with two
+  tracking values (`Hub.tsx:60, 85, 133`, `UsagePanel.tsx:40`, `ClusterPanel.tsx:40`).
+- **F-27, partial.** Text glyphs as controls: `BlockedOwners.tsx:82`, `Today.tsx:186, 712` (×),
+  `BrowserPane.tsx:233, 241` (←, →), `TopBar.tsx:22` (←).
+- **F-29, F-39.** See "Bugs still in the code".
+- **F-45, partial.** Manifest done; nothing on Today or Inbox says push is off on this device.
+
+### Parts 6 and 7: build, CI, docs, structure
+
+Fixed: O-01, O-02, O-07, O-09 to O-42 except as below (O-07 digests on every `FROM`; O-13 actions pinned by SHA;
+O-14 CodeQL, trivy, SBOM, provenance; O-15 e2e required; O-18 ruleset with no bypass; O-24
+`attach-ws.test.ts:106-134`; O-36 ASSISTANT-V2.md gone). P7-2, P7-4, P7-7 fixed.
+
+- **O-03, O-04, O-08, P7-1, not code.** Tracked in BACKLOG.md (offsite copy, backup passphrase, agent user).
+- **O-05, partial.** Cooldowns and required checks are in, but `dependabot-auto-merge.yml` still merges every
+  non-major, runtime dependencies included (the agent CLIs group can change the TUI `tui-prompt.ts` reads). The
+  audit asked for devDependencies only; no decision to keep it is written down.
+- **O-06, partial.** agy is still unpinned (BACKLOG, upstream); the dependabot.yml header is above.
+- **P7-3, partial.** `atomic-json.ts` and `serial.ts` are shared, but there is no one `JsonDirStore`:
+  `readJsonDir` casts, records carry no `v`, and a bad file is skipped without a log line.
+- **P7-5, partial.** Error handler, serializers, `/api/ready` and the update banner are in; none of the
+  proposed metrics (event-loop lag, exec failures, timer failures, queue depths).
+- **P7-6, partial.** `components/ui/` exists, but `Chat.tsx`, `ChatPane.tsx` and `components/chat/*` import
+  none of it (about 30 raw controls). CLAUDE.md says so; BACKLOG does not.
+- **P7-8, partial.** The O-05 and O-06 gaps.
+- Also noted: the stick-to-bottom scroll is written twice (`Chat.tsx`, `ChatPane.tsx`).
