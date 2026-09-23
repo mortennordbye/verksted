@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { AssistantThread, CouncilMember, CreatedSession } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
@@ -12,6 +12,9 @@ import Composer, { Ico } from "../components/chat/Composer";
 import Portrait from "../components/Face";
 import Icon, { type IconName } from "../components/Icon";
 import Room from "../components/Room";
+import Button from "../components/ui/Button";
+import { Input } from "../components/ui/Field";
+import { useFindMarks } from "../find";
 import Tabs from "../components/Tabs";
 import TopBar from "../components/TopBar";
 import { readStored, writeStored } from "../storage";
@@ -131,6 +134,13 @@ export default function Chat() {
   const [speakReplies, setSpeakReplies] = useState(() => readStored("vk.assistant.speak") === "1");
   /** Whether the end of the conversation is on screen; see the scroll effect. */
   const [atLatest, setAtLatest] = useState(true);
+  // Find inside the open thread (C-30): the threads list searches across
+  // threads, and a long one had no way to get back to what was said in it.
+  const [finding, setFinding] = useState(false);
+  const [find, setFind] = useState("");
+  const query = finding ? find.trim() : "";
+  const room = useRef<HTMLElement>(null);
+  const { hits, jump } = useFindMarks(room, query, thread?.entries);
   // The roster changes when somebody edits it in settings, which is rarely, so
   // it is polled slowly rather than pushed: the header shows the chair, and a
   // specialist's card is drawn in its own colour when one answers.
@@ -280,6 +290,20 @@ export default function Chat() {
     } finally {
       setSending((s) => s.filter((m) => m.stamp !== stamp));
     }
+  }
+
+  /**
+   * "edit" on your last message: back into the composer to change and send as
+   * a new one (C-30). Never over a draft, which would lose what was typed.
+   */
+  function edit(value: string, images: string[]) {
+    if (text.trim() || pending.length) {
+      setError("send or clear what is in the box first, then edit");
+      return;
+    }
+    setText(value === "(see image)" ? "" : value);
+    setPending(images);
+    grow.current?.focus();
   }
 
   /** "try again" on a failed reply. Queued on the server if a turn is running. */
@@ -512,6 +536,16 @@ export default function Chat() {
                 title={panel === "people" ? "close the specialists" : "who is on the bench"}
                 onClick={() => setPanel((v) => (v === "people" ? null : "people"))}
               />
+              {/* Only once there is something to find: on a phone every
+                  button here is taken from the chair's name. */}
+              {turns > 0 && (
+                <ToolButton
+                  icon="search"
+                  on={finding}
+                  title={finding ? "close find" : "find in this thread"}
+                  onClick={() => setFinding((v) => !v)}
+                />
+              )}
               {/* What changes the thread you are in, set apart from what only
                   changes how you see it. */}
               <span aria-hidden className="mx-1 h-5 w-px bg-line-strong" />
@@ -539,10 +573,41 @@ export default function Chat() {
               )}
             </div>
           </div>
+          {finding && (
+            <div className="mx-auto flex max-w-[800px] items-center gap-2 px-[18px] pb-2">
+              <Input
+                // Opened in order to type into it, as the palette is.
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                value={find}
+                onChange={(e) => setFind(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") jump();
+                  if (e.key === "Escape") setFinding(false);
+                }}
+                placeholder="find in this thread"
+                label="find in this thread"
+                className="flex-1"
+              />
+              {query !== "" && (
+                <>
+                  <span className="flex-none font-mono text-[11px] text-faint">
+                    {hits === 0 ? "no matches" : `${hits} match${hits === 1 ? "" : "es"}`}
+                  </span>
+                  <Button onClick={jump} disabled={hits === 0} className="flex-none">
+                    next
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <main className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-5 pb-4">
+      <main
+        ref={room}
+        className="mx-auto flex w-full max-w-[800px] flex-1 flex-col gap-4 px-[18px] pt-5 pb-4"
+      >
         {thread === null && (
           <div className="flex flex-col gap-3">
             <Skeleton className="block h-10 w-2/5 self-end rounded-2xl bg-surface-2" />
@@ -550,7 +615,16 @@ export default function Chat() {
           </div>
         )}
 
-        {thread && <Room thread={thread} members={members} chair={chair} onRetry={retry} />}
+        {thread && (
+          <Room
+            thread={thread}
+            members={members}
+            chair={chair}
+            onRetry={retry}
+            onEdit={edit}
+            find={query}
+          />
+        )}
 
         {/* Sent, and not yet on record: drawn at once so the tap is seen to
             land, faint until the server has it (C-13). */}

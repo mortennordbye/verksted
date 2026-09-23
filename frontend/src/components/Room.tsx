@@ -11,6 +11,7 @@ import { cite, citeUrl } from "./chat/cite";
 import CopyButton from "./chat/CopyButton";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
+import { marks, rehypeMark } from "../find";
 import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
 import Overlay from "./ui/Overlay";
 
@@ -106,7 +107,16 @@ function ToolChip({ name, detail, running }: { name: string; detail: string; run
  * conversation that had run all morning. An entry never changes once it is in
  * the thread, so its bubble only has to be drawn once.
  */
-const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; times?: number }) {
+const Said = memo(function Said({
+  entry,
+  times = 1,
+  find = "",
+}: {
+  entry: AssistantEntry;
+  times?: number;
+  /** What the thread's find box asks for, marked in the words. */
+  find?: string;
+}) {
   // "handoff" is a mark old threads carry from when the council was a screen
   // of its own; it pointed next door, and there is no next door.
   const tools = entry.tools.filter((t) => t.name !== "handoff");
@@ -147,7 +157,12 @@ const Said = memo(function Said({ entry, times = 1 }: { entry: AssistantEntry; t
           <div
             className={`min-w-0 flex-1 text-[15px] leading-[1.55] ${entry.failed ? "text-fail" : ""}`}
           >
-            <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
+            <Markdown
+              components={MD}
+              remarkPlugins={REMARK}
+              rehypePlugins={find ? [rehypeMark(find)] : []}
+              urlTransform={citeUrl}
+            >
               {cite(entry.text)}
             </Markdown>
           </div>
@@ -233,9 +248,11 @@ const Bubble = memo(function Bubble({
   entries,
   live,
   onRetry,
+  find,
 }: {
   entries: AssistantEntry[];
   live?: LiveTurn;
+  find?: string;
   /** Given for the thread's last bubble when it ended badly: ask the same thing again. */
   onRetry?: () => void;
 }) {
@@ -254,7 +271,7 @@ const Bubble = memo(function Bubble({
           key={entry.id}
           className={`flex flex-col gap-2 ${i > 0 ? "mt-1 border-t border-line pt-1.5" : ""}`}
         >
-          <Said entry={entry} times={times} />
+          <Said entry={entry} times={times} find={find} />
         </div>
       ))}
       {live !== undefined && (
@@ -291,7 +308,15 @@ const Bubble = memo(function Bubble({
 });
 
 /** A specialist's answer: its own face, name and colour, and the time beside them. */
-const Card = memo(function Card({ who, entry }: { who: CouncilMember; entry: AssistantEntry }) {
+const Card = memo(function Card({
+  who,
+  entry,
+  find,
+}: {
+  who: CouncilMember;
+  entry: AssistantEntry;
+  find?: string;
+}) {
   return (
     <div
       className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
@@ -306,7 +331,7 @@ const Card = memo(function Card({ who, entry }: { who: CouncilMember; entry: Ass
           <Ago at={entry.at} className="font-mono text-[11px] text-faint" />
         </span>
       </div>
-      <Said entry={entry} />
+      <Said entry={entry} find={find} />
     </div>
   );
 });
@@ -356,10 +381,16 @@ export default function Room({
   members,
   chair,
   onRetry,
+  onEdit,
+  find = "",
 }: {
   thread: AssistantThread;
   members: CouncilMember[];
   chair: CouncilMember;
+  /** Put the last thing you said back in the composer, to change and send again. */
+  onEdit?: (text: string, images: string[]) => void;
+  /** Marked wherever it occurs in what was said (C-30). */
+  find?: string;
   /** Ask the last thing said again, with what it carried. */
   onRetry?: (text: string, images: string[]) => void;
 }) {
@@ -398,15 +429,28 @@ export default function Room({
           ))}
           {e.text && (
             <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
-              {e.text}
+              {marks(e.text, find)}
             </div>
+          )}
+          {/* Your newest message, while nothing is answering it: sent as a new
+              message once changed, since the model keeps what it was told. */}
+          {onEdit && e === asked && !thinking && (
+            <button
+              type="button"
+              onClick={() => onEdit(e.text, e.images ?? [])}
+              aria-label="edit and send again"
+              title="edit and send again"
+              className="tap-hit rounded p-0.5 text-faint hover:text-text"
+            >
+              <Icon name="rename" size={12} />
+            </button>
           )}
         </div>
       );
     }
     if (b.kind === "card") {
       const who = members.find((m) => m.id === b.entry.member) ?? chair;
-      return <Card who={who} entry={b.entry} />;
+      return <Card who={who} entry={b.entry} find={find} />;
     }
     const isLast = i === drawn.length - 1;
     return (
@@ -414,6 +458,7 @@ export default function Room({
         entries={b.entries}
         live={isLast && joinsLast ? writing : undefined}
         onRetry={isLast && !thinking ? retry : undefined}
+        find={find}
       />
     );
   };

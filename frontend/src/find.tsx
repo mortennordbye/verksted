@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { Root } from "hast";
 
 /**
@@ -97,4 +97,41 @@ export function rehypeMark(query: string) {
   return () => (tree: Root) => {
     if (query) markNode(tree, query);
   };
+}
+
+/**
+ * The marks drawn under `root`, counted, and a jump to the next one. Counted
+ * from the page rather than the text, since markdown syntax is not on the
+ * screen. Recounted whenever `query` or `content` changes.
+ */
+export function useFindMarks(
+  root: RefObject<HTMLElement | null>,
+  query: string,
+  content: unknown,
+): { hits: number; jump: () => void } {
+  const [hits, setHits] = useState(0);
+  /** Which match the next jump goes to. */
+  const next = useRef(0);
+
+  useEffect(() => {
+    // After the frame that draws the marks, and from a callback rather than
+    // the effect's body, so the count is of what is on the screen.
+    const frame = requestAnimationFrame(() => {
+      setHits(root.current?.querySelectorAll("mark").length ?? 0);
+      next.current = 0;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [root, query, content]);
+
+  const jump = () => {
+    const found = root.current?.querySelectorAll("mark");
+    if (!found?.length) return;
+    const el = found[next.current % found.length];
+    next.current = (next.current + 1) % found.length;
+    for (const m of found) m.classList.remove("ring-1", "ring-wait");
+    el.classList.add("ring-1", "ring-wait");
+    el.scrollIntoView({ block: "center" });
+  };
+
+  return { hits, jump };
 }

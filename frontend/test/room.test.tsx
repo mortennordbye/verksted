@@ -133,3 +133,47 @@ describe("Room (C-30)", () => {
     expect(screen.getByRole("dialog", { name: "attached image" })).toBeTruthy();
   });
 });
+
+describe("Room (C-30, find)", () => {
+  it("marks what the find box asks for, in replies and in what you said", () => {
+    const { container } = render(
+      <Room
+        thread={thread([
+          entry("user", "where is the cabin key?"),
+          entry("assistant", "The **key** is under the mat."),
+        ])}
+        members={[]}
+        chair={chair}
+        find="key"
+      />,
+    );
+    expect([...container.querySelectorAll("mark")].map((m) => m.textContent)).toEqual([
+      "key",
+      "key",
+    ]);
+  });
+});
+
+describe("Room (C-30, edit)", () => {
+  it("offers your last message back to edit, and only that one, only while idle", () => {
+    const onEdit = vi.fn();
+    const entries = [
+      entry("user", "first"),
+      entry("assistant", "ok"),
+      entry("user", "second", { images: ["a.png"] }),
+      entry("assistant", "done"),
+    ];
+    const { rerender } = render(
+      <Room thread={thread(entries)} members={[]} chair={chair} onEdit={onEdit} />,
+    );
+    const buttons = screen.getAllByRole("button", { name: "edit and send again" });
+    expect(buttons).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+    expect(onEdit).toHaveBeenCalledWith("second", ["a.png"]);
+
+    rerender(
+      <Room thread={thread(entries, "thinking")} members={[]} chair={chair} onEdit={onEdit} />,
+    );
+    expect(screen.queryByRole("button", { name: "edit and send again" })).toBeNull();
+  });
+});

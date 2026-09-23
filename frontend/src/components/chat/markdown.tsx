@@ -1,6 +1,7 @@
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Cite } from "./cite";
+import CodeBlock from "./CodeBlock";
 
 /**
  * The dialect. Plain markdown has no tables, and an agent asked to compare
@@ -33,12 +34,8 @@ export const MD: Components = {
     <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12.5px]">{children}</code>
   ),
   // A fenced block: the <code> above is still inside it, so the padding and
-  // background come off here to avoid a box in a box.
-  pre: ({ children }) => (
-    <pre className="mb-2 overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[12px] text-text scheme-dark last:mb-0 [&_code]:bg-transparent [&_code]:p-0">
-      {children}
-    </pre>
-  ),
+  // background come off there to avoid a box in a box.
+  pre: ({ node, children }) => <CodeBlock node={node}>{children}</CodeBlock>,
   // A citation the persona wrote as [feed:…] arrives here as a vk: link (see
   // cite.tsx) and is drawn as a chip that opens the thing; any other link is
   // a link.

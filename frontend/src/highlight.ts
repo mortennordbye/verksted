@@ -30,9 +30,13 @@ function load(): Promise<Hljs> {
  * caller may set it as HTML.
  */
 export async function highlight(path: string, content: string): Promise<string | null> {
-  const hljs = await load();
   // The extension, via hljs's own alias table: ts, py and yml all resolve.
   const name = path.split("/").at(-1)!.toLowerCase();
-  const ext = name.split(".").at(-1)!;
-  return hljs.getLanguage(ext) ? hljs.highlight(content, { language: ext }).value : null;
+  return highlightAs(name.split(".").at(-1)!, content);
+}
+
+/** The same, for a language named outright, as a fenced block in chat names it. */
+export async function highlightAs(language: string, content: string): Promise<string | null> {
+  const hljs = await load();
+  return hljs.getLanguage(language) ? hljs.highlight(content, { language }).value : null;
 }
