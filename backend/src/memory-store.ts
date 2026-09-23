@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Memory, MemoryScope, MemoryType } from "../../shared/api.js";
 import { giveDirToAgent, giveToAgent } from "./agent-user.js";
-import { writeTextAtomic } from "./atomic-json.js";
+import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { MEMORY_FILES, mergeMarked } from "./sandbox-doc.js";
 import { keyedQueue } from "./serial.js";
@@ -324,6 +324,9 @@ export async function propose(input: {
   // Proposing something already known is noise in the queue, not a correction:
   // correcting a kept fact is a thing the person does, in the settings page.
   if (await read(input.slug)) throw new Error(`${input.slug} is already remembered`);
+  if ((await droppedProposals())[input.slug]) {
+    throw new Error(`${input.slug} was turned down, and is not proposed again`);
+  }
   await fs.mkdir(proposalsDir(), { recursive: true });
   await writeTextAtomic(
     proposalPath(input.slug),
@@ -364,11 +367,42 @@ export async function keep(slug: string): Promise<Memory | null> {
 }
 
 /** Reject one. It leaves no trace, which is the point of a queue. */
-export async function dropProposal(slug: string): Promise<boolean> {
+export async function dropProposal(slug: string, now = Date.now()): Promise<boolean> {
   if (!SLUG_RE.test(slug)) return false;
-  if (!(await readProposal(slug))) return false;
+  const proposal = await readProposal(slug);
+  if (!proposal) return false;
+  const dropped = await droppedProposals(now);
+  dropped[slug] = { text: proposal.text, at: new Date(now).toISOString() };
+  await writeJsonAtomic(droppedPath(), dropped);
   await fs.rm(proposalPath(slug), { force: true });
   return true;
+}
+
+/**
+ * What was turned down, by slug, for as long as a "no" is worth remembering.
+ *
+ * Dropping a proposal used to leave no trace, so the same harvest read twice,
+ * or the nightly learning pass shown the same kind of day, proposed it again
+ * and it had to be dropped again. Not a `.md`, so never listed as a proposal.
+ */
+const DROPPED_FOR_MS = 90 * 24 * 60 * 60_000;
+
+function droppedPath(): string {
+  return path.join(proposalsDir(), ".dropped.json");
+}
+
+export async function droppedProposals(
+  now = Date.now(),
+): Promise<Record<string, { text: string; at: string }>> {
+  let all: Record<string, { text: string; at: string }>;
+  try {
+    all = JSON.parse(await fs.readFile(droppedPath(), "utf8")) as typeof all;
+  } catch {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(all).filter(([, d]) => now - Date.parse(d.at) < DROPPED_FOR_MS),
+  );
 }
 
 /**

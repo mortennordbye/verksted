@@ -49,6 +49,23 @@ export default function ReviewOverlay({
     };
   }, [sessionId]);
 
+  const [loadingMore, setLoadingMore] = useState(false);
+  /** The rest of a long range, appended: whole files, so the split still holds. */
+  async function more() {
+    if (!patch?.next || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const rest = await api<SessionPatch>(
+        `/api/sessions/${sessionId}/changes/patch?offset=${patch.next}`,
+      );
+      setPatch({ ...rest, diff: patch.diff + rest.diff });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
   const files = useMemo(() => (patch ? splitPatch(patch.diff) : []), [patch]);
   const read = useMemo(() => new Set(review.files), [review.files]);
 
@@ -179,8 +196,18 @@ export default function ReviewOverlay({
         ))}
 
         {patch?.truncated && (
-          <div className="px-3 py-3 text-[11px] text-wait">
-            …a long range, cut at a file boundary — the rest is in the terminal
+          <div className="flex items-center gap-2 px-3 py-3 text-[11px] text-wait">
+            <span>…a long range, cut at a file boundary</span>
+            {patch.next !== undefined && (
+              <button
+                type="button"
+                onClick={() => void more()}
+                disabled={loadingMore}
+                className="tap rounded border border-wait/40 px-2 py-0.5 hover:bg-wait/10 disabled:opacity-50"
+              >
+                {loadingMore ? "loading…" : "load the rest"}
+              </button>
+            )}
           </div>
         )}
       </div>

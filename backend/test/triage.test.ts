@@ -242,6 +242,38 @@ describe("triage", () => {
     ).not.toContain("sort-newsletters-quiet");
   });
 
+  it("is shown what is waiting and what was turned down, so it does not propose them again (backlog)", async () => {
+    const { propose, dropProposal } = await import("../src/memory-store.js");
+    await propose({ slug: "sort-waiting", text: "Receipts are quiet." });
+    await propose({ slug: "sort-refused", text: "Everything from Kari is quiet." });
+    await dropProposal("sort-refused");
+    const at = new Date().toISOString();
+    for (const id of ["mail:1", "mail:2"]) {
+      await feed.upsert({
+        id,
+        source: "mail",
+        at,
+        title: id,
+        detail: "",
+        link: null,
+        version: "1",
+      });
+      await feed.judge(id, { urgency: "new" });
+      await feed.setState(id, "done");
+    }
+    fake.reset();
+    fake.reply("claude", "-p", { stdout: run("") });
+
+    await jobs.runLearning(log);
+
+    const argv = fake.argvFor("claude")[0];
+    const system = argv[argv.indexOf("--append-system-prompt") + 1];
+    expect(system).toContain("(waiting for a decision) Receipts are quiet.");
+    expect(system).toContain(
+      "(turned down: do not propose it again) Everything from Kari is quiet.",
+    );
+  });
+
   it("spaces itself out, so a busy hour is six calls and not sixty", async () => {
     await arrived("github:4", "one");
     fake.reply("claude", "-p", { stdout: run("github:4\tnew\tOne.\t-") });

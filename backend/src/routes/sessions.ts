@@ -368,7 +368,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * transcript answers "nothing to show" rather than saying whether it ever
    * existed.
    */
-  app.get<{ Params: { id: string }; Querystring: { ref: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { ref: string; bytes?: number } }>(
     "/api/sessions/:id/chat/detail",
     {
       schema: {
@@ -378,7 +378,12 @@ export default async function sessionRoutes(app: FastifyInstance) {
           additionalProperties: false,
           // No window: see the image route above. A chip still on screen must
           // open whatever the tail has slid past since it was drawn.
-          properties: { ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" } },
+          properties: {
+            ref: { type: "string", pattern: "^[A-Za-z0-9_-]{1,80}$" },
+            // A subagent's own window, for its "load earlier"; the parent's
+            // is still the whole file, as above.
+            bytes: { type: "integer", minimum: 1, maximum: MAX_WINDOW },
+          },
         },
       },
     },
@@ -397,7 +402,10 @@ export default async function sessionRoutes(app: FastifyInstance) {
           // The project is gone; a subagent chip then opens onto nothing.
         }
       }
-      return readDetail(file ?? null, req.query.ref, { subagentDir: subagents });
+      return readDetail(file ?? null, req.query.ref, {
+        subagentDir: subagents,
+        bytes: req.query.bytes,
+      });
     },
   );
 
@@ -451,8 +459,18 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * session, and the project's git panel already shows it; a session's range is
    * the one thing that had no way to be read but by opening a terminal.
    */
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { all?: string } }>(
     "/api/sessions/:id/changes",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          // Ten times the caps: a long range, asked for whole.
+          properties: { all: { type: "string", enum: ["1"] } },
+        },
+      },
+    },
     async (req, reply): Promise<SessionChanges | void> => {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
@@ -465,7 +483,11 @@ export default async function sessionRoutes(app: FastifyInstance) {
       }
       try {
         const repoDir = store.sessionDir(session);
-        return { ...range, ...(await changesIn(repoDir, range.from, range.to)), review };
+        return {
+          ...range,
+          ...(await changesIn(repoDir, range.from, range.to, req.query.all === "1")),
+          review,
+        };
       } catch (err) {
         // The commit it started from is gone (the branch was reset), or the
         // project has been deleted. Either way the range cannot be read, and
@@ -520,15 +542,29 @@ export default async function sessionRoutes(app: FastifyInstance) {
    * The whole range as one patch, which is what reviewing a run means: reading
    * it end to end rather than tapping through it a file at a time.
    */
-  app.get<{ Params: { id: string } }>(
+  app.get<{ Params: { id: string }; Querystring: { offset?: number } }>(
     "/api/sessions/:id/changes/patch",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          additionalProperties: false,
+          properties: { offset: { type: "integer", minimum: 0 } },
+        },
+      },
+    },
     async (req, reply): Promise<SessionPatch | void> => {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
       const range = await store.sessionRange(req.params.id);
       if (!range) return { diff: "", truncated: false };
       try {
-        return await rangeDiff(store.sessionDir(session), range.from, range.to);
+        return await rangeDiff(
+          store.sessionDir(session),
+          range.from,
+          range.to,
+          req.query.offset ?? 0,
+        );
       } catch (err) {
         req.log.warn(err, "session patch failed");
         return reply.code(409).send({ error: gitError(err) });

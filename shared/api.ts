@@ -284,6 +284,8 @@ export interface SessionPatch {
   diff: string;
   /** Cut at the size cap; what is here is whole files, never half of one. */
   truncated: boolean;
+  /** Where the rest starts, to ask for it with `?offset=`; absent when there is no rest. */
+  next?: number;
 }
 
 /** One file's diff over a session's range. */
@@ -614,6 +616,11 @@ export interface PodFacts {
   docker: { type: string; size: string; reclaimable: string }[] | null;
   /** What each agent CLI would sign in with, and how many MCP servers it has. */
   agents: AgentFact[];
+  /**
+   * Whether headroom's server can start from its checkout: the branch, and
+   * what it needs that is not there. Null when headroom is not configured.
+   */
+  headroom: { branch: string | null; missing: string[] } | null;
 }
 
 export interface AgentFact {
@@ -789,6 +796,10 @@ export interface SearchFlags {
 export interface ReplaceResult {
   files: number;
   replacements: number;
+  /** Each file and its count, repo-relative; what a dry run is for. */
+  perFile: { path: string; replacements: number }[];
+  /** Nothing was written: the counts are what a replace would do. */
+  dryRun?: boolean;
 }
 
 /**

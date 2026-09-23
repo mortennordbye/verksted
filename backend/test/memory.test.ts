@@ -246,6 +246,17 @@ describe("the review queue", () => {
     expect(await store.dropProposal("wrong")).toBe(false);
   });
 
+  it("does not take back what was turned down, until it has been a while (backlog)", async () => {
+    await store.propose({ slug: "nope", text: "Something it misread." });
+    const at = Date.parse("2026-09-01T00:00:00Z");
+    expect(await store.dropProposal("nope", at)).toBe(true);
+    await expect(store.propose({ slug: "nope", text: "Something it misread." })).rejects.toThrow(
+      /turned down/,
+    );
+    // Ninety days later a "no" is old news, and the idea may come back.
+    expect(await store.droppedProposals(at + 91 * 24 * 60 * 60_000)).toEqual({});
+  });
+
   it("replaces its own proposal rather than stacking duplicates", async () => {
     // A harvest run twice over the same day sees the same prompts again.
     await store.propose({ slug: "squash", text: "Merge with --squash." });

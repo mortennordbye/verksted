@@ -39,11 +39,19 @@ import {
  * (R-34), which keeps what a session is on disk and how it is read.
  */
 
+/** A claude conversation id: the only thing `fork` puts on a command line. */
+const FORK_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 export interface LaunchOptions {
   /** Session title; defaults to "<agent>-<seq>". */
   title?: string;
   /** Pick up the agent's previous conversation in this project. */
   resume?: boolean;
+  /**
+   * A claude conversation to fork and carry on in this terminal: the
+   * assistant's thread, opened to drive. A uuid, checked where it is built in.
+   */
+  fork?: string;
   /** First prompt, submitted as the session starts (scheduled runs). */
   prompt?: string;
   /**
@@ -365,7 +373,9 @@ export function createSession(
       await launchAgent(
         meta,
         projectDir,
-        (opts.resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent],
+        agent === "claude" && opts.fork && FORK_RE.test(opts.fork)
+          ? `claude --resume ${opts.fork} --fork-session`
+          : (opts.resume && RESUME_COMMANDS[agent]) || AGENT_COMMANDS[agent],
         opts,
       );
     } catch (err) {

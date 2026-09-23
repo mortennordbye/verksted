@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { AssistantThread, CouncilMember } from "../../../shared/api";
+import { useNavigate } from "react-router";
+import type { AssistantThread, CouncilMember, CreatedSession } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
 import { scrollBehavior } from "../motion";
 import { threadCost } from "../threadCost";
@@ -361,6 +362,22 @@ export default function Chat() {
     }
   }
 
+  const navigate = useNavigate();
+  /** The thread as a terminal, forked so the chat's own conversation is untouched. */
+  async function openInTerminal() {
+    if (!thread) return;
+    setError(null);
+    try {
+      const s = await api<CreatedSession>(
+        `/api/assistant/threads/${thread.conversationId}/terminal`,
+        { method: "POST" },
+      );
+      void navigate(`/s/${s.id}`);
+    } catch (e) {
+      setError(`could not open it in a terminal: ${(e as Error).message}`);
+    }
+  }
+
   async function newThread() {
     setError(null);
     try {
@@ -504,6 +521,14 @@ export default function Chat() {
                 onClick={() => setBrowsing(true)}
                 disabled={thinking}
               />
+              {turns > 0 && (
+                <ToolButton
+                  icon="terminal"
+                  title="open this thread in a terminal, to drive it"
+                  onClick={() => void openInTerminal()}
+                  disabled={thinking}
+                />
+              )}
               {turns > 0 && (
                 <ToolButton
                   icon="compose"

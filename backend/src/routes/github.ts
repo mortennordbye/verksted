@@ -18,10 +18,10 @@ import { execEnv } from "../settings-store.js";
 
 const MAX_DIFF_CHARS = 400_000;
 
-const PR_LIST_FIELDS =
+export const PR_LIST_FIELDS =
   "number,title,state,isDraft,headRefName,baseRefName,author,createdAt,updatedAt,url," +
   "reviewDecision,statusCheckRollup,additions,deletions,changedFiles";
-const RUN_LIST_FIELDS =
+export const RUN_LIST_FIELDS =
   "databaseId,displayTitle,workflowName,status,conclusion,event,headBranch,createdAt,updatedAt,url";
 
 /** gh's own vocabulary for a PR, as returned by `gh pr list --json`. */

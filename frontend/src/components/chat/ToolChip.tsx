@@ -19,10 +19,29 @@ import { MD, REMARK } from "./markdown";
  * the conversation only ever grows — so a call fetched once stays fetched, and
  * nothing has to be remembered on its behalf.
  */
+/** The subagent's first window and its ceiling, as the backend has them. */
+const SUBAGENT_WINDOW = 64_000;
+const MAX_SUBAGENT_WINDOW = 8_000_000;
+
 export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sessionId: string }) {
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<ChatDetail | null>(null);
   const [failedToLoad, setFailedToLoad] = useState(false);
+  /** How much of a subagent's conversation to read; widened by "load earlier". */
+  const [bytes, setBytes] = useState(SUBAGENT_WINDOW);
+
+  async function load(window: number) {
+    if (!tool.id) return;
+    setFailedToLoad(false);
+    try {
+      const query = new URLSearchParams({ ref: tool.id });
+      if (window > SUBAGENT_WINDOW) query.set("bytes", String(window));
+      setDetail(await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`));
+      setBytes(window);
+    } catch {
+      setFailedToLoad(true);
+    }
+  }
 
   async function toggle() {
     if (open) {
@@ -32,13 +51,7 @@ export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sess
     setOpen(true);
     if (detail || !tool.id) return;
     // Opening it again is asking again; see PlanCard.
-    setFailedToLoad(false);
-    try {
-      const query = new URLSearchParams({ ref: tool.id });
-      setDetail(await api<ChatDetail>(`/api/sessions/${sessionId}/chat/detail?${query}`));
-    } catch {
-      setFailedToLoad(true);
-    }
+    await load(bytes);
   }
 
   return (
@@ -80,7 +93,13 @@ export default function ToolChip({ tool, sessionId }: { tool: ChatToolCall; sess
                 {detail.description && ` · ${detail.description}`}
               </p>
               {detail.truncated && (
-                <p className="text-[11.5px] text-faint">only the end of what it did is kept here</p>
+                <button
+                  type="button"
+                  onClick={() => void load(Math.min(bytes * 4, MAX_SUBAGENT_WINDOW))}
+                  className="self-start text-[11.5px] text-faint underline hover:text-text"
+                >
+                  only the end of what it did is shown · load earlier
+                </button>
               )}
               {detail.messages.length === 0 && (
                 <p className="text-[11.5px] text-faint">it wrote nothing down</p>

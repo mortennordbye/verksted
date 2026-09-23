@@ -33,8 +33,10 @@ export default function ChangesPanel({
 }) {
   // A finished session's range is pinned at both ends and never moves again, so
   // re-reading it costs two git calls to learn nothing. A live one still grows.
+  // A long range is cut; "show all" asks for ten times as much.
+  const [all, setAll] = useState(false);
   const { data, error, loading, fresh } = usePoll<SessionChanges>(
-    `/api/sessions/${sessionId}/changes`,
+    `/api/sessions/${sessionId}/changes${all ? "?all=1" : ""}`,
     live ? 20_000 : 60 * 60_000,
   );
   const [reviewing, setReviewing] = useState(false);
@@ -161,7 +163,20 @@ export default function ChangesPanel({
 
       {data?.truncated && (
         <div className="px-2.5 pt-2 text-[11px] text-faint">
-          …a long range, cut short — the rest is in the terminal
+          …a long range, cut short
+          {!all && (
+            <>
+              {" "}
+              ·{" "}
+              <button
+                type="button"
+                onClick={() => setAll(true)}
+                className="underline hover:text-text"
+              >
+                show all
+              </button>
+            </>
+          )}
         </div>
       )}
 

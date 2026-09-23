@@ -63,7 +63,7 @@ export { subagentDir, transcriptPath };
  * of tool results, and the nightly harvest used to hold each one whole, as a
  * string, to keep the few hundred characters a person typed into it.
  */
-async function promptsIn(file: string): Promise<string[]> {
+export async function promptsIn(file: string): Promise<string[]> {
   const out: string[] = [];
   try {
     const lines = readline.createInterface({

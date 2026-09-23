@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ReplaceResult, SearchHit } from "../../../shared/api";
 import { api } from "../api";
-import { useConfirm } from "../useConfirm";
+import Sheet from "./Sheet";
 import { fileIcon } from "../fileicons";
 import Notice from "./ui/Notice";
 import { SkeletonLines } from "./Skeleton";
@@ -46,7 +46,12 @@ export default function SearchPanel({
   const [useRegex, setUseRegex] = useState(false);
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const [confirm, confirmDialog] = useConfirm();
+  /** The dry run's answer, with the files still ticked: the step before writing. */
+  const [review, setReview] = useState<{
+    query: string;
+    perFile: ReplaceResult["perFile"];
+    keep: Set<string>;
+  } | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,46 +89,57 @@ export default function SearchPanel({
     }
   }
 
+  const body = (extra: object) =>
+    JSON.stringify({
+      q: q.trim(),
+      replace,
+      case: caseSensitive,
+      word: wholeWord,
+      regex: useRegex,
+      ...extra,
+    });
+  const replaceUrl = `/api/projects/${encodeURIComponent(project)}/replace`;
+
+  /**
+   * The riskiest control in the app: it rewrites matches across the repo, there
+   * is no undo, and it races whatever the agent is doing in the same tree. So
+   * it counts first, per file, writing nothing, and what is written is only
+   * the files still ticked once that list has been read.
+   */
   async function replaceAll() {
     const query = q.trim();
     if (!query || busy) return;
-    // The riskiest control in the app: it rewrites every match across the repo,
-    // there is no undo, and it races whatever the agent is doing in the same
-    // tree. The least it can do is say how much it is about to change, and
-    // name the files — the hit list is right there and used to be thrown away
-    // afterwards, so you could not even check what had happened.
-    const files = new Set((hits ?? []).map((h) => h.path));
-    const scope =
-      hits === null
-        ? "Search first to see what this will touch."
-        : `${hits.length} match${hits.length === 1 ? "" : "es"} in ${files.size} file${
-            files.size === 1 ? "" : "s"
-          }: ${[...files].slice(0, 5).join(", ")}${files.size > 5 ? `, and ${files.size - 5} more` : ""}.`;
-    const ok = await confirm({
-      title: `Replace every "${query}" with "${replace}"?`,
-      body: `${scope} This cannot be undone, and the agent may be editing the same files.`,
-      action: "replace across the repo",
-      danger: true,
-    });
-    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await api<ReplaceResult>(`/api/projects/${encodeURIComponent(project)}/replace`, {
+      const res = await api<ReplaceResult>(replaceUrl, {
         method: "POST",
-        body: JSON.stringify({
-          q: query,
-          replace,
-          case: caseSensitive,
-          word: wholeWord,
-          regex: useRegex,
-        }),
+        body: body({ dryRun: true }),
       });
+      if (!res.files) {
+        setNote("nothing to replace");
+        return;
+      }
+      setReview({ query, perFile: res.perFile, keep: new Set(res.perFile.map((f) => f.path)) });
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function replaceKept() {
+    if (!review || !review.keep.size) return;
+    const paths = [...review.keep];
+    setReview(null);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api<ReplaceResult>(replaceUrl, { method: "POST", body: body({ paths }) });
       setNote(
         `replaced ${res.replacements} occurrence${res.replacements === 1 ? "" : "s"} in ${res.files} file${res.files === 1 ? "" : "s"}`,
       );
-      // Re-run the search rather than clearing it: the old code dropped the hit
-      // list, so there was no way to see what had just been changed.
+      // Re-run the search rather than clearing it, so what changed can be read.
       void run({ case: caseSensitive, word: wholeWord, regex: useRegex });
     } catch (e) {
       setError((e as Error).message);
@@ -258,7 +274,45 @@ export default function SearchPanel({
           </div>
         );
       })}
-      {confirmDialog}
+      {review && (
+        <Sheet
+          title={`Replace "${review.query}" with "${replace}"`}
+          sub="Untick a file to leave it alone. This cannot be undone, and the agent may be editing the same files."
+          onClose={() => setReview(null)}
+        >
+          <ul className="mb-3 flex max-h-[45dvh] flex-col gap-1 overflow-y-auto">
+            {review.perFile.map((f) => (
+              <li key={f.path}>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-surface-2">
+                  <input
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={review.keep.has(f.path)}
+                    onChange={(e) => {
+                      const keep = new Set(review.keep);
+                      if (e.target.checked) keep.add(f.path);
+                      else keep.delete(f.path);
+                      setReview({ ...review, keep });
+                    }}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{f.path}</span>
+                  <span className="flex-none font-mono text-[11.5px] text-faint">
+                    {f.replacements}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => void replaceKept()}
+            disabled={!review.keep.size}
+            className="tap w-full rounded-xl bg-fail px-3 py-2 text-[13.5px] font-semibold text-on-accent hover:brightness-110 disabled:opacity-40"
+          >
+            replace in {review.keep.size} file{review.keep.size === 1 ? "" : "s"}
+          </button>
+        </Sheet>
+      )}
     </section>
   );
 }

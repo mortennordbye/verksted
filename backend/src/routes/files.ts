@@ -966,7 +966,10 @@ export default async function fileRoutes(app: FastifyInstance) {
     },
   );
 
-  app.post<{ Params: { name: string }; Body: { q: string; replace: string } & SearchFlags }>(
+  app.post<{
+    Params: { name: string };
+    Body: { q: string; replace: string; dryRun?: boolean; paths?: string[] } & SearchFlags;
+  }>(
     "/api/projects/:name/replace",
     {
       schema: {
@@ -977,6 +980,14 @@ export default async function fileRoutes(app: FastifyInstance) {
           properties: {
             q: { type: "string", minLength: 1, maxLength: 200 },
             replace: { type: "string", maxLength: 1000 },
+            // Count what it would change, per file, and write nothing.
+            dryRun: { type: "boolean" },
+            // Only these of the files that match: what the review step kept.
+            paths: {
+              type: "array",
+              maxItems: 500,
+              items: { type: "string", minLength: 1, maxLength: 1024 },
+            },
             ...flagProps,
           },
         },
@@ -1010,15 +1021,21 @@ export default async function fileRoutes(app: FastifyInstance) {
           .map((p) => p.replace(/^\.\//, ""));
       } catch (err) {
         const code = (err as { code?: number }).code;
-        if (code === 1) return { files: 0, replacements: 0 };
+        if (code === 1) return { files: 0, replacements: 0, perFile: [] };
         if (code === 2) return reply.code(400).send({ error: "invalid pattern" });
         req.log.error(err, "replace search failed");
         return reply.code(500).send({ error: "replace failed" });
       }
+      // Of what matches, only what was kept: a name that does not match is
+      // not one this can be asked to write, whatever it is.
+      const chosen = req.body.paths ? new Set(req.body.paths) : null;
       const paths: string[] = [];
-      for (const rel of matched.slice(0, 500)) {
+      const rel: string[] = [];
+      for (const r of matched.slice(0, 500)) {
+        if (chosen && !chosen.has(r)) continue;
         try {
-          paths.push(resolveInsideRepos(req.params.name, rel));
+          paths.push(resolveInsideRepos(req.params.name, r));
+          rel.push(r);
         } catch {
           // Gone, or now out of bounds — rg listed it a moment ago.
         }
@@ -1027,6 +1044,8 @@ export default async function fileRoutes(app: FastifyInstance) {
       try {
         return await runReplace({
           paths,
+          rel,
+          dryRun: req.body.dryRun === true,
           source: re.source,
           flags: re.flags,
           replacement,

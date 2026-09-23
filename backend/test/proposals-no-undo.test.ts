@@ -249,6 +249,10 @@ describe("an event", () => {
     const trash = path.join(assistantDir, "calendar-trash");
     const [kept] = fs.readdirSync(trash);
     expect(fs.readFileSync(path.join(trash, kept), "utf8")).toContain("SUMMARY:Dentist");
+    // The tap is a line of the log, which is where it can be put back from.
+    const day = (await app.inject({ url: "/api/assistant/tool-log" })).json();
+    const line = day.entries.find((e: { tool: string }) => e.tool === "card:calendar_delete");
+    expect(line).toMatchObject({ speaker: "you, by card", ok: true, undo: "can" });
   });
 
   it("is refused as it is filed when it repeats and nobody said which, or is not there", async () => {

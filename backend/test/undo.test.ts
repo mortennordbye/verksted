@@ -120,6 +120,24 @@ describe("undo from the log", () => {
     expect(moved).toHaveLength(1);
   });
 
+  it("moves back what a tapped card moved, the same way", async () => {
+    writeLog("tool-log", [
+      call("card:mail_move", { kind: "mail_move", uids: [5], to: "Receipts" }),
+    ]);
+    writeLog("mail-log", [
+      {
+        at: "2026-09-20T10:00:04.000Z",
+        verb: "move",
+        from: "INBOX",
+        to: "Receipts",
+        uids: [5],
+        uidMap: { "5": 55 },
+      },
+    ]);
+    expect((await undo()).json().said).toBe("1 message moved back to INBOX");
+    expect(moved).toEqual([{ uids: [55], to: "INBOX", from: "Receipts" }]);
+  });
+
   it("says so when the server never said where the messages landed", async () => {
     writeLog("tool-log", [call("mail_move", { uids: [3], to: "Receipts" })]);
     writeLog("mail-log", [

@@ -77,6 +77,34 @@ describe("the agents in GET /api/facts (Milestone 4)", () => {
   });
 });
 
+describe("headroom in GET /api/facts (backlog)", () => {
+  it("says nothing where headroom is not set up, and what is missing where it is", async () => {
+    expect((await app.inject({ url: "/api/facts" })).json().headroom).toBeNull();
+
+    fs.writeFileSync(
+      process.env.SETTINGS_FILE!,
+      JSON.stringify({ vars: { HEADROOM_URL: "http://h", HEADROOM_PASSWORD: "p" } }),
+    );
+    const repo = path.join(process.env.REPOS_DIR!, "headroom");
+    fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(repo, ".git", "HEAD"), "ref: refs/heads/redesign\n");
+    try {
+      expect((await app.inject({ url: "/api/facts" })).json().headroom).toEqual({
+        branch: "redesign",
+        missing: ["mcp/server.ts", "node_modules/.bin/tsx"],
+      });
+      fs.mkdirSync(path.join(repo, "mcp"));
+      fs.writeFileSync(path.join(repo, "mcp", "server.ts"), "");
+      fs.mkdirSync(path.join(repo, "node_modules", ".bin"), { recursive: true });
+      fs.writeFileSync(path.join(repo, "node_modules", ".bin", "tsx"), "");
+      expect((await app.inject({ url: "/api/facts" })).json().headroom.missing).toEqual([]);
+    } finally {
+      fs.rmSync(process.env.SETTINGS_FILE!, { force: true });
+      fs.rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("GET /api/ports", () => {
   it("returns a port list", async () => {
     const res = await app.inject({ url: "/api/ports" });

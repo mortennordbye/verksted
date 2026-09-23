@@ -22,11 +22,12 @@ export class ReplaceTimeout extends Error {
 const WORKER_SRC = `
 const { parentPort, workerData } = require("node:worker_threads");
 const fs = require("node:fs");
-const { paths, source, flags, replacement, literal } = workerData;
+const { paths, source, flags, replacement, literal, dryRun } = workerData;
 const re = new RegExp(source, flags);
 let files = 0;
 let replacements = 0;
-for (const abs of paths) {
+const perFile = [];
+for (const [i, abs] of paths.entries()) {
   let before;
   try {
     before = fs.readFileSync(abs, "utf8");
@@ -42,6 +43,12 @@ for (const abs of paths) {
     // String replacement so "$1" backreferences work.
     n = (before.match(re) ?? []).length;
     after = before.replace(re, replacement);
+  }
+  if (n > 0 && dryRun) {
+    files++;
+    replacements += n;
+    perFile.push({ path: (workerData.rel ?? paths)[i], replacements: n });
+    continue;
   }
   if (n > 0) {
     // Not through a link: the agent owns the repo and can swap one in after rg
@@ -60,14 +67,19 @@ for (const abs of paths) {
     }
     files++;
     replacements += n;
+    perFile.push({ path: (workerData.rel ?? paths)[i], replacements: n });
   }
 }
-parentPort.postMessage({ files, replacements });
+parentPort.postMessage({ files, replacements, perFile, ...(dryRun ? { dryRun: true } : {}) });
 `;
 
 export function runReplace(
   data: {
     paths: string[];
+    /** The same files, repo-relative, for the per-file answer; the paths themselves if absent. */
+    rel?: string[];
+    /** Count, and write nothing. */
+    dryRun?: boolean;
     source: string;
     flags: string;
     replacement: string;

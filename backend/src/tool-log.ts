@@ -58,9 +58,19 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
  * The calls the log can put back, and what each is put back from: a move from
  * the uids the mail log has for where the messages landed, a relabel from the
  * message ids it touched, a calendar change from the copy kept before it.
- * Cards are not here: what a tapped card did is not a line of this log.
+ * A tapped card is its own line, `card:<kind>`, put back the same way.
  */
-export const UNDOABLE = new Set(["mail_move", "mail_relabel", "calendar_update"]);
+export const UNDOABLE = new Set([
+  "mail_move",
+  "mail_relabel",
+  "calendar_update",
+  // A tapped card's lines (proposals.ts): the event it took off put back,
+  // mail it moved to the trash or spam moved back, a filter it removed made
+  // again from the definition the card showed.
+  "card:calendar_delete",
+  "card:mail_move",
+  "card:mail_rule_delete",
+]);
 
 /** Which calls have been put back, by the `at` of the call. Not a `.jsonl`, so never a day. */
 function undonePath(): string {

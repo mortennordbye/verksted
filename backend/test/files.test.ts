@@ -552,27 +552,54 @@ describe("POST /api/projects/:name/replace", () => {
     fs.writeFileSync(demoFile("repl.txt"), "foo bar foo baz");
     const res = await post({ q: "foo", replace: "qux" });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ files: 1, replacements: 2 });
+    expect(res.json()).toMatchObject({ files: 1, replacements: 2 });
     expect(fs.readFileSync(demoFile("repl.txt"), "utf8")).toBe("qux bar qux baz");
+  });
+
+  it("counts per file on a dry run and writes nothing (backlog)", async () => {
+    fs.writeFileSync(demoFile("repl.txt"), "foo bar foo");
+    fs.writeFileSync(demoFile("repl2.txt"), "foo");
+    const res = await post({ q: "foo", replace: "qux", dryRun: true });
+    expect(res.json()).toMatchObject({ files: 2, replacements: 3, dryRun: true });
+    expect(
+      [...res.json().perFile].sort((a: { path: string }, b: { path: string }) =>
+        a.path.localeCompare(b.path),
+      ),
+    ).toEqual([
+      { path: "repl.txt", replacements: 2 },
+      { path: "repl2.txt", replacements: 1 },
+    ]);
+    expect(fs.readFileSync(demoFile("repl.txt"), "utf8")).toBe("foo bar foo");
+    fs.rmSync(demoFile("repl2.txt"));
+  });
+
+  it("writes only the files that were kept", async () => {
+    fs.writeFileSync(demoFile("repl.txt"), "foo");
+    fs.writeFileSync(demoFile("repl2.txt"), "foo");
+    const res = await post({ q: "foo", replace: "qux", paths: ["repl2.txt", "not-a-match.txt"] });
+    expect(res.json()).toMatchObject({ files: 1, replacements: 1 });
+    expect(fs.readFileSync(demoFile("repl.txt"), "utf8")).toBe("foo");
+    expect(fs.readFileSync(demoFile("repl2.txt"), "utf8")).toBe("qux");
+    fs.rmSync(demoFile("repl2.txt"));
   });
 
   it("keeps '$' literal in non-regex replacements", async () => {
     fs.writeFileSync(demoFile("repl.txt"), "price");
     const res = await post({ q: "price", replace: "$&cost" });
-    expect(res.json()).toEqual({ files: 1, replacements: 1 });
+    expect(res.json()).toMatchObject({ files: 1, replacements: 1 });
     expect(fs.readFileSync(demoFile("repl.txt"), "utf8")).toBe("$&cost");
   });
 
   it("supports regex backreferences", async () => {
     fs.writeFileSync(demoFile("repl.txt"), "a1 b2");
     const res = await post({ q: "([a-z])(\\d)", replace: "$2$1", regex: true });
-    expect(res.json()).toEqual({ files: 1, replacements: 2 });
+    expect(res.json()).toMatchObject({ files: 1, replacements: 2 });
     expect(fs.readFileSync(demoFile("repl.txt"), "utf8")).toBe("1a 2b");
   });
 
   it("reports zero when nothing matches", async () => {
     const res = await post({ q: "zzz-not-there", replace: "x" });
-    expect(res.json()).toEqual({ files: 0, replacements: 0 });
+    expect(res.json()).toMatchObject({ files: 0, replacements: 0 });
   });
 
   it("404s an unknown project", async () => {

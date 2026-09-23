@@ -24,38 +24,6 @@ what unblocks it / where the code lives.
 - **Where:** `frontend/src/screens/Session.tsx` (`useVisualViewport`, the root
   shell's `kbd:h-[var(--vvh,100dvh)]`, and the full-screen pane branch)
 
-## Ariel's headroom server runs out of a working tree
-
-- **What:** The server is `tsx mcp/server.ts` under `/data/repos/headroom`, so
-  what that advisor can do is decided by whatever is checked out there. A branch
-  without `mcp/`, a half-finished edit or a reinstall changes it, and the failure
-  mode is silent: the tools simply do not list, and the advisor answers as though
-  headroom was never configured — which is indistinguishable from the vars being
-  unset.
-- **Why deferred:** The alternative is pinning a copy into this image or running
-  headroom's HTTP transport beside it, and both cost more than the failure does
-  while one person uses one checkout.
-- **Unblocked by:** Wanting to work on a headroom branch and keep Ariel honest at
-  the same time; then either pin the server or surface "headroom configured but
-  not answering" as something visible rather than absent.
-- **Where:** `backend/src/assistant.ts` (`HEADROOM_SERVER`, `mcpConfig`)
-
-## gh output fixtures are hand-written, not captured from a real gh
-
-- **What:** The gh-backed routes now have coverage through a fake `gh` on PATH
-  (`backend/test/github-gh.test.ts`), so the argv, the wire mapping and the
-  error statuses are asserted. What that cannot catch is gh changing its own
-  output: the fixtures are written from the current `--json` shape by hand, so a
-  field renamed in a future gh release would keep the suite green and break the
-  app.
-- **Why deferred:** Catching that needs real gh output, which needs a token and
-  the network — neither exists in CI.
-- **Unblocked by:** A CI job with a scoped token against a throwaway repo that
-  captures `gh pr list --json …` and diffs it against the fixtures; or pinning
-  the gh version in the image and re-capturing on each bump.
-- **Where:** `backend/test/github-gh.test.ts` (the fixtures),
-  `backend/src/routes/github.ts` (`PR_LIST_FIELDS`, `RUN_LIST_FIELDS`)
-
 ## Verify Antigravity headless auth in the pod
 
 - **What:** `ANTIGRAVITY_API_KEY` is documented in `.env.example` but reports on
@@ -87,19 +55,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`,
   `restoreSessions`), `backend/src/claude-hooks.ts` (the `CONVERSATION` hook to
   copy), `frontend/src/screens/Project.tsx` (picker label)
-
-## Browser pane: follow agent-created browser contexts
-
-- **What:** The pane follows pages in the default Chromium context (covers
-  playwright `connectOverCDP` default-context use and the playwright MCP's
-  `--cdp-endpoint`). If an agent creates a new context (`browser.newContext()`),
-  its pages are not streamed.
-- **Why deferred:** Needs browser-level target discovery (CDP
-  Target.setDiscoverTargets) instead of per-context page events; the common
-  agent flows don't create contexts.
-- **Unblocked by:** Hitting the limitation in practice; then switch page
-  tracking to target events.
-- **Where:** `backend/src/browser.ts` (`launch`, `setCurrent`)
 
 ## Session browser for antigravity/codex agents
 
@@ -157,24 +112,6 @@ what unblocks it / where the code lives.
   to be unwanted noise, `CATCH_UP_WITHIN_MS` is the one number to turn down.
 - **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
   `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
-
-## A big review still cannot be paged past its caps
-
-- **What:** Reviewing a run is now a screen: the whole range as one patch
-  (`GET /api/sessions/:id/changes/patch`), per-file read marks and a verdict
-  kept on the session (`PATCH /api/sessions/:id/review`), both surfaced on the
-  changes tab and the inbox row. What is still fixed is the size: the file and
-  commit lists cut at 500 and 100, and the patch itself at 1 MB, cut at a file
-  boundary. All three say so and none can be paged past — a range bigger than
-  that is only fully readable in the terminal.
-- **Why deferred:** Paging a diff is its own design (by file? by hunk? what does
-  "read" mean for a page?), and no real range has come close to the caps yet.
-  Guessing at the interaction before one does is how the wrong one gets built.
-- **Unblocked by:** A real overnight run that hits a cap. The numbers to move
-  are named constants, so raising them is the cheap first answer if that run
-  turns out to be an outlier rather than the new normal.
-- **Where:** `backend/src/git.ts` (`MAX_COMMITS`, `MAX_FILES`,
-  `MAX_PATCH_BYTES`), `frontend/src/components/ReviewOverlay.tsx`
 
 ## The pod's voice is English-first, and never speaks Norwegian
 
@@ -317,24 +254,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
 
-## Per-file selection and a dry run for repo-wide replace
-
-- **What:** `POST /api/projects/:name/replace` still rewrites every match in one
-  shot. The confirm now states how many matches in how many files and names the
-  first five, and the hit list is re-run afterwards so the result can be
-  checked — but there is no per-file selection, no server-side dry run, and no
-  undo.
-- **Why deferred:** A real dry run means a second response shape (per-file
-  before/after counts, ideally the replaced lines) and a review UI on top of it,
-  which is a feature rather than a safety fix. The immediate risk — an
-  unbounded rewrite behind a single unstyled `confirm()` — is addressed, and the
-  regex no longer runs on the event loop.
-- **Unblocked by:** Deciding whether the review step shows counts per file or
-  actual diff lines; the latter needs the endpoint to return content, which has
-  size implications on a phone.
-- **Where:** `backend/src/routes/files.ts` (the replace route),
-  `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
-
 ## The antigravity CLI is the one thing in the image with no version to pin
 
 - **What:** claude, codex and the playwright MCP server are pinned in
@@ -385,42 +304,6 @@ what unblocks it / where the code lives.
 - **Where:** `runtime/verksted-mcp.mjs` (`call`, `reason`), `tsconfig.runtime.json`,
   `backend/src/routes/assistant.ts`, `backend/src/routes/memory.ts`, `shared/api.ts`
 
-## The image is scanned but carries no SBOM or provenance
-
-- **What:** CI now fails a push when trivy finds a fixable CRITICAL in the
-  image, and files everything HIGH and above under code scanning. What it does
-  not produce is a bill of materials or a signed statement of how the image was
-  built, so "which image had that package" can only be answered by re-scanning
-  whatever is still in the registry.
-- **Why deferred:** Scanning answers the question that was actually being asked
-  (is there a known hole in what is running). An SBOM is for answering it
-  backwards, after an advisory lands, and it is only worth its keep with
-  retention to go with it — which GHCR has none of here (O-17).
-- **Unblocked by:** An advisory that has to be traced to a specific deployed
-  tag, or deciding the GHCR retention question. `docker/build-push-action`
-  takes `sbom: true` and `provenance: mode=max`, so the change itself is two
-  lines.
-- **Where:** `.github/workflows/ci.yml` (the `image` job)
-
-## Assistant M1: open the assistant's conversation in a terminal
-
-- **What:** Headless claude records its conversation under `$HOME` exactly as
-  the TUI does, so a tmux session running `claude --resume <id>` picks up the
-  thread you were chatting to. This is what keeps the chat from being a dead end
-  when you want to drive.
-- **Why deferred:** The mechanism is verified — a chatted turn lands at
-  `/data/home/.claude/projects/-data-repos/<id>.jsonl`, which is exactly where
-  the interactive CLI looks for a conversation started in `REPOS_DIR`. What is
-  missing is somewhere to put the session: every session id is
-  `vk-<project>-<seq>` and the assistant belongs to no project, so this needs
-  the session model to admit a projectless session rather than just a new
-  endpoint.
-- **Unblocked by:** Deciding how a projectless session is named and listed, then
-  a route that starts tmux on `claude --resume <conversationId>` in `REPOS_DIR`.
-- **Where:** `backend/src/sessions-store.ts` (`SESSION_ID_RE`, `createSession`,
-  `launchAgent` already builds `claude --resume <id>` for restores),
-  `frontend/src/screens/Assistant.tsx` (where the button goes)
-
 ## "Ask before anything irreversible" is an instruction, not enforcement
 
 - **What:** Of the two house rules, "leave no sign an agent wrote this" is now
@@ -438,41 +321,23 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sandbox-doc.ts` (`HOUSE_RULES`), `runtime/vk-guard`,
   `runtime/git-hooks/`
 
-## The harvest has only read scheduled-run transcripts, and nothing guards the shape
+## Nobody has yet judged what the harvest and the learning pass propose
 
-- **What:** Two halves, one now answered. `transcripts.ts` has been run against
-  real transcripts in the pod (2026-08-08): seven finished sessions, seven typed
-  turns, no model output and no tool results — the `origin.kind === "human"`
-  filter holds on real data. But all seven were _scheduled_ sessions, where the
-  single human turn is the prompt verksted submitted, so the harvest has still
-  never read a conversation a person actually typed into, which is where the
-  durable facts are and where the judgement is hard. And nothing in CI reads a
-  real transcript, so a future CLI release renaming `origin` would silently
-  harvest nothing (safe) or, if the shape moved the other way, start including
-  tool results (not safe).
-- **Why deferred:** The first half needs interactive sessions to end and a night
-  to pass. The second is the same class as the gh fixture entry above.
-- **Unblocked by:** Reading the inbox after a day with real interactive work in
-  it, and judging whether what it proposed was worth keeping. For the shape
-  guard: a check that reads one real transcript from `$HOME/.claude/projects/`
-  in the pod and asserts a human turn comes out and no tool result does. Worth
-  pinning the claude version in the image and re-checking on each bump.
-- **Where:** `backend/src/transcripts.ts` (`promptsIn`),
-  `backend/test/transcripts.test.ts`
-
-## A harvest proposing the same rejected fact every night
-
-- **What:** Dropping a proposal leaves no trace, which is what makes the queue
-  feel clean. The cost is that nothing remembers the rejection: if the same
-  session's prompts are read again — a harvest run twice by hand, or a
-  look-back window widened past a day — the same fact is proposed again and has
-  to be dropped again. The nightly window makes this unlikely rather than
-  impossible.
-- **Why deferred:** The fix is a tombstone file per rejected slug, which is
-  state that exists only to remember a "no" and has to be pruned itself. Not
-  worth it before it is annoying in practice.
-- **Unblocked by:** Dropping the same proposal twice and being irritated by it.
-- **Where:** `backend/src/memory-store.ts` (`dropProposal`)
+- **What:** The shape guard is in: `transcript-check.ts` reads the newest real
+  transcript every day, the way both the chat view and the harvest read it, and
+  files an inbox item if either finds nothing (checked against the pod's
+  largest transcripts on 2026-09-23: turns, chips, images, a question and a plan
+  card, and five kinds of rail all came out). What is left is the judgement: on
+  2026-09-23 the queue held 24 proposals, most of them sorting rules from the
+  learning pass, and none had been kept or dropped.
+- **Why deferred:** Whether a proposal is worth keeping is the person's call,
+  and it is the only way to learn whether the harvest's output is useful.
+- **Unblocked by:** Going through the queue once (Settings, Memory, or the
+  inbox). Keep what is right and drop the rest: a dropped proposal is now
+  remembered and not proposed again for 90 days, and the learning pass is shown
+  both what is waiting and what was turned down.
+- **Where:** `backend/src/memory-store.ts` (`propose`, `dropProposal`),
+  `backend/src/assistant-jobs.ts` (`runLearning`, `sortingRules`).
 
 ## Assistant M4: memory has a budget but no compaction
 
@@ -670,40 +535,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
   (`TOPICS`), `frontend/src/useSessionChat.ts`, `frontend/src/usePanePrompt.ts`
 
-## Nothing in CI reads a real transcript, and the chat view now leans on six shapes
-
-- **What:** Every fixture in `backend/test/chat.test.ts` is hand-written. The
-  chat view reads six load-bearing shapes out of the transcript now — human
-  turns, tool calls and their results, `task_reminder` attachments, `pr-link`
-  and `permission-mode` entries, `AskUserQuestion` and `ExitPlanMode` payloads,
-  and the `subagents/` directory — where before it read two. A CLI release that
-  renames or moves any of them shows up as a silently emptier view, with every
-  test still green.
-- **Why deferred:** Same reason as the entry above about `transcripts.ts`, which
-  this widens rather than replaces: a check that reads a real transcript needs
-  one to exist, which is true in the pod and not in CI.
-- **Unblocked by:** A check that runs in the pod against one real file from
-  `$HOME/.claude/projects/` and asserts that a turn, a chip, a rail, an image
-  reference and a question all come out of it. The parser is pure, so this is a
-  script and an assertion rather than a harness.
-- **Where:** `backend/src/chat.ts` (`parseTranscript`, `findDetail`),
-  `backend/test/chat.test.ts`
-
-## A subagent's conversation is read at a fixed window with no way to page back
-
-- **What:** Opening an Agent chip reads the last 64 kB of that subagent's
-  transcript, and says so when that did not reach the start. There is no "load
-  earlier" for it the way there is for the conversation itself.
-- **Why deferred:** A subagent is opened to find out what one delegated job
-  concluded, and the conclusion is the last thing it wrote — which the tail
-  always contains. A second window control on a nested view is more UI than the
-  question deserves until somebody actually wants to scroll one.
-- **Unblocked by:** Wanting to read a long subagent run rather than its result.
-  `readDetail` already takes a window for the parent; this would be the same
-  parameter threaded one level down.
-- **Where:** `backend/src/chat.ts` (`SUBAGENT_WINDOW`, `readSubagent`),
-  `frontend/src/components/chat/ToolChip.tsx`
-
 ## Still outside the maintainer
 
 - **What:** Three things the plan named and left out on purpose. cargo and go
@@ -744,23 +575,19 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `design/mock-inbox.html`.
 
-## What a tapped card did cannot be put back from the log
+## A removed label and a sent mail cannot be put back
 
-- **What:** A move, a relabel and a calendar change the assistant made itself
-  are put back from their row in the settings page's log (`undo.ts`). What a
-  card did on a tap is not: a calendar event taken off, mail moved to the
-  trash or spam, a filter or label removed. The tap is not a line of the tool
-  log, so there is no row to put a button on, though `calendar-trash/` does
-  hold the file a removed event would be put back from.
-- **Why deferred:** A tapped card was already asked about once, and the record
-  of what it did lives in the feed item rather than the log. Putting one back
-  means giving the proposal route a log line of its own and an inverse per
-  card kind.
-- **Unblocked by:** Tapping a card by mistake. Then record `do` in the tool log
-  with the action, and add the inverse for `calendar_delete` first, since its
-  kept file is already there.
-- **Where:** `backend/src/routes/proposals.ts` (`do`), `backend/src/undo.ts`,
-  `backend/src/tool-log.ts` (`UNDOABLE`).
+- **What:** A tapped card is a line of the tool log (`card:<kind>`), and a
+  removed calendar event, mail moved to the trash or spam, and a removed Gmail
+  filter are put back from that row. A removed label is not: Gmail takes it off
+  every message it was on, and only the list of those messages would put it
+  back. A sent mail cannot be unsent.
+- **Why deferred:** The label needs the ids of what carried it read before the
+  delete, which the card's snapshot does not take today.
+- **Unblocked by:** Removing a label by mistake. Then record the message ids in
+  the snapshot and relabel them on undo.
+- **Where:** `backend/src/routes/proposals.ts` (`snapshot`, `mail_label_delete`),
+  `backend/src/undo.ts`.
 
 ## The per-session routes still ask tmux once per request
 
