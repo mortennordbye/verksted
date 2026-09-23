@@ -567,32 +567,33 @@ export default async function assistantRoutes(app: FastifyInstance) {
     "/api/assistant/threads/:id/terminal",
     { schema: { params: threadId } },
     async (req, reply) => {
-      // The schema holds it to a uuid too; said again beside the paths it builds.
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(req.params.id)) {
-        return reply.code(404).send({ error: "not a thread id" });
-      }
       if (agentUser()) {
         return reply.code(409).send({
           error:
             "not while sessions run as their own user: the assistant's conversations are kept from it",
         });
       }
-      const from = transcriptPath(env.REPOS_DIR, req.params.id, assistantHome());
+      // The id the paths are built from is the thread list's own, not the
+      // request's: the request only picks which one.
+      const thread = (await assistant.listThreads()).find(
+        (t) => t.conversationId === req.params.id,
+      );
+      if (!thread) return reply.code(404).send({ error: "no such thread" });
+      const id = thread.conversationId;
+      const from = transcriptPath(env.REPOS_DIR, id, assistantHome());
       try {
         await fs.access(from);
       } catch {
         return reply.code(404).send({ error: "this thread has no conversation to open yet" });
       }
       const desk = await ensureDesk();
-      const to = transcriptPath(desk, req.params.id);
+      const to = transcriptPath(desk, id);
       await fs.mkdir(path.dirname(to), { recursive: true });
       await fs.copyFile(from, to);
-      const threads = await assistant.listThreads();
-      const title = threads.find((t) => t.conversationId === req.params.id)?.title ?? "thread";
       try {
         const session = await createSession(DESK, desk, "claude", {
-          title: `assistant: ${title}`.slice(0, 80),
-          fork: req.params.id,
+          title: `assistant: ${thread.title}`.slice(0, 80),
+          fork: id,
         });
         return reply.code(201).send(session);
       } catch (err) {

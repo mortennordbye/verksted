@@ -20,6 +20,7 @@ let app: FastifyInstance;
 let fake: FakeBin;
 let reposDir: string;
 let sessionsDir: string;
+let assistantDir: string;
 
 /** The -e KEY=VALUE pairs a tmux new-session call carried. */
 function envOf(argv: string[]): Record<string, string> {
@@ -52,6 +53,8 @@ beforeAll(async () => {
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.STATIC_DIR = "";
+  assistantDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-assistant-"));
+  process.env.ASSISTANT_DIR = assistantDir;
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
 });
@@ -211,6 +214,10 @@ describe("POST /api/assistant/threads/:id/terminal (Assistant M1)", () => {
       const chat = path.join(home, ".claude", "projects", reposDir.replace(/\//g, "-"));
       fs.mkdirSync(chat, { recursive: true });
       fs.writeFileSync(path.join(chat, `${id}.jsonl`), '{"type":"user"}\n');
+      fs.writeFileSync(
+        path.join(assistantDir, `${id}.jsonl`),
+        `${JSON.stringify({ id: "x", at: new Date().toISOString(), role: "user", text: "hi", tools: [] })}\n`,
+      );
 
       const res = await app.inject({
         method: "POST",
