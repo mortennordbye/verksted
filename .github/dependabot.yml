@@ -1,6 +1,8 @@
 # The Dockerfile pins versions and the lockfile pins the rest, so nothing moves
-# without a PR. Weekly rather than daily: this is one person's homelab, and a
-# daily drip is noise that gets ignored.
+# without a PR, with one exception: agy's installer takes no version, so the
+# image gets whatever is current when it is built (BACKLOG.md). Weekly rather
+# than daily: this is one person's homelab, and a daily drip is noise that gets
+# ignored.
 #
 # Every ecosystem waits seven days before offering a release. Most of what a
 # compromised npm package does, it does in the first days after publication,

@@ -28,6 +28,21 @@ export function nextCdpPort(used: Set<number>): number {
 export const ASSISTANT_BROWSER_ID = "assistant";
 export const ASSISTANT_CDP_PORT = CDP_PORT_MAX + 1;
 
+/**
+ * Hosts the pane refuses to open (S-08): link-local, which is where a cloud
+ * metadata service answers, and the cluster's own service names. Loopback is
+ * not here: previewing the dev server a session runs is what the pane is for.
+ */
+function offLimits(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    /^169\.254\./.test(host) ||
+    /^fe[89ab][0-9a-f]:/.test(host) ||
+    /\.svc(\.cluster\.local)?\.?$/.test(host) ||
+    /\.cluster\.local\.?$/.test(host)
+  );
+}
+
 /** User-entered navigation targets: web only — file:// would read the pod filesystem. */
 export function validNavUrl(url: string): string | null {
   if (url.length > 2000) return null;
@@ -37,7 +52,8 @@ export function validNavUrl(url: string): string | null {
   const withScheme = scheme && !hostPort ? url : `http://${url}`;
   try {
     const u = new URL(withScheme);
-    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    return offLimits(u.hostname) ? null : u.href;
   } catch {
     return null;
   }

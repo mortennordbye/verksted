@@ -47,6 +47,27 @@ afterAll(async () => {
   await app.close();
 });
 
+describe("GET /api/schedules", () => {
+  it("lists around a file that is not a schedule (R-31)", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/schedules",
+      payload: { name: "kept", project: "demo", cron: "0 7 * * *", prompt: "hi" },
+    });
+    // Two, so the sort has to compare one of them as its left side.
+    const bad = ["sch-0000beef", "sch-0000feed"].map((id) => path.join(schedulesDir, `${id}.json`));
+    for (const file of bad) fs.writeFileSync(file, "{}");
+    try {
+      const res = await app.inject({ url: "/api/schedules" });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().map((s: { id: string }) => s.id)).toContain(created.json().id);
+    } finally {
+      for (const file of bad) fs.rmSync(file);
+      await app.inject({ method: "DELETE", url: `/api/schedules/${created.json().id}` });
+    }
+  });
+});
+
 describe("POST /api/schedules", () => {
   it("stores a schedule and reports when it fires next", async () => {
     const res = await create({

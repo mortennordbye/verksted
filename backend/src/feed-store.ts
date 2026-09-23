@@ -7,7 +7,7 @@ import type {
   FeedUrgency,
   ProposalAction,
 } from "../../shared/api.js";
-import { jsonIds, writeJsonAtomic } from "./atomic-json.js";
+import { hasStrings, jsonIds, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import * as loops from "./loops-store.js";
 
@@ -95,7 +95,10 @@ async function readAll(): Promise<FeedItem[]> {
  * sender by that path.
  */
 function stored(json: string): FeedItem {
-  const item = JSON.parse(json) as FeedItem;
+  const value: unknown = JSON.parse(json);
+  // Thrown, so both readers treat it as the unreadable file it is (R-31).
+  if (!hasStrings(value, ["id", "at"])) throw new Error("not a feed item");
+  const item = value as FeedItem;
   item.from ??= null;
   item.facts ??= [];
   return item;

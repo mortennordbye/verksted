@@ -92,6 +92,11 @@ export class WorktreeError extends Error {
   }
 }
 
+/** The directory, and project name, a worktree of `project` on `branch` gets. */
+export function worktreeName(project: string, branch: string): string {
+  return `${project}--${branch.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+}
+
 /**
  * A linked git worktree for a branch, as a sibling project ("<repo>--<branch>").
  * The branch is created from HEAD when it does not exist locally or on a
@@ -108,7 +113,7 @@ export async function addWorktree(
   } catch {
     throw new WorktreeError(400, "invalid branch name");
   }
-  const name = `${project}--${branch.replace(/[^A-Za-z0-9._-]+/g, "-")}`;
+  const name = worktreeName(project, branch);
   if (!PROJECT_NAME_RE.test(name) || name.length > 150) {
     throw new WorktreeError(400, "invalid branch name");
   }

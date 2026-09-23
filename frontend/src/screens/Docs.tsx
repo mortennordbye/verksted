@@ -10,6 +10,7 @@ import { SkeletonList } from "../components/Skeleton";
 import { Input } from "../components/ui/Field";
 import Icon from "../components/Icon";
 import { bytes } from "../format";
+import PollError from "../components/PollError";
 
 /**
  * The share, looked at rather than searched.
@@ -51,7 +52,11 @@ export default function Docs() {
     `/api/docs?path=${encodeURIComponent(dir)}`,
     60_000,
   );
-  const { data: hits } = usePoll<DocHit[]>(
+  const {
+    data: hits,
+    error: searchError,
+    refresh: refreshSearch,
+  } = usePoll<DocHit[]>(
     search.length >= 2 ? `/api/docs/search?q=${encodeURIComponent(search)}` : null,
     60_000,
   );
@@ -89,6 +94,7 @@ export default function Docs() {
 
         {search.length >= 2 ? (
           <div className="flex flex-col gap-1.5">
+            <PollError error={searchError} what="the search" retry={refreshSearch} />
             {hits?.length === 0 && <div className="text-[13px] text-faint">nothing matched</div>}
             {(hits ?? []).map((h) => (
               <button

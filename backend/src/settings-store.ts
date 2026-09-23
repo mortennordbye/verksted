@@ -90,7 +90,10 @@ const SOURCE_ONLY = new Set(SOURCE_KEYS);
  * write to the settings file quietly redirecting every *future* session, the
  * person's own included.
  */
-const BLOCKED_PREFIXES = ["ANTHROPIC_", "LD_"];
+// GIT_CONFIG covers GIT_CONFIG_PARAMETERS, GIT_CONFIG_GLOBAL and the
+// COUNT/KEY_n/VALUE_n set: each hands every git a session runs a config of its
+// own, which can name a program to run (core.sshCommand, a filter driver).
+const BLOCKED_PREFIXES = ["ANTHROPIC_", "LD_", "GIT_CONFIG"];
 const BLOCKED_EXACT = new Set([
   "CLAUDE_CODE_USE_BEDROCK",
   "CLAUDE_CODE_USE_VERTEX",

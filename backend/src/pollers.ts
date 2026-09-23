@@ -609,7 +609,9 @@ export async function pollGithub(log: Logger): Promise<number> {
     githubBackoff = 6;
     const message = err instanceof Error ? err.message : String(err);
     log.warn(err, "github notifications unavailable");
-    await feed.upsert({
+    // Refiled, as mail and the calendar are: the same message after a spell of
+    // reading again is GitHub failing again, not the failure already ended.
+    await feed.refile({
       id: "github:poller",
       source: "github",
       at: new Date().toISOString(),

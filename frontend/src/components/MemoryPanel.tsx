@@ -8,6 +8,7 @@ import Button from "./ui/Button";
 import { Input, Textarea } from "./ui/Field";
 import Notice from "./ui/Notice";
 import { useConfirm } from "../useConfirm";
+import PollError from "./PollError";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
 
@@ -262,7 +263,7 @@ function MemberNotes({ member }: { member: CouncilMember }) {
 }
 
 export default function MemoryPanel() {
-  const { data, refresh } = usePoll<MemoryList>("/api/memory", 30_000);
+  const { data, error: listError, refresh } = usePoll<MemoryList>("/api/memory", 30_000);
   const { data: schedules, refresh: refreshSchedules } = usePoll<Schedule[]>(
     "/api/schedules",
     60_000,
@@ -330,6 +331,7 @@ export default function MemoryPanel() {
         </Button>
       </div>
 
+      <PollError error={listError} what="the memory" retry={refresh} />
       {data && data.memories.length > 0 && (
         <>
           <div className="mb-1 h-[5px] overflow-hidden rounded-full bg-surface-2">

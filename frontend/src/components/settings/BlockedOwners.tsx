@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api } from "../../api";
 import { useConfirm } from "../../useConfirm";
+import Icon from "../Icon";
 import SectionLabel from "../SectionLabel";
 import Button from "../ui/Button";
 import { Input } from "../ui/Field";
@@ -77,9 +78,10 @@ export default function BlockedOwners({
             <button
               onClick={() => save(owners.filter((o) => o !== owner))}
               title="read this owner again"
-              className="tap text-muted hover:text-fail"
+              aria-label={`read ${owner} again`}
+              className="tap-sq flex items-center justify-center text-muted hover:text-fail"
             >
-              ×
+              <Icon name="close" size={13} />
             </button>
           </span>
         ))}

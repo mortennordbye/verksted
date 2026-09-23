@@ -8,7 +8,7 @@ import type { Logger } from "./logger.js";
 import { claimIssue, pickIssue, readContract, releaseIssue, stagePrompt } from "./maintainer.js";
 import { announce } from "./notifier.js";
 import { resolveInsideRepos } from "./paths.js";
-import { addWorktree, githubRepo, removeWorktree } from "./projects-store.js";
+import { addWorktree, githubRepo, removeWorktree, worktreeName } from "./projects-store.js";
 import { createSession } from "./session-launch.js";
 import {
   REPORT_CONTRACT,
@@ -24,7 +24,7 @@ import {
   planSpent,
   refundCeiling,
 } from "./unattended-budget.js";
-import { startWatch } from "./unattended-watch.js";
+import { settingUp, startWatch } from "./unattended-watch.js";
 import { Cron } from "croner";
 
 /**
@@ -337,41 +337,50 @@ async function stageRun(
     log.info(`schedule ${id} skipped: nothing queued`);
     return null;
   }
-  const wt = await addWorktree(schedule.project, `maint/${issue.number}`);
-  // Claimed only once the worktree exists: a failed add leaves it queued.
-  let claimed = false;
+  const branch = `maint/${issue.number}`;
+  // Held from before the add until its session exists: until then the only
+  // session with this name is a finished one, and the sweep removes its tree.
+  const name = worktreeName(schedule.project, branch);
+  settingUp.add(name);
   try {
-    await claimIssue(repoDir, issue.number);
-    claimed = true;
-    const prompt = await stagePrompt(
-      stage,
-      { project: schedule.project, dir: wt.dir, contract },
-      schedule.prompt,
-      issue,
-    );
-    const session = await createSession(wt.name, wt.dir, "claude", {
-      title: `${schedule.name} · #${issue.number}`,
-      prompt: prompt + cause + REPORT_CONTRACT,
-      unattended: stage,
-      issue: issue.number,
-    });
-    await schedules.recordRun(id, { sessionId: session.id });
-    log.info(`schedule ${id} started build session ${session.id} for #${issue.number}`);
-    return { session };
-  } catch (err) {
-    // Nothing is running in it, so both halves go back (R-14). Left as they
-    // were, a transient `gh` or tmux failure took the queue with it for good:
-    // the issue stayed in-progress with nobody on it, and the directory it was
-    // claimed for made every later night fail on the same worktree.
-    await removeWorktree(wt.name).catch((e: unknown) =>
-      log.warn(e, `could not remove ${wt.name} after a failed build start`),
-    );
-    if (claimed) {
-      await releaseIssue(repoDir, issue.number).catch((e: unknown) =>
-        log.warn(e, `could not put #${issue.number} back on the queue`),
+    const wt = await addWorktree(schedule.project, branch);
+    // Claimed only once the worktree exists: a failed add leaves it queued.
+    let claimed = false;
+    try {
+      await claimIssue(repoDir, issue.number);
+      claimed = true;
+      const prompt = await stagePrompt(
+        stage,
+        { project: schedule.project, dir: wt.dir, contract },
+        schedule.prompt,
+        issue,
       );
+      const session = await createSession(wt.name, wt.dir, "claude", {
+        title: `${schedule.name} · #${issue.number}`,
+        prompt: prompt + cause + REPORT_CONTRACT,
+        unattended: stage,
+        issue: issue.number,
+      });
+      await schedules.recordRun(id, { sessionId: session.id });
+      log.info(`schedule ${id} started build session ${session.id} for #${issue.number}`);
+      return { session };
+    } catch (err) {
+      // Nothing is running in it, so both halves go back (R-14). Left as they
+      // were, a transient `gh` or tmux failure took the queue with it for good:
+      // the issue stayed in-progress with nobody on it, and the directory it was
+      // claimed for made every later night fail on the same worktree.
+      await removeWorktree(wt.name).catch((e: unknown) =>
+        log.warn(e, `could not remove ${wt.name} after a failed build start`),
+      );
+      if (claimed) {
+        await releaseIssue(repoDir, issue.number).catch((e: unknown) =>
+          log.warn(e, `could not put #${issue.number} back on the queue`),
+        );
+      }
+      throw err;
     }
-    throw err;
+  } finally {
+    settingUp.delete(name);
   }
 }
 

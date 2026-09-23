@@ -110,14 +110,32 @@ export async function jsonIds(dir: string, valid: RegExp = /./): Promise<string[
 }
 
 /**
- * Every record in a store's directory, parsed. One that will not read or parse
- * is skipped: one torn file loses one record, not the list.
+ * Whether a parsed record is an object carrying each of `fields` as a string.
+ *
+ * What a store's list sorts and keys on (R-31): a file holding `{}` or `null`
+ * parses fine, and then throws out of the sort and takes every record with it.
  */
-export async function readJsonDir<T>(dir: string, valid?: RegExp): Promise<T[]> {
+export function hasStrings(value: unknown, fields: readonly string[]): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return fields.every((f) => typeof record[f] === "string");
+}
+
+/**
+ * Every record in a store's directory, parsed. One that will not read or parse,
+ * or lacks one of `fields` as a string, is skipped: one torn file loses one
+ * record, not the list.
+ */
+export async function readJsonDir<T>(
+  dir: string,
+  valid?: RegExp,
+  fields: readonly string[] = [],
+): Promise<T[]> {
   const out: T[] = [];
   for (const id of await jsonIds(dir, valid)) {
     try {
-      out.push(JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), "utf8")) as T);
+      const value: unknown = JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), "utf8"));
+      if (hasStrings(value, fields)) out.push(value as T);
     } catch {
       // Skipped, as above.
     }

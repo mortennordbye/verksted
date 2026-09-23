@@ -29,7 +29,7 @@ export function slugify(text: string): string {
 }
 
 function readAll(): Promise<Loop[]> {
-  return readJsonDir<Loop>(dir());
+  return readJsonDir<Loop>(dir(), undefined, ["slug", "state", "openedAt"]);
 }
 
 export async function get(slug: string): Promise<Loop | null> {
