@@ -14,6 +14,7 @@ import PlanCard from "./chat/PlanCard";
 import ToolChip from "./chat/ToolChip";
 import Skeleton from "./Skeleton";
 import { MD, REMARK } from "./chat/markdown";
+import UserBubble from "./chat/UserBubble";
 import { scrollBehavior } from "../motion";
 import Ago, { DayRule, newDay } from "./Ago";
 import CopyButton from "./chat/CopyButton";
@@ -176,11 +177,7 @@ const Turn = memo(function Turn({
         {message.images && message.images.length > 0 && (
           <Images images={message.images} sessionId={sessionId} project={project} />
         )}
-        {message.text && (
-          <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-on-accent">
-            {message.text}
-          </div>
-        )}
+        {message.text && <UserBubble size="sm">{message.text}</UserBubble>}
         <Ago at={message.at} className="-mt-1 font-mono text-[10px] leading-none text-faint" />
       </div>
     );
@@ -522,9 +519,9 @@ export default function ChatPane({
             which is the honest picture of what happened to it. */}
           {echoes.map((e) => (
             <div key={`e${e.at}`} className="flex justify-end">
-              <div className="max-w-[82%] rounded-[14px] rounded-br-[5px] bg-accent-tint px-3 py-2 text-[14px] font-medium whitespace-pre-wrap text-text ring-1 ring-accent/30">
+              <UserBubble size="sm" pending>
                 {e.text}
-              </div>
+              </UserBubble>
             </div>
           ))}
         </div>

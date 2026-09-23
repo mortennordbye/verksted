@@ -12,6 +12,8 @@ import Composer, { Ico } from "../components/chat/Composer";
 import Portrait from "../components/Face";
 import Icon, { type IconName } from "../components/Icon";
 import Room from "../components/Room";
+import UserBubble from "../components/chat/UserBubble";
+import Notice from "../components/ui/Notice";
 import Button from "../components/ui/Button";
 import { Input } from "../components/ui/Field";
 import { useFindMarks } from "../find";
@@ -632,12 +634,9 @@ export default function Chat() {
           // The socket can bring the question before the POST answers.
           .filter((m) => m.text !== thread?.entries.findLast((e) => e.role === "user")?.text)
           .map((m) => (
-            <div
-              key={m.stamp}
-              className="max-w-[82%] self-end rounded-[20px] rounded-br-[6px] bg-accent-tint px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-text ring-1 ring-accent/30"
-            >
+            <UserBubble key={m.stamp} size="lg" pending className="self-end">
               {m.text}
-            </div>
+            </UserBubble>
           ))}
 
         {voiceMode && (
@@ -704,20 +703,16 @@ export default function Chat() {
           </div>
         )}
         {shownError && (
-          <div role="alert" className="mb-2 flex items-center gap-2 text-[12.5px] text-fail">
-            <span className="min-w-0 flex-1">{shownError}</span>
-            <button
-              type="button"
-              aria-label="dismiss the error"
-              onClick={() => {
-                setError(null);
-                speech.clearError();
-              }}
-              className="tap flex-none rounded-lg px-1.5 text-muted hover:text-text"
-            >
-              ×
-            </button>
-          </div>
+          <Notice
+            kind="fail"
+            className="mb-2"
+            onDismiss={() => {
+              setError(null);
+              speech.clearError();
+            }}
+          >
+            {shownError}
+          </Notice>
         )}
         {/* Said where the next turn is typed, with the remedy beside it. */}
         {long && !thinking && (

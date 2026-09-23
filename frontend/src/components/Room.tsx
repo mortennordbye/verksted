@@ -9,6 +9,7 @@ import type {
 import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
 import CopyButton from "./chat/CopyButton";
+import UserBubble from "./chat/UserBubble";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import { marks, rehypeMark } from "../find";
@@ -427,11 +428,7 @@ export default function Room({
           {e.images?.map((name) => (
             <Attached key={name} name={name} />
           ))}
-          {e.text && (
-            <div className="max-w-[82%] rounded-[20px] rounded-br-[6px] bg-accent px-[18px] py-3 text-[15.5px] leading-[1.5] font-medium whitespace-pre-wrap text-on-accent">
-              {marks(e.text, find)}
-            </div>
-          )}
+          {e.text && <UserBubble size="lg">{marks(e.text, find)}</UserBubble>}
           {/* Your newest message, while nothing is answering it: sent as a new
               message once changed, since the model keeps what it was told. */}
           {onEdit && e === asked && !thinking && (
