@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Cron } from "croner";
-import type { MaintainerStage, Schedule, ScheduleRun, Session } from "../../shared/api.js";
+import type {
+  MaintainerStage,
+  Schedule,
+  ScheduleRun,
+  ScheduleTrigger,
+  Session,
+} from "../../shared/api.js";
 import { readJsonDir, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { keyedQueue } from "./serial.js";
@@ -45,12 +51,15 @@ type Stored = Omit<
   | "member"
   | "convenes"
   | "stage"
+  | "trigger"
 > & {
   /** Absent on every record written before the council existed. */
   member?: string;
   convenes?: boolean;
   /** Absent on every schedule that runs a prompt of its own. */
   stage?: MaintainerStage;
+  /** Absent on every schedule that fires on its cron alone. */
+  trigger?: ScheduleTrigger | null;
   /** Newest first, capped at MAX_RUNS. */
   runs: StoredRun[];
   /** Absent on every record written before catch-up existed. */
@@ -101,6 +110,26 @@ export function validCron(cron: string): boolean {
   }
 }
 
+/**
+ * Why a schedule of this shape cannot be kept, or null when it can.
+ *
+ * It has to fire on something: a cron, a trigger, or both. A trigger is matched
+ * to the project's origin remote, so a schedule with no project (every
+ * assistant one) cannot have one. Asked of the whole schedule as it would be
+ * stored, because a patch can change either half on its own.
+ */
+export function shapeError(s: {
+  project: string;
+  cron: string;
+  trigger: ScheduleTrigger | null;
+}): string | null {
+  if (s.trigger && !s.project) {
+    return "a trigger needs a project: it reacts to that project's repo";
+  }
+  if (!s.cron.trim()) return s.trigger ? null : "a schedule needs a cron, a trigger, or both";
+  return validCron(s.cron) ? null : `not a cron pattern: ${s.cron}`;
+}
+
 /** Every schedule written before assistant runs existed starts a session. */
 const kindOf = (s: Stored): Schedule["kind"] => (s.kind === "assistant" ? "assistant" : "session");
 
@@ -114,6 +143,7 @@ async function toWire(s: Stored): Promise<Schedule> {
     member: s.member ?? "",
     convenes: s.convenes === true,
     stage: s.stage ?? null,
+    trigger: s.trigger ?? null,
     // nextRunAt is the cron time; the jitter is drawn when it fires.
     nextRunAt: nextRun(s.cron, s.enabled),
     lastFiredAt: s.lastFiredAt ?? null,
@@ -189,6 +219,7 @@ export async function createSchedule(
     member?: string;
     convenes?: boolean;
     stage?: MaintainerStage | null;
+    trigger?: ScheduleTrigger | null;
   },
 ): Promise<Schedule> {
   const kind = input.kind ?? "session";
@@ -209,6 +240,8 @@ export async function createSchedule(
     convenes: kind === "assistant" && !input.member && input.convenes === true,
     // A stage needs a repo to run in, which an assistant schedule has none of.
     ...(kind === "session" && input.stage ? { stage: input.stage } : {}),
+    // Likewise a trigger, which is matched to the repo (see shapeError).
+    ...(kind === "session" && input.trigger ? { trigger: input.trigger } : {}),
     prompt: input.prompt,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
@@ -231,6 +264,7 @@ export async function updateSchedule(
       | "skipWhenIdle"
       | "member"
       | "convenes"
+      | "trigger"
     >
   >,
 ): Promise<Schedule | null> {

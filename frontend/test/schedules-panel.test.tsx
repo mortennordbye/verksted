@@ -161,6 +161,82 @@ describe("adding a schedule", () => {
   });
 });
 
+describe("a schedule fired by a trigger", () => {
+  it("posts the trigger, and may leave the cron empty once one is chosen", async () => {
+    render(
+      <MemoryRouter>
+        <SchedulesPanel project="demo" />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/recurring prompts/i);
+
+    fireEvent.change(screen.getByLabelText("schedule name"), { target: { value: "on review" } });
+    fireEvent.change(screen.getByLabelText("prompt"), { target: { value: "review it" } });
+    fireEvent.change(screen.getByLabelText("cron pattern"), { target: { value: "" } });
+    const add = screen.getByRole("button", { name: "add schedule" });
+    // Nothing would fire it.
+    expect(add).toHaveProperty("disabled", true);
+
+    fireEvent.change(screen.getByLabelText("trigger"), { target: { value: "review" } });
+    expect(add).toHaveProperty("disabled", false);
+    fireEvent.click(add);
+
+    await waitFor(() => expect(posted()).toHaveLength(1));
+    expect(posted()[0]).toMatchObject({ project: "demo", cron: "", trigger: "review" });
+  });
+
+  it("offers no trigger to an assistant schedule, which has no repo", async () => {
+    render(
+      <MemoryRouter>
+        <SchedulesPanel />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("option", { name: "demo" });
+    expect(screen.getByLabelText("trigger")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("who runs it"), { target: { value: "member:" } });
+    expect(screen.queryByLabelText("trigger")).toBeNull();
+  });
+
+  it("says in its row what fires it", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/projects/demo/schedules")) {
+        return json([
+          {
+            id: "s1",
+            name: "on review",
+            kind: "session",
+            project: "demo",
+            cron: "",
+            trigger: "review",
+            jitterMinutes: 0,
+            prompt: "review it",
+            enabled: true,
+            convenes: false,
+            skipWhenIdle: false,
+            stage: null,
+            lastRunAt: null,
+            lastSessionId: null,
+            lastError: null,
+            lastReport: null,
+            nextRunAt: null,
+          },
+        ]);
+      }
+      if (url.startsWith("/api/settings")) return json({ schedulesPaused: false });
+      return json([]);
+    });
+    render(
+      <MemoryRouter>
+        <SchedulesPanel project="demo" />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("when a PR wants my review")).toBeTruthy();
+    // Not "paused": it has no next tick because it has no clock.
+    expect(screen.getByText("on its trigger")).toBeTruthy();
+  });
+});
+
 /**
  * A briefing or triage turn that wedges held the unattended queue for ten
  * minutes with nothing on screen saying so, and the chat's stop only reaches

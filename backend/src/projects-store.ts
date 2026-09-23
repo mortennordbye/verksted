@@ -49,6 +49,39 @@ export async function listProjects(): Promise<Project[]> {
   return projects.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * The GitHub repository a remote url names, as "owner/repo" in lower case, or
+ * null for a remote somewhere else. Lower case because GitHub's names are not
+ * case-sensitive and a clone's url is spelled however it was typed.
+ */
+export function githubRepoOf(url: string): string | null {
+  const m = /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/i.exec(url.trim());
+  return m?.[1] ? m[1].toLowerCase() : null;
+}
+
+/** How long a project's remote is taken as read. Remotes almost never change. */
+const REMOTE_TTL_MS = 10 * 60_000;
+const remotes = new Map<string, { repo: string | null; at: number }>();
+
+/**
+ * The GitHub repository a project's origin points at, or null when it has no
+ * origin or one that is not on GitHub. What a repo event is matched to a
+ * project by (scheduler.ts); cached, since every event asks it of every
+ * project with a trigger.
+ */
+export async function githubRepo(project: string, now = Date.now()): Promise<string | null> {
+  const cached = remotes.get(project);
+  if (cached && now - cached.at < REMOTE_TTL_MS) return cached.repo;
+  let repo: string | null = null;
+  try {
+    repo = githubRepoOf(await git(resolveInsideRepos(project), ["remote", "get-url", "origin"]));
+  } catch {
+    // No origin, or a project that is gone: nothing on GitHub to match.
+  }
+  remotes.set(project, { repo, at: now });
+  return repo;
+}
+
 /** Why a worktree could not be made, with the status the route answers with. */
 export class WorktreeError extends Error {
   constructor(
