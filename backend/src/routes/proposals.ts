@@ -328,7 +328,7 @@ async function snapshot(a: ProposalAction): Promise<ProposalAction> {
 }
 
 export default async function proposalRoutes(app: FastifyInstance) {
-  app.post<{ Body: { action: Record<string, unknown>; why?: string } }>(
+  app.post<{ Body: { action: Record<string, unknown>; why?: string; quiet?: boolean } }>(
     "/api/proposals",
     {
       schema: {
@@ -336,7 +336,13 @@ export default async function proposalRoutes(app: FastifyInstance) {
           type: "object",
           required: ["action"],
           additionalProperties: false,
-          properties: { action: ACTION, why: { type: "string", maxLength: 500 } },
+          properties: {
+            action: ACTION,
+            why: { type: "string", maxLength: 500 },
+            // Filed from a screen the person is looking at, which shows the
+            // card itself: no push to a phone to go and find it.
+            quiet: { type: "boolean" },
+          },
         },
       },
     },
@@ -377,10 +383,12 @@ export default async function proposalRoutes(app: FastifyInstance) {
       });
       // The one push that is not triage's: a proposal is the assistant
       // asking, and asking is worth a phone.
-      await announce(
-        { title: "tap to decide", body: title.slice(0, 500), url: `/runs#${id}`, tag: "bell" },
-        req.log,
-      );
+      if (!req.body.quiet) {
+        await announce(
+          { title: "tap to decide", body: title.slice(0, 500), url: `/runs#${id}`, tag: "bell" },
+          req.log,
+        );
+      }
       await feed.markPushed(id);
       return reply.code(201).send(item);
     },

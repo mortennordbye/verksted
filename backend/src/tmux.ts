@@ -38,7 +38,21 @@ export interface SessionActivity {
  * swallowing a fork failure or a missing binary would stamp every session as
  * finished and fire a "finished" push for each one, on every poll.
  */
-export async function listSessionsDetail(): Promise<SessionActivity[]> {
+export function listSessionsDetail(): Promise<SessionActivity[]> {
+  // One `tmux ls` for everyone asking at the same moment: a screen asks about a
+  // session with several requests at once, and each ran its own (root cause 4).
+  // Shared only while it is running, never kept after: an answer held any
+  // longer would call a session alive after it died, which is the one thing
+  // every caller here uses it to decide.
+  inFlight ??= askTmux().finally(() => {
+    inFlight = null;
+  });
+  return inFlight;
+}
+
+let inFlight: Promise<SessionActivity[]> | null = null;
+
+async function askTmux(): Promise<SessionActivity[]> {
   let stdout: string;
   try {
     ({ stdout } = await exec(

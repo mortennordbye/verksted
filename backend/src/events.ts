@@ -25,7 +25,13 @@ import type { Logger } from "./logger.js";
 
 export type Topic = "sessions" | "projects";
 
-type Send = (topic: Topic, json: string) => void;
+/**
+ * One client's writer. `whole` comes with a frame that only makes sense after
+ * the ones before it (a `sessions-changed`): a client that is not reading and
+ * has frames held back is given that instead, since keeping only the newest
+ * held frame would otherwise lose a change.
+ */
+type Send = (event: string, json: string, whole?: { event: string; json: string }) => void;
 
 /** How often each answer is recomputed while anyone is listening. */
 const INTERVALS: Record<Topic, number> = {
@@ -45,6 +51,29 @@ const clients = new Set<Send>();
 /** Last payload broadcast per topic — both the change test and what a joining
  *  client is handed so it need not fetch the same thing over again. */
 const latest = new Map<Topic, string>();
+/** Each session as it was last sent, by id: what `sessions-changed` is measured from. */
+let sentSessions = new Map<string, string>();
+
+/**
+ * What changed in the session list since it was last sent, or null to send it
+ * whole.
+ *
+ * The list is every session of the last ninety days, about 90 KB on the pod,
+ * and one session changing used to send all of it to every client. Now a
+ * client is sent the whole list once, on joining, and after that only the
+ * sessions that differ, the ids that left, and the order.
+ */
+function sessionDelta(list: unknown): string | null {
+  if (!Array.isArray(list)) return null;
+  const now = new Map<string, string>();
+  for (const s of list as { id: string }[]) now.set(s.id, JSON.stringify(s));
+  const had = sentSessions;
+  sentSessions = now;
+  if (!had.size) return null;
+  const upsert = (list as { id: string }[]).filter((s) => had.get(s.id) !== now.get(s.id));
+  const remove = [...had.keys()].filter((id) => !now.has(id));
+  return JSON.stringify({ upsert, remove, order: [...now.keys()] });
+}
 const timers = new Map<Topic, NodeJS.Timeout>();
 let log: Pick<Logger, "warn"> = { warn: () => {} };
 
@@ -66,10 +95,16 @@ async function tick(topic: Topic): Promise<void> {
   }
   running.add(topic);
   try {
-    const json = JSON.stringify(await SOURCES[topic]());
+    const value = await SOURCES[topic]();
+    const json = JSON.stringify(value);
     if (latest.get(topic) !== json) {
       latest.set(topic, json);
-      for (const send of clients) send(topic, json);
+      const delta = topic === "sessions" ? sessionDelta(value) : null;
+      for (const send of clients) {
+        if (delta && delta.length < json.length) {
+          send("sessions-changed", delta, { event: topic, json });
+        } else send(topic, json);
+      }
     }
   } catch (err) {
     // A repo deleted mid-scan, or tmux briefly unavailable. Say nothing and try
@@ -110,6 +145,7 @@ function stopTimers(): void {
   // Nobody is listening, so the next joiner must not be handed an answer from
   // however long ago the last one left.
   latest.clear();
+  sentSessions = new Map();
 }
 
 /**

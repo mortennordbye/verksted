@@ -15,6 +15,9 @@ import { env } from "../env.js";
 import { BusyError } from "../serial.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
 import * as toolLog from "../tool-log.js";
+import { UndoRefused, undo } from "../undo.js";
+import { MailDenied } from "../mail.js";
+import { CalendarNotFound, CalendarRefused } from "../calendar.js";
 import { MAX_CLIP_BYTES, transcribe } from "../transcribe.js";
 import * as tts from "../tts.js";
 import { MAX_TEXT } from "../tts.js";
@@ -361,6 +364,44 @@ export default async function assistantRoutes(app: FastifyInstance) {
       },
     },
     (req): Promise<ToolLogDay> => toolLog.readDay(req.query.day),
+  );
+
+  /**
+   * Put back one call from that log, from its row on the settings page. What
+   * is undone is only ever what the mail log or the calendar's kept copy
+   * recorded that call doing (see undo.ts).
+   */
+  app.post<{ Body: { day: string; at: string } }>(
+    "/api/assistant/tool-log/undo",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["day", "at"],
+          additionalProperties: false,
+          properties: {
+            day: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
+            at: { type: "string", maxLength: 40 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      try {
+        return { said: await undo(req.body.day, req.body.at) };
+      } catch (err) {
+        // Refusals say why; anything else is the global handler's.
+        if (
+          err instanceof UndoRefused ||
+          err instanceof MailDenied ||
+          err instanceof CalendarNotFound ||
+          err instanceof CalendarRefused
+        ) {
+          return reply.code(409).send({ error: err.message });
+        }
+        throw err;
+      }
+    },
   );
 
   app.post("/api/assistant/stop", () => ({ stopped: assistant.stop() }));

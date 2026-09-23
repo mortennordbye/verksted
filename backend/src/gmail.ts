@@ -300,6 +300,26 @@ export interface RelabelFields {
 }
 
 /**
+ * Labels put on and taken off exact messages, by id: the undo of a relabel.
+ * A label to put back that no longer exists is made again; one to take off
+ * that is gone is already off.
+ */
+export async function relabelIds(ids: string[], add: string[], remove: string[]): Promise<number> {
+  if (!ids.length) return 0;
+  const own = new Map((await labels()).map((l) => [l.name, l.id]));
+  const removeLabelIds = remove
+    .map((name) => (SYSTEM_LABELS.has(name) ? name : own.get(name)))
+    .filter((id): id is string => !!id);
+  const addLabelIds: string[] = [];
+  for (const name of add) {
+    addLabelIds.push(SYSTEM_LABELS.has(name) ? name : await labelId(name, own));
+  }
+  await call<unknown>("POST", "/messages/batchModify", { ids, addLabelIds, removeLabelIds });
+  await mailLog.record({ verb: "relabel", query: "(undo)", ids, add, remove });
+  return ids.length;
+}
+
+/**
  * Put labels on and take labels off the mail a Gmail search finds.
  *
  * What IMAP cannot do: a move there drops INBOX and nothing else, so mail

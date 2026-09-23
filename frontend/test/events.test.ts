@@ -2,7 +2,13 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Session } from "../../shared/api";
 import { usePoll } from "../src/api";
-import { resetStream, streamHealthy, streamTopic, streamValue } from "../src/events";
+import {
+  applySessionChange,
+  resetStream,
+  streamHealthy,
+  streamTopic,
+  streamValue,
+} from "../src/events";
 
 /** Stands in for the browser's EventSource, which jsdom does not implement. */
 class FakeEventSource {
@@ -88,6 +94,35 @@ describe("streamValue", () => {
     expect(streamValue<Session>("/api/sessions/vk-demo-2")!.value!.status).toBe("waiting");
     // Said, and there is no such session: a 404 by another name.
     expect(streamValue<Session>("/api/sessions/vk-ghost-9")!.value).toBe(null);
+    unmount();
+  });
+});
+
+describe("a change to the session list", () => {
+  it("is merged in order, and a session that did not change keeps its object", () => {
+    const a = session("vk-demo-1");
+    const b = session("vk-demo-2");
+    const c = session("vk-demo-3", "waiting");
+    const next = applySessionChange([a, b], {
+      upsert: [c],
+      remove: ["vk-demo-2"],
+      order: ["vk-demo-3", "vk-demo-1"],
+    });
+    expect(next.map((s) => s.id)).toEqual(["vk-demo-3", "vk-demo-1"]);
+    expect(next[1]).toBe(a);
+  });
+
+  it("arrives over the stream after the whole list", async () => {
+    const { unmount } = renderHook(() => usePoll<Session[]>("/api/sessions"));
+    await act(async () => {
+      latest().emit("sessions", [session("vk-demo-1")]);
+      latest().emit("sessions-changed", {
+        upsert: [session("vk-demo-1", "waiting")],
+        remove: [],
+        order: ["vk-demo-1"],
+      });
+    });
+    expect(streamValue<Session>("/api/sessions/vk-demo-1")!.value!.status).toBe("waiting");
     unmount();
   });
 });

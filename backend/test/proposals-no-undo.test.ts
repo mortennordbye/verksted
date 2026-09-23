@@ -83,35 +83,39 @@ vi.mock("tsdav", () => ({
 
 const moves: { uids: unknown; to: string }[] = [];
 
-vi.mock("imapflow", () => ({
-  ImapFlow: class {
-    async connect() {}
-    async logout() {}
-    async getMailboxLock() {
-      return { release() {} };
-    }
-    async list() {
-      return [
-        { path: "INBOX", name: "INBOX", flags: new Set<string>(), specialUse: "\\Inbox" },
-        { path: "[Gmail]/Spam", name: "Spam", flags: new Set<string>(), specialUse: "\\Junk" },
-        { path: "Receipts", name: "Receipts", flags: new Set<string>(), specialUse: undefined },
-      ];
-    }
-    async *fetch(uids: number[]) {
-      for (const uid of uids.filter((u) => u < 100)) {
-        yield {
-          uid,
-          envelope: { subject: `You won, claim ${uid}`, from: [{ name: "Lottery" }] },
-          flags: new Set<string>(),
-        };
+vi.mock("imapflow", async () => {
+  // An EventEmitter, as the real one is: the kept connection listens for close.
+  const { EventEmitter } = await import("node:events");
+  return {
+    ImapFlow: class extends EventEmitter {
+      async connect() {}
+      async logout() {}
+      async getMailboxLock() {
+        return { release() {} };
       }
-    }
-    async messageMove(uids: unknown, to: string) {
-      moves.push({ uids, to });
-      return { uidMap: new Map([[7, 70]]) };
-    }
-  },
-}));
+      async list() {
+        return [
+          { path: "INBOX", name: "INBOX", flags: new Set<string>(), specialUse: "\\Inbox" },
+          { path: "[Gmail]/Spam", name: "Spam", flags: new Set<string>(), specialUse: "\\Junk" },
+          { path: "Receipts", name: "Receipts", flags: new Set<string>(), specialUse: undefined },
+        ];
+      }
+      async *fetch(uids: number[]) {
+        for (const uid of uids.filter((u) => u < 100)) {
+          yield {
+            uid,
+            envelope: { subject: `You won, claim ${uid}`, from: [{ name: "Lottery" }] },
+            flags: new Set<string>(),
+          };
+        }
+      }
+      async messageMove(uids: unknown, to: string) {
+        moves.push({ uids, to });
+        return { uidMap: new Map([[7, 70]]) };
+      }
+    },
+  };
+});
 
 let app: FastifyInstance;
 let assistantDir: string;

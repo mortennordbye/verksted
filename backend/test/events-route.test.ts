@@ -137,4 +137,22 @@ describe("a client that is not reading (R-25)", () => {
     expect(all).toContain("data: [2]");
     expect(all).not.toContain("data: [1]");
   });
+
+  it("holds the whole list rather than a change that needs the ones before it", async () => {
+    const { paced } = await import("../src/routes/events.js");
+    const { res, written, drain } = stuck();
+    const { send } = paced(res);
+    const big = JSON.stringify({ pad: "x".repeat(300_000) });
+    send("projects", big);
+    send("sessions-changed", '{"upsert":["a"]}', { event: "sessions", json: '["whole-1"]' });
+    send("sessions-changed", '{"upsert":["b"]}', { event: "sessions", json: '["whole-2"]' });
+
+    for (let i = 0; i < 10; i++) {
+      drain();
+      await new Promise((r) => setImmediate(r));
+    }
+    const all = written.join("");
+    expect(all).toContain('event: sessions\ndata: ["whole-2"]');
+    expect(all).not.toContain("sessions-changed");
+  });
 });

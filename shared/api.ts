@@ -1166,6 +1166,11 @@ export interface ToolLogEntry {
   ok: boolean;
   /** What the tool answered, or why it did not. Trimmed: the line is the record, not the reply. */
   result: string;
+  /**
+   * Set on read, for a call that can be put back from the log: "can" until it
+   * has been, then "done". Absent for everything else.
+   */
+  undo?: "can" | "done";
 }
 
 /** A day of the tool log, and the days there are, newest first. */

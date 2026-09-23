@@ -30,6 +30,22 @@ export type MailLogEntry =
     }
   | { verb: "relabel"; query: string; ids: string[]; add: string[]; remove: string[] };
 
+/** One day of the log, oldest first, each with when it was written. */
+export async function readDay(day: string): Promise<(MailLogEntry & { at: string })[]> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return [];
+  const text = await fs.readFile(path.join(mailLogDir(), `${day}.jsonl`), "utf8").catch(() => "");
+  const out: (MailLogEntry & { at: string })[] = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      out.push(JSON.parse(line) as MailLogEntry & { at: string });
+    } catch {
+      // A torn line is one change the undo cannot find, not the whole day.
+    }
+  }
+  return out;
+}
+
 export async function record(entry: MailLogEntry, now = new Date()): Promise<void> {
   await fs.mkdir(mailLogDir(), { recursive: true });
   await fs.appendFile(

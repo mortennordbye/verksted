@@ -47,30 +47,109 @@ export async function mailConfig(): Promise<MailConfig | null> {
 
 export class MailUnavailable extends Error {}
 
-async function withClient<T>(fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+/**
+ * One IMAP connection, kept between calls.
+ *
+ * Every verb used to be a fresh TLS handshake and login, which is most of what
+ * a tool call waited for and what a provider rate-limits first. The kept one
+ * logs out after a minute with nobody using it, is dropped the moment the
+ * server hangs up or the connection breaks, and is never used for other
+ * credentials than it logged in with: a password changed on the settings page
+ * starts a new one on the next call. Calls share it; imapflow queues their
+ * commands, and a mailbox lock is what keeps one call's selected folder its own.
+ */
+const IDLE_MS = 60_000;
+
+interface Kept {
+  key: string;
+  client: Promise<ImapFlow>;
+  users: number;
+  idle?: NodeJS.Timeout;
+}
+
+let kept: Kept | null = null;
+
+function drop(entry: Kept): void {
+  if (kept === entry) kept = null;
+  clearTimeout(entry.idle);
+  void entry.client.then((c) => c.logout()).catch(() => undefined);
+}
+
+function hold(config: MailConfig): Kept {
+  const key = JSON.stringify(config);
+  if (kept && kept.key !== key) drop(kept);
+  if (!kept) {
+    const client = new ImapFlow({
+      host: config.host,
+      port: config.port,
+      secure: true,
+      auth: { user: config.user, pass: config.password },
+      logger: false,
+      // A server that hangs must not hang a poll forever.
+      connectionTimeout: 20_000,
+      greetingTimeout: 20_000,
+      socketTimeout: 60_000,
+    });
+    const entry: Kept = { key, client: client.connect().then(() => client), users: 0 };
+    // Gone from under us: the next call connects again rather than using it.
+    client.on("close", () => {
+      if (kept === entry) kept = null;
+    });
+    client.on("error", () => drop(entry));
+    kept = entry;
+  }
+  const entry = kept;
+  entry.users++;
+  clearTimeout(entry.idle);
+  return entry;
+}
+
+function release(entry: Kept): void {
+  entry.users--;
+  if (entry.users > 0 || kept !== entry) return;
+  entry.idle = setTimeout(() => drop(entry), IDLE_MS);
+  entry.idle.unref?.();
+}
+
+/** A failure of the connection rather than of the command: worth a new one. */
+function broken(err: unknown, client: ImapFlow | null): boolean {
+  if (client && client.usable === false) return true;
+  const code = (err as { code?: string }).code ?? "";
+  return /^(ECONNRESET|ECONNREFUSED|ETIMEDOUT|EPIPE|ENOTFOUND|EAI_AGAIN|NoConnection|ClosedAfterConnectTLS)$/.test(
+    code,
+  );
+}
+
+async function withClient<T>(
+  fn: (client: ImapFlow) => Promise<T>,
+  /** Reads only: asked once more on a new connection when this one broke. */
+  { retry = false }: { retry?: boolean } = {},
+): Promise<T> {
   const config = await mailConfig();
   if (!config) throw new MailUnavailable("mail is not set up: IMAP_HOST, IMAP_USER, IMAP_PASSWORD");
-  const client = new ImapFlow({
-    host: config.host,
-    port: config.port,
-    secure: true,
-    auth: { user: config.user, pass: config.password },
-    logger: false,
-    // A server that hangs must not hang a poll forever.
-    connectionTimeout: 20_000,
-    greetingTimeout: 20_000,
-    socketTimeout: 60_000,
-  });
-  await client.connect();
-  try {
-    return await fn(client);
-  } finally {
-    await client.logout().catch(() => undefined);
+  for (let attempt = 0; ; attempt++) {
+    const entry = hold(config);
+    let client: ImapFlow | null = null;
+    try {
+      client = await entry.client;
+      return await fn(client);
+    } catch (err) {
+      const dead = broken(err, client) || client === null;
+      if (dead) drop(entry);
+      // A move that broke halfway may have happened, so only reads go again.
+      if (!(retry && dead && attempt === 0)) throw err;
+    } finally {
+      release(entry);
+    }
   }
 }
 
 /** The same connection with a mailbox selected, which every verb but LIST needs. */
-async function withBox<T>(box: string, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
+async function withBox<T>(
+  box: string,
+  fn: (client: ImapFlow) => Promise<T>,
+  opts?: { retry?: boolean },
+): Promise<T> {
   return withClient(async (client) => {
     const lock = await client.getMailboxLock(box);
     try {
@@ -78,10 +157,12 @@ async function withBox<T>(box: string, fn: (client: ImapFlow) => Promise<T>): Pr
     } finally {
       lock.release();
     }
-  });
+  }, opts);
 }
 
-const withInbox = <T>(fn: (client: ImapFlow) => Promise<T>) => withBox("INBOX", fn);
+/** The inbox, for reads: every caller of it only looks. */
+const withInbox = <T>(fn: (client: ImapFlow) => Promise<T>) =>
+  withBox("INBOX", fn, { retry: true });
 
 /** What an envelope says, as the feed and the tools show it. */
 export function summarise(msg: {
@@ -275,7 +356,7 @@ async function mailboxes(client: ImapFlow): Promise<MailFolder[]> {
 }
 
 export async function folders(): Promise<MailFolder[]> {
-  return withClient((client) => mailboxes(client));
+  return withClient((client) => mailboxes(client), { retry: true });
 }
 
 /** A move the server would refuse, refused here, with something to read. */
@@ -361,17 +442,21 @@ export async function discards(to: string): Promise<boolean> {
 /** The envelopes of these uids, for a card to show what it is about to move. */
 export async function summaries(uids: number[], from = "INBOX"): Promise<MailSummary[]> {
   if (!uids.length) return [];
-  return withBox(from, async (client) => {
-    const out: MailSummary[] = [];
-    for await (const msg of client.fetch(
-      uids,
-      { envelope: true, flags: true, uid: true },
-      { uid: true },
-    )) {
-      out.push(summarise(msg));
-    }
-    return out;
-  });
+  return withBox(
+    from,
+    async (client) => {
+      const out: MailSummary[] = [];
+      for await (const msg of client.fetch(
+        uids,
+        { envelope: true, flags: true, uid: true },
+        { uid: true },
+      )) {
+        out.push(summarise(msg));
+      }
+      return out;
+    },
+    { retry: true },
+  );
 }
 
 /**
