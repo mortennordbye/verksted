@@ -53,7 +53,7 @@ export default function AskCard({ ask }: { ask: ChatAsk }) {
                   <p className="font-medium text-text">{o.label}</p>
                   {o.description && <p className="mt-0.5 text-muted">{o.description}</p>}
                   {o.preview && (
-                    <pre className="mt-1.5 overflow-x-auto rounded border border-line bg-term p-2 font-mono text-[11px] text-muted">
+                    <pre className="mt-1.5 overflow-x-auto rounded border border-line bg-term p-2 font-mono text-[11px] text-muted scheme-dark">
                       {o.preview}
                     </pre>
                   )}

@@ -323,14 +323,14 @@ export default function FileViewer({
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
             aria-label={`${path} (editing)`}
-            className="flex-1 resize-none bg-term p-4 font-mono text-[12.5px] leading-relaxed text-text outline-none"
+            className="flex-1 resize-none bg-term p-4 font-mono scheme-dark text-[12.5px] leading-relaxed text-text outline-none"
           />
         ) : file.kind === "image" ? (
-          <div className="flex flex-1 items-center justify-center overflow-auto bg-term p-4">
+          <div className="flex flex-1 items-center justify-center overflow-auto bg-term p-4 scheme-dark">
             <img src={raw} alt={path} className="max-h-full max-w-full" />
           </div>
         ) : file.kind === "diff" ? (
-          <pre className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap">
+          <pre className="flex-1 overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap scheme-dark">
             {file.content.split("\n").map((l, i) => (
               <div key={i} className={diffLineClass(l)}>
                 {l || " "}
@@ -340,7 +340,7 @@ export default function FileViewer({
         ) : highlighted !== null ? (
           <pre
             ref={textRef}
-            className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap"
+            className="flex-1 overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap scheme-dark"
           >
             <code
               className="hljs !bg-transparent"
@@ -350,7 +350,7 @@ export default function FileViewer({
         ) : (
           <pre
             ref={textRef}
-            className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text"
+            className="flex-1 overflow-auto bg-surface p-4 font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap text-text scheme-dark"
           >
             {file.content}
           </pre>

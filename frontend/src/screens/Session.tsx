@@ -702,7 +702,9 @@ export default function Session() {
             </div>
 
             <div
-              className={
+              // A dark island while it holds the terminal, which stays dark in
+              // light mode; the conversation takes the page's own mode.
+              className={`${chatView ? "" : "text-text scheme-dark "}${
                 full
                   ? // The visual viewport spans the whole screen, notch and home
                     // indicator included, so full screen has to inset itself —
@@ -723,7 +725,7 @@ export default function Session() {
                     // covers the indicator, and the band it reserves is the
                     // conversation you are typing into.
                     `${pane === "term" ? "flex" : "hidden desk:flex"} min-h-0 flex-col overflow-hidden rounded-t-xl border border-b-0 border-line bg-term pb-[env(safe-area-inset-bottom)] kbd:pb-0 desk:rounded-xl desk:border-b desk:pb-0 desk:h-[calc(var(--vvh,100dvh)-200px)] desk:min-h-[380px]`
-              }
+              }`}
             >
               {/* On a phone the pane strip above the box carries these controls,
                   so the row only costs rows there when it's the way out of full. */}

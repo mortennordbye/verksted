@@ -123,7 +123,7 @@ export default function WaitingSession({ session }: { session: Session }) {
 
       {open && (
         <>
-          <pre className="mt-2 max-h-[40dvh] overflow-auto rounded-md border border-line bg-term p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted">
+          <pre className="mt-2 max-h-[40dvh] overflow-auto rounded-md border border-line bg-term p-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted scheme-dark">
             {capture ? capture.text || "…" : <SkeletonLines count={4} />}
           </pre>
           {/* The question in its own words, with its own answers. The same

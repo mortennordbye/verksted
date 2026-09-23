@@ -73,7 +73,7 @@ export function Toaster() {
           key={t.id}
           duration={t.duration}
           onOpenChange={(open) => !open && drop(t.id)}
-          className="pointer-events-auto flex w-full items-center gap-2.5 rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] shadow-[0_6px_20px_rgba(0,0,0,.35)]"
+          className="pointer-events-auto flex w-full items-center gap-2.5 rounded-lg border border-line-strong bg-surface px-3 py-2 text-[13px] shadow-[0_6px_20px_var(--color-shadow)]"
         >
           <Toast.Description className="min-w-0 flex-1 text-muted">{t.message}</Toast.Description>
           {t.action && (

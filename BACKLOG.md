@@ -345,23 +345,21 @@ what unblocks it / where the code lives.
   `typescript` entry would go and currently must not), `eslint.config.js`
   (`recommendedTypeChecked`, the rules that need the TS 6 API)
 
-## The palette's light half is not ported
+## The installed iOS app's status bar in light mode is unchecked
 
-- **What:** `theme.css` carries only the dark column of nordbye.it's palette.
-  The site is a light-and-dark system; here `color-scheme` is still pinned to
-  `dark` and every token holds a single value.
-- **Why deferred:** Light mode is not a token swap. It is every screen at once,
-  plus the xterm.js theme, plus the native controls the `color-scheme` line was
-  added to fix, plus a mode toggle and where its choice is stored. The hub
-  rework did not need it and shipping half of it would have left screens
-  rendering one mode's text on the other's ground.
-- **Unblocked by:** Deciding whether the terminal screen stays dark in light
-  mode (it should), then converting the tokens to `light-dark()` pairs and
-  walking every screen in both modes the way the blog's phase 7 audit did.
-- **Where:** `frontend/src/theme.css` (`@theme`, the `color-scheme: dark` rule),
-  `frontend/src/components/Terminal.tsx` (xterm palette). The source is
-  nordbye.it's own light column: `--bg` `#f9fbf9`, `--surface` `#f0f5f1`,
-  `--fg` `#1a201b`, `--accent` `#378144`, `--accent-ink` `#fff`
+- **What:** `index.html` asks iOS for `black-translucent`, which draws the
+  status bar's clock and battery in white over the page. In light mode the page
+  under it is the light top bar, so they are likely white on near-white.
+- **Why deferred:** It only shows in the home-screen app on an iPhone, which the
+  e2e chromium cannot be, and the alternative (`default`) stops the page
+  drawing under the status bar, which moves every safe-area inset the layout
+  was tuned against. That wants a device, not a guess.
+- **Unblocked by:** Opening the installed app in light mode on a phone. If the
+  status bar is unreadable, try `default` and re-check the top bar, the
+  full-screen terminal and the new-build banner; iOS reads the meta only at
+  launch, so a mode change applies from the next start.
+- **Where:** `frontend/index.html` (`apple-mobile-web-app-status-bar-style`),
+  `frontend/src/theme.css` (the `html` rule's safe-area comment).
 
 ## The chair's convening has never been watched against a real model
 

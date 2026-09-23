@@ -418,7 +418,7 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
         {disconnected && (
           <button
             onClick={() => setAttempt((a) => a + 1)}
-            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 text-[13.5px] text-muted"
+            className="absolute inset-0 z-10 flex items-center justify-center bg-term/80 text-[13.5px] text-muted scheme-dark"
           >
             disconnected — tap to reconnect
           </button>
