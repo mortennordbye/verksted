@@ -1334,6 +1334,8 @@ export interface Memory {
   /** Where it came from, which is the answer to "why does it think that?". */
   source: string | null;
   createdAt: string | null;
+  /** A proposal's only: the facts it takes the place of, removed when it is kept. */
+  replaces?: string[];
 }
 
 /**

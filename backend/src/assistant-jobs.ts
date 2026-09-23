@@ -7,6 +7,7 @@ import type { FeedUrgency } from "../../shared/api.js";
 import {
   cataloguePrompt,
   journalPrompt,
+  compactionPrompt,
   learningPrompt,
   triagePrompt,
 } from "./assistant-persona.js";
@@ -410,5 +411,79 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
     }
   }
   log.info(`learning: ${proposed} rule(s) proposed for ${day}`);
+  return proposed;
+}
+
+/** Run once the store is this full; below it there is nothing worth the call. */
+const COMPACT_FROM = 0.5;
+
+/**
+ * Propose merges of the kept facts, once the store is half full (Assistant M4).
+ *
+ * The budget drops the oldest fact past it, which is a cliff: a correction
+ * and the fact it corrected both take room, and what goes first is whatever
+ * is oldest, not whatever is redundant. One cheap turn a week reads the whole
+ * store and proposes replacements: several facts as one, or one reworded to
+ * what a newer fact says. Each lands in the review queue naming the facts it
+ * replaces, and they go only when it is kept. Nothing here edits the store.
+ */
+export async function runCompaction(log: Logger): Promise<number> {
+  const facts = await memory.list();
+  const { used } = memory.renderBlock(facts);
+  if (used < memory.BUDGET_BYTES * COMPACT_FROM) return 0;
+  const blocked = await unattendedBlocked();
+  if (blocked) {
+    log.warn({}, `compaction skipped: ${blocked}`);
+    return 0;
+  }
+  const bySlug = new Map(facts.map((f) => [f.slug, f]));
+  const material = [...facts]
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""))
+    .map((f) => `${f.slug}\t${f.type}\t${f.createdAt ?? "?"}\t${f.text.replace(/\s*\n\s*/g, " ")}`)
+    .join("\n");
+  const { name } = await readAssistantConfig();
+  const { text, failed } = await runUnattended(
+    material,
+    "",
+    false,
+    {
+      model: env.ASSISTANT_MODEL,
+      effort: env.ASSISTANT_EFFORT,
+      systemPrompt: compactionPrompt(name),
+    },
+    "compaction",
+  );
+  if (failed) {
+    refundCeiling(1);
+    log.warn({}, `compaction failed: ${text || "the turn produced nothing"}`);
+    return 0;
+  }
+  let proposed = 0;
+  for (const raw of text.split("\n")) {
+    const [slug, olds, fact] = raw.split("\t").map((p) => p.trim());
+    if (!slug || !olds || !fact) continue;
+    // Only facts that are there: a name the model invented replaces nothing.
+    const named = olds.split(",").flatMap((s) => bySlug.get(s.trim()) ?? []);
+    const [first] = named;
+    if (!first) continue;
+    const replaces = named.map((f) => f.slug);
+    try {
+      await memory.propose({
+        slug: slug
+          .toLowerCase()
+          .replace(/[^a-z0-9-]+/g, "-")
+          .slice(0, 60),
+        text: fact,
+        type: first.type,
+        scope: first.scope,
+        source: `merges ${replaces.join(", ")}`,
+        replaces,
+      });
+      proposed++;
+    } catch {
+      // A bad slug, or one turned down before: not worth a queue entry.
+    }
+  }
+  log.info(`compaction: ${proposed} replacement(s) proposed`);
   return proposed;
 }
