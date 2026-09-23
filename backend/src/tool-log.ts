@@ -75,7 +75,11 @@ export async function readUndone(): Promise<Record<string, string>> {
   }
 }
 
+/** An entry's `at`, as `record` writes it. Anything else is not a key into the file. */
+const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 export async function markUndone(at: string, now = new Date()): Promise<void> {
+  if (!AT_RE.test(at)) throw new Error("not a log entry's time");
   const undone = await readUndone();
   undone[at] = now.toISOString();
   await fs.mkdir(toolLogDir(), { recursive: true });

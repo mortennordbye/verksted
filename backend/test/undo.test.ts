@@ -138,6 +138,11 @@ describe("undo from the log", () => {
     expect(moved).toEqual([]);
   });
 
+  it("takes only a log entry's time as the entry to put back", async () => {
+    const res = await undo("__proto__");
+    expect(res.statusCode).toBe(400);
+  });
+
   it("undoes nothing that has no record behind it, or that is not undone from here", async () => {
     writeLog("tool-log", [
       call("mail_move", { uids: [9], to: "Receipts" }),

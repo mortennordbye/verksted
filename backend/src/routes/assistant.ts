@@ -381,7 +381,10 @@ export default async function assistantRoutes(app: FastifyInstance) {
           additionalProperties: false,
           properties: {
             day: { type: "string", pattern: "^\\d{4}-\\d{2}-\\d{2}$" },
-            at: { type: "string", maxLength: 40 },
+            at: {
+              type: "string",
+              pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+            },
           },
         },
       },
