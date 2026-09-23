@@ -22,7 +22,7 @@ let settingsFile: string;
 let feed: typeof import("../src/feed-store.js");
 let loops: typeof import("../src/loops-store.js");
 let pollers: typeof import("../src/pollers.js");
-let scheduler: typeof import("../src/scheduler.js");
+let jobs: typeof import("../src/assistant-jobs.js");
 
 beforeAll(async () => {
   // Only gh: everything else on the path stays real, tmux included.
@@ -43,7 +43,7 @@ beforeAll(async () => {
   feed = await import("../src/feed-store.js");
   loops = await import("../src/loops-store.js");
   pollers = await import("../src/pollers.js");
-  scheduler = await import("../src/scheduler.js");
+  jobs = await import("../src/assistant-jobs.js");
 });
 
 afterAll(async () => {
@@ -742,7 +742,7 @@ describe("triage verdicts", () => {
       "not a verdict at all",
       "github:4\tloud\tno such urgency\t-",
     ].join("\n");
-    expect(scheduler.parseVerdicts(text)).toEqual([
+    expect(jobs.parseVerdicts(text)).toEqual([
       {
         id: "github:1",
         urgency: "attention",

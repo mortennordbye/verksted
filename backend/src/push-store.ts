@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import webpush from "web-push";
 import { env } from "./env.js";
 import { writeJsonAtomic } from "./atomic-json.js";
+import type { Logger } from "./logger.js";
 
 /**
  * Web push for the installed PWA. iOS delivers these to the home-screen app,
@@ -24,10 +25,6 @@ export interface PushSub {
 interface PushFile {
   vapid: { publicKey: string; privateKey: string };
   subs: PushSub[];
-}
-
-interface Logger {
-  warn: (obj: unknown, msg?: string) => void;
 }
 
 export interface PushPayload {
@@ -136,7 +133,7 @@ export async function unsubscribe(endpoint: string): Promise<void> {
  * The counts are for the settings page's "send test": a push that the service
  * refuses looks exactly like a delivered one from the pod's side otherwise.
  */
-export async function send(payload: PushPayload, log: Logger): Promise<SendResult> {
+export async function send(payload: PushPayload, log: Pick<Logger, "warn">): Promise<SendResult> {
   const file = await read();
   if (!file.subs.length) return { sent: 0, failed: 0 };
   webpush.setVapidDetails(VAPID_SUBJECT, file.vapid.publicKey, file.vapid.privateKey);

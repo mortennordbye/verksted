@@ -6,7 +6,7 @@ import type {
   CouncilFace,
   CouncilMember,
 } from "../../shared/api.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { jsonIds, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { DEFAULT_NAME, readAssistantConfig } from "./settings-store.js";
 
@@ -835,11 +835,9 @@ export async function chair(): Promise<CouncilMember> {
 
 /** Everyone but the chair, by id. */
 export async function listMembers(): Promise<CouncilMember[]> {
-  const files = await fs.readdir(env.COUNCIL_DIR).catch(() => []);
   const members: CouncilMember[] = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    const member = await readMember(file.slice(0, -5));
+  for (const id of await jsonIds(env.COUNCIL_DIR)) {
+    const member = await readMember(id);
     if (member) members.push(member);
   }
   return members.sort((a, b) => a.name.localeCompare(b.name));

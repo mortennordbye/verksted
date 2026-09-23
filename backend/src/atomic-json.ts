@@ -91,3 +91,36 @@ export async function sweepTempFiles(dir: string): Promise<void> {
     // Nothing to sweep, or the dir is unreadable — boot regardless.
   }
 }
+
+/**
+ * The ids of the `<id>.json` records in a store's directory, and none while
+ * the directory does not exist yet. `valid` is the store's own id rule: a
+ * directory on the volume can hold anything, and a name that is not an id is
+ * not one of its records.
+ *
+ * With `readJsonDir` below, the one way the stores list what they hold (R-34);
+ * each used to hand-roll the readdir, the suffix check and the skip.
+ */
+export async function jsonIds(dir: string, valid: RegExp = /./): Promise<string[]> {
+  const names = await fs.readdir(dir).catch(() => [] as string[]);
+  return names
+    .filter((n) => n.endsWith(".json"))
+    .map((n) => n.slice(0, -5))
+    .filter((id) => valid.test(id));
+}
+
+/**
+ * Every record in a store's directory, parsed. One that will not read or parse
+ * is skipped: one torn file loses one record, not the list.
+ */
+export async function readJsonDir<T>(dir: string, valid?: RegExp): Promise<T[]> {
+  const out: T[] = [];
+  for (const id of await jsonIds(dir, valid)) {
+    try {
+      out.push(JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), "utf8")) as T);
+    } catch {
+      // Skipped, as above.
+    }
+  }
+  return out;
+}

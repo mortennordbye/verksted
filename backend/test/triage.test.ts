@@ -14,7 +14,7 @@ let fake: FakeBin;
 let app: FastifyInstance;
 let feed: typeof import("../src/feed-store.js");
 let loops: typeof import("../src/loops-store.js");
-let scheduler: typeof import("../src/scheduler.js");
+let jobs: typeof import("../src/assistant-jobs.js");
 
 const log = { info: () => {}, warn: () => {} };
 
@@ -47,7 +47,7 @@ beforeAll(async () => {
   app = await buildApp({ logger: false });
   feed = await import("../src/feed-store.js");
   loops = await import("../src/loops-store.js");
-  scheduler = await import("../src/scheduler.js");
+  jobs = await import("../src/assistant-jobs.js");
 });
 
 afterAll(async () => {
@@ -75,7 +75,7 @@ const arrived = (id: string, title: string) =>
 
 describe("triage", () => {
   it("costs nothing when nothing is waiting to be judged", async () => {
-    expect(await scheduler.runTriage(log, true)).toBe(0);
+    expect(await jobs.runTriage(log, true)).toBe(0);
     expect(fake.argvFor("claude")).toHaveLength(0);
   });
 
@@ -97,7 +97,7 @@ describe("triage", () => {
       ),
     });
 
-    expect(await scheduler.runTriage(log, true)).toBe(3);
+    expect(await jobs.runTriage(log, true)).toBe(3);
 
     const argv = fake.argvFor("claude")[0];
     const prompt = argv[argv.indexOf("-p") + 1];
@@ -138,7 +138,7 @@ describe("triage", () => {
     fake.reply("claude", "-p", {
       stdout: run("github:4\tnew\tA terraform bump waiting on you.\tnew: review the PR | -"),
     });
-    await scheduler.runTriage(log, true);
+    await jobs.runTriage(log, true);
     expect((await feed.get("github:4"))!.loop).toBe("review-the-pr");
 
     // The same PR, later: a new comment moves the version on, so the item comes
@@ -156,7 +156,7 @@ describe("triage", () => {
     fake.reply("claude", "-p", {
       stdout: run("github:4\tnew\tStill waiting on you.\tnew: review the PR | -"),
     });
-    await scheduler.runTriage(log, true);
+    await jobs.runTriage(log, true);
 
     expect((await feed.get("github:4"))!.loop).toBe("review-the-pr");
     expect((await loops.list()).map((l) => l.slug)).toEqual(["review-the-pr"]);
@@ -175,7 +175,7 @@ describe("triage", () => {
     fake.reply("claude", "-p", {
       stdout: run("github:4\tnew\tBack again.\tnew: review the PR | -"),
     });
-    await scheduler.runTriage(log, true);
+    await jobs.runTriage(log, true);
     expect((await feed.get("github:4"))!.loop).toBe("review-the-pr-2");
   });
 
@@ -188,7 +188,7 @@ describe("triage", () => {
     await arrived("github:6", "verksted: Bump eslint");
     fake.reply("claude", "-p", { stdout: run("github:6\tquiet\tRenovate.\t-") });
 
-    await scheduler.runTriage(log, true);
+    await jobs.runTriage(log, true);
 
     const argv = fake.argvFor("claude")[0];
     const system = argv[argv.indexOf("--append-system-prompt") + 1];
@@ -221,7 +221,7 @@ describe("triage", () => {
       ),
     });
 
-    expect(await scheduler.runLearning(log)).toBe(1);
+    expect(await jobs.runLearning(log)).toBe(1);
 
     const argv = fake.argvFor("claude")[0];
     const prompt = argv[argv.indexOf("-p") + 1];
@@ -247,9 +247,9 @@ describe("triage", () => {
     fake.reply("claude", "-p", { stdout: run("github:4\tnew\tOne.\t-") });
     // Well past whatever the test above stamped.
     const t0 = Date.now() + 30 * 60_000;
-    expect(await scheduler.runTriage(log, false, t0)).toBe(1);
+    expect(await jobs.runTriage(log, false, t0)).toBe(1);
     await arrived("github:5", "two");
-    expect(await scheduler.runTriage(log, false, t0 + 60_000)).toBe(0);
-    expect(await scheduler.runTriage(log, false, t0 + 11 * 60_000)).toBe(1);
+    expect(await jobs.runTriage(log, false, t0 + 60_000)).toBe(0);
+    expect(await jobs.runTriage(log, false, t0 + 11 * 60_000)).toBe(1);
   });
 });

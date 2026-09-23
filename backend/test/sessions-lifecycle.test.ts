@@ -60,6 +60,8 @@ vi.mock("../src/claude-hooks.js", () => ({
 }));
 
 let store: typeof import("../src/sessions-store.js");
+let launch: typeof import("../src/session-launch.js");
+let reaper: typeof import("../src/session-reaper.js");
 let sessionsDir: string;
 let reposDir: string;
 
@@ -93,6 +95,8 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.STATIC_DIR = "";
   store = await import("../src/sessions-store.js");
+  launch = await import("../src/session-launch.js");
+  reaper = await import("../src/session-reaper.js");
 });
 
 beforeEach(() => {
@@ -153,7 +157,7 @@ describe("liveness when tmux cannot be asked", () => {
     writeMeta("vk-demo-5");
     fs.writeFileSync(path.join(sessionsDir, "vk-demo-5.conv"), "4b953f35-5791-4984-93a4-cfea9871");
     const warn = vi.fn();
-    await store.restoreSessions({ info: vi.fn(), warn });
+    await launch.restoreSessions({ info: vi.fn(), warn });
     expect(tmuxNew).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalled();
   });
@@ -414,7 +418,7 @@ describe("createSession", () => {
   it("gives concurrent creates distinct ids", async () => {
     const made = await Promise.all(
       Array.from({ length: 5 }, () =>
-        store.createSession("demo", path.join(reposDir, "demo"), "claude"),
+        launch.createSession("demo", path.join(reposDir, "demo"), "claude"),
       ),
     );
     const ids = made.map((s) => s.id);
@@ -427,7 +431,7 @@ describe("createSession", () => {
   });
 
   it("records where the repo was, as the stick to measure the session against", async () => {
-    const session = await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+    const session = await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
 
     expect(readMetaFile(session.id).startCommit).toBe("start0");
     // A measuring stick, not something any screen shows.
@@ -436,8 +440,8 @@ describe("createSession", () => {
   });
 
   it("reserves a distinct cdp port per session", async () => {
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
     const ports = ["vk-demo-1", "vk-demo-2"].map((id) => readMetaFile(id).cdpPort);
     expect(new Set(ports).size).toBe(2);
   });
@@ -451,7 +455,7 @@ describe("createSession", () => {
     }
     tmuxList.mockResolvedValue([]);
 
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
 
     // The stub hands out 9222 + used.size, so this is "none of the three count".
     expect(readMetaFile("vk-demo-4").cdpPort).toBe(9222);
@@ -461,7 +465,7 @@ describe("createSession", () => {
     writeMeta("vk-demo-1", { cdpPort: 9222 });
     tmuxList.mockResolvedValue(["vk-demo-1"]);
 
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
 
     expect(readMetaFile("vk-demo-2").cdpPort).toBe(9223);
   });
@@ -471,7 +475,7 @@ describe("createSession", () => {
   it("leaves no metadata behind when the agent fails to start", async () => {
     tmuxNew.mockRejectedValue(new Error("tmux: command not found"));
     await expect(
-      store.createSession("demo", path.join(reposDir, "demo"), "claude"),
+      launch.createSession("demo", path.join(reposDir, "demo"), "claude"),
     ).rejects.toThrow();
     expect(fs.readdirSync(sessionsDir).filter((f) => f.startsWith("vk-"))).toHaveLength(0);
   });
@@ -479,9 +483,9 @@ describe("createSession", () => {
   it("keeps allocating ids after a failed create", async () => {
     tmuxNew.mockRejectedValueOnce(new Error("boom"));
     await expect(
-      store.createSession("demo", path.join(reposDir, "demo"), "claude"),
+      launch.createSession("demo", path.join(reposDir, "demo"), "claude"),
     ).rejects.toThrow();
-    const ok = await store.createSession("demo", path.join(reposDir, "demo"), "claude");
+    const ok = await launch.createSession("demo", path.join(reposDir, "demo"), "claude");
     expect(ok.id).toBe("vk-demo-1");
   });
 });
@@ -634,7 +638,7 @@ describe("per-project standing context", () => {
 
   it("prepends the context to a session's prompt", async () => {
     writeContext("Always run make lint before committing.");
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude", {
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude", {
       prompt: "tidy the imports",
     });
     const env = tmuxNewEnv();
@@ -646,7 +650,7 @@ describe("per-project standing context", () => {
 
   it("leaves the prompt alone when there is no context file", async () => {
     clearContext();
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude", {
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude", {
       prompt: "tidy the imports",
     });
     expect(tmuxNewEnv().VK_PROMPT).toBe("tidy the imports");
@@ -654,14 +658,14 @@ describe("per-project standing context", () => {
 
   it("ignores a context file that is only whitespace", async () => {
     writeContext("   \n\n  ");
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
     expect(tmuxNewEnv().VK_PROMPT).toBe("go");
     clearContext();
   });
 
   it("caps a context file that someone pasted a whole document into", async () => {
     writeContext("x".repeat(20_000));
-    await store.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
+    await launch.createSession("demo", path.join(reposDir, "demo"), "claude", { prompt: "go" });
     expect(tmuxNewEnv().VK_PROMPT.length).toBeLessThan(8_100);
     clearContext();
   });
@@ -714,7 +718,7 @@ describe("reapFinishedSessions", () => {
     gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
     live("vk-demo-1", bareShell(), 180);
 
-    expect(await store.reapFinishedSessions(log)).toEqual(["vk-demo-1"]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual(["vk-demo-1"]);
     expect(tmuxKill).toHaveBeenCalledWith("vk-demo-1");
     // Ended, not deleted: the report and the range it left are the history.
     expect(readMetaFile("vk-demo-1").endedAt).not.toBeNull();
@@ -726,7 +730,7 @@ describe("reapFinishedSessions", () => {
     gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
     live("vk-demo-1", await withAgent(), 24 * 60);
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
     expect(tmuxKill).not.toHaveBeenCalled();
   });
 
@@ -735,7 +739,7 @@ describe("reapFinishedSessions", () => {
     gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 0 });
     live("vk-demo-1", bareShell(), 5);
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
   });
 
   /** A question addressed to a person is the inbox's business, not a sweep's. */
@@ -745,7 +749,7 @@ describe("reapFinishedSessions", () => {
     fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.state"), "waiting");
     live("vk-demo-1", bareShell(), 180);
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
     expect(tmuxKill).not.toHaveBeenCalled();
   });
 
@@ -755,7 +759,7 @@ describe("reapFinishedSessions", () => {
     gitWork.mockResolvedValue({ ...WORK, dirty: 3, unpushed: 0 });
     live("vk-demo-1", bareShell(), 180);
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
     expect(readMetaFile("vk-demo-1").endedAt).toBeNull();
     expect(log.warn).toHaveBeenCalled();
   });
@@ -765,14 +769,14 @@ describe("reapFinishedSessions", () => {
     gitWork.mockResolvedValue({ ...WORK, dirty: 0, unpushed: 2 });
     live("vk-demo-1", bareShell(), 180);
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
   });
 
   it("sweeps nothing while tmux cannot be asked", async () => {
     writeMeta("vk-demo-1", { startCommit: "start0" });
     tmuxDetail.mockRejectedValue(new TmuxUnavailableError(new Error("fork failed")));
 
-    expect(await store.reapFinishedSessions(log)).toEqual([]);
+    expect(await reaper.reapFinishedSessions(log)).toEqual([]);
     expect(tmuxKill).not.toHaveBeenCalled();
   });
 });
@@ -801,7 +805,7 @@ describe("retiring old sessions", () => {
     // field: a live session has no end to be older than.
     writeMeta("vk-demo-4", { endedAt: null, createdAt: daysAgo(200) });
 
-    expect(await store.archiveOldSessions(log)).toBe(1);
+    expect(await reaper.archiveOldSessions(log)).toBe(1);
 
     expect(fs.existsSync(metaFile("vk-demo-1"))).toBe(false);
     for (const id of ["vk-demo-2", "vk-demo-3", "vk-demo-4"]) {
@@ -820,10 +824,10 @@ describe("retiring old sessions", () => {
     writeMeta("vk-demo-1", { endedAt, usage, project: "demo" });
     fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.report"), "ok: nothing to do\n");
 
-    await store.archiveOldSessions(log);
+    await reaper.archiveOldSessions(log);
 
     expect(fs.readdirSync(archiveDir())).toEqual(["2026-03.jsonl"]);
-    const [row] = await store.archivedSessions();
+    const [row] = await reaper.archivedSessions();
     expect(row).toMatchObject({ id: "vk-demo-1", endedAt, usage, status: "done" });
     // The verdict travels with it; its file does not.
     expect(row.report).toBe("ok: nothing to do");
@@ -835,31 +839,31 @@ describe("retiring old sessions", () => {
     // of directories that are not there rather than a month.
     writeMeta("vk-demo-1", { endedAt: "3/14/2026" });
 
-    expect(await store.archiveOldSessions(log)).toBe(1);
+    expect(await reaper.archiveOldSessions(log)).toBe(1);
 
     expect(fs.readdirSync(archiveDir())).toEqual(["2026-03.jsonl"]);
-    expect((await store.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-1"]);
+    expect((await reaper.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-1"]);
   });
 
   it("counts a row written twice by an interrupted pass once", async () => {
     const endedAt = "2026-03-14T02:00:00.000Z";
     writeMeta("vk-demo-1", { endedAt });
-    await store.archiveOldSessions(log);
+    await reaper.archiveOldSessions(log);
     // The pass that died between the append and the removal: the metadata is
     // still there, so the next pass writes the row again.
     writeMeta("vk-demo-1", { endedAt });
-    await store.archiveOldSessions(log);
+    await reaper.archiveOldSessions(log);
 
-    expect(await store.archivedSessions()).toHaveLength(1);
+    expect(await reaper.archivedSessions()).toHaveLength(1);
   });
 
   it("survives a line it cannot read, and an archive that is not there", async () => {
-    expect(await store.archivedSessions()).toEqual([]);
+    expect(await reaper.archivedSessions()).toEqual([]);
     fs.mkdirSync(archiveDir(), { recursive: true });
     fs.writeFileSync(
       path.join(archiveDir(), "2026-03.jsonl"),
       `{ half a line\n${JSON.stringify({ id: "vk-demo-9", project: "demo" })}\n`,
     );
-    expect((await store.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-9"]);
+    expect((await reaper.archivedSessions()).map((s) => s.id)).toEqual(["vk-demo-9"]);
   });
 });

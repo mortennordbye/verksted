@@ -15,6 +15,7 @@ import { DEFAULT_WINDOW, MAX_WINDOW, readChat, readDetail, readImage } from "../
 import { changesIn, fileDiffIn, gitError, rangeDiff } from "../git.js";
 import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as desk from "../desk.js";
+import { createSession } from "../session-launch.js";
 import * as store from "../sessions-store.js";
 import { subagentDir, transcriptPath } from "../transcripts.js";
 import * as tmux from "../tmux.js";
@@ -107,7 +108,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       } catch {
         return reply.code(404).send({ error: "not found" });
       }
-      const session = await store.createSession(req.params.name, projectDir, req.body.agent, {
+      const session = await createSession(req.params.name, projectDir, req.body.agent, {
         title: req.body.title,
         resume: req.body.resume,
         prompt: req.body.prompt,
@@ -140,7 +141,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       const { dir, rel, prompt } = await desk.newTask(req.body.title, req.body.ask);
-      const session = await store.createSession(desk.DESK, dir, "claude", {
+      const session = await createSession(desk.DESK, dir, "claude", {
         title: req.body.title,
         prompt,
         autoPermissions: true,

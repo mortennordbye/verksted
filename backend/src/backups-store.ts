@@ -5,6 +5,7 @@ import { env } from "./env.js";
 import * as feed from "./feed-store.js";
 import { announce } from "./notifier.js";
 import type { BackupArchive, BackupStatus } from "../../shared/api.js";
+import type { Logger } from "./logger.js";
 
 /**
  * The backup panel and the `vk` command, over one implementation.
@@ -18,11 +19,6 @@ import type { BackupArchive, BackupStatus } from "../../shared/api.js";
 // Bare, resolved through PATH like gh and git are, so a test can put the
 // repo's own copy of the script ahead of the one baked into the image.
 const VK = "vk";
-
-interface Logger {
-  info: (msg: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-}
 
 /** A backup takes about a minute per 20G; this is the ceiling, not the norm. */
 const RUN_TIMEOUT_MS = 30 * 60_000;

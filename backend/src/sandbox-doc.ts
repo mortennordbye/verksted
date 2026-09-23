@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { giveDirToAgent, giveToAgent } from "./agent-user.js";
+import type { Logger } from "./logger.js";
 
 /**
  * A pointer to /etc/verksted/SANDBOX.md in each agent's *global* memory file,
@@ -119,17 +120,13 @@ export function mergeBlock(existing: string): string {
   return mergeMarked(mergeMarked(existing, START, END, BLOCK), RULES_START, RULES_END, HOUSE_RULES);
 }
 
-interface Logger {
-  warn: (obj: unknown, msg?: string) => void;
-}
-
 /**
  * Write the pointer into every agent's global memory file. Best-effort: a home
  * directory that is not writable is a reason to run without the note, never a
  * reason to fail the boot and take every session with it.
  */
 export async function ensureSandboxNotes(
-  log: Logger,
+  log: Pick<Logger, "warn">,
   home = process.env.HOME ?? "/data/home",
 ): Promise<void> {
   for (const rel of MEMORY_FILES) {

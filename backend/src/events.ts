@@ -1,5 +1,6 @@
 import { listProjects } from "./projects-store.js";
 import * as store from "./sessions-store.js";
+import type { Logger } from "./logger.js";
 
 /**
  * One server-side watcher feeding every connected client, instead of every
@@ -40,16 +41,12 @@ const SOURCES: Record<Topic, () => Promise<unknown>> = {
   projects: () => listProjects(),
 };
 
-interface Logger {
-  warn: (obj: unknown, msg?: string) => void;
-}
-
 const clients = new Set<Send>();
 /** Last payload broadcast per topic — both the change test and what a joining
  *  client is handed so it need not fetch the same thing over again. */
 const latest = new Map<Topic, string>();
 const timers = new Map<Topic, NodeJS.Timeout>();
-let log: Logger = { warn: () => {} };
+let log: Pick<Logger, "warn"> = { warn: () => {} };
 
 const TOPICS = Object.keys(INTERVALS) as Topic[];
 
@@ -135,7 +132,7 @@ export function subscribe(send: Send): () => void {
   };
 }
 
-export function setEventLogger(logger: Logger): void {
+export function setEventLogger(logger: Pick<Logger, "warn">): void {
   log = logger;
 }
 

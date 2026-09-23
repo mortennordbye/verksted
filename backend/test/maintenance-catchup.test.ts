@@ -10,8 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const backfillUsage = vi.fn<() => Promise<number>>();
 const archiveOldSessions = vi.fn<() => Promise<number>>();
 
-vi.mock("../src/sessions-store.js", () => ({
-  backfillUsage: () => backfillUsage(),
+vi.mock("../src/sessions-store.js", () => ({ backfillUsage: () => backfillUsage() }));
+vi.mock("../src/session-reaper.js", () => ({
   archiveOldSessions: () => archiveOldSessions(),
   reapFinishedSessions: async () => [],
 }));

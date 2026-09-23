@@ -17,7 +17,7 @@ import { FakeBin } from "./helpers/fake-bin.js";
 let fake: FakeBin;
 let assistantDir: string;
 let app: FastifyInstance;
-let scheduler: typeof import("../src/scheduler.js");
+let jobs: typeof import("../src/assistant-jobs.js");
 let journal: typeof import("../src/journal-store.js");
 
 const log = { info: () => {}, warn: () => {} };
@@ -45,7 +45,7 @@ beforeAll(async () => {
   process.env.STATIC_DIR = "";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
-  scheduler = await import("../src/scheduler.js");
+  jobs = await import("../src/assistant-jobs.js");
   journal = await import("../src/journal-store.js");
 });
 
@@ -79,7 +79,7 @@ function thread(id: string, turns: [string, string][]): void {
 
 describe("the journal", () => {
   it("costs nothing on a day nobody said anything", async () => {
-    expect(await scheduler.runJournal(log)).toBe(false);
+    expect(await jobs.runJournal(log)).toBe(false);
     expect(fake.argvFor("claude")).toHaveLength(0);
   });
 
@@ -90,7 +90,7 @@ describe("the journal", () => {
     ]);
     fake.reply("claude", "-p", { stdout: run("Domain renews on the 3rd; reminder wanted.") });
 
-    expect(await scheduler.runJournal(log)).toBe(true);
+    expect(await jobs.runJournal(log)).toBe(true);
 
     const argv = fake.argvFor("claude")[0];
     const prompt = argv[argv.indexOf("-p") + 1];

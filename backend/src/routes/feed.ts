@@ -3,7 +3,7 @@ import type { FeedItem, Loop } from "../../../shared/api.js";
 import * as feed from "../feed-store.js";
 import * as journal from "../journal-store.js";
 import * as loops from "../loops-store.js";
-import { runTriage } from "../scheduler.js";
+import { runTriage } from "../assistant-jobs.js";
 import { listSessions } from "../sessions-store.js";
 import { perMinute } from "../limits.js";
 
