@@ -54,6 +54,24 @@ export function startFeedWork(log: Logger): void {
 }
 
 /**
+ * An unattended turn on the one slot of the day's ceiling its caller reserved.
+ *
+ * Handed back if the turn never starts: `runUnattended` throws `BusyError` on a
+ * full queue, and a slot kept for a turn that did not run is one the next job
+ * of the day does not get (R-13). The scheduler's briefing does the same.
+ */
+async function reservedTurn(
+  ...args: Parameters<typeof runUnattended>
+): ReturnType<typeof runUnattended> {
+  try {
+    return await runUnattended(...args);
+  } catch (err) {
+    refundCeiling(1);
+    throw err;
+  }
+}
+
+/**
  * Write the day's journal, if anything was said.
  *
  * One cheap turn, on the floor settings from the environment rather than the
@@ -74,7 +92,7 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
     return false;
   }
   const { name } = await readAssistantConfig();
-  const { text, failed } = await runUnattended(
+  const { text, failed } = await reservedTurn(
     said,
     "",
     false,
@@ -165,7 +183,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
   const material = items
     .map((i) => `${i.id}\t${i.source}\t${i.title}\t${i.detail.replace(/\s+/g, " ")}`)
     .join("\n");
-  const { text, failed } = await runUnattended(
+  const { text, failed } = await reservedTurn(
     material,
     "",
     false,
@@ -281,7 +299,7 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
   }
   const { name } = await readAssistantConfig();
   const material = batch.map((d) => `${d.rel}\n${d.head}\n`).join("\n");
-  const { text, failed } = await runUnattended(
+  const { text, failed } = await reservedTurn(
     material,
     "",
     false,
@@ -374,7 +392,7 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
         }`,
     )
     .join("\n");
-  const { text, failed } = await runUnattended(
+  const { text, failed } = await reservedTurn(
     material,
     "",
     false,
@@ -442,7 +460,7 @@ export async function runCompaction(log: Logger): Promise<number> {
     .map((f) => `${f.slug}\t${f.type}\t${f.createdAt ?? "?"}\t${f.text.replace(/\s*\n\s*/g, " ")}`)
     .join("\n");
   const { name } = await readAssistantConfig();
-  const { text, failed } = await runUnattended(
+  const { text, failed } = await reservedTurn(
     material,
     "",
     false,

@@ -29,6 +29,7 @@ import SshKeys from "../components/settings/SshKeys";
 import BlockedOwners from "../components/settings/BlockedOwners";
 import GmailRules from "../components/settings/GmailRules";
 import ToolLog from "../components/settings/ToolLog";
+import PollError from "../components/PollError";
 
 function sourceChip(source: SettingVar["source"]) {
   if (source === "env") return <StatusChip kind="run" label="env" />;
@@ -59,7 +60,7 @@ const GROUPS = [
 type GroupKey = (typeof GROUPS)[number]["key"];
 
 export default function Settings() {
-  const { data, refresh } = usePoll<SettingsInfo>("/api/settings", 30_000);
+  const { data, error: readError, refresh } = usePoll<SettingsInfo>("/api/settings", 30_000);
   const [params, setParams] = useSearchParams();
   const { hash } = useLocation();
   // The hash wins on arrival, since it is what an old link carries; after that
@@ -125,6 +126,7 @@ export default function Settings() {
           title="Your bench"
           sub="What the pod runs on your behalf, how it reaches you, and what the agents are given."
         />
+        <PollError error={readError} what="the settings" retry={refresh} />
         {/* Scrolls sideways rather than wrapping: five labels do not fit a
             phone, and a strip that wraps to two lines pushes the content down
             by exactly the height it was meant to save. */}

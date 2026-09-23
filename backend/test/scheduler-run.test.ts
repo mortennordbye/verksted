@@ -632,6 +632,29 @@ describe("a schedule that runs the build stage", () => {
   });
 
   /**
+   * R-04, the other half. Between the new worktree and its session (the claim,
+   * the prompt), the finished run is the only session with the name, so the
+   * sweep would take the tree the next build is being set up in.
+   */
+  it("leaves the worktree alone while the next build is still being set up in it", async () => {
+    queued([{ number: 47, title: "x", tier: "auto" }]);
+    const first = await stageSchedule("", "demo", "build");
+    const done = await sessionFrom(first.id);
+    fs.writeFileSync(path.join(sessionsDir, `${done!.id}.exit`), "0");
+    fs.writeFileSync(path.join(sessionsDir, `${done!.id}.report`), "ok: PR #9 opened\n");
+    fake.reply("tmux", "ls", { stdout: "" });
+    await sessions.sweepSessions();
+    watch.settingUp.add("demo--maint-47");
+    try {
+      await watch.watchUnattended(log);
+    } finally {
+      watch.settingUp.delete("demo--maint-47");
+    }
+
+    expect(fs.existsSync(path.join(reposDir, "demo--maint-47"))).toBe(true);
+  });
+
+  /**
    * R-14. The claim and the session are two calls with nothing between them:
    * a transient `gh` or tmux failure left the issue in-progress with nobody on
    * it and a worktree on the volume, and every later night failed on the same

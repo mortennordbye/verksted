@@ -24,6 +24,15 @@ describe("validNavUrl", () => {
     expect(validNavUrl("chrome://settings")).toBeNull();
     expect(validNavUrl("x".repeat(2001))).toBeNull();
   });
+
+  it("refuses link-local and the cluster's service names, and keeps loopback (S-08)", () => {
+    expect(validNavUrl("http://169.254.169.254/latest/meta-data")).toBeNull();
+    expect(validNavUrl("http://[fe80::1]/")).toBeNull();
+    expect(validNavUrl("http://kubernetes.default.svc/api")).toBeNull();
+    expect(validNavUrl("http://loki.monitoring.svc.cluster.local:3100/")).toBeNull();
+    expect(validNavUrl("127.0.0.1:5173")).toBe("http://127.0.0.1:5173/");
+    expect(validNavUrl("https://svc.example.com/")).toBe("https://svc.example.com/");
+  });
 });
 
 describe("nextCdpPort", () => {

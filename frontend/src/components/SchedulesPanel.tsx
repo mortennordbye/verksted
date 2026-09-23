@@ -19,6 +19,7 @@ import { SkeletonLines, SkeletonList } from "./Skeleton";
 import Button from "./ui/Button";
 import { Input, Select, Textarea } from "./ui/Field";
 import Notice from "./ui/Notice";
+import PollError from "./PollError";
 
 /** A cron pattern's next fire time, in this device's timezone. */
 function whenLabel(iso: string | null): string {
@@ -270,6 +271,7 @@ const STARTERS: {
 export default function SchedulesPanel({ project }: { project?: string }) {
   const {
     data: schedules,
+    error: listError,
     fresh,
     refresh,
   } = usePoll<Schedule[]>(
@@ -453,6 +455,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         </Notice>
       )}
       {note && <div className="mb-3 text-[12.5px] text-muted">{note}</div>}
+      <PollError error={listError} what="the schedules" retry={refresh} />
       {!project && <UnattendedNow />}
       {/* The starters, until each exists. A bench without a morning briefing
           has no front page, and the button is the whole of setting one up. */}

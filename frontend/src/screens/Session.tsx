@@ -38,6 +38,7 @@ import { useUrlOverlay } from "../useUrlOverlay";
 import { useVisualViewport } from "../useVisualViewport";
 import Button, { buttonClass } from "../components/ui/Button";
 import Notice from "../components/ui/Notice";
+import PollError from "../components/PollError";
 
 const SIDE_KEY = "vk.session.sideWidth";
 const RATIO_KEY = "vk.session.ratio";
@@ -172,11 +173,19 @@ export default function Session() {
   const [syncNote, setSyncNote] = useState(sync?.status === "synced" ? null : (sync ?? null));
   const { pane, side, show } = useView();
   const { data: session, notFound } = usePoll<SessionInfo>(`/api/sessions/${id}`);
-  const { data: tree, refresh: refreshTree } = usePoll<Tree>(
+  const {
+    data: tree,
+    error: treeError,
+    refresh: refreshTree,
+  } = usePoll<Tree>(
     session ? `/api/projects/${encodeURIComponent(session.project)}/tree` : null,
     8_000,
   );
-  const { data: git, refresh: refreshGit } = usePoll<GitStatus>(
+  const {
+    data: git,
+    error: gitError,
+    refresh: refreshGit,
+  } = usePoll<GitStatus>(
     session ? `/api/projects/${encodeURIComponent(session.project)}/git` : null,
     8_000,
   );
@@ -651,6 +660,12 @@ export default function Session() {
                 // has to meet its neighbour's inside the gap when the row wraps.
                 className="mb-2 flex flex-none flex-wrap gap-2.5"
               />
+              {side === "files" && (
+                <PollError error={treeError} what="the files" retry={refreshTree} />
+              )}
+              {side === "git" && (
+                <PollError error={gitError} what="git status" retry={refreshGit} />
+              )}
               {side === "files" && (
                 <FileTree
                   treeKey={session?.project ?? ""}

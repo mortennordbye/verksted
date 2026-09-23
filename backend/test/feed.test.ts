@@ -734,6 +734,39 @@ describe("the pollers", () => {
     expect((await feed.get("github:11"))!.state).toBe("new");
   });
 
+  it("lists around a record that is not one, in the feed and the loops (R-31)", async () => {
+    await feed.upsert(seen("github:kept"));
+    await loops.open({ what: "answer it", from: "you" });
+    fs.writeFileSync(path.join(feedDir, "empty.json"), "{}");
+    fs.writeFileSync(path.join(feedDir, "null.json"), "null");
+    fs.writeFileSync(path.join(process.env.LOOPS_DIR!, "empty.json"), "{}");
+
+    expect((await feed.list()).map((i) => i.id)).toEqual(["github:kept"]);
+    expect((await loops.list("all")).map((l) => l.what)).toEqual(["answer it"]);
+    expect((await app.inject({ url: "/api/feed" })).statusCode).toBe(200);
+  });
+
+  it("files GitHub failing again after it read again, with the same message (R-19)", async () => {
+    const reading = () => fake.reply("gh", "api", { contains: "notifications", stdout: "[]" });
+    const failing = () =>
+      fake.reply("gh", "api", { contains: "notifications", code: 1, stderr: "HTTP 502" });
+    // Whatever backoff an earlier test left, sat out first.
+    reading();
+    for (let i = 0; i < 7; i++) await pollers.pollGithub(log);
+    failing();
+    await pollers.pollGithub(log);
+    expect((await feed.get("github:poller"))!.state).toBe("new");
+
+    // Sits out its backoff, then reads.
+    reading();
+    for (let i = 0; i < 7; i++) await pollers.pollGithub(log);
+    expect((await feed.get("github:poller"))!.did).toBe("reading again");
+
+    failing();
+    await pollers.pollGithub(log);
+    expect((await feed.get("github:poller"))!.state).toBe("new");
+  });
+
   it("files the bench on the sweeper's pass, and a read of the feed only reads (R-33)", async () => {
     // A proposal on the volume becomes an item; keeping it ends the item.
     await app.inject({

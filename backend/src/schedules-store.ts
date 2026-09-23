@@ -191,7 +191,7 @@ async function readStored(id: string): Promise<Stored | null> {
 }
 
 async function readAllStored(): Promise<Stored[]> {
-  const out = await readJsonDir<Stored>(env.SCHEDULES_DIR, SCHEDULE_ID_RE);
+  const out = await readJsonDir<Stored>(env.SCHEDULES_DIR, SCHEDULE_ID_RE, ["id", "createdAt"]);
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 

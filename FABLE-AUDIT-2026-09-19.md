@@ -3,7 +3,8 @@
 Audited at commit `ca1c0c7` on `main`. About 68k lines across backend, frontend, runtime, tests and docs.
 
 **Status:** every finding was re-checked against `main` at `01c2e97` on 2026-09-23. See Part 10 at the end:
-none is fully open, and about 30 are partly fixed with a gap left in the repo's code.
+none is fully open, and about 30 were partly fixed with a gap left in the repo's code. The nine gaps that were
+bugs were fixed the same day; the rest are listed there.
 
 ## How this was done
 
@@ -1144,7 +1145,27 @@ described), **not code** (what is left needs the pod, the NAS or Homelab, not th
 
 None of the gaps below had a BACKLOG.md entry when this was written.
 
-### Bugs still in the code
+### Bugs the check found, fixed the same day
+
+All nine below were fixed on 2026-09-23, each with a test that fails without the fix:
+
+- R-19: the GitHub poller's error is refiled (`feed.refile`), as mail and the calendar do.
+- R-31: `readJsonDir` and the feed's reader skip a record without its sort and key fields as strings
+  (`hasStrings` in `atomic-json.ts`).
+- R-13: the assistant's jobs run their turn through `reservedTurn`, which hands the slot back if the turn
+  never starts.
+- R-04: a build holds its worktree's name in `settingUp` from before the add until its session exists, and the
+  sweep leaves those alone.
+- S-08: `validNavUrl` refuses link-local addresses and `*.svc` / `*.cluster.local` names. Loopback stays
+  allowed on purpose: previewing the dev server a session runs on `localhost` is what the pane is for, and
+  the agent drives chromium over CDP without this check anyway, so the rest waits on the agent user.
+- S-10: the `GIT_CONFIG` prefix is blocked.
+- F-29: Settings, the session's files and git, the schedules, the memory and the document search show a failed
+  read. The PR and Actions panels already did; the review had them wrong. The command palette still does not.
+- F-39, F-40: the blocked-owner button is `tap-sq` with the close icon and an `aria-label`.
+- O-06: the dependabot.yml header names agy as the exception.
+
+What each one was:
 
 - **R-19.** The GitHub poller's error item still uses `feed.upsert` with a message-based version
   (`pollers.ts:612-621`) and is resolved on success (`:585`). The same error coming back later stays done and

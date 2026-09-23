@@ -211,6 +211,9 @@ describe("PUT /api/settings", () => {
       "PATH",
       "NODE_OPTIONS",
       "GIT_SSH_COMMAND",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_CONFIG_GLOBAL",
+      "GIT_CONFIG_KEY_0",
     ]) {
       const res = await app.inject({
         method: "PUT",

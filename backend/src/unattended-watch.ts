@@ -35,6 +35,17 @@ let watcher: NodeJS.Timeout | undefined;
  * for that too, so silence never masquerades as a night that went well. Kept
  * free of per-run state so a restart changes nothing about it.
  */
+/**
+ * Worktrees a build is setting up: added, but with no session of their own yet.
+ *
+ * For as long as the issue is claimed and the prompt written (gh alone may
+ * take a minute), the only session carrying the name is the finished one
+ * before it, so `held` does not see the new tree and the sweep would remove it
+ * (R-04). The scheduler adds the name before the worktree and drops it once
+ * the session exists or the start has failed.
+ */
+export const settingUp = new Set<string>();
+
 export async function watchUnattended(log: Logger, now = Date.now()): Promise<void> {
   const sessions = await listSessions();
   // The working trees somebody is in right now. A build's worktree is named
@@ -54,7 +65,8 @@ export async function watchUnattended(log: Logger, now = Date.now()): Promise<vo
         s.work &&
         s.work.dirty === 0 &&
         !s.work.unpushed &&
-        !held.has(s.project)
+        !held.has(s.project) &&
+        !settingUp.has(s.project)
       ) {
         await removeWorktree(s.project)
           .then(() => log.info(`removed worktree ${s.project} after ${s.id}`))
