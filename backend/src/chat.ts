@@ -611,7 +611,14 @@ export function parseTranscript(
     if (entry.type === "pr-link" && typeof entry.prUrl === "string") {
       if (!prsSeen.has(entry.prUrl)) {
         prsSeen.add(entry.prUrl);
-        rail("pr", entry.prNumber ? `#${entry.prNumber}` : "pull request", at, entry.prUrl);
+        // The transcript is the agent's to write, so its link is drawn only
+        // when it is what a PR link is: https, on github.com (C-23).
+        rail(
+          "pr",
+          entry.prNumber ? `#${entry.prNumber}` : "pull request",
+          at,
+          githubLink(entry.prUrl) ?? undefined,
+        );
       }
       continue;
     }
@@ -717,6 +724,16 @@ export function resetChatCache(): void {
  * and a session that has only just started has not written its first line yet.
  * Both are "no messages", which the screen already knows how to show.
  */
+/** A pull request's URL, or null for anything that is not https on github.com. */
+function githubLink(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" && u.hostname === "github.com" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function readChat(
   file: string | null,
   conversationId: string | null,

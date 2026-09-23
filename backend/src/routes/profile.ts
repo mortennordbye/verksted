@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import type { Profile } from "../../../shared/api.js";
-import { PROFILE_BUDGET, appendProfileLine, readProfile, writeProfile } from "../profile-store.js";
+import {
+  PROFILE_BUDGET,
+  appendProfileLine,
+  readProfile,
+  replaceProfile,
+} from "../profile-store.js";
 
 /**
  * The profile, as a page you edit and a line the assistant may add to.
@@ -15,7 +20,7 @@ export default async function profileRoutes(app: FastifyInstance) {
     return { text, used: Buffer.byteLength(text), budget: PROFILE_BUDGET };
   });
 
-  app.put<{ Body: { text: string } }>(
+  app.put<{ Body: { text: string; base?: string } }>(
     "/api/profile",
     {
       schema: {
@@ -23,13 +28,22 @@ export default async function profileRoutes(app: FastifyInstance) {
           type: "object",
           required: ["text"],
           additionalProperties: false,
-          properties: { text: { type: "string", maxLength: PROFILE_BUDGET } },
+          properties: {
+            text: { type: "string", maxLength: PROFILE_BUDGET },
+            // What the edit started from. Optional, so a caller that means to
+            // overwrite whatever is there still can.
+            base: { type: "string", maxLength: PROFILE_BUDGET * 2 },
+          },
         },
       },
     },
     async (req, reply): Promise<Profile | void> => {
       try {
-        await writeProfile(req.body.text);
+        if (!(await replaceProfile(req.body.text, req.body.base))) {
+          return reply.code(409).send({
+            error: "the profile changed since you opened it; reload to see what was added",
+          });
+        }
       } catch (err) {
         return reply.code(400).send({ error: (err as Error).message });
       }

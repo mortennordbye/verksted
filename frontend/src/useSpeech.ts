@@ -266,6 +266,12 @@ export function useSpeech(onFinal: (said: string) => void) {
   const [listening, setListening] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  /**
+   * Why listening stopped without anything being sent: a refused microphone,
+   * nothing heard, a transcription that failed. Voice mode used to die on all
+   * three with its pill still reading "voice mode on" (C-20).
+   */
+  const [error, setError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const stopRef = useRef<(() => void) | null>(null);
   // Held in a ref so restarting the microphone after a reply does not depend on
@@ -289,18 +295,26 @@ export function useSpeech(onFinal: (said: string) => void) {
   const listen = useCallback(async () => {
     if (!canListen()) return;
     stopRef.current?.();
+    setError(null);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
-      // Refused, or no microphone. Nothing to recover: the button stays off.
+    } catch (e) {
       setListening(false);
+      setError(
+        (e as Error).name === "NotAllowedError"
+          ? "the microphone was refused"
+          : "no microphone to listen with",
+      );
       return;
     }
 
     const chunks: Blob[] = [];
     const recorder = new MediaRecorder(stream);
     const context = new AudioContext();
+    // Opened again after a reply, which is not a tap: a context made outside a
+    // gesture can start suspended, and a suspended analyser hears silence.
+    void context.resume().catch(() => {});
     const analyser = context.createAnalyser();
     analyser.fftSize = 1024;
     context.createMediaStreamSource(stream).connect(analyser);
@@ -350,7 +364,11 @@ export function useSpeech(onFinal: (said: string) => void) {
       setListening(false);
       recorderRef.current = null;
       stopRef.current = null;
-      if (cancelled || !heardAnything || !chunks.length) return;
+      if (cancelled) return;
+      if (!heardAnything || !chunks.length) {
+        setError("heard nothing");
+        return;
+      }
       const clip = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
       setTranscribing(true);
       void fetch("/api/assistant/transcribe", {
@@ -359,13 +377,15 @@ export function useSpeech(onFinal: (said: string) => void) {
         body: clip,
       })
         .then(async (res) => {
-          if (!res.ok) return;
+          if (!res.ok) {
+            setError("could not make out what was said");
+            return;
+          }
           const { text } = (await res.json()) as { text: string };
           if (text) onFinalRef.current(text);
+          else setError("heard nothing");
         })
-        .catch(() => {
-          // A failed transcription is silence as far as the caller is concerned.
-        })
+        .catch(() => setError("could not reach the pod to transcribe"))
         .finally(() => setTranscribing(false));
     };
 
@@ -533,5 +553,17 @@ export function useSpeech(onFinal: (said: string) => void) {
     };
   }, []);
 
-  return { listening, speaking, transcribing, listen, stopListening, speak, cancelSpeech };
+  const clearError = useCallback(() => setError(null), []);
+
+  return {
+    listening,
+    speaking,
+    transcribing,
+    error,
+    clearError,
+    listen,
+    stopListening,
+    speak,
+    cancelSpeech,
+  };
 }

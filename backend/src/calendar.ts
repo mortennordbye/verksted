@@ -904,7 +904,9 @@ function eventOf(
     allDay,
     location: p.LOCATION?.value?.trim() || null,
     url:
-      p.URL?.value?.trim() || linkIn(p.DESCRIPTION?.value ?? "") || linkIn(p.LOCATION?.value ?? ""),
+      webLink(p.URL?.value?.trim() ?? "") ||
+      linkIn(p.DESCRIPTION?.value ?? "") ||
+      linkIn(p.LOCATION?.value ?? ""),
     description: p.DESCRIPTION?.value?.trim() || null,
     calendar,
     // A rule on an unexpanded series, or the RECURRENCE-ID the server puts on
@@ -914,6 +916,19 @@ function eventOf(
 }
 
 /** A video link buried in a description is the one people tap. */
+/**
+ * An invite's URL property, kept only if it is a web page. The invite is
+ * whoever sent it, and the app draws it as a link someone taps (C-23).
+ */
+function webLink(value: string): string | null {
+  try {
+    const u = new URL(value);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function linkIn(text: string): string | null {
   const m = /https?:\/\/[^\s<>"']+/.exec(text);
   return m ? m[0] : null;

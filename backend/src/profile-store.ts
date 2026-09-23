@@ -43,6 +43,20 @@ export async function writeProfile(text: string): Promise<void> {
 const appending = keyedQueue();
 
 /**
+ * The whole text, from the settings page, unless it has changed since the page
+ * read it. `base` is the text the edit started from; a line the assistant
+ * appended in the meantime would otherwise be deleted by the save (C-11).
+ * In the same queue as the append, so the check and the write are one step.
+ */
+export async function replaceProfile(text: string, base?: string): Promise<boolean> {
+  return appending("profile", async () => {
+    if (base !== undefined && (await readProfile()) !== base) return false;
+    await writeProfile(text);
+    return true;
+  });
+}
+
+/**
  * One line added by the assistant when it is told something about the person
  * mid-conversation. Appended rather than merged, so what the assistant wrote
  * is always at the bottom and always yours to move or delete on the settings

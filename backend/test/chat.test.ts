@@ -356,7 +356,7 @@ describe("parseTranscript", () => {
       human("ship it"),
       bare("permission-mode", { permissionMode: "default" }),
       bare("permission-mode", { permissionMode: "auto" }),
-      bare("pr-link", { prUrl: "https://example.test/pull/7", prNumber: 7, timestamp: stamp() }),
+      bare("pr-link", { prUrl: "https://github.com/o/r/pull/7", prNumber: 7, timestamp: stamp() }),
     ].join("\n");
     const first = chat.parseTranscript(lines).messages.map((m) => m.id);
     const again = chat.parseTranscript(lines).messages.map((m) => m.id);
@@ -365,13 +365,32 @@ describe("parseTranscript", () => {
     const rails = chat.parseTranscript(lines).messages.filter((m) => m.role === "event");
     expect(rails.every((m) => m.at)).toBe(true);
     expect(rails.map((m) => m.event)).toEqual(["mode", "pr"]);
-    expect(rails.at(-1)!.href).toBe("https://example.test/pull/7");
+    expect(rails.at(-1)!.href).toBe("https://github.com/o/r/pull/7");
     expect(rails.at(-1)!.text).toBe("#7");
+  });
+
+  it("links a pull request only when it is https on github.com (C-23)", () => {
+    const hrefs = [
+      "javascript:alert(1)",
+      "http://github.com/o/r/pull/1",
+      "https://evil.test/pull/2",
+    ]
+      .map((prUrl) => bare("pr-link", { prUrl, prNumber: 1, timestamp: stamp() }))
+      .map((line) => chat.parseTranscript([human("open it"), line].join("\n")).messages.at(-1)!);
+    expect(hrefs.map((m) => [m.event, m.href])).toEqual([
+      ["pr", undefined],
+      ["pr", undefined],
+      ["pr", undefined],
+    ]);
   });
 
   it("rails a pull request once, however often the CLI restates it", () => {
     const link = (n: number) =>
-      bare("pr-link", { prUrl: `https://example.test/pull/${n}`, prNumber: n, timestamp: stamp() });
+      bare("pr-link", {
+        prUrl: `https://github.com/o/r/pull/${n}`,
+        prNumber: n,
+        timestamp: stamp(),
+      });
     const { messages } = chat.parseTranscript(
       [human("open it"), link(66), link(66), link(66), link(67)].join("\n"),
     );

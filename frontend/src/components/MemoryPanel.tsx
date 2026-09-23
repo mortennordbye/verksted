@@ -7,6 +7,7 @@ import Skeleton, { SkeletonList } from "./Skeleton";
 import Button from "./ui/Button";
 import { Input, Textarea } from "./ui/Field";
 import Notice from "./ui/Notice";
+import { useConfirm } from "../useConfirm";
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
 
@@ -186,6 +187,32 @@ function Row({
 }
 
 /**
+ * Forgetting a memory: asked first, since it cannot be brought back, and said
+ * when it failed rather than left standing as if nothing was tapped (C-27).
+ */
+function useForget(base: string, after: () => void) {
+  const [confirm, dialog] = useConfirm();
+  const [error, setError] = useState<string | null>(null);
+  async function forget(memory: Memory) {
+    const ok = await confirm({
+      title: "Forget this?",
+      body: `"${memory.text.length > 120 ? `${memory.text.slice(0, 120)}…` : memory.text}" This cannot be undone.`,
+      action: "forget",
+      danger: true,
+    });
+    if (!ok) return;
+    setError(null);
+    try {
+      await api(`${base}/${memory.slug}`, { method: "DELETE" });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    after();
+  }
+  return { forget, error, dialog };
+}
+
+/**
  * What each advisor has written down for itself.
  *
  * Kept apart from the block above because it is a different promise: nothing
@@ -200,12 +227,8 @@ function MemberNotes({ member }: { member: CouncilMember }) {
     120_000,
   );
   const notes = data?.memories ?? [];
+  const { forget, error, dialog } = useForget(`/api/council/${member.id}/memory`, refresh);
   if (!notes.length) return null;
-
-  async function forget(slug: string) {
-    await api(`/api/council/${member.id}/memory/${slug}`, { method: "DELETE" }).catch(() => {});
-    refresh();
-  }
 
   return (
     <div className="rounded-[11px] border border-line bg-surface px-[15px] py-3">
@@ -220,7 +243,7 @@ function MemberNotes({ member }: { member: CouncilMember }) {
           <div key={m.slug} className="flex items-start gap-2 text-[13px]">
             <span className="min-w-0 flex-1 break-words text-muted">{m.text}</span>
             <button
-              onClick={() => void forget(m.slug)}
+              onClick={() => void forget(m)}
               className="tap flex-none rounded-[7px] border border-line px-2 py-0.5 text-[11.5px] text-faint hover:border-fail/60 hover:text-fail"
             >
               forget
@@ -228,6 +251,12 @@ function MemberNotes({ member }: { member: CouncilMember }) {
           </div>
         ))}
       </div>
+      {error && (
+        <Notice kind="fail" small className="mt-2">
+          {error}
+        </Notice>
+      )}
+      {dialog}
     </div>
   );
 }
@@ -243,11 +272,8 @@ export default function MemoryPanel() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  async function forget(slug: string) {
-    await api(`/api/memory/${slug}`, { method: "DELETE" }).catch(() => {});
-    refresh();
-  }
+  const [harvestError, setHarvestError] = useState<string | null>(null);
+  const { forget, error, dialog } = useForget("/api/memory", refresh);
 
   const pct = data ? Math.min(100, Math.round((data.used / data.budget) * 100)) : 0;
   const harvest = (schedules ?? []).find((s) => s.kind === "assistant" && s.name === HARVEST_NAME);
@@ -255,6 +281,7 @@ export default function MemoryPanel() {
   async function startHarvesting() {
     if (busy) return;
     setBusy(true);
+    setHarvestError(null);
     try {
       await api("/api/schedules", {
         method: "POST",
@@ -269,6 +296,8 @@ export default function MemoryPanel() {
         }),
       });
       refreshSchedules();
+    } catch (e) {
+      setHarvestError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -331,7 +360,18 @@ export default function MemoryPanel() {
             learn nightly
           </Button>
         )}
+        {harvestError && (
+          <Notice kind="fail" small className="w-full">
+            {harvestError}
+          </Notice>
+        )}
       </div>
+
+      {error && (
+        <Notice kind="fail" small className="mb-2">
+          {error}
+        </Notice>
+      )}
 
       <div className="flex flex-col gap-2">
         {adding && (
@@ -371,7 +411,7 @@ export default function MemoryPanel() {
               key={m.slug}
               memory={m}
               onEdit={() => setEditing(m.slug)}
-              onForget={() => void forget(m.slug)}
+              onForget={() => void forget(m)}
             />
           ),
         )}
@@ -393,6 +433,7 @@ export default function MemoryPanel() {
           </div>
         </>
       )}
+      {dialog}
     </section>
   );
 }

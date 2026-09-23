@@ -90,3 +90,32 @@ describe("Room (C-30)", () => {
     expect(screen.queryByRole("button", { name: /try again/ })).toBeNull();
   });
 });
+
+describe("Room (C-19, C-26)", () => {
+  const uriel: CouncilMember = { ...chair, id: "uriel", name: "Uriel", chair: false };
+
+  it("is a log a screen reader follows, without the reply being written token by token", () => {
+    const { container } = render(
+      <Room
+        thread={{ ...thread([entry("user", "hi")], "thinking"), live: "Half a sente" }}
+        members={[]}
+        chair={chair}
+      />,
+    );
+    expect(screen.getByRole("log")).toBeTruthy();
+    const writing = container.querySelector(".vk-writing");
+    expect(writing?.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("shows who is answering when a specialist has the floor", () => {
+    render(
+      <Room
+        thread={{ ...thread([entry("user", "@uriel hi")], "thinking"), speaking: ["uriel"] }}
+        members={[chair, uriel]}
+        chair={chair}
+      />,
+    );
+    expect(screen.getByText(/Uriel answering/)).toBeTruthy();
+    expect(screen.queryByText("thinking…")).toBeNull();
+  });
+});
