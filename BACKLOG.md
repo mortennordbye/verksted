@@ -38,25 +38,37 @@ what unblocks it / where the code lives.
   persists in `$HOME` on the PVC.
 - **Where:** `.env.example`, `Dockerfile` (runtime stage)
 
-## A catch-up has never run after a real pod restart
+## A scheduled tick can be lost while the pod is up
 
-- **What:** The rule is covered (`backend/test/scheduler-run.test.ts`, the
-  `missedTick` and "a tick the pod was down for" blocks): a tick inside the
-  window starts a session on the way up, an older one is recorded as missed, a
-  schedule that never fired is left alone, and a tick this process was up for is
-  not treated as missed. All of it against a fake clock and a fake tmux. What
-  that cannot show is a real restart: that `lastFiredAt` survives on the PVC
-  across a pod replacement (it is written to the schedule's own JSON, so it
-  should), and that the hour-long window is the right one in practice rather
-  than in theory.
-- **Why deferred:** It needs a deployed pod restarted across a schedule's cron,
-  which is the same wall every other unattended-path entry here sits behind.
-- **Unblocked by:** Restarting the pod deliberately a few minutes after a
-  schedule's cron and reading the inbox — a run should be there, either the
-  caught-up one or a "missed while the pod was down" row. If catch-ups turn out
-  to be unwanted noise, `CATCH_UP_WITHIN_MS` is the one number to turn down.
-- **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
-  `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
+- **What:** Two nights running, one jittered schedule's tick never fired while
+  the pod was up the whole time: the recovery sweep's 03:00 UTC tick on
+  2026-09-22 (pod `7cf8c79856-kq9hs`, up 19:06 to 06:19) and the tidy-up's
+  03:30 on 2026-09-23 (pod `749cc7f4d9-8szf6`, up 20:04 to 05:49). Nothing in
+  Loki names either schedule until the next boot's `catchUp` wrote the tick off
+  as "missed while the pod was down", which is wrong on the second half: the
+  pod was there. No stamp either, so `fire` was never reached or hung in
+  `stampFired` before its write landed. Every other tick those nights, the
+  other jittered one included, fired on time, and every daily schedule has a
+  run for every night from 2026-09-04 to 2026-09-21. The first night it
+  happened is the first night on an image with #231, which added `handle.sync()`
+  and a directory sync to every atomic write on the NFS volume; that is a
+  suspect, not a finding. croner 10.0.1's own loop was read and looks sound
+  (it polls every 30 s and fires on any check past the target).
+- **What the restart half showed:** the old entry here asked whether
+  `lastFiredAt` survives a pod replacement. It does: both boots computed the
+  missed tick from the stamp the previous pod wrote. A catch-up inside the
+  hour has still not been seen live, only the "too late" branch.
+- **Why deferred:** The cause is not known, and a fix before it is would be a
+  guess. The process that lost each tick is gone, and nothing it logged tells a
+  timer that never fired from a stamp that never finished.
+- **Unblocked by:** A log line at the top of `fire` (and one after the stamp),
+  then the next lost tick. If the first line is missing, it is the timer; if
+  only the second is, the write hung, and `writeAtomic`'s syncs on NFS are the
+  first place to look. A pod restart inside the hour after a cron is still the
+  way to see a real catch-up.
+- **Where:** `backend/src/scheduler.ts` (`fire`, `catchUp`, `missedTick`),
+  `backend/src/schedules-store.ts` (`stampFired`, `edits`),
+  `backend/src/atomic-json.ts` (`writeAtomic`, `syncDir`)
 
 ## The pod's voice is English-first, and never speaks Norwegian
 
@@ -450,24 +462,3 @@ what unblocks it / where the code lives.
   an egress NetworkPolicy.
 - **Where:** `backend/src/agent-user.ts`, `agent-gate.ts`, `agent-setup.ts`,
   `Dockerfile`; Homelab `k8s/talos/apps/verksted/deployment.yaml`.
-
-## Whether the e2e flake is gone is not yet known
-
-- **What:** "reads the whole run in one scroll" in `e2e/smoke.test.ts` failed
-  about one CI run in four, either with `review all` never appearing or with
-  `page.goto` aborted a few milliseconds in. The cause the old entry guessed at
-  was reproduced: a closing overlay drops its history entry with a
-  `history.back()` that lands a task or two later, and whatever is opened or
-  navigated in between is undone by it. The test before now ends with the
-  viewer closed and waits on the `popstate` itself and on the overlay entries
-  being gone, and a failure of the `review all` click reports the URL and the
-  open dialogs. `settled()` had also been waiting for nothing: a string
-  predicate is compiled in the page, the app's CSP refuses that, and its
-  `catch` swallowed the refusal.
-- **Why deferred:** Five local runs in a row pass, but the failure was never
-  frequent locally, so only CI over a week says whether it is fixed.
-- **Unblocked by:** A week of CI on main without that test failing. Then delete
-  this entry and `e2e-review-all-flake` from the notes.
-- **Where:** `e2e/smoke.test.ts` ("asks before a tap beside the file viewer
-  throws away an edit" and the test after it),
-  `frontend/src/useDismissOnBack.ts` (`ownBack`, `overlaysSettled`).
