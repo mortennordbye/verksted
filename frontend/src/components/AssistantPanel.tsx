@@ -89,9 +89,8 @@ export default function AssistantPanel() {
   // Adopt the server's answer once, then leave the fields alone: a poll landing
   // mid-sentence must not overwrite what is being typed. A fresh answer only: a
   // remembered one would put last visit's settings in the form, to be saved back.
-  useEffect(() => {
-    if (fresh) setDraft((d) => d ?? data);
-  }, [data, fresh]);
+  // Adopted while rendering, so the form never paints a frame without it.
+  if (fresh && draft === null && data !== null) setDraft(data);
 
   async function save() {
     if (!draft) return;

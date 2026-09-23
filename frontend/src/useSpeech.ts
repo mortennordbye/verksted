@@ -545,7 +545,9 @@ export function useSpeech(onFinal: (said: string) => void) {
   // audio element both belong to the tab, not to this component.
   useEffect(() => {
     return () => {
-      runRef.current++;
+      // Outdates any run still in flight. The counter is this hook's own, not a
+      // node React sets, which an assignment is how the hooks lint tells apart.
+      runRef.current += 1;
       stopRef.current?.();
       if (canSpeak()) speechSynthesis.cancel();
       audioPlayer().pause();

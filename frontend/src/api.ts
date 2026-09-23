@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { reportReachable, reportUnreachable } from "./connection";
 import { streamHealthy, streamTopic, streamValue, subscribeStream } from "./events";
 
@@ -368,6 +368,35 @@ export function usePoll<T>(path: string | null, ms = 5000) {
    */
   const [failures, setFailures] = useState(0);
 
+  // What the path is worth: reset on a change of path, to what it last said if
+  // anything. Done while rendering rather than in an effect, so the new path
+  // never paints a frame holding the old one's answer. Deliberately not keyed
+  // on stream health — a stream dropping must not blank the screen.
+  const [heldPath, setHeldPath] = useState(path);
+  if (heldPath !== path) {
+    const cached = path !== null && cache.has(path);
+    setHeldPath(path);
+    setData(cached ? (cache.get(path) as T) : null);
+    setNotFound(false);
+    setFresh(false);
+    setFailures(0);
+    setLoading(path !== null && !cached);
+  }
+  /**
+   * The path this hook is on as of the last commit. An answer for the old path
+   * that lands before the effects below have moved over — a request still in
+   * flight, a push to the old subscription — must not be applied to the new
+   * one, so this is set before paint rather than whenever passive effects run.
+   */
+  const onPath = useRef(path);
+  useLayoutEffect(() => {
+    onPath.current = path;
+    // What the cache holds is what its stamp describes, so an unchanged first
+    // answer is free too. Null when nothing was cached, or when the cached
+    // value came from the stream rather than from a body.
+    showing.current = path !== null && cache.has(path) ? (stamps.get(path) ?? null) : null;
+  }, [path]);
+
   /**
    * Ask the path again. `share` says whether this one may ride along with a
    * request another hook on the same path already has in flight — true for the
@@ -378,7 +407,7 @@ export function usePoll<T>(path: string | null, ms = 5000) {
     (share: boolean) => {
       if (!path) return;
       const mine = ++generation.current;
-      const current = () => mine === generation.current;
+      const current = () => mine === generation.current && onPath.current === path;
       (share ? shared<T>(path) : answer<T>(path))
         .then(({ text, parse }) => {
           if (!current()) return;
@@ -429,24 +458,13 @@ export function usePoll<T>(path: string | null, ms = 5000) {
   /** What a screen calls after it changed something. Never shared. */
   const refresh = useCallback(() => run(false), [run]);
 
-  // What the path is worth: reset on a change of path (to what it last said, if
-  // anything), then take the first answer from whichever of the two can give
-  // it. Deliberately not keyed on stream health — a stream dropping must not
-  // blank the screen.
+  // The path's first answer, from whichever of the two can give it. Not keyed
+  // on stream health either, for the same reason.
   useEffect(() => {
-    const cached = path !== null && cache.has(path);
-    setData(cached ? (cache.get(path) as T) : null);
-    // What the cache holds is what its stamp describes, so an unchanged first
-    // answer is free too. Null when nothing was cached, or when the cached
-    // value came from the stream rather than from a body.
-    showing.current = cached ? (stamps.get(path) ?? null) : null;
-    setNotFound(false);
-    setFresh(false);
-    setFailures(0);
-    setLoading(path !== null && !cached);
     if (path === null) return;
 
     const fromStream = (): boolean => {
+      if (onPath.current !== path) return false;
       const hit = streamValue<T>(path);
       if (!hit) return false;
       if (hit.value === null) forget(path);

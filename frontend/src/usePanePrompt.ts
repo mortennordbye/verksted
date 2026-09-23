@@ -28,13 +28,7 @@ export function usePanePrompt(sessionId: string, live: boolean) {
   const lookNow = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
-    if (!live) {
-      setPrompt(null);
-      setMode(null);
-      setBusy(false);
-      setDoing(null);
-      return;
-    }
+    if (!live) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
@@ -85,6 +79,12 @@ export function usePanePrompt(sessionId: string, live: boolean) {
       lookNow.current = null;
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
+      // What the pane said stops being true once nothing is reading it: a
+      // session that ended, or another session's pane.
+      setPrompt(null);
+      setMode(null);
+      setBusy(false);
+      setDoing(null);
     };
   }, [sessionId, live]);
 
