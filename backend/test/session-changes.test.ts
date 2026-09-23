@@ -190,17 +190,20 @@ describe("GET /api/sessions/:id/changes/patch", () => {
   it("hands a long range over in parts that join up whole (backlog)", async () => {
     const { rangeDiff } = await import("../src/git.js");
     const repo = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bigpatch-"));
+    // An identity of its own: a CI runner has none configured.
+    const commit = (msg: string) =>
+      git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", msg);
     git(repo, "init", "-b", "main");
     fs.writeFileSync(path.join(repo, "seed"), "x");
     git(repo, "add", "-A");
-    git(repo, "commit", "-m", "seed");
+    commit("seed");
     const start = git(repo, "rev-parse", "HEAD").trim();
     const big = (tag: string) =>
       Array.from({ length: 12_000 }, (_, i) => `${tag} line ${i} ${"z".repeat(40)}`).join("\n");
     fs.writeFileSync(path.join(repo, "one.txt"), big("one"));
     fs.writeFileSync(path.join(repo, "two.txt"), big("two"));
     git(repo, "add", "-A");
-    git(repo, "commit", "-m", "two big files");
+    commit("two big files");
     const end = git(repo, "rev-parse", "HEAD").trim();
 
     const first = await rangeDiff(repo, start, end);

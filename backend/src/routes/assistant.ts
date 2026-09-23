@@ -567,6 +567,10 @@ export default async function assistantRoutes(app: FastifyInstance) {
     "/api/assistant/threads/:id/terminal",
     { schema: { params: threadId } },
     async (req, reply) => {
+      // The schema holds it to a uuid too; said again beside the paths it builds.
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(req.params.id)) {
+        return reply.code(404).send({ error: "not a thread id" });
+      }
       if (agentUser()) {
         return reply.code(409).send({
           error:
