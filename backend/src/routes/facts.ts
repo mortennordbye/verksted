@@ -2,10 +2,12 @@ import { exec } from "../exec.js";
 import fs from "node:fs/promises";
 import os from "node:os";
 import type { FastifyInstance } from "fastify";
-import type { ListeningPort, PodFacts } from "../../../shared/api.js";
+import type { AgentFact, ListeningPort, PodFacts } from "../../../shared/api.js";
 import { browserCount } from "../browser.js";
 import { ttlCache } from "../cache.js";
 import { env } from "../env.js";
+import { claudeCredentialsFile } from "../claude-home.js";
+import { credential } from "../settings-store.js";
 
 /** cgroup-v2 aware memory usage; falls back to OS totals outside a limit. */
 async function memory(): Promise<{ used: number; total: number }> {
@@ -35,6 +37,66 @@ async function dockerDf(): Promise<PodFacts["docker"]> {
   } catch {
     return null; // no daemon reachable
   }
+}
+
+const home = () => process.env.HOME ?? "/data/home";
+
+/**
+ * What each agent would sign in with, read the way each CLI finds it: a
+ * credential from the settings page or the environment first, then the login
+ * the CLI keeps for itself. Only whether one is there, never what it is.
+ */
+async function agentFacts(): Promise<AgentFact[]> {
+  const exists = (file: string) =>
+    fs.access(file).then(
+      () => true,
+      () => false,
+    );
+  // claude: an OAuth token, else its own login, which it refreshes as it runs
+  // as long as the refresh token is there (see plan.ts for the same order).
+  let claude: AgentFact["auth"] = "none";
+  if (await credential("CLAUDE_CODE_OAUTH_TOKEN")) claude = "token";
+  else {
+    try {
+      const raw = JSON.parse(await fs.readFile(claudeCredentialsFile(), "utf8")) as {
+        claudeAiOauth?: { accessToken?: string; refreshToken?: string };
+      };
+      if (raw.claudeAiOauth?.refreshToken || raw.claudeAiOauth?.accessToken) claude = "login";
+    } catch {
+      // No login on the volume.
+    }
+  }
+  // Every claude session gets the browser server (claude-hooks.ts), plus any
+  // the user added to its own config.
+  let claudeMcp = 1;
+  try {
+    const cfg = JSON.parse(await fs.readFile(`${home()}/.claude.json`, "utf8")) as {
+      mcpServers?: Record<string, unknown>;
+    };
+    claudeMcp += Object.keys(cfg.mcpServers ?? {}).length;
+  } catch {
+    // No user config: the browser alone.
+  }
+
+  const codex: AgentFact["auth"] = (await credential("OPENAI_API_KEY"))
+    ? "key"
+    : (await exists(`${home()}/.codex/auth.json`))
+      ? "login"
+      : "none";
+  const codexToml = await fs.readFile(`${home()}/.codex/config.toml`, "utf8").catch(() => "");
+  const codexMcp = (codexToml.match(/^\[mcp_servers\.[^\]]+\]/gm) ?? []).length;
+
+  return [
+    { agent: "claude", auth: claude, mcp: claudeMcp },
+    { agent: "codex", auth: codex, mcp: codexMcp },
+    // Where agy keeps a login of its own has not been confirmed on the pod
+    // (BACKLOG), so only the key is read, and its MCP config not at all.
+    {
+      agent: "antigravity",
+      auth: (await credential("ANTIGRAVITY_API_KEY")) ? "key" : "none",
+      mcp: null,
+    },
+  ];
 }
 
 /** Listening TCP ports in this network namespace, with owning process names. */
@@ -101,12 +163,13 @@ async function dockerPorts(): Promise<ListeningPort[]> {
 
 export default async function factsRoutes(app: FastifyInstance) {
   app.get("/api/facts", async (): Promise<PodFacts> => {
-    const [stat, mem, docker] = await Promise.all([
+    const [stat, mem, docker, agents] = await Promise.all([
       // One unreadable mount must not 500 the whole facts endpoint, which also
       // carries memory, browser count and the docker figures.
       fs.statfs(env.REPOS_DIR).catch(() => ({ blocks: 0, bsize: 0, bavail: 0 })),
       memory(),
       dockerDf(),
+      agentFacts(),
     ]);
     return {
       diskTotal: stat.blocks * stat.bsize,
@@ -115,6 +178,7 @@ export default async function factsRoutes(app: FastifyInstance) {
       memTotal: mem.total,
       browsers: browserCount(),
       docker,
+      agents,
     };
   });
 

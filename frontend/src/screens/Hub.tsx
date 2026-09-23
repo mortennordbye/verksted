@@ -532,6 +532,24 @@ export default function Hub() {
               third repo can join. Cached prompt tokens are counted: the plan
               meters them too, just cheaper. */}
           <UsagePanel usage={usage ?? null} />
+          {/* What each agent would sign in with. A session started on "none"
+              opens at a login prompt, which is found out at the worst time:
+              after a schedule has already fired it. */}
+          {facts?.agents && (
+            <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px]">
+              {facts.agents.map((a) => (
+                <span key={a.agent} className={a.auth === "none" ? "text-wait" : "text-faint"}>
+                  {a.agent}{" "}
+                  {a.auth === "none"
+                    ? "not signed in"
+                    : a.auth === "login"
+                      ? "signed in"
+                      : `signed in by ${a.auth}`}
+                  {a.mcp !== null && ` · ${a.mcp} MCP server${a.mcp === 1 ? "" : "s"}`}
+                </span>
+              ))}
+            </div>
+          )}
           {facts && (facts.browsers > 0 || facts.docker) && (
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px] text-faint">
               {facts.browsers > 0 && (
