@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type { FeedItem, Loop } from "../../../shared/api.js";
+import type { FeedItem, FeedItemFacts, Loop } from "../../../shared/api.js";
+import { factsFor } from "../feed-facts.js";
 import * as feed from "../feed-store.js";
 import * as journal from "../journal-store.js";
 import * as loops from "../loops-store.js";
@@ -85,6 +86,30 @@ export default async function feedRoutes(app: FastifyInstance) {
         if (await feed.setState(id, state)) changed.push(id);
       }
       return { changed };
+    },
+  );
+
+  /**
+   * What a row shows once it is opened: the facts that cost a call to its
+   * source, for this one item. Looked up by the stored item, so what is asked
+   * of gh or IMAP comes from what a poller filed, never from the request.
+   */
+  app.get<{ Params: { id: string } }>(
+    "/api/feed/:id/facts",
+    {
+      config: perMinute(60),
+      schema: {
+        params: {
+          type: "object",
+          required: ["id"],
+          properties: { id: { type: "string", minLength: 1, maxLength: 300 } },
+        },
+      },
+    },
+    async (req, reply): Promise<FeedItemFacts> => {
+      const item = await feed.get(req.params.id);
+      if (!item) return reply.code(404).send({ error: "not found" });
+      return factsFor(item, req.log);
     },
   );
 

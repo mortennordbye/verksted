@@ -1489,6 +1489,24 @@ export interface FeedItem {
 }
 
 /**
+ * The facts a row can only show once it is opened: each is a call the poller
+ * does not make, so they are fetched for one item at a time. Null wherever the
+ * item has no such thing or its source could not be read.
+ */
+export interface FeedItemFacts {
+  /** A pull request's checks, in the PR list's own word. */
+  checks: PullRequest["checks"] | null;
+  /** A pull request's size. */
+  diff: { additions: number; deletions: number; files: number } | null;
+  /** A mail's first line of text. */
+  firstLine: string | null;
+  /** How long a session ran, once it has ended. */
+  durationMs: number | null;
+  /** What a session spent, every bucket counted. */
+  tokens: number | null;
+}
+
+/**
  * One commitment: what you owe or are owed, kept until it ends.
  *
  * Separate from the memory of facts because a fact stays true and a loop is
