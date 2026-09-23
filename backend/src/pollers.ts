@@ -138,19 +138,24 @@ export function proposalItems(proposals: Memory[]): Seen[] {
 }
 
 /** The maintainer's queue: the repo's own issues, one item while each is open. */
-export function queueItems(issues: MaintainerIssue[]): Seen[] {
-  return issues.map((i) => ({
-    id: `github:queue:${i.project}#${i.number}`,
-    source: "github",
-    at: i.updatedAt,
-    title: i.title,
-    from: `${i.project}#${i.number}`,
-    facts: [i.state, ...(i.tier ? [`tier:${i.tier}`] : []), "maintainer's queue"],
-    detail: "",
-    link: i.url,
-    version: `${i.state}:${i.updatedAt}`,
-    urgency: "quiet",
-  }));
+export function queueItems(issues: MaintainerIssue[], blocked: string[] = []): Seen[] {
+  // The issue's own url names its owner, so a blocked owner's queue is kept
+  // out the way its notifications are: a checkout's directory name says nothing
+  // about whose repo it is.
+  return issues
+    .filter((i) => !blockedOwner(pullOrIssue(i.url)?.repo ?? "", blocked))
+    .map((i) => ({
+      id: `github:queue:${i.project}#${i.number}`,
+      source: "github",
+      at: i.updatedAt,
+      title: i.title,
+      from: `${i.project}#${i.number}`,
+      facts: [i.state, ...(i.tier ? [`tier:${i.tier}`] : []), "maintainer's queue"],
+      detail: "",
+      link: i.url,
+      version: `${i.state}:${i.updatedAt}`,
+      urgency: "quiet",
+    }));
 }
 
 /** A notification's API url, as the page a person opens. */
@@ -464,11 +469,12 @@ export async function pollQueue(log: Logger): Promise<number> {
       log.warn(err, `maintainer queue for ${project} unavailable`);
     }
   }
-  const open = new Set(queueItems(issues).map((i) => i.id));
+  const items = queueItems(issues, await readBlockedOwners());
+  const open = new Set(items.map((i) => i.id));
   const gone = (await feed.list())
     .filter((i) => i.id.startsWith("github:queue:") && i.state !== "done" && !open.has(i.id))
     .map((i) => i.id);
-  return apply(queueItems(issues), gone, "off the queue");
+  return apply(items, gone, "off the queue");
 }
 
 /** How long an unread notification is still news. */
@@ -579,8 +585,8 @@ export async function pollGithub(log: Logger): Promise<number> {
  * The filter above only stops new items; anything filed before the owner was
  * blocked is still a row with the repository's name on it. Run when the list
  * is written and once at startup, which is every moment the list can change.
- * A notification item's title is `owner/repo: subject`, and nothing else in
- * the github source carries an owner, so a title with no slash is not ours.
+ * A notification item's title is `owner/repo: subject`; a maintainer's queue
+ * item carries its owner only in its link, so both are read.
  */
 export async function purgeBlocked(): Promise<number> {
   const owners = await readBlockedOwners();
@@ -588,7 +594,8 @@ export async function purgeBlocked(): Promise<number> {
   let removed = 0;
   for (const item of await feed.list()) {
     if (item.source !== "github") continue;
-    const repo = item.title.split(":")[0] ?? "";
+    const titled = item.title.split(":")[0] ?? "";
+    const repo = titled.includes("/") ? titled : (pullOrIssue(item.link)?.repo ?? "");
     if (!repo.includes("/") || !blockedOwner(repo, owners)) continue;
     await feed.remove(item.id);
     removed++;

@@ -207,6 +207,25 @@ describe("POST /api/assistant/speak", () => {
     expect(saidSoFar().map((s) => s.text)).not.toContain("said to nobody");
   });
 
+  it("makes a sentence once, however often it is read (backlog)", async () => {
+    const say = (voice?: string) =>
+      app.inject({
+        method: "POST",
+        url: "/api/assistant/speak",
+        payload: { text: "Good morning, two things need you.", ...(voice ? { voice } : {}) },
+      });
+    const made = () =>
+      saidSoFar().filter((s) => s.text === "Good morning, two things need you.").length;
+    const first = await say();
+    const again = await say();
+    expect(again.statusCode).toBe(200);
+    expect(again.rawPayload.equals(first.rawPayload)).toBe(true);
+    expect(made()).toBe(1);
+    // Another voice is another sentence.
+    await say("bf_emma");
+    expect(made()).toBe(2);
+  });
+
   it("does not load the model again to say which voices it has", async () => {
     const tts = await import("../src/tts.js");
     await tts.voices();

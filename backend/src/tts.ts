@@ -208,6 +208,30 @@ export async function voices(): Promise<string[]> {
 }
 
 /**
+ * Sentences already made, by voice and text, most recently used last.
+ *
+ * A reply read twice, the settings page's sample tapped again, a briefing that
+ * opens the same way every morning: each was a second of a whole core to make
+ * the same bytes. In memory, bounded by size rather than count, since a short
+ * sentence and a long one differ by ten times; a restart empties it, which
+ * costs nothing but the next reading.
+ */
+const CACHE_BYTES = 32 * 1024 * 1024;
+const made = new Map<string, Buffer>();
+let madeBytes = 0;
+
+function remember(key: string, wav: Buffer): void {
+  if (wav.length > CACHE_BYTES) return;
+  made.set(key, wav);
+  madeBytes += wav.length;
+  for (const [old, bytes] of made) {
+    if (madeBytes <= CACHE_BYTES) break;
+    made.delete(old);
+    madeBytes -= bytes.length;
+  }
+}
+
+/**
  * Speak one chunk. Returns WAV bytes.
  *
  * The worker writes to a file rather than down the pipe: WAV bytes and JSON
@@ -221,6 +245,14 @@ export async function synthesize(
 ): Promise<Buffer> {
   const body = text.trim().slice(0, MAX_TEXT);
   if (!body) throw new Error("nothing to say");
+  const key = `${voice ?? env.KOKORO_VOICE}\n${body}`;
+  const hit = made.get(key);
+  if (hit) {
+    // To the back of the line: it was just used.
+    made.delete(key);
+    made.set(key, hit);
+    return hit;
+  }
   if (waiting >= MAX_WAITING) throw new BusyError("the voice has a queue already");
 
   waiting++;
@@ -250,7 +282,9 @@ export async function synthesize(
       });
       if (!answer.ok) throw new Error(answer.error ?? "the voice failed");
       idle();
-      return await fs.readFile(out);
+      const wav = await fs.readFile(out);
+      remember(key, wav);
+      return wav;
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }

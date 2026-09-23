@@ -36,6 +36,8 @@ beforeAll(async () => {
   // module graph loads (each vitest file has its own module registry).
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
+  // The blocked-owner test writes settings; /data is not there on a runner.
+  process.env.SETTINGS_FILE = path.join(sessionsDir, "settings.json");
   process.env.STATIC_DIR = "";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
@@ -69,6 +71,22 @@ describe("POST /api/projects clone url validation", () => {
     for (const url of ["-o/x", "--upstream/x", "owner/-x", ".git/x", "-/-"]) {
       const res = await clone(url);
       expect(res.statusCode, url).toBe(400);
+    }
+  });
+
+  it("refuses a repo whose owner is on the blocked list", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { blockedOwners: ["clientco"] },
+    });
+    try {
+      for (const url of ["ClientCo/infra", "https://github.com/clientco/infra.git"]) {
+        const res = await clone(url);
+        expect(res.statusCode, url).toBe(403);
+      }
+    } finally {
+      await app.inject({ method: "PUT", url: "/api/settings", payload: { blockedOwners: [] } });
     }
   });
 

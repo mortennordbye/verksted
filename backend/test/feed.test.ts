@@ -425,6 +425,12 @@ describe("the pollers", () => {
     });
     await feed.upsert({ ...seen("github:2"), title: "mortennordbye/homelab: chore(helm)" });
     await feed.upsert({ ...seen("github:queue:demo#3"), title: "demo #3: tidy the readme" });
+    // A maintainer's queue item names its owner only in its link.
+    await feed.upsert({
+      ...seen("github:queue:infra#4"),
+      title: "infra #4: rotate the keys",
+      link: "https://github.com/NorskRikstoto/infrastructure/issues/4",
+    });
 
     await app.inject({
       method: "PUT",
@@ -436,6 +442,23 @@ describe("the pollers", () => {
     expect(items.map((i) => i.id).sort()).toEqual(["github:2", "github:queue:demo#3"]);
     const settings = (await app.inject({ url: "/api/settings" })).json();
     expect(settings.blockedOwners).toEqual(["norskrikstoto"]);
+  });
+
+  it("never files a blocked owner's maintainer queue (backlog)", () => {
+    const issue = (owner: string, project: string) => ({
+      project,
+      number: 3,
+      title: "tidy the readme",
+      state: "queued" as const,
+      tier: null,
+      url: `https://github.com/${owner}/${project}/issues/3`,
+      updatedAt: "2026-08-30T08:00:00Z",
+    });
+    const items = pollers.queueItems(
+      [issue("NorskRikstoto", "infrastructure"), issue("mortennordbye", "homelab")],
+      ["norskrikstoto"],
+    );
+    expect(items.map((i) => i.from)).toEqual(["homelab#3"]);
   });
 
   it("refuses an owner that is not a GitHub login", async () => {

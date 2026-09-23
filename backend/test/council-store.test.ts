@@ -155,6 +155,44 @@ describe("the roster", () => {
     expect((await store.listMembers()).map((m) => m.id)).not.toContain("sophia");
   });
 
+  it("gives an old member a tool its seed gained since, and not one taken away (backlog)", async () => {
+    await store.seedCouncil();
+    const seed = store.SEEDS.find((s) => s.id === "uriel")!;
+    const [kept, dropped] = seed.tools;
+    // Narrowed by hand on the settings page.
+    const uriel = (await store.getMember("uriel"))!;
+    await store.saveMember({ ...uriel, tools: uriel.tools.filter((t) => t !== dropped) });
+
+    // A later release gives the seed a tool it did not have.
+    const added = store.TOOL_INVENTORY.map((t) => t.name).find(
+      (t) =>
+        !seed.tools.includes(t) &&
+        !store.TOOL_INVENTORY.find((i) => i.name === t)?.chairOnly &&
+        !(seed.web && store.PRIVATE_TOOLS.has(t)),
+    )!;
+    const original = seed.tools;
+    seed.tools = [...original, added];
+    try {
+      await store.seedCouncil();
+      const now = (await store.getMember("uriel"))!.tools;
+      expect(now).toContain(added);
+      expect(now).toContain(kept);
+      expect(now).not.toContain(dropped);
+    } finally {
+      seed.tools = original;
+    }
+  });
+
+  it("adds nothing to a member it has no record of offering to", async () => {
+    await store.seedCouncil();
+    fs.rmSync(path.join(process.env.COUNCIL_DIR!, ".seeded-tools"));
+    const uriel = (await store.getMember("uriel"))!;
+    await store.saveMember({ ...uriel, tools: ["status"] });
+
+    await store.seedCouncil();
+    expect((await store.getMember("uriel"))!.tools).toEqual(["status"]);
+  });
+
   it("refuses the web beside anything private, whoever asks", async () => {
     // A page an advisor fetches is how a prompt injection would carry the
     // private thing out, so the two never sit in one process.
