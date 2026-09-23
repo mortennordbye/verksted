@@ -1,4 +1,6 @@
 import * as schedules from "./schedules-store.js";
+import { readChat } from "./chat.js";
+import { transcriptPath } from "./claude-home.js";
 import type { Logger } from "./logger.js";
 import { removeWorktree } from "./projects-store.js";
 import {
@@ -7,8 +9,11 @@ import {
   getSession,
   lastWords,
   listSessions,
+  readConv,
+  sessionDir,
   writeReport,
 } from "./sessions-store.js";
+import * as tmux from "./tmux.js";
 
 /**
  * How long an unattended run may hold a session before it is ended for it.
@@ -107,12 +112,81 @@ export async function endSignedOffRuns(log: Logger): Promise<void> {
   }
 }
 
-/** The sweep above and the one below, every thirty seconds, started once. */
+/**
+ * How long a scheduled session sits quiet after a turn before it is taken to
+ * have finished, and how long after being asked for its verdict before the
+ * silence is recorded.
+ */
+export const SIGNOFF_QUIET_MS = 10 * 60_000;
+/** The one line put into the pane: a newline would submit half of it. */
+const SIGNOFF_ASK =
+  'You have finished, but you did not write the sign-off line this run asked for. Write it now to the file at "$VK_REPORT_FILE": one line starting with ok:, attention: or failed:, then stop.';
+
+/** When each scheduled session was asked for its verdict. In memory: a restart asks again. */
+const asked = new Map<string, number>();
+
+/**
+ * Ask an ordinary scheduled session that finished for the verdict it forgot.
+ *
+ * A stage run exits, and vk-signoff asks it on the way out. An ordinary
+ * scheduled session is a TUI that does not exit: when its turn ends the Stop
+ * hook turns it amber, which is right when it stopped to ask and wrong when it
+ * simply finished and did not sign off. Its conversation tells the two apart:
+ * a last turn that is a question card, a plan to approve or a line ending in a
+ * question mark is asking, and is left for a person. Anything else, quiet for
+ * ten minutes, is asked once, in the pane; still silent ten minutes after that,
+ * the silence is written as its verdict and the sweep above ends it.
+ */
+export async function askForSignOff(log: Logger, now = Date.now()): Promise<void> {
+  for (const schedule of await schedules.listSchedules()) {
+    const id = schedule.lastSessionId;
+    if (!id) continue;
+    const session = await getSession(id);
+    if (
+      !session ||
+      session.unattended ||
+      session.agent !== "claude" ||
+      session.status !== "waiting" ||
+      session.report
+    ) {
+      asked.delete(id);
+      continue;
+    }
+    const quiet = session.lastActivityAt ? now - Date.parse(session.lastActivityAt) : 0;
+    if (quiet < SIGNOFF_QUIET_MS) continue;
+    const at = asked.get(id);
+    if (at !== undefined) {
+      if (now - at >= SIGNOFF_QUIET_MS) {
+        await writeReport(id, "failed: no sign-off (asked, no answer)");
+        asked.delete(id);
+        log.info(`scheduled session ${id} did not sign off when asked`);
+      }
+      continue;
+    }
+    const conv = await readConv(id);
+    if (!conv) continue;
+    let file: string;
+    try {
+      file = transcriptPath(sessionDir(session), conv);
+    } catch {
+      continue;
+    }
+    const last = (await readChat(file, conv)).messages.filter((m) => m.role === "assistant").at(-1);
+    if (!last) continue;
+    if (last.ask || last.plan || /\?\s*$/.test(last.text.trim())) continue;
+    await tmux.sendText(id, SIGNOFF_ASK, true);
+    asked.set(id, now);
+    log.info(`scheduled session ${id} finished without a verdict; asked for one`);
+  }
+}
+
+/** The sweeps above, every thirty seconds, started once. */
 export function startWatch(log: Logger): void {
   if (watcher) return;
   watcher = setInterval(() => {
     void watchUnattended(log).catch((err) => log.warn(err, "unattended watch failed"));
     void endSignedOffRuns(log).catch((err) => log.warn(err, "signed-off sweep failed"));
+    void askForSignOff(log).catch((err) => log.warn(err, "sign-off ask failed"));
   }, WATCH_EVERY_MS);
   // A timer must not be what keeps the process alive.
   watcher.unref();

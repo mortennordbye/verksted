@@ -33,6 +33,59 @@ afterAll(() => {
   fs.rmSync(sessionsDir, { recursive: true, force: true });
 });
 
+// Before the stream tests below: the last of them closes the app.
+describe("GET /api/sessions/:id/chat/events (backlog: the chat view is pushed)", () => {
+  it("says the transcript changed within about a second of it changing", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-ev-home-"));
+    const realHome = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const repo = path.join(process.env.REPOS_DIR!, "demo");
+      fs.mkdirSync(repo, { recursive: true });
+      const conv = "34343434-3434-4434-8434-343434343434";
+      fs.writeFileSync(
+        path.join(sessionsDir, "vk-demo-1.json"),
+        JSON.stringify({
+          id: "vk-demo-1",
+          project: "demo",
+          agent: "claude",
+          title: "t",
+          createdAt: new Date().toISOString(),
+          endedAt: null,
+        }),
+      );
+      fs.writeFileSync(path.join(sessionsDir, "vk-demo-1.conv"), conv);
+      const dir = path.join(home, ".claude", "projects", fs.realpathSync(repo).replace(/\//g, "-"));
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, `${conv}.jsonl`);
+      fs.writeFileSync(file, "{}\n");
+
+      const res = await fetch(`${base}/api/sessions/vk-demo-1/chat/events`, {
+        signal: AbortSignal.timeout(6_000),
+      });
+      expect(res.headers.get("content-type")).toContain("text/event-stream");
+      const reader = res.body!.getReader();
+      await reader.read(); // the hello
+      setTimeout(() => fs.appendFileSync(file, "{}\n"), 300);
+      let text = "";
+      while (!text.includes("event: changed")) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        text += new TextDecoder().decode(value);
+      }
+      expect(text).toContain("event: changed");
+      await reader.cancel();
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("404s a session that is not there", async () => {
+    const res = await fetch(`${base}/api/sessions/vk-ghost-9/chat/events`);
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("GET /api/events", () => {
   it("answers as an event stream a browser will not buffer", async () => {
     const res = await fetch(`${base}/api/events`, { signal: AbortSignal.timeout(5_000) });

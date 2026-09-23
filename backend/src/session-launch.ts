@@ -4,7 +4,14 @@ import type { AgentName, CreatedSession, MaintainerStage } from "../../shared/ap
 import { agentUser, giveToAgent } from "./agent-user.js";
 import { sweepTempFiles, writeJsonAtomic } from "./atomic-json.js";
 import { nextCdpPort } from "./browser.js";
-import { ensureHooksSettings, ensureMcpConfig } from "./claude-hooks.js";
+import {
+  codexMcpArgs,
+  ensureAgyMcp,
+  ensureBrowserMcpScript,
+  ensureCodexHooks,
+  ensureHooksSettings,
+  ensureMcpConfig,
+} from "./claude-hooks.js";
 import { env } from "./env.js";
 import { headCommit, syncDefaultBranch } from "./git.js";
 import { LimitError, MAX_LIVE_SESSIONS } from "./limits.js";
@@ -16,6 +23,7 @@ import type { Meta } from "./sessions-store.js";
 import {
   AGENT_COMMANDS,
   cdpPortFor,
+  RESTORE_COMMANDS,
   RESUME_COMMANDS,
   SESSION_ID_RE,
   convPath,
@@ -161,6 +169,19 @@ async function launchAgent(
     } else if (opts.autoPermissions) {
       command += " --permission-mode auto";
     }
+  } else {
+    // codex and agy: the same state and conversation files, where their CLI
+    // can write them, and the same session browser (see claude-hooks.ts).
+    extraEnv.VK_STATE_FILE = statePath(meta.id);
+    extraEnv.VK_CONV_FILE = convPath(meta.id);
+    extraEnv.VK_REPORT_FILE = reportPath(meta.id);
+    const script = await ensureBrowserMcpScript();
+    if (meta.agent === "codex") {
+      await ensureCodexHooks();
+      command += codexMcpArgs(script);
+    } else {
+      await ensureAgyMcp(script);
+    }
   }
   // The prompt travels in the session environment, never in the command: tmux
   // gets it as an execFile argument, and the pane's shell only ever sees the
@@ -234,7 +255,7 @@ export async function restoreSessions(log: Logger): Promise<RestartFailure[]> {
     return failed;
   }
   for (const meta of await readAll()) {
-    if (meta.endedAt || live.has(meta.id) || meta.agent !== "claude") continue;
+    if (meta.endedAt || live.has(meta.id)) continue;
     if (meta.unattended) {
       // Not resumed: nobody is there to pick it up, and a resumed conversation
       // would come back without the flags that made it unattended. Failed
@@ -248,7 +269,7 @@ export async function restoreSessions(log: Logger): Promise<RestartFailure[]> {
     const conv = await readConv(meta.id);
     if (!conv) continue;
     try {
-      await launchAgent(meta, sessionDir(meta), `claude --resume ${conv}`);
+      await launchAgent(meta, sessionDir(meta), RESTORE_COMMANDS[meta.agent](conv));
       log.info(`restored session ${meta.id} on conversation ${conv}`);
     } catch (err) {
       // A deleted project dir or a tmux that would not start: leave it to be

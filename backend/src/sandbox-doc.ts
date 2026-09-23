@@ -92,7 +92,9 @@ const HOUSE_RULES = [
 ].join("\n");
 
 /** Agent CLI -> its global memory file, relative to $HOME. */
-export const MEMORY_FILES = [".claude/CLAUDE.md", ".codex/AGENTS.md"];
+// agy's is GEMINI.md, which its binary names beside AGENTS.md; unconfirmed
+// against a signed-in agy, and harmless if it reads neither.
+export const MEMORY_FILES = [".claude/CLAUDE.md", ".codex/AGENTS.md", ".gemini/GEMINI.md"];
 
 /**
  * Replace a marked block, or append one, leaving the rest of the file alone.

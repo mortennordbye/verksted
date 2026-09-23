@@ -119,8 +119,10 @@ export function settle(echoes: Echo[], said: string[], now = Date.now()): Echo[]
   return out.length === echoes.length ? echoes : out;
 }
 
-/** How often the transcript is read while the screen is visible. */
+/** How often the transcript is read while the screen is visible, with no push. */
 const POLL_MS = 3_000;
+/** The backstop while the push is up: it says when to read, this only catches a missed one. */
+const PUSHED_POLL_MS = 15_000;
 
 /**
  * A session's transcript, polled and accumulated.
@@ -131,6 +133,9 @@ const POLL_MS = 3_000;
  * seconds down a phone tunnel. usePoll would key its effect on that changing
  * URL and reset the list on every new message, which is the opposite of what a
  * conversation wants.
+ *
+ * Pushed as well as polled: a per-session stream says when the transcript has
+ * changed, and the read happens then.
  *
  * One request at a time: the next is scheduled when the last has answered.
  * An interval fired every three seconds whatever the last one was doing, and
@@ -213,9 +218,21 @@ export function useSessionChat(sessionId: string) {
       }
     }
 
+    // The push (backend routes/events.ts): "changed" when the transcript grows,
+    // so a turn shows within a second rather than at the next poll. The poll
+    // stays, slower, for a push that dropped or a proxy that holds it back.
+    let pushed = false;
+    const push =
+      typeof EventSource === "undefined"
+        ? null
+        : new EventSource(`/api/sessions/${sessionId}/chat/events`);
+    push?.addEventListener("changed", () => void run());
+    push?.addEventListener("ping", () => (pushed = true));
+    push?.addEventListener("error", () => (pushed = false));
+
     const schedule = () => {
       if (stopped) return;
-      timer = setTimeout(() => void run(), POLL_MS);
+      timer = setTimeout(() => void run(), pushed ? PUSHED_POLL_MS : POLL_MS);
     };
     const run = async () => {
       if (inFlight || stopped) return;
@@ -240,6 +257,7 @@ export function useSessionChat(sessionId: string) {
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      push?.close();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [sessionId, bytes]);

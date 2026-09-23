@@ -72,6 +72,8 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
   process.env.STATIC_DIR = "";
+  // codex and agy sessions write their config under HOME.
+  process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), "vk-home-"));
   launch = await import("../src/session-launch.js");
 });
 
@@ -150,8 +152,6 @@ describe("restoreSessions", () => {
     // No recorded conversation: --continue would pick the newest one for the
     // directory, which is another session's.
     seed("vk-demo-3");
-    // Only claude reports its conversation id, so only claude can be resumed.
-    seed("vk-demo-4", { agent: "codex", conv: "44444444-4444-4444-4444-444444444444" });
     // The project directory is gone.
     seed("vk-gone-1", { project: "gone", conv: "55555555-5555-5555-5555-555555555555" });
     fake.reply("tmux", "ls", { stdout: tmuxLsRows("vk-demo-1") });
@@ -159,6 +159,18 @@ describe("restoreSessions", () => {
     await launch.restoreSessions(log);
 
     expect(created()).toEqual([]);
+  });
+
+  it("puts codex and agy back on their own conversation, with their own command", async () => {
+    seed("vk-demo-4", { agent: "codex", conv: "44444444-4444-4444-4444-444444444444" });
+    seed("vk-demo-5", { agent: "antigravity", conv: "55555555-5555-5555-5555-555555555555" });
+
+    await launch.restoreSessions(log);
+
+    expect(commandFor("vk-demo-4")).toContain("codex resume 44444444-4444-4444-4444-444444444444");
+    expect(commandFor("vk-demo-5")).toContain(
+      "agy --conversation 55555555-5555-5555-5555-555555555555",
+    );
   });
 
   it("restores nothing when tmux cannot be reached, rather than guessing", async () => {

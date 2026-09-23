@@ -1,6 +1,8 @@
 import type { Writable } from "node:stream";
 import type { FastifyInstance } from "fastify";
+import fs from "node:fs/promises";
 import { subscribe } from "../events.js";
+import { SESSION_ID_RE, transcriptOf } from "../sessions-store.js";
 
 /**
  * Idle keep-alive, and the client's proof that the stream is still delivering.
@@ -132,4 +134,64 @@ export default async function eventRoutes(app: FastifyInstance) {
     req.raw.on("close", close);
     reply.raw.on("error", close);
   });
+
+  /**
+   * One session's transcript changing, so its chat view reads it now rather
+   * than at its next poll (backlog: the chat view was polled, not pushed).
+   *
+   * Only "changed", never the conversation: the client already asks for what
+   * is new since what it holds, and that stays the one way the chat is read.
+   * The file is stat'ed once a second rather than watched, because fs.watch on
+   * the NFS volume misses writes; a stat is one syscall and the transcript is
+   * the only file asked about. Counted against the same cap as the stream above.
+   */
+  app.get<{ Params: { id: string } }>("/api/sessions/:id/chat/events", async (req, reply) => {
+    if (!SESSION_ID_RE.test(req.params.id)) return reply.code(404).send({ error: "not found" });
+    const first = await transcriptOf(req.params.id);
+    if (first === undefined) return reply.code(404).send({ error: "not found" });
+    if (open.size >= MAX_STREAMS) {
+      return reply.code(503).header("retry-after", "5").send({ error: "too many event streams" });
+    }
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+      "x-accel-buffering": "no",
+    });
+    reply.raw.write("retry: 2000\n\n");
+    const { ping, send } = paced(reply.raw);
+    ping();
+
+    let file = first;
+    let seen = "";
+    const look = async () => {
+      // A session that had not written yet may have since: ask again until it has.
+      file ??= (await transcriptOf(req.params.id)) ?? null;
+      if (!file) return;
+      const st = await fs.stat(file).catch(() => null);
+      const now = st ? `${st.size}:${st.mtimeMs}` : "";
+      if (now !== seen) {
+        if (seen) send("changed", "{}");
+        seen = now;
+      }
+    };
+    await look();
+    const looks = setInterval(() => void look(), CHAT_LOOK_MS);
+    looks.unref?.();
+    const pings = setInterval(ping, PING_MS);
+    pings.unref?.();
+    open.add(reply.raw);
+
+    const close = () => {
+      clearInterval(looks);
+      clearInterval(pings);
+      open.delete(reply.raw);
+    };
+    req.raw.on("close", close);
+    reply.raw.on("error", close);
+  });
 }
+
+/** How often a watched transcript is stat'ed: the chat's latency, at a syscall a second. */
+const CHAT_LOOK_MS = 1_000;
