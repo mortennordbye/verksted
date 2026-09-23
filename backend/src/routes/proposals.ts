@@ -413,7 +413,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
           unattended: false,
           tool: `card:${item.action.kind}`,
           effect: "card",
-          args: item.action as unknown as Record<string, unknown>,
+          args: item.action,
           ok: true,
           result: did,
         })
