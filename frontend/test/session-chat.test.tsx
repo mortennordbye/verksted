@@ -81,4 +81,29 @@ describe("useSessionChat (C-25)", () => {
     act(() => result.current.echo("see a.png "));
     expect(result.current.echoes.map((e) => e.text)).toEqual(["see a.png"]);
   });
+
+  it("reads at once when the push says the transcript changed", async () => {
+    const listeners: Record<string, () => void> = {};
+    vi.stubGlobal(
+      "EventSource",
+      class {
+        addEventListener(name: string, fn: () => void) {
+          listeners[name] = fn;
+        }
+        close() {}
+      },
+    );
+    try {
+      api.mockResolvedValue(EMPTY);
+      renderHook(() => useSessionChat("vk-a-1"));
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(api).toHaveBeenCalledTimes(1);
+
+      await act(async () => listeners.changed?.());
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(api).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

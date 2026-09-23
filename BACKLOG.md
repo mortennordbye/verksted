@@ -441,27 +441,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/assistant-persona.ts` (`councilBlock`),
   `backend/src/assistant.ts` (`CONVENE_RE`, `runChair`)
 
-## The chat view is polled, not pushed
-
-- **What:** `useSessionChat` polls `GET /api/sessions/:id/chat` with a `since`
-  cursor, and `usePanePrompt` polls `/prompt` while the session is live, each
-  one request at a time, 3s after the last answer. The `/api/events` SSE stream
-  carries neither.
-- **Why deferred:** The stream broadcasts two global topics whose payload every
-  client wants identically — that is what makes one server-side watcher cheaper
-  than N clients polling. A session's chat is per-session and per-client, since
-  `since` differs for each, so it does not fit the topic model without giving
-  the stream per-client state. And `frontend/src/events.ts` is explicit that the
-  push is an optimisation and the poll is the contract, so this would be push
-  _plus_ poll rather than instead of it. What it would buy is latency, not
-  bytes: the poll is already a delta and an idle one is a few hundred bytes.
-- **Unblocked by:** Wanting sub-second turn latency in the chat view. Then: a
-  per-conversation topic fed by one `fs.watch` on the transcript, with the timer
-  kept as the backstop — `fs.watch` on the NFS-backed `/data` volume is not
-  reliable enough to be the only signal.
-- **Where:** `backend/src/events.ts` (`SOURCES`), `frontend/src/events.ts`
-  (`TOPICS`), `frontend/src/useSessionChat.ts`, `frontend/src/usePanePrompt.ts`
-
 ## Still outside the maintainer
 
 - **What:** Three things the plan named and left out on purpose. cargo and go

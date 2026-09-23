@@ -18,6 +18,7 @@ import { resolveInsideRepos } from "./paths.js";
 import { keyedQueue } from "./serial.js";
 import * as tmux from "./tmux.js";
 import { usageOf } from "./usage.js";
+import { transcriptPath } from "./claude-home.js";
 
 export const AGENT_COMMANDS: Record<AgentName, string> = {
   claude: "claude",
@@ -747,4 +748,26 @@ export async function deleteSession(id: string): Promise<boolean> {
   await fs.rm(reportPath(id), { force: true });
   await fs.rm(exitPath(id), { force: true });
   return true;
+}
+
+/**
+ * Where a session's transcript is, if it has one.
+ *
+ * Three answers, and the difference matters at the route: `undefined` is a
+ * session that does not exist, `null` is one that has written nothing to read —
+ * an agent other than claude, or a session in its first seconds — and a string
+ * is a path derived from the conversation id the session itself recorded.
+ * Nothing a client sends takes part in building it.
+ */
+export async function transcriptOf(id: string): Promise<string | null | undefined> {
+  const session = await getSession(id);
+  if (!session) return undefined;
+  const conversationId = await readConv(id);
+  if (!conversationId) return null;
+  try {
+    return transcriptPath(sessionDir(session), conversationId);
+  } catch {
+    // The project has been deleted; there is no cwd to derive a path from.
+    return null;
+  }
 }

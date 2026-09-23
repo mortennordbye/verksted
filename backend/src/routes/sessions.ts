@@ -17,7 +17,7 @@ import { repoRelPath, resolveInsideRepos } from "../paths.js";
 import * as desk from "../desk.js";
 import { createSession } from "../session-launch.js";
 import * as store from "../sessions-store.js";
-import { subagentDir, transcriptPath } from "../transcripts.js";
+import { subagentDir } from "../transcripts.js";
 import * as tmux from "../tmux.js";
 import { parseActivity, parseMode, parsePrompt } from "../tui-prompt.js";
 import { perMinute } from "../limits.js";
@@ -28,28 +28,6 @@ const MAX_DIFF_BYTES = 512 * 1024;
 
 /** The keys a client may press, and what tmux calls them. */
 const KEYS = { escape: "Escape", right: "Right", "shift-tab": "BTab" } as const;
-
-/**
- * Where a session's transcript is, if it has one.
- *
- * Three answers, and the difference matters at the route: `undefined` is a
- * session that does not exist, `null` is one that has written nothing to read —
- * an agent other than claude, or a session in its first seconds — and a string
- * is a path derived from the conversation id the session itself recorded.
- * Nothing a client sends takes part in building it.
- */
-async function transcriptFor(id: string): Promise<string | null | undefined> {
-  const session = await store.getSession(id);
-  if (!session) return undefined;
-  const conversationId = await store.readConv(id);
-  if (!conversationId) return null;
-  try {
-    return transcriptPath(store.sessionDir(session), conversationId);
-  } catch {
-    // The project has been deleted; there is no cwd to derive a path from.
-    return null;
-  }
-}
 
 export default async function sessionRoutes(app: FastifyInstance) {
   // Every session across every project. The store already took an optional
@@ -325,7 +303,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       },
     },
     async (req, reply) => {
-      const file = await transcriptFor(req.params.id);
+      const file = await store.transcriptOf(req.params.id);
       if (file === undefined) return reply.code(404).send({ error: "not found" });
       const image = await readImage(file, req.query.ref);
       if (!image) return reply.code(404).send({ error: "not found" });
@@ -390,7 +368,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
     async (req, reply): Promise<ChatDetail | void> => {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
-      const file = await transcriptFor(req.params.id);
+      const file = await store.transcriptOf(req.params.id);
       const conversationId = await store.readConv(req.params.id);
       // Where this conversation's subagents kept their own transcripts, for the
       // one kind of call whose detail is in a second file.
@@ -432,7 +410,7 @@ export default async function sessionRoutes(app: FastifyInstance) {
       const session = await store.getSession(req.params.id);
       if (!session) return reply.code(404).send({ error: "not found" });
       const conversationId = await store.readConv(req.params.id);
-      const file = await transcriptFor(req.params.id);
+      const file = await store.transcriptOf(req.params.id);
       if (file === undefined) return reply.code(404).send({ error: "not found" });
       // The repo is what lets an image the agent read be recognised as a file
       // this project can serve on its own, rather than one to decode out of the
