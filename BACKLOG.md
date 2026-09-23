@@ -420,21 +420,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/routes/proposals.ts` (`snapshot`, `mail_label_delete`),
   `backend/src/undo.ts`.
 
-## The per-session routes still ask tmux once per request
-
-- **What:** The last piece of the audit's root cause 4. Callers asking at the
-  same moment now share one `tmux ls` (`listSessionsDetail`), so a screen that
-  fires several requests at once runs it once. Requests that follow each other
-  still run it each time.
-- **Why deferred:** Keeping the answer for even a second was tried and taken
-  out: every caller uses it to decide whether a session is alive, and a kept
-  answer calls a session alive after it died. Nothing has been measured to be
-  slow because of the process spawn.
-- **Unblocked by:** A measurement that shows it matters. Then keep the answer
-  for a short window and have every place that changes what is live (new
-  session, kill, the terminal's shell sibling) forget it.
-- **Where:** `backend/src/tmux.ts` (`listSessionsDetail`), `backend/src/ws/attach.ts`.
-
 ## Where the backups go offsite is not written down
 
 - **What:** O-03 in the audit. The restore itself has been rehearsed (RUNBOOK.md,
