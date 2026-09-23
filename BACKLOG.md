@@ -40,22 +40,6 @@ what unblocks it / where the code lives.
   not answering" as something visible rather than absent.
 - **Where:** `backend/src/assistant.ts` (`HEADROOM_SERVER`, `mcpConfig`)
 
-## gh output fixtures are hand-written, not captured from a real gh
-
-- **What:** The gh-backed routes now have coverage through a fake `gh` on PATH
-  (`backend/test/github-gh.test.ts`), so the argv, the wire mapping and the
-  error statuses are asserted. What that cannot catch is gh changing its own
-  output: the fixtures are written from the current `--json` shape by hand, so a
-  field renamed in a future gh release would keep the suite green and break the
-  app.
-- **Why deferred:** Catching that needs real gh output, which needs a token and
-  the network — neither exists in CI.
-- **Unblocked by:** A CI job with a scoped token against a throwaway repo that
-  captures `gh pr list --json …` and diffs it against the fixtures; or pinning
-  the gh version in the image and re-capturing on each bump.
-- **Where:** `backend/test/github-gh.test.ts` (the fixtures),
-  `backend/src/routes/github.ts` (`PR_LIST_FIELDS`, `RUN_LIST_FIELDS`)
-
 ## Verify Antigravity headless auth in the pod
 
 - **What:** `ANTIGRAVITY_API_KEY` is documented in `.env.example` but reports on

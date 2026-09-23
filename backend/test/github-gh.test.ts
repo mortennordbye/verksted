@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { PR, RUN } from "./fixtures/gh.js";
 import { FakeBin } from "./helpers/fake-bin.js";
 
 /**
@@ -33,27 +34,6 @@ function repo(name: string): string {
   git("remote", "add", "origin", "https://github.com/o/r.git");
   return dir;
 }
-
-const PR = {
-  number: 7,
-  title: "add the thing",
-  state: "OPEN",
-  isDraft: false,
-  headRefName: "feature-x",
-  baseRefName: "main",
-  author: { login: "morten" },
-  createdAt: "2026-01-01T00:00:00Z",
-  updatedAt: "2026-01-02T00:00:00Z",
-  url: "https://github.com/o/r/pull/7",
-  reviewDecision: "APPROVED",
-  statusCheckRollup: [
-    { status: "COMPLETED", conclusion: "SUCCESS" },
-    { status: "COMPLETED", conclusion: "FAILURE" },
-  ],
-  additions: 10,
-  deletions: 2,
-  changedFiles: 3,
-};
 
 beforeAll(async () => {
   fake = FakeBin.install(["gh"]);
@@ -274,20 +254,7 @@ describe("POST /api/projects/:name/prs/:number/merge", () => {
 describe("GET /api/projects/:name/runs", () => {
   it("maps a workflow run to the wire shape", async () => {
     fake.reply("gh", "run list", {
-      stdout: JSON.stringify([
-        {
-          databaseId: 42,
-          displayTitle: "fix the thing",
-          workflowName: "ci",
-          status: "completed",
-          conclusion: "failure",
-          event: "push",
-          headBranch: "main",
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-01-01T00:05:00Z",
-          url: "https://github.com/o/r/actions/runs/42",
-        },
-      ]),
+      stdout: JSON.stringify([RUN]),
     });
 
     const res = await app.inject({ url: "/api/projects/runs/runs" });

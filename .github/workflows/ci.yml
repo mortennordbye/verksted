@@ -30,6 +30,13 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      # The gh fixtures against a real gh, asked about this repository with
+      # the run's read-only token (backend/test/gh-shape.test.ts).
+      - run: npx vitest run test/gh-shape.test.ts
+        working-directory: backend
+        env:
+          GH_SHAPE_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
       # Privilege separation's tests switch uids, which needs root; `npm test`
       # above skips them on the runner's own user.
       - run: sudo --preserve-env=PATH npx vitest run test/agent-user.test.ts
