@@ -38,61 +38,6 @@ what unblocks it / where the code lives.
   persists in `$HOME` on the PVC.
 - **Where:** `.env.example`, `Dockerfile` (runtime stage)
 
-## Resume support for codex and antigravity sessions
-
-- **What:** The "resume the previous conversation" toggle only maps to a command
-  for claude (`claude --continue`). Codex reportedly has `codex resume --last`
-  and antigravity may have an equivalent; neither flag is verified. The same gap
-  costs them automatic restore after a pod restart (`restoreSessions`): that
-  needs both a resume-by-id flag and a way for the CLI to report the id it is
-  on, which claude does through its `SessionStart`/`UserPromptSubmit` hooks.
-  Codex and antigravity sessions are still ended by the list sweep on restart.
-- **Why deferred:** Can't verify the flags without running those CLIs
-  authenticated in the pod.
-- **Unblocked by:** Testing the resume flag of each CLI in a pod terminal, then
-  adding it to `RESUME_COMMANDS`; for restore, finding each CLI's equivalent of
-  a hook that exposes the conversation id and writing it to `$VK_CONV_FILE`.
-- **Where:** `backend/src/sessions-store.ts` (`RESUME_COMMANDS`,
-  `restoreSessions`), `backend/src/claude-hooks.ts` (the `CONVERSATION` hook to
-  copy), `frontend/src/screens/Project.tsx` (picker label)
-
-## Session browser for antigravity/codex agents
-
-- **What:** claude gets the session browser automatically (playwright MCP via
-  `--mcp-config`, see `claude-hooks.ts`). agy and codex only get the raw env
-  contract: connect playwright to `$VK_BROWSER_CDP`; if refused, first
-  `curl -X POST http://127.0.0.1:8080/api/sessions/$VK_SESSION_ID/browser/start`.
-  Their MCP config mechanisms are unverified.
-- **Why deferred:** Same reason as their status hooks — each CLI's config
-  mechanism needs verifying in the pod first.
-- **Unblocked by:** Confirming agy/codex MCP config formats, then generating
-  the equivalent of claude-mcp.json for them.
-- **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
-  `backend/src/sessions-store.ts` (`createSession`)
-
-## agy gets neither the sandbox note nor the house rules
-
-- **What:** `sandbox-doc.ts` writes to claude (`~/.claude/CLAUDE.md`) and codex
-  (`~/.codex/AGENTS.md`). antigravity's equivalent — whether it reads a global
-  instructions file at all, and under what name — is unverified, so agy sessions
-  start without any of it.
-- **Why it matters more than it used to:** that file now carries the two house
-  rules as well as the sandbox note. An antigravity session is the one place on
-  this bench where "leave no sign an agent wrote this" and "ask before anything
-  irreversible" are not said at all — and memory-store.ts injects through the
-  same list, so a agy session is also told nothing verksted has learned. The
-  block is also how an agent learns `vk feedback` exists, so agy is the one
-  agent that will never file a note about the bench either. The
-  same three-way gap already exists for agy's status hooks and MCP config, so
-  this is one verification pass, not three.
-- **Why deferred:** Needs confirming in the pod against a real authenticated
-  CLI, and agy's headless auth is itself unverified (see the entry above).
-- **Unblocked by:** Confirming what global instructions file agy reads, then
-  adding it to `MEMORY_FILES` — both blocks and memory follow automatically.
-  Until then, prefer claude or codex for anything that will commit.
-- **Where:** `backend/src/sandbox-doc.ts` (`MEMORY_FILES`),
-  `backend/src/memory-store.ts` (`inject`, same list)
-
 ## A catch-up has never run after a real pod restart
 
 - **What:** The rule is covered (`backend/test/scheduler-run.test.ts`, the
@@ -242,17 +187,28 @@ what unblocks it / where the code lives.
   `backend/src/push-store.ts`, `backend/src/sessions-store.ts`,
   `frontend/src/sw.ts`, `frontend/src/screens/Settings.tsx` (`Notifications`)
 
-## Status hooks for antigravity and codex sessions
+## codex and agy support has never run against a signed-in CLI
 
-- **What:** The waiting/running state file is only written by Claude Code
-  hooks; antigravity and codex sessions never show "waiting". Agreed to ship
-  claude-only first since their hook equivalents are unverified.
-- **Why deferred:** agy/codex hook mechanisms need verifying in the pod before
-  wiring anything.
-- **Unblocked by:** Confirming each CLI's hook/notification mechanism, then
-  writing the same state file (`VK_STATE_FILE` is already the contract).
-- **Where:** `backend/src/sessions-store.ts` (`createSession`),
-  `backend/src/claude-hooks.ts` (pattern to copy)
+- **What:** codex and agy sessions now resume (`codex resume --last`,
+  `agy --continue`), come back after a restart on their recorded conversation
+  (`codex resume <id>`, `agy --conversation <id>`), get the session browser
+  (codex through `-c mcp_servers.browser.command`, agy through
+  `~/.gemini/config/mcp_config.json`), and agy gets the sandbox note and house
+  rules in `~/.gemini/GEMINI.md`. codex also gets the waiting/running state and
+  its conversation id from `~/.codex/hooks.json`, written in claude's hook
+  shape. All of it was read from each CLI's `--help` and binary on the pod
+  (codex-cli 0.155.1, agy 1.2.8) and none of it has run: neither is signed in.
+  agy has no status hooks yet; its hooks.json format could not be read from
+  the binary.
+- **Why deferred:** Nothing can be checked until one of them is signed in.
+- **Unblocked by:** Signing codex or agy in on the settings page, starting a
+  session, and checking that it starts, turns amber when it asks, writes its
+  `.conv` file, reaches the session browser, and comes back after a restart.
+  Then agy's hooks, in whatever shape it turns out to read.
+- **Where:** `backend/src/claude-hooks.ts` (the codex and agy half),
+  `backend/src/session-launch.ts` (`launchAgent`, `restoreSessions`),
+  `backend/src/sessions-store.ts` (`RESUME_COMMANDS`, `RESTORE_COMMANDS`),
+  `backend/src/sandbox-doc.ts` (`MEMORY_FILES`).
 
 ## The antigravity CLI is the one thing in the image with no version to pin
 

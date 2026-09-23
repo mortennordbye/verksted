@@ -250,3 +250,42 @@ describe("POST /api/assistant/threads/:id/terminal (Assistant M1)", () => {
     expect(res.statusCode).toBe(404);
   });
 });
+
+describe("codex and agy sessions", () => {
+  it("give codex the state hooks and the session browser", async () => {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-codex-home-"));
+    process.env.HOME = home;
+    try {
+      expect((await create({ agent: "codex" })).statusCode).toBe(201);
+      const [argv] = fake.subcommand("tmux", "new-session");
+      const command = argv.at(-1)!;
+      expect(command).toContain("codex -c 'mcp_servers.browser.command=");
+      expect(envOf(argv).VK_STATE_FILE).toMatch(/\.state$/);
+      const hooks = JSON.parse(fs.readFileSync(path.join(home, ".codex", "hooks.json"), "utf8"));
+      expect(Object.keys(hooks.hooks)).toEqual(
+        expect.arrayContaining(["SessionStart", "Stop", "UserPromptSubmit", "PreToolUse"]),
+      );
+      expect(JSON.stringify(hooks)).toContain("VK_STATE_FILE");
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("give agy the session browser in its own config, keeping what is there", async () => {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-agy-home-"));
+    const file = path.join(home, ".gemini", "config", "mcp_config.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ mcpServers: { mine: { command: "x" } } }));
+    process.env.HOME = home;
+    try {
+      expect((await create({ agent: "antigravity" })).statusCode).toBe(201);
+      const config = JSON.parse(fs.readFileSync(file, "utf8"));
+      expect(Object.keys(config.mcpServers)).toEqual(["mine", "browser"]);
+      expect(config.mcpServers.browser.command).toMatch(/browser-mcp\.sh$/);
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+});

@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import path from "node:path";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
@@ -133,4 +134,71 @@ export async function ensureMcpConfig(): Promise<string> {
   const file = path.join(env.SESSIONS_DIR, "claude-mcp.json");
   await writeJsonAtomic(file, config);
   return file;
+}
+
+/**
+ * The other two agents, set up the way their CLIs read it.
+ *
+ * Read from each CLI's own binary and `--help` on the pod (codex-cli 0.155.1,
+ * agy 1.2.8), not run against a signed-in one: neither is signed in there yet.
+ * codex has a hooks engine shaped like claude's — the same event names, the
+ * same `matcher`/`hooks`/`command` entries — read from ~/.codex/hooks.json, so
+ * its sessions get the same waiting/running state and conversation id. agy's
+ * hook format could not be read out of the binary, so it gets the browser and
+ * the instructions file and no status yet (BACKLOG).
+ */
+const home = () => process.env.HOME ?? "/data/home";
+
+/** The session browser's MCP server, as a script both codex and agy can name. */
+export async function ensureBrowserMcpScript(): Promise<string> {
+  const file = path.join(env.SESSIONS_DIR, "browser-mcp.sh");
+  await fs.writeFile(
+    file,
+    [
+      "#!/bin/sh",
+      "# The session browser for an agent's MCP client: boot it through the",
+      "# backend, then hand playwright-mcp the CDP endpoint it booted.",
+      `curl -sf -X POST http://127.0.0.1:${env.PORT}/api/sessions/"$VK_SESSION_ID"/browser/start >/dev/null 2>&1`,
+      'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"',
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  return file;
+}
+
+/** codex's hooks: the claude hooks' state and conversation writes, in codex's file. */
+export async function ensureCodexHooks(): Promise<void> {
+  const file = path.join(home(), ".codex", "hooks.json");
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await writeJsonAtomic(file, {
+    hooks: {
+      SessionStart: [{ hooks: [CONVERSATION] }],
+      Stop: [{ hooks: [write("waiting")] }],
+      PermissionRequest: [{ hooks: [write("waiting")] }],
+      UserPromptSubmit: [{ hooks: [write("running"), CONVERSATION] }],
+      PreToolUse: [{ hooks: [write("running")] }],
+    },
+  });
+}
+
+/** codex's MCP servers for a session, as `-c` overrides on its command line. */
+export function codexMcpArgs(script: string): string {
+  return ` -c 'mcp_servers.browser.command="${script}"'`;
+}
+
+/** agy's MCP servers: its own config file, with the browser merged in. */
+export async function ensureAgyMcp(script: string): Promise<void> {
+  const file = path.join(home(), ".gemini", "config", "mcp_config.json");
+  let config: { mcpServers?: Record<string, unknown> } = {};
+  try {
+    config = JSON.parse(await fs.readFile(file, "utf8")) as typeof config;
+  } catch {
+    // None yet, or one this cannot read: the browser alone.
+  }
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await writeJsonAtomic(file, {
+    ...config,
+    mcpServers: { ...(config.mcpServers ?? {}), browser: { command: script, args: [] } },
+  });
 }

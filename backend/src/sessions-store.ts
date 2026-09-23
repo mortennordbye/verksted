@@ -25,10 +25,21 @@ export const AGENT_COMMANDS: Record<AgentName, string> = {
   codex: "codex",
 };
 
-// Agents with a verified "pick up the previous conversation" flag. Conversation
-// state lives in $HOME on the PVC, so this survives pod restarts.
+// Agents with a "pick up the previous conversation" flag. Conversation state
+// lives in $HOME on the PVC, so this survives pod restarts. codex's and agy's
+// were read from their --help on the pod (codex-cli 0.155.1, agy 1.2.8);
+// `codex resume --last` keeps to the directory it is started in.
 export const RESUME_COMMANDS: Partial<Record<AgentName, string>> = {
   claude: "claude --continue",
+  codex: "codex resume --last",
+  antigravity: "agy --continue",
+};
+
+/** Each agent's command to carry on one conversation by id, after a restart. */
+export const RESTORE_COMMANDS: Record<AgentName, (id: string) => string> = {
+  claude: (id) => `claude --resume ${id}`,
+  codex: (id) => `codex resume ${id}`,
+  antigravity: (id) => `agy --conversation ${id}`,
 };
 
 export const SESSION_ID_RE = /^vk-[A-Za-z0-9._-]+-\d+$/;
