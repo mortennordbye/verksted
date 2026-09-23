@@ -36,6 +36,8 @@ beforeAll(async () => {
   // module graph loads (each vitest file has its own module registry).
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
+  // The blocked-owner test writes settings; /data is not there on a runner.
+  process.env.SETTINGS_FILE = path.join(sessionsDir, "settings.json");
   process.env.STATIC_DIR = "";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
