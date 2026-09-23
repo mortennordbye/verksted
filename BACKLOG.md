@@ -56,19 +56,6 @@ what unblocks it / where the code lives.
   `restoreSessions`), `backend/src/claude-hooks.ts` (the `CONVERSATION` hook to
   copy), `frontend/src/screens/Project.tsx` (picker label)
 
-## Browser pane: follow agent-created browser contexts
-
-- **What:** The pane follows pages in the default Chromium context (covers
-  playwright `connectOverCDP` default-context use and the playwright MCP's
-  `--cdp-endpoint`). If an agent creates a new context (`browser.newContext()`),
-  its pages are not streamed.
-- **Why deferred:** Needs browser-level target discovery (CDP
-  Target.setDiscoverTargets) instead of per-context page events; the common
-  agent flows don't create contexts.
-- **Unblocked by:** Hitting the limitation in practice; then switch page
-  tracking to target events.
-- **Where:** `backend/src/browser.ts` (`launch`, `setCurrent`)
-
 ## Session browser for antigravity/codex agents
 
 - **What:** claude gets the session browser automatically (playwright MCP via
