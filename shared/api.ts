@@ -284,6 +284,8 @@ export interface SessionPatch {
   diff: string;
   /** Cut at the size cap; what is here is whole files, never half of one. */
   truncated: boolean;
+  /** Where the rest starts, to ask for it with `?offset=`; absent when there is no rest. */
+  next?: number;
 }
 
 /** One file's diff over a session's range. */

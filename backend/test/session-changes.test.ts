@@ -187,6 +187,37 @@ describe("GET /api/sessions/:id/changes/patch", () => {
     expect(body.diff).not.toContain("later.txt");
   });
 
+  it("hands a long range over in parts that join up whole (backlog)", async () => {
+    const { rangeDiff } = await import("../src/git.js");
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "vk-bigpatch-"));
+    git(repo, "init", "-b", "main");
+    fs.writeFileSync(path.join(repo, "seed"), "x");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-m", "seed");
+    const start = git(repo, "rev-parse", "HEAD").trim();
+    const big = (tag: string) =>
+      Array.from({ length: 12_000 }, (_, i) => `${tag} line ${i} ${"z".repeat(40)}`).join("\n");
+    fs.writeFileSync(path.join(repo, "one.txt"), big("one"));
+    fs.writeFileSync(path.join(repo, "two.txt"), big("two"));
+    git(repo, "add", "-A");
+    git(repo, "commit", "-m", "two big files");
+    const end = git(repo, "rev-parse", "HEAD").trim();
+
+    const first = await rangeDiff(repo, start, end);
+    expect(first.truncated).toBe(true);
+    expect(first.diff).toContain("+++ b/one.txt");
+    expect(first.diff).not.toContain("+++ b/two.txt");
+    const rest = await rangeDiff(repo, start, end, first.next);
+    expect(rest.truncated).toBe(false);
+    expect(rest.diff.startsWith("diff --git a/two.txt")).toBe(true);
+    // Joined, the parts are the whole patch.
+    const whole = execFileSync("git", ["-C", repo, "diff", `${start}..${end}`], {
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    expect(first.diff + rest.diff).toBe(whole);
+  });
+
   it("is empty for a session with no range, rather than an error", async () => {
     const res = await app.inject({ url: "/api/sessions/vk-demo-2/changes/patch" });
     expect(res.statusCode).toBe(200);

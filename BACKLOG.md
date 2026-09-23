@@ -113,24 +113,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/scheduler.ts` (`catchUp`, `missedTick`,
   `CATCH_UP_WITHIN_MS`), `backend/src/schedules-store.ts` (`stampFired`)
 
-## A big review still cannot be paged past its caps
-
-- **What:** Reviewing a run is now a screen: the whole range as one patch
-  (`GET /api/sessions/:id/changes/patch`), per-file read marks and a verdict
-  kept on the session (`PATCH /api/sessions/:id/review`), both surfaced on the
-  changes tab and the inbox row. What is still fixed is the size: the file and
-  commit lists cut at 500 and 100, and the patch itself at 1 MB, cut at a file
-  boundary. All three say so and none can be paged past — a range bigger than
-  that is only fully readable in the terminal.
-- **Why deferred:** Paging a diff is its own design (by file? by hunk? what does
-  "read" mean for a page?), and no real range has come close to the caps yet.
-  Guessing at the interaction before one does is how the wrong one gets built.
-- **Unblocked by:** A real overnight run that hits a cap. The numbers to move
-  are named constants, so raising them is the cheap first answer if that run
-  turns out to be an outlier rather than the new normal.
-- **Where:** `backend/src/git.ts` (`MAX_COMMITS`, `MAX_FILES`,
-  `MAX_PATCH_BYTES`), `frontend/src/components/ReviewOverlay.tsx`
-
 ## The pod's voice is English-first, and never speaks Norwegian
 
 - **What:** Kokoro ships 54 voices, and the settings page lists all of them, but

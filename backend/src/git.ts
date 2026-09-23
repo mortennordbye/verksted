@@ -202,12 +202,16 @@ export async function changesIn(
   repoDir: string,
   from: string,
   to: string,
+  /** Ten times the caps, for somebody who asked to see all of a long range. */
+  all = false,
 ): Promise<{ commits: SessionCommit[]; files: SessionChangedFile[]; truncated: boolean }> {
   const range = `${from}..${to}`;
+  const maxCommits = all ? MAX_COMMITS * 10 : MAX_COMMITS;
+  const maxFiles = all ? MAX_FILES * 10 : MAX_FILES;
   // %x00 rather than a printable separator: a subject can contain anything.
   const log = await git(repoDir, [
     "log",
-    `--max-count=${MAX_COMMITS + 1}`,
+    `--max-count=${maxCommits + 1}`,
     "--format=%h%x00%s",
     range,
   ]);
@@ -216,12 +220,12 @@ export async function changesIn(
     await gitRaw(repoDir, ["diff", "--numstat", "-z", ...NO_REPO_DIFF_CODE, range]),
   );
   return {
-    commits: lines.slice(0, MAX_COMMITS).map((l) => {
+    commits: lines.slice(0, maxCommits).map((l) => {
       const [sha = "", subject = ""] = l.split("\0");
       return { sha, subject };
     }),
-    files: files.slice(0, MAX_FILES),
-    truncated: lines.length > MAX_COMMITS || files.length > MAX_FILES,
+    files: files.slice(0, maxFiles),
+    truncated: lines.length > maxCommits || files.length > maxFiles,
   };
 }
 
@@ -241,7 +245,9 @@ export async function rangeDiff(
   repoDir: string,
   from: string,
   to: string,
-): Promise<{ diff: string; truncated: boolean }> {
+  /** Where to start in the whole patch: the `next` of the answer before. */
+  offset = 0,
+): Promise<{ diff: string; truncated: boolean; next?: number }> {
   // quotePath=false so a non-ASCII path arrives spelled the way the -z file
   // list spells it; the reader matches the two against each other.
   const out = await gitRaw(repoDir, [
@@ -251,12 +257,13 @@ export async function rangeDiff(
     ...NO_REPO_DIFF_CODE,
     `${from}..${to}`,
   ]);
-  if (out.length <= MAX_PATCH_BYTES) return { diff: out, truncated: false };
-  const boundary = out.lastIndexOf("\ndiff --git ", MAX_PATCH_BYTES);
-  return {
-    diff: boundary > 0 ? out.slice(0, boundary + 1) : out.slice(0, MAX_PATCH_BYTES),
-    truncated: true,
-  };
+  const rest = out.slice(offset);
+  if (rest.length <= MAX_PATCH_BYTES) return { diff: rest, truncated: false };
+  const boundary = rest.lastIndexOf("\ndiff --git ", MAX_PATCH_BYTES);
+  const diff = boundary > 0 ? rest.slice(0, boundary + 1) : rest.slice(0, MAX_PATCH_BYTES);
+  // The rest, from where this part stopped: the reader asks for it and appends,
+  // so a long run is read end to end rather than in the terminal.
+  return { diff, truncated: true, next: offset + diff.length };
 }
 
 /** One file's diff over a range. The path is a client's, so it is a pathspec
