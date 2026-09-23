@@ -24,23 +24,27 @@ const BOXES = [
   { path: "[Gmail]/All Mail", name: "All Mail", flags: new Set<string>(), specialUse: "\\All" },
 ];
 
-vi.mock("imapflow", () => ({
-  ImapFlow: class {
-    async connect() {}
-    async logout() {}
-    async getMailboxLock(box: string) {
-      selected = box;
-      return { release() {} };
-    }
-    async list() {
-      return BOXES;
-    }
-    async messageMove(uids: unknown, to: string) {
-      moves.push({ uids, to, from: selected });
-      return { uidMap: new Map([[1, 11]]) };
-    }
-  },
-}));
+vi.mock("imapflow", async () => {
+  // An EventEmitter, as the real one is: the kept connection listens for close.
+  const { EventEmitter } = await import("node:events");
+  return {
+    ImapFlow: class extends EventEmitter {
+      async connect() {}
+      async logout() {}
+      async getMailboxLock(box: string) {
+        selected = box;
+        return { release() {} };
+      }
+      async list() {
+        return BOXES;
+      }
+      async messageMove(uids: unknown, to: string) {
+        moves.push({ uids, to, from: selected });
+        return { uidMap: new Map([[1, 11]]) };
+      }
+    },
+  };
+});
 
 let mail: typeof import("../src/mail.js");
 

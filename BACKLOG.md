@@ -812,47 +812,6 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `design/mock-inbox.html`.
 
-## Gmail rules have no settings-page view
-
-- **What:** `mail_labels`, `mail_rules`, `mail_rule_create` and
-  `mail_rule_delete` (`backend/src/gmail.ts`) are chat-only: seeing what
-  filters exist or removing one means asking the assistant, there is no list
-  on the settings page the way sources, schedules and blocked owners get one.
-- **Why deferred:** The ask was the tools themselves — teaching verksted to
-  set up Gmail filters at all — not a management screen for them, and a filter
-  wrong enough to need fixing without asking is the rare case, not the common
-  one.
-- **Unblocked by:** Wanting to see or clear rules without a chat turn. Then a
-  `GET /api/mail/rules` list (already there) plus a table and a delete button
-  under the Mail tab, the same shape as the blocked-owners list. The delete
-  route was removed when removing a filter became a card (A-08): a button
-  needs it back, and with it a way for the backend to tell the person's tap
-  from anything else on the pod asking, which is the per-boot secret S-05
-  describes.
-- **Where:** `frontend/src/screens/Settings.tsx`, `backend/src/gmail.ts`,
-  `backend/src/routes/sources.ts` (`/api/mail/rules`).
-
-## The event stream still sends the whole session history
-
-- **What:** `/api/events` publishes `listSessions()` in full, and nothing prunes
-  session metadata — 145 sessions on the pod today, 144 of them finished months
-  of runs ago. It is no longer sent every three seconds (R-06 is fixed: an
-  unchanged session now serialises identically, so the change test holds), but
-  every real change to any one session still pushes the whole list to every open
-  client.
-- **Why deferred:** The churn was the bug worth chasing; the payload only costs
-  something when something actually happened, which is a handful of times a
-  minute at worst. Scoping the stream to live-plus-recent means deciding what
-  the hub's "all sessions" list reads instead, which is a screen change, not a
-  stream change.
-- **Unblocked by:** Retention. Archiving metadata for sessions that ended more
-  than ninety days ago into a monthly JSONL relieves this, the meta scan behind
-  every `listSessions` (R-07) and the sidecar files that accumulate with them
-  (R-08) in one change. R-01 no longer waits on it.
-- **Where:** `backend/src/events.ts` (`SOURCES.sessions`),
-  `backend/src/sessions-store.ts` (`readAll`, `listSessions`),
-  `backend/src/maintenance.ts` (where a retention sweep belongs).
-
 ## A member's tools are narrowed on read with nothing to say so
 
 - **What:** A member that reads the web has anything private taken off its tool
@@ -895,74 +854,38 @@ forget` — their own notebooks — and `recall` is gone from each. The checkbox
 - **Where:** `backend/src/council-store.ts` (`SEEDS`), and the member file at
   `$COUNCIL_DIR/ariel.json` on the pod, which the settings page edits.
 
-## Nothing the assistant changed can be put back from the log
+## What a tapped card did cannot be put back from the log
 
-- **What:** Every call the assistant makes that changes something is appended to
-  `/data/assistant/tool-log/<day>.jsonl` with its arguments in full (A-31), and
-  the settings page's Assistant tab reads it back a day at a time. The audit
-  also asks for an undo: replaying a move or a relabel backwards, putting a
-  deleted event back from `calendar-trash/`, restoring a label or rule from a
-  snapshot. The records an undo would be replayed from are written
-  (`mail-log/<day>.jsonl` with the uids the messages have where they landed,
-  `calendar-trash/`), and all three directories are pruned after 90 days.
-- **Why deferred:** An undo needs a per-tool inverse and a decision on what may
-  be undone how long after, which is a feature of its own rather than a reader.
-  The chair was deliberately not given the log as a tool: that would let a turn
-  read what earlier turns did.
-- **Unblocked by:** Deciding which tools get an undo, starting with `mail_move`
-  (the mail log already holds what a move back needs), and where the button
-  sits: on the log's row is the obvious place.
-- **Where:** `backend/src/tool-log.ts`, `backend/src/mail-log.ts`, `keep` in
-  `backend/src/calendar.ts`, `frontend/src/components/settings/ToolLog.tsx`.
+- **What:** A move, a relabel and a calendar change the assistant made itself
+  are put back from their row in the settings page's log (`undo.ts`). What a
+  card did on a tap is not: a calendar event taken off, mail moved to the
+  trash or spam, a filter or label removed. The tap is not a line of the tool
+  log, so there is no row to put a button on, though `calendar-trash/` does
+  hold the file a removed event would be put back from.
+- **Why deferred:** A tapped card was already asked about once, and the record
+  of what it did lives in the feed item rather than the log. Putting one back
+  means giving the proposal route a log line of its own and an inverse per
+  card kind.
+- **Unblocked by:** Tapping a card by mistake. Then record `do` in the tool log
+  with the action, and add the inverse for `calendar_delete` first, since its
+  kept file is already there.
+- **Where:** `backend/src/routes/proposals.ts` (`do`), `backend/src/undo.ts`,
+  `backend/src/tool-log.ts` (`UNDOABLE`).
 
-## Only Gmail reads are retried
+## The per-session routes still ask tmux once per request
 
-- **What:** A Gmail read that meets a 429 or a 5xx is asked again twice, and an
-  HTML error body no longer surfaces as a parse error (A-21). The calendar and
-  IMAP have no retry at all.
-- **Why deferred:** tsdav and imapflow each own their requests, so a retry
-  there is a wrapper per call site rather than one loop, and writes must stay
-  out of it.
-- **Unblocked by:** A calendar or mail tool failing in use on a transient
-  error. `test/helpers/dav-server.ts` is the server a calendar retry would be
-  tested against.
-- **Where:** `call` in `backend/src/gmail.ts`, `connect` and `davFetch` in
-  `backend/src/calendar.ts`, `withInbox` in `backend/src/mail.ts`.
-
-## Every mail and calendar call still opens its own connection
-
-- **What:** The cost of what is fetched is down (A-23, A-24, A-25): the Gmail
-  token is kept for its lifetime, an event is asked for by uid, and a message
-  is read by its text part. The cost of getting there is not. Each IMAP verb
-  is a fresh login, and each calendar call is tsdav's discovery (three
-  PROPFINDs) plus, on Google, a token trade of tsdav's own that the Gmail
-  cache cannot serve.
-- **Why deferred:** A kept connection needs an owner: idle timeouts, a server
-  that hangs up, a password changed on the settings page while it is open.
-  That is a small pool with its own tests, not a change to the callers, and the
-  tools are used a handful of times an hour.
-- **Unblocked by:** The assistant's mail or calendar tools feeling slow in use,
-  or a provider rate-limiting logins. For the calendar the cheap half is
-  keeping the discovered account and calendar list for a few minutes.
-- **Where:** `withClient` in `backend/src/mail.ts`, `connect` in
-  `backend/src/calendar.ts`.
-
-## The per-session routes still ask tmux on every call
-
-- **What:** The last piece of the audit's root cause 4. The sweep, the
-  measuring, the usage backfill and the feed's filing all run in background
-  jobs now (`sweeper.ts`, the daily housekeeping), sessions ended more than
-  `RETAIN_DAYS` ago are archived, and no GET writes. What is left is that
-  liveness is not cached: a request about one session still runs `tmux ls`
-  for itself, and a screen that makes several such requests runs it several
-  times.
-- **Why deferred:** It costs a process spawn per request and nothing has been
-  measured to be slow because of it; a cache means deciding how stale "is it
-  alive" may be.
-- **Unblocked by:** A measurement that shows it matters, then the sweeper's own
-  `tmux ls` answer kept for one tick and read by the routes.
-- **Where:** `backend/src/tmux.ts`, `backend/src/sessions-store.ts`,
-  `backend/src/sweeper.ts`, `backend/src/routes/sessions.ts`.
+- **What:** The last piece of the audit's root cause 4. Callers asking at the
+  same moment now share one `tmux ls` (`listSessionsDetail`), so a screen that
+  fires several requests at once runs it once. Requests that follow each other
+  still run it each time.
+- **Why deferred:** Keeping the answer for even a second was tried and taken
+  out: every caller uses it to decide whether a session is alive, and a kept
+  answer calls a session alive after it died. Nothing has been measured to be
+  slow because of the process spawn.
+- **Unblocked by:** A measurement that shows it matters. Then keep the answer
+  for a short window and have every place that changes what is live (new
+  session, kill, the terminal's shell sibling) forget it.
+- **Where:** `backend/src/tmux.ts` (`listSessionsDetail`), `backend/src/ws/attach.ts`.
 
 ## The restore has never been rehearsed
 

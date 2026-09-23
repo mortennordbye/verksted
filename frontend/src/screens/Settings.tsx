@@ -26,6 +26,7 @@ import Backups from "../components/settings/Backups";
 import AppReset from "../components/settings/AppReset";
 import SshKeys from "../components/settings/SshKeys";
 import BlockedOwners from "../components/settings/BlockedOwners";
+import GmailRules from "../components/settings/GmailRules";
 import ToolLog from "../components/settings/ToolLog";
 
 function sourceChip(source: SettingVar["source"]) {
@@ -153,6 +154,7 @@ export default function Settings() {
         {show("assistant") && <ToolLog />}
         {show("sources") && <GoogleCalendar />}
         {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
+        {show("sources") && <GmailRules />}
         {show("agents") && (
           <>
             <SectionLabel icon="key" className="mt-10">

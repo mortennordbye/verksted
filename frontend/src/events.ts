@@ -68,6 +68,23 @@ function open(): void {
       announce();
     });
   }
+  // One session or a few changed: merged into the list held, so every session
+  // that did not change keeps its object and nothing drawn from it redraws.
+  source.addEventListener("sessions-changed", (e) => {
+    const held = latest.get("sessions") as Session[] | undefined;
+    let change: { upsert: Session[]; remove: string[]; order: string[] };
+    try {
+      change = JSON.parse((e as MessageEvent<string>).data) as typeof change;
+    } catch {
+      return;
+    }
+    // Only ever sent after the whole list; without it there is nothing to merge
+    // into, and the next reconnect sends the whole list again.
+    if (!held) return;
+    latest.set("sessions", applySessionChange(held, change));
+    heard();
+    announce();
+  });
   // The server's keep-alive: nothing has changed, and the stream is delivering.
   source.addEventListener("ping", heard);
   // EventSource reconnects itself; this only records that right now it is not
@@ -96,6 +113,17 @@ if (typeof document !== "undefined") {
     if (document.hidden) close();
     else if (listeners.size > 0) open();
   });
+}
+
+/** A `sessions-changed` frame applied to the list held. Exported for its test. */
+export function applySessionChange(
+  held: Session[],
+  change: { upsert: Session[]; remove: string[]; order: string[] },
+): Session[] {
+  const byId = new Map(held.map((s) => [s.id, s]));
+  for (const id of change.remove) byId.delete(id);
+  for (const s of change.upsert) byId.set(s.id, s);
+  return change.order.map((id) => byId.get(id)).filter((s): s is Session => s !== undefined);
 }
 
 /** Which streamed answer covers a GET path, if any. */

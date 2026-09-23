@@ -72,8 +72,36 @@ export function setDavTimeout(ms: number): void {
   davTimeoutMs = ms;
 }
 
-const davFetch: typeof fetch = (input, init) =>
-  fetch(input, { ...init, signal: AbortSignal.timeout(davTimeoutMs) });
+/** The waits before the second and third try of a read. */
+let davRetryMs = [500, 1_500];
+
+/** For tests: a server that fails, without sitting through the waits. */
+export function setDavRetry(ms: number[]): void {
+  davRetryMs = ms;
+}
+
+/** What only looks. A write that failed may have landed, and is never asked twice. */
+const READS = new Set(["GET", "PROPFIND", "REPORT", "OPTIONS"]);
+
+/**
+ * One request to the calendar server. A read that meets a 429, a 5xx or a
+ * dropped connection is asked again twice, the way a Gmail read is: the
+ * assistant's tool call used to fail on the first hiccup Google's CalDAV had.
+ * A request that ran out its time is not asked again; it already waited.
+ */
+const davFetch: typeof fetch = async (input, init) => {
+  const read = READS.has((init?.method ?? "GET").toUpperCase());
+  for (let attempt = 0; ; attempt++) {
+    const wait = read ? davRetryMs[attempt] : undefined;
+    try {
+      const res = await fetch(input, { ...init, signal: AbortSignal.timeout(davTimeoutMs) });
+      if (wait === undefined || !(res.status === 429 || res.status >= 500)) return res;
+    } catch (err) {
+      if (wait === undefined || (err as Error).name === "TimeoutError") throw err;
+    }
+    await new Promise((r) => setTimeout(r, wait));
+  }
+};
 
 async function connect() {
   const config = await calendarConfig();
@@ -108,10 +136,61 @@ async function connect() {
   });
 }
 
+/**
+ * The connected account and its calendars, kept for a few minutes.
+ *
+ * Connecting is tsdav's discovery, three PROPFINDs, and on Google a token trade
+ * of its own; listing the calendars is one more. Every calendar call did all of
+ * it again. Kept per config, so a password changed or a Google sign-in redone
+ * starts fresh, and forgotten after any call that failed, so a server that
+ * moved things is asked again rather than trusted.
+ */
+const ACCOUNT_FOR_MS = 5 * 60_000;
+type Dav = Awaited<ReturnType<typeof connect>>;
+type Calendars = Awaited<ReturnType<Dav["fetchCalendars"]>>;
+let account: {
+  key: string;
+  at: number;
+  answer: Promise<{
+    client: Dav;
+    calendars: Calendars;
+  }>;
+} | null = null;
+
+async function withAccount<T>(
+  fn: (a: Awaited<NonNullable<typeof account>["answer"]>) => Promise<T>,
+): Promise<T> {
+  const key = JSON.stringify(await calendarConfig());
+  if (!account || account.key !== key || Date.now() - account.at > ACCOUNT_FOR_MS) {
+    account = {
+      key,
+      at: Date.now(),
+      answer: connect().then(async (client) => ({
+        client,
+        calendars: await client.fetchCalendars(),
+      })),
+    };
+  }
+  const held = account;
+  try {
+    return await fn(await held.answer);
+  } catch (err) {
+    if (account === held) account = null;
+    throw err;
+  }
+}
+
 /** Events in a window, across every calendar the account has. */
 export async function events(start: Date, end: Date): Promise<CalendarEvent[]> {
-  const client = await connect();
-  const calendars = await client.fetchCalendars();
+  return withAccount(({ client, calendars }) => eventsIn(client, calendars, start, end));
+}
+
+async function eventsIn(
+  client: Dav,
+  calendars: Calendars,
+  start: Date,
+  end: Date,
+): Promise<CalendarEvent[]> {
   const out: CalendarEvent[] = [];
   for (const calendar of calendars) {
     const objects = await client.fetchCalendarObjects({
@@ -170,8 +249,14 @@ export interface EventFields {
 
 /** A new event on the account's first calendar, as a file of its own. */
 export async function put(event: EventFields): Promise<{ uid: string }> {
-  const client = await connect();
-  const calendars = await client.fetchCalendars();
+  return withAccount(({ client, calendars }) => putIn(client, calendars, event));
+}
+
+async function putIn(
+  client: Dav,
+  calendars: Calendars,
+  event: EventFields,
+): Promise<{ uid: string }> {
   // Google lists the primary calendar under the account's own address, and
   // not necessarily first; a shared or holiday calendar is no place for this.
   const user = (await calendarConfig())?.user;
@@ -179,11 +264,14 @@ export async function put(event: EventFields): Promise<{ uid: string }> {
     calendars.find((c) => user && c.url.includes(encodeURIComponent(user))) ?? calendars[0];
   if (!calendar) throw new CalendarUnavailable("the account has no calendar to write to");
   const uid = `vk-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  await client.createCalendarObject({
+  // Checked, as a change and a delete are: tsdav hands back the response
+  // rather than throwing, and an event the server refused was reported made.
+  const res = await client.createCalendarObject({
     calendar,
     filename: `${uid}.ics`,
     iCalString: ics({ ...event, uid }),
   });
+  if (!res.ok) throw new Error(`the calendar server refused the new event: ${res.status}`);
   return { uid };
 }
 
@@ -196,8 +284,10 @@ const DAY = 86_400_000;
  * has ever held, which is every event anybody asks to move.
  */
 async function find(uid: string) {
-  const client = await connect();
-  const calendars = await client.fetchCalendars();
+  return withAccount(({ client, calendars }) => findIn(client, calendars, uid));
+}
+
+async function findIn(client: Dav, calendars: Calendars, uid: string) {
   const holds = (data: unknown): data is string =>
     typeof data === "string" && parseIcs(data).some((e) => e.uid === uid);
   const found = (object: Awaited<ReturnType<typeof client.fetchCalendarObjects>>[number]) => {
@@ -279,6 +369,8 @@ export async function update(
 ): Promise<CalendarEvent> {
   const found = await find(uid);
   const { data } = found;
+  // What it was, so the change can be put back from the log (see restore).
+  await keep(uid, data);
   if (found.series) {
     if (!target.every && !target.occurrence) throw new CalendarRefused(WHICH);
     const listed = target.occurrence ? await listedOccurrence(uid, target.occurrence) : null;
@@ -390,6 +482,30 @@ async function keep(uid: string, data: string): Promise<void> {
   await fs.mkdir(calendarTrashDir(), { recursive: true });
   const name = uid.replace(/[^A-Za-z0-9._@-]/g, "_").slice(0, 100);
   await fs.writeFile(path.join(calendarTrashDir(), `${Date.now()}-${name}.ics`), data);
+}
+
+/**
+ * An event put back as it was before a change: the newest copy `keep` wrote
+ * of it no later than `before`. What it is now is kept first, so putting it
+ * back can itself be put back. Only a change: an event that is gone has
+ * nothing to write over, and its copy is a file to import.
+ */
+export async function restore(uid: string, before: string): Promise<CalendarEvent> {
+  const name = uid.replace(/[^A-Za-z0-9._@-]/g, "_").slice(0, 100);
+  const limit = Date.parse(before) + 1_000;
+  let best: { at: number; file: string } | null = null;
+  for (const file of await fs.readdir(calendarTrashDir()).catch(() => [] as string[])) {
+    const m = /^(\d+)-(.+)\.ics$/.exec(file);
+    if (!m || m[2] !== name) continue;
+    const at = Number(m[1]);
+    if (at <= limit && (!best || at > best.at)) best = { at, file };
+  }
+  if (!best) throw new CalendarNotFound(`nothing is kept of ${uid} from before then`);
+  const data = await fs.readFile(path.join(calendarTrashDir(), best.file), "utf8");
+  const found = await find(uid);
+  await keep(uid, found.data);
+  await save(found, data);
+  return firstEvent(data);
 }
 
 /**

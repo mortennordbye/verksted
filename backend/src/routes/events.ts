@@ -36,7 +36,7 @@ const STALLED_MS = 60_000;
 /** Writes to one client, held back while it is not reading. Exported for its test. */
 export function paced(res: Writable): {
   ping: () => void;
-  send: (topic: string, json: string) => void;
+  send: (event: string, json: string, whole?: { event: string; json: string }) => void;
 } {
   const clogged = () => res.writableLength > HIGH_WATER;
   const write = (topic: string, json: string) => res.write(`event: ${topic}\ndata: ${json}\n\n`);
@@ -59,9 +59,14 @@ export function paced(res: Writable): {
       stalledSince ||= Date.now();
       if (Date.now() - stalledSince > STALLED_MS) res.destroy();
     },
-    send: (topic, json) => {
-      if (clogged() || held.size) held.set(topic, json);
-      else write(topic, json);
+    send: (event, json, whole) => {
+      if (!clogged() && !held.size) return void write(event, json);
+      // Held back: a change on its own is only good after the ones before it,
+      // so what is held is the whole answer, which is good on its own.
+      if (whole) {
+        held.delete(event);
+        held.set(whole.event, whole.json);
+      } else held.set(event, json);
     },
   };
 }

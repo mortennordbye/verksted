@@ -55,6 +55,38 @@ export async function record(entry: Omit<ToolLogEntry, "at">, now = new Date()):
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
+ * The calls the log can put back, and what each is put back from: a move from
+ * the uids the mail log has for where the messages landed, a relabel from the
+ * message ids it touched, a calendar change from the copy kept before it.
+ * Cards are not here: what a tapped card did is not a line of this log.
+ */
+export const UNDOABLE = new Set(["mail_move", "mail_relabel", "calendar_update"]);
+
+/** Which calls have been put back, by the `at` of the call. Not a `.jsonl`, so never a day. */
+function undonePath(): string {
+  return path.join(toolLogDir(), "undone.json");
+}
+
+export async function readUndone(): Promise<Record<string, string>> {
+  try {
+    return JSON.parse(await fs.readFile(undonePath(), "utf8")) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/** An entry's `at`, as `record` writes it. Anything else is not a key into the file. */
+const AT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+export async function markUndone(at: string, now = new Date()): Promise<void> {
+  if (!AT_RE.test(at)) throw new Error("not a log entry's time");
+  const undone = await readUndone();
+  undone[at] = now.toISOString();
+  await fs.mkdir(toolLogDir(), { recursive: true });
+  await fs.writeFile(undonePath(), JSON.stringify(undone));
+}
+
+/**
  * One day of the log as the settings page reads it, and which days there are.
  * No day means the newest one. A day is only ever a date, so the file it names
  * cannot be anything but a day's log. A line that does not parse costs that
@@ -70,10 +102,13 @@ export async function readDay(day?: string): Promise<ToolLogDay> {
   if (!shown || !DAY_RE.test(shown)) return { days, day: shown, entries: [] };
   const text = await fs.readFile(path.join(toolLogDir(), `${shown}.jsonl`), "utf8").catch(() => "");
   const entries: ToolLogEntry[] = [];
+  const undone = await readUndone();
   for (const line of text.split("\n")) {
     if (!line.trim()) continue;
     try {
-      entries.push(JSON.parse(line) as ToolLogEntry);
+      const entry = JSON.parse(line) as ToolLogEntry;
+      if (entry.ok && UNDOABLE.has(entry.tool)) entry.undo = undone[entry.at] ? "done" : "can";
+      entries.push(entry);
     } catch {
       // See above.
     }

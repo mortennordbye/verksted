@@ -24,6 +24,8 @@ export interface DavServer {
   objects: Map<string, DavObject>;
   requests: { method: string; url: string; body: string }[];
   hang: boolean;
+  /** The next requests of a method, answered with this status and nothing done. */
+  fail: { method: string; status: number; times: number } | null;
   close(): Promise<void>;
 }
 
@@ -54,6 +56,7 @@ export async function startDavServer(): Promise<DavServer> {
     objects: new Map(),
     requests: [],
     hang: false,
+    fail: null,
     close: async () => {
       for (const res of hanging) res.destroy();
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -69,6 +72,11 @@ export async function startDavServer(): Promise<DavServer> {
       state.requests.push({ method, url, body });
       if (state.hang) {
         hanging.push(res);
+        return;
+      }
+      if (state.fail && state.fail.method === method && state.fail.times > 0) {
+        state.fail.times--;
+        res.writeHead(state.fail.status).end();
         return;
       }
       const xml = (status: number, text: string) => {

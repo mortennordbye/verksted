@@ -60,6 +60,35 @@ describe("the event hub", () => {
     expect(sent.at(-1)![1]).toContain("waiting");
   });
 
+  it("sends the list whole once, then only the sessions that changed", async () => {
+    const pad = "x".repeat(2_000);
+    sessions.mockResolvedValue([
+      { id: "vk-demo-1", status: "running", pad },
+      { id: "vk-demo-2", status: "done", pad },
+      { id: "vk-demo-4", status: "done", pad },
+    ]);
+    subscribe(record);
+    await vi.advanceTimersByTimeAsync(0);
+    sessions.mockResolvedValue([
+      { id: "vk-demo-3", status: "running", pad },
+      { id: "vk-demo-1", status: "waiting", pad },
+      { id: "vk-demo-4", status: "done", pad },
+    ]);
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    const [event, json] = sent.at(-1)!;
+    expect(event).toBe("sessions-changed");
+    const change = JSON.parse(json);
+    expect(change.upsert.map((s: { id: string }) => s.id)).toEqual(["vk-demo-3", "vk-demo-1"]);
+    expect(change.remove).toEqual(["vk-demo-2"]);
+    expect(change.order).toEqual(["vk-demo-3", "vk-demo-1", "vk-demo-4"]);
+
+    // Someone joining now is handed the list whole, as it stands.
+    const joined: [string, string][] = [];
+    subscribe((e, j) => joined.push([e, j]));
+    expect(joined.find(([e]) => e === "sessions")![1]).toContain("vk-demo-3");
+  });
+
   it("computes once for every client attached, not once each", async () => {
     const other: [string, string][] = [];
     subscribe(record);

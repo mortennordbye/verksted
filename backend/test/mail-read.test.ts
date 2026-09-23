@@ -27,33 +27,40 @@ const SOURCE = [
   "",
 ].join("\r\n");
 
-vi.mock("imapflow", () => ({
-  ImapFlow: class {
-    async connect() {}
-    async logout() {}
-    async getMailboxLock() {
-      return { release() {} };
-    }
-    async fetchOne(_uid: string, query: Query) {
-      fetched.push(query);
-      return {
-        uid: 4,
-        flags: new Set<string>(),
-        envelope: {
-          subject: "The scan",
-          from: [{ name: "Kari", address: "kari@example.com" }],
-          to: [{ name: "Morten", address: "morten@example.com" }, { address: "post@example.com" }],
-        },
-        ...(query.bodyStructure ? { bodyStructure: structure } : {}),
-        ...(query.source ? { source: Buffer.from(SOURCE) } : {}),
-      };
-    }
-    async download(_uid: string, part: string, opts: { maxBytes?: number }) {
-      downloaded.push({ part, maxBytes: opts.maxBytes });
-      return { meta: {}, content: Readable.from([Buffer.from(partText)]) };
-    }
-  },
-}));
+vi.mock("imapflow", async () => {
+  // An EventEmitter, as the real one is: the kept connection listens for close.
+  const { EventEmitter } = await import("node:events");
+  return {
+    ImapFlow: class extends EventEmitter {
+      async connect() {}
+      async logout() {}
+      async getMailboxLock() {
+        return { release() {} };
+      }
+      async fetchOne(_uid: string, query: Query) {
+        fetched.push(query);
+        return {
+          uid: 4,
+          flags: new Set<string>(),
+          envelope: {
+            subject: "The scan",
+            from: [{ name: "Kari", address: "kari@example.com" }],
+            to: [
+              { name: "Morten", address: "morten@example.com" },
+              { address: "post@example.com" },
+            ],
+          },
+          ...(query.bodyStructure ? { bodyStructure: structure } : {}),
+          ...(query.source ? { source: Buffer.from(SOURCE) } : {}),
+        };
+      }
+      async download(_uid: string, part: string, opts: { maxBytes?: number }) {
+        downloaded.push({ part, maxBytes: opts.maxBytes });
+        return { meta: {}, content: Readable.from([Buffer.from(partText)]) };
+      }
+    },
+  };
+});
 
 const WITH_SCAN = {
   type: "multipart/mixed",

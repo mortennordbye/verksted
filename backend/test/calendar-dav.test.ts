@@ -53,6 +53,7 @@ beforeEach(() => {
   dav.objects.clear();
   dav.requests.length = 0;
   dav.hang = false;
+  dav.fail = null;
 });
 
 describe("the calendar over CalDAV", () => {
@@ -104,6 +105,42 @@ describe("the calendar over CalDAV", () => {
     expect(dav.requests.some((r) => r.method === "DELETE")).toBe(true);
     const kept = fs.readdirSync(calendar.calendarTrashDir());
     expect(kept.some((f) => f.includes("gone@x"))).toBe(true);
+  });
+
+  it("asks a read again when the server says not now (backlog)", async () => {
+    calendar.setDavRetry([0, 0]);
+    dav.objects.set(`${CALENDAR}dentist.ics`, { data: event("dentist@x", "Dentist"), etag: '"1"' });
+    dav.fail = { method: "REPORT", status: 503, times: 2 };
+    const found = await calendar.events(new Date("2026-01-01"), new Date("2027-01-01"));
+    expect(found.map((e) => e.summary)).toContain("Dentist");
+    expect(dav.requests.filter((r) => r.method === "REPORT").length).toBe(3);
+  });
+
+  it("never asks a write twice, since the first may have landed", async () => {
+    calendar.setDavRetry([0, 0]);
+    dav.fail = { method: "PUT", status: 503, times: 1 };
+    await expect(
+      calendar.put({ summary: "Once", start: "2026-10-01T10:00:00Z", end: "2026-10-01T11:00:00Z" }),
+    ).rejects.toThrow();
+    expect(dav.requests.filter((r) => r.method === "PUT").length).toBe(1);
+  });
+
+  it("finds the account and its calendars once, not on every call", async () => {
+    // Whatever an earlier case kept is still good; count from a clean slate.
+    await calendar.events(new Date("2026-01-01"), new Date("2026-01-02"));
+    dav.requests.length = 0;
+    await calendar.events(new Date("2026-01-01"), new Date("2026-01-02"));
+    await calendar.events(new Date("2026-02-01"), new Date("2026-02-02"));
+    expect(dav.requests.filter((r) => r.method === "PROPFIND")).toEqual([]);
+    expect(dav.requests.filter((r) => r.method === "REPORT").length).toBe(2);
+  });
+
+  it("puts a changed event back as it was before the change (backlog)", async () => {
+    dav.objects.set(`${CALENDAR}review.ics`, { data: event("review@x", "Review"), etag: '"1"' });
+    await calendar.update("review@x", { summary: "Design review" });
+    const back = await calendar.restore("review@x", new Date().toISOString());
+    expect(back.summary).toBe("Review");
+    expect(dav.objects.get(`${CALENDAR}review.ics`)?.data).toContain("SUMMARY:Review");
   });
 
   it("gives up on a server that accepts a request and never answers", async () => {

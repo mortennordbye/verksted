@@ -29,4 +29,30 @@ describe("listSessionsDetail", () => {
     process.env.PATH = "/nonexistent";
     await expect(listSessionsDetail()).rejects.toBeInstanceOf(TmuxUnavailableError);
   });
+
+  it("asks tmux once for callers asking at the same moment, and again after (root cause 4)", async () => {
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), "vk-tmux-bin-"));
+    const log = path.join(bin, "calls");
+    fs.writeFileSync(
+      path.join(bin, "tmux"),
+      `#!/bin/sh\necho ls >> "${log}"\nsleep 0.2\nprintf 'vk-a-1\\t1700000000\\t42\\n'\n`,
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${bin}:${realPath}`;
+    const calls = () => fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length;
+
+    const [a, b, c] = await Promise.all([
+      listSessionsDetail(),
+      listSessionsDetail(),
+      listSessionsDetail(),
+    ]);
+    expect(a).toEqual([{ name: "vk-a-1", activity: 1700000000, panePid: 42 }]);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    expect(calls()).toBe(1);
+
+    // Nothing is kept once it has answered: the next ask is a fresh look.
+    await listSessionsDetail();
+    expect(calls()).toBe(2);
+  });
 });
