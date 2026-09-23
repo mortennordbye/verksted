@@ -478,9 +478,16 @@ async function rebuild(log: Logger): Promise<void> {
       // includes one still sitting out its jitter.
       // Named so croner registers it in its own scheduledJobs list, which is
       // the only place a timer this map has lost track of would still show up.
+      // A blocked tick is logged: otherwise a firing that hangs takes every
+      // later one with it and says nothing.
       const job = new Cron(
         schedule.cron,
-        { name: schedule.id, protect: true, timezone: env.TZ },
+        {
+          name: schedule.id,
+          protect: () =>
+            log.warn(`schedule ${schedule.id} skipped: its last tick is still running`),
+          timezone: env.TZ,
+        },
         () => fire(schedule, log),
       );
       jobs.set(schedule.id, job);
@@ -504,7 +511,12 @@ export async function fire(schedule: Schedule, log: Logger): Promise<void> {
   // Stamped first, and regardless of what the checks below decide. Every one of
   // them is the schedule declining on purpose, and a boot that could not tell
   // those from a tick nobody was up for would re-run them.
+  // Both lines are there for a tick that went missing with the pod up: the
+  // first missing says the timer never fired, the second alone says the stamp's
+  // write hung (BACKLOG.md).
+  log.info(`schedule ${schedule.id} firing`);
   await schedules.stampFired(schedule.id);
+  log.info(`schedule ${schedule.id} stamped`);
   if (await declines(schedule, log)) return;
   if (!(await jitter(schedule.id, schedule.jitterMinutes))) {
     // Stamped before the wait, so without a record this tick is accounted for
