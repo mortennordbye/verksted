@@ -906,7 +906,9 @@ export function findDetail(text: string, ref: string): FoundDetail {
   let failed = false;
 
   for (const line of text.split("\n")) {
-    if (!line.startsWith("{")) continue;
+    // Before the parse, which is the cost: a line not naming the call cannot
+    // hold it, and the route allows only [A-Za-z0-9_-], which JSON never escapes.
+    if (!line.startsWith("{") || !line.includes(ref)) continue;
     let entry: Entry;
     try {
       entry = JSON.parse(line) as Entry;
@@ -1074,8 +1076,11 @@ export function findImage(text: string, ref: string): { mediaType: string; data:
   // A picture pasted into a person's turn has no tool call to be named by, so
   // it is named by the turn's uuid and its place among that turn's images.
   const pasted = /^(.+)_(\d+)$/.exec(ref);
+  // As in findDetail: skip a line before parsing it, base64 and all, unless it
+  // names the turn or the call. The turn's uuid is a prefix of ref.
+  const needle = pasted?.[1] ?? ref;
   for (const line of text.split("\n")) {
-    if (!line.startsWith("{")) continue;
+    if (!line.startsWith("{") || !line.includes(needle)) continue;
     let entry: Entry;
     try {
       entry = JSON.parse(line) as Entry;

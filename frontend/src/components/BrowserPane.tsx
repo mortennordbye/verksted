@@ -9,6 +9,7 @@ import type { BrowserClientMsg, BrowserServerMsg, ListeningPort } from "../../..
 import { api } from "../api";
 import Button from "./ui/Button";
 import Icon from "./Icon";
+import Notice from "./ui/Notice";
 
 // The on-screen keyboard relay keeps a sentinel in the hidden input so
 // Backspace always changes the value (and therefore always fires oninput).
@@ -226,19 +227,19 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
       <div className="flex items-center gap-1.5 border-b border-line bg-surface px-2 py-1.5 font-mono text-[11.5px]">
         <Button
           onClick={() => send({ t: "back" })}
-          title="back"
+          aria-label="back"
           size="xs"
           className="hidden min-[800px]:block"
         >
-          ←
+          <Icon name="back" size={12} />
         </Button>
         <Button
           onClick={() => send({ t: "forward" })}
-          title="forward"
+          aria-label="forward"
           size="xs"
           className="hidden min-[800px]:block"
         >
-          →
+          <Icon name="forward" size={12} />
         </Button>
         <Button onClick={() => send({ t: "reload" })} aria-label="reload" size="xs">
           <Icon name="reload" size={12} />
@@ -330,9 +331,9 @@ export default function BrowserPane({ wsPath }: { wsPath: string }) {
         </div>
       )}
       {error && (
-        <div className="border-b border-line bg-surface px-2.5 py-1 text-[11.5px] text-wait">
+        <Notice kind="fail" small className="rounded-none">
           {error}
-        </div>
+        </Notice>
       )}
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden bg-black">
         {/* On-screen keyboard relay: focusing this summons the mobile keyboard;

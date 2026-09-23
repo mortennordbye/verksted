@@ -35,8 +35,8 @@ export async function writeJsonAtomic(
  * conversation at all — which is worse than unparseable JSON, because the
  * reader's answer to that is to start a new one.
  */
-export async function writeTextAtomic(target: string, text: string): Promise<void> {
-  await writeAtomic(target, text);
+export async function writeTextAtomic(target: string, text: string, mode?: number): Promise<void> {
+  await writeAtomic(target, text, mode);
 }
 
 async function writeAtomic(target: string, body: string, mode?: number): Promise<void> {

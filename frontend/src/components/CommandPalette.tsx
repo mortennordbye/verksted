@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import type { DocHit, FeedItem, Project, Session } from "../../../shared/api";
 import { api, usePoll } from "../api";
+import PollError from "./PollError";
 import { openShortcuts } from "../palette";
 import Skeleton from "./Skeleton";
 import Overlay from "./ui/Overlay";
@@ -58,9 +59,20 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
 
-  const { data: projects } = usePoll<Project[]>("/api/projects", 30_000);
-  const { data: sessions } = usePoll<Session[]>("/api/sessions", 30_000);
-  const { data: feed } = usePoll<FeedItem[]>("/api/feed", 120_000);
+  const projectsPoll = usePoll<Project[]>("/api/projects", 30_000);
+  const sessionsPoll = usePoll<Session[]>("/api/sessions", 30_000);
+  const feedPoll = usePoll<FeedItem[]>("/api/feed", 120_000);
+  const { data: projects } = projectsPoll;
+  const { data: sessions } = sessionsPoll;
+  const { data: feed } = feedPoll;
+  // A failed read is said, or "nothing matches" would stand in for it.
+  const failed = (
+    [
+      [projectsPoll, "the projects"],
+      [sessionsPoll, "the sessions"],
+      [feedPoll, "the inbox"],
+    ] as const
+  ).filter(([poll]) => poll.error);
 
   // Held with the query it answers, so a stale answer is never drawn under a
   // query it was not for, and nothing has to be cleared when the query changes.
@@ -181,6 +193,13 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
           className="flex-none border-b border-line bg-transparent px-4 py-3.5 text-[14px] outline-none placeholder:text-faint"
         />
         <Command.List className="min-h-0 flex-1 overflow-y-auto py-1">
+          {failed.length > 0 && (
+            <div className="px-4 pt-2">
+              {failed.map(([poll, what]) => (
+                <PollError key={what} error={poll.error} what={what} retry={poll.refresh} />
+              ))}
+            </div>
+          )}
           {groups.map((g) => (
             <Command.Group
               key={g.heading}
@@ -202,7 +221,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
               ))}
             </Command.Group>
           ))}
-          {!loading && groups.length === 0 && !searchingDocs && (
+          {!loading && groups.length === 0 && !searchingDocs && failed.length === 0 && (
             <div className="px-4 py-3 text-[13px] text-faint">nothing matches</div>
           )}
           {(loading || searchingDocs) && (

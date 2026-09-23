@@ -3,6 +3,7 @@ import type { CalendarEvent } from "../../../../shared/api";
 import { api } from "../../api";
 import { SkeletonList } from "../Skeleton";
 import { dockBtn } from "./Dock";
+import Notice from "../ui/Notice";
 
 /** Local midnight of a date: the grid's days are the bench's days. */
 function midnight(d: Date, plusDays = 0): Date {
@@ -85,7 +86,11 @@ export default function Month({ refresh }: { refresh: number }) {
           ›
         </button>
       </div>
-      {error && <div className="mb-2 text-[12.5px] text-fail">{error}</div>}
+      {error && (
+        <Notice kind="fail" className="mb-2">
+          {error}
+        </Notice>
+      )}
 
       <div className="grid grid-cols-7 gap-px overflow-hidden rounded-xl bg-line ring-1 ring-line">
         {days.slice(0, 7).map((d) => (

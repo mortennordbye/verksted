@@ -181,9 +181,9 @@ function Need({
           onClick={onDismiss}
           title="nothing to do here; ask again if it changes"
           aria-label="dismiss"
-          className="tap flex-none px-2.5 py-2 text-muted hover:text-wait"
+          className="tap-sq flex flex-none items-center justify-center px-2.5 py-2 text-muted hover:text-wait"
         >
-          ×
+          <Icon name="close" size={14} />
         </button>
       )}
     </div>
@@ -707,9 +707,9 @@ export default function Today() {
                           onClick={() => void closeLoop(l.slug, l.what)}
                           title="close this loop"
                           aria-label={`close ${l.what}`}
-                          className="tap flex-none px-2.5 py-2 text-muted hover:text-wait"
+                          className="tap-sq flex flex-none items-center justify-center px-2.5 py-2 text-muted hover:text-wait"
                         >
-                          ×
+                          <Icon name="close" size={14} />
                         </button>
                       </div>
                     );

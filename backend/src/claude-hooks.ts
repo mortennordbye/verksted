@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 
 // Session-status hooks for Claude Code, passed via `claude --settings <file>`
@@ -152,7 +152,9 @@ const home = () => process.env.HOME ?? "/data/home";
 /** The session browser's MCP server, as a script both codex and agy can name. */
 export async function ensureBrowserMcpScript(): Promise<string> {
   const file = path.join(env.SESSIONS_DIR, "browser-mcp.sh");
-  await fs.writeFile(
+  // Atomic: a codex or agy session starting while another launch rewrites it
+  // would run a half-written script (R-17).
+  await writeTextAtomic(
     file,
     [
       "#!/bin/sh",
@@ -162,7 +164,7 @@ export async function ensureBrowserMcpScript(): Promise<string> {
       'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"',
       "",
     ].join("\n"),
-    { mode: 0o755 },
+    0o755,
   );
   return file;
 }

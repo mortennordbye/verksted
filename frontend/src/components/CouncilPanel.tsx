@@ -11,6 +11,7 @@ import Skeleton from "./Skeleton";
 import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
 import { playSample, voiceLabel } from "../useSpeech";
 import Button from "./ui/Button";
+import Notice from "./ui/Notice";
 import { Input, Select, Textarea } from "./ui/Field";
 import { useConfirm } from "../useConfirm";
 
@@ -342,9 +343,9 @@ export default function CouncilPanel() {
       </div>
 
       {error && (
-        <div className="mb-2 rounded-[9px] border border-fail/40 bg-fail/10 px-3 py-2 text-[13px]">
+        <Notice kind="fail" className="mb-2">
           {error}
-        </div>
+        </Notice>
       )}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
