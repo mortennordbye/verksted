@@ -285,3 +285,21 @@ describe("triage", () => {
     expect(await jobs.runTriage(log, false, t0 + 11 * 60_000)).toBe(1);
   });
 });
+
+describe("loops past a year", () => {
+  it("prunes a loop closed before the cutoff, never an open one", async () => {
+    const old = await loops.open({ what: "closed long ago" });
+    await loops.close(old.slug);
+    const file = path.join(process.env.LOOPS_DIR!, `${old.slug}.json`);
+    const record = JSON.parse(fs.readFileSync(file, "utf8"));
+    fs.writeFileSync(file, JSON.stringify({ ...record, closedAt: "2025-01-01T00:00:00.000Z" }));
+    const recent = await loops.open({ what: "closed today" });
+    await loops.close(recent.slug);
+    const open = await loops.open({ what: "still open" });
+
+    expect(await loops.pruneClosed(Date.parse("2025-06-01T00:00:00.000Z"))).toBe(1);
+    expect((await loops.list("all")).map((l) => l.slug).sort()).toEqual(
+      [recent.slug, open.slug].sort(),
+    );
+  });
+});

@@ -9,6 +9,16 @@ import { archiveOldSessions, reapFinishedSessions } from "./session-reaper.js";
 import { backfillUsage } from "./sessions-store.js";
 import { pruneAssistant } from "./assistant-retention.js";
 import type { Logger } from "./logger.js";
+import * as loops from "./loops-store.js";
+import { prunePlanHistory } from "./plan.js";
+
+/**
+ * How long the plan samples and the closed loops are kept (R-08). A year: both
+ * are small, and "what was I waiting on last spring" is a fair question. The
+ * session archive is not pruned at all, since the usage page's all-time
+ * totals are made of it.
+ */
+const HISTORY_RETAIN_DAYS = 365;
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -111,6 +121,16 @@ export function startMaintenance(log: Logger): void {
       await pruneAssistant(log);
     } catch (err) {
       log.warn(err, "assistant prune failed");
+    }
+    try {
+      const before = Date.now() - HISTORY_RETAIN_DAYS * 24 * 60 * 60_000;
+      const samples = await prunePlanHistory(before);
+      const closed = await loops.pruneClosed(before);
+      if (samples || closed) {
+        log.info(`pruned ${samples} plan sample(s) and ${closed} closed loop(s) past a year`);
+      }
+    } catch (err) {
+      log.warn(err, "history prune failed");
     }
     try {
       const n = await feed.sweep();

@@ -3,7 +3,7 @@
 # Dependabot raises two kinds of PR: version updates on the weekly schedule in
 # dependabot.yml, and security updates the moment an advisory lands against
 # something in the lockfile. This queues both for merge as soon as the `test`
-# job passes, so long as the change is not a major.
+# job passes, so long as the change is not a major or an agent CLI.
 #
 # `--auto` is the whole safety story: it does not merge, it asks GitHub to merge
 # once required checks pass. The ruleset on main requires `test`, `e2e`,
@@ -13,6 +13,11 @@
 #
 # What lands here is also never newer than a week: dependabot.yml holds every
 # ecosystem for seven days before offering a release.
+#
+# The agent CLIs (runtime/cli: claude, codex, playwright-mcp) are excluded too,
+# grouped or not (O-05). They are the pod's runtime rather than code CI builds,
+# and tui-prompt.ts reads claude's screen: a release that redraws a dialog
+# passes every check here and still breaks the pod. Those wait for a person.
 #
 # Majors are excluded deliberately. That includes the rare security fix that only
 # ships in a major; those stay open for a human, which is the right call when the
@@ -42,7 +47,9 @@ jobs:
       - uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
         id: meta
 
-      - if: steps.meta.outputs.update-type != 'version-update:semver-major'
+      - if: >-
+          steps.meta.outputs.update-type != 'version-update:semver-major' &&
+          steps.meta.outputs.directory != '/runtime/cli'
         run: gh pr merge --auto --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

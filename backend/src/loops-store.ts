@@ -118,6 +118,17 @@ export async function reopen(slug: string): Promise<Loop | null> {
   return loop;
 }
 
+/** Delete the loops closed before `beforeMs` (R-08). An open loop is kept however old. */
+export async function pruneClosed(beforeMs: number): Promise<number> {
+  let n = 0;
+  for (const loop of await readAll()) {
+    if (loop.state !== "closed" || !loop.closedAt) continue;
+    if (!(Date.parse(loop.closedAt) < beforeMs)) continue;
+    if (await remove(loop.slug)) n++;
+  }
+  return n;
+}
+
 export async function remove(slug: string): Promise<boolean> {
   if (!SLUG_RE.test(slug)) return false;
   try {

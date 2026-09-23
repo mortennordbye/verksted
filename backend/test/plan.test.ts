@@ -95,6 +95,15 @@ describe("plan history", () => {
     expect(await plan.planHistory(0)).toHaveLength(2);
   });
 
+  it("prunes the samples before the cutoff, and the torn line with them", async () => {
+    // The file the test above left: one old sample, one recent, one torn line.
+    expect(await plan.prunePlanHistory(Date.parse("2026-08-22T00:00:00.000Z"))).toBe(2);
+    expect(await plan.planHistory(0)).toEqual([
+      { at: "2026-08-29T11:00:00.000Z", session: 47, week: 30 },
+    ]);
+    expect(await plan.prunePlanHistory(Date.parse("2026-08-22T00:00:00.000Z"))).toBe(0);
+  });
+
   it("is empty before the first sample", async () => {
     process.env.USAGE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-usage-empty-"));
     // env is read at import, so this exercises the missing-file path via a
