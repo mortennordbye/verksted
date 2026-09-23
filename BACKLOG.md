@@ -317,32 +317,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
 
-## Pick a window-size policy for two clients on one session
-
-- **What:** Two clients on one session share one geometry. The default
-  `window-size latest` means the most recently attached client wins, so opening
-  a session on the phone snaps the desktop terminal to phone width until the
-  phone detaches, and agent TUIs redraw their boxes at the smaller size.
-- **Why deferred:** The grouped-session fix this entry used to propose does not
-  work, and that is now checked rather than assumed. `tmux new-session -t <id>
--s <id>-view-1` puts the new session in the same group, and
-  `list-windows -a` shows both sessions on the _same window_ (`@0`) at one
-  size — a session group shares window objects, so a per-client session buys no
-  per-client geometry. Nothing in tmux can: one pane is one screen buffer, and
-  every client viewing it sees the same render. `aggressive-resize` does not
-  help either, for the reason already recorded — it only separates clients whose
-  _current_ windows differ.
-- **Unblocked by:** A product call, since the only lever is which client loses.
-  `window-size largest` keeps the desktop intact and gives the phone a cropped
-  viewport onto a wider window; `smallest` is today's complaint made permanent;
-  `latest` is the current behaviour, where whichever device you just picked up
-  renders correctly and the other is wrong until it detaches. Given the phone is
-  the device this app is mostly used from, `latest` may already be the least-bad
-  default — which would make this entry a decision to close rather than code to
-  write.
-- **Where:** `backend/src/tmux.ts` (`newSession` would set the option),
-  `backend/src/ws/attach.ts` (the `attach-session` argv)
-
 ## Per-file selection and a dry run for repo-wide replace
 
 - **What:** `POST /api/projects/:name/replace` still rewrites every match in one
@@ -770,23 +744,6 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
   `design/mock-inbox.html`.
 
-## Whether the money advisor should read the web at all
-
-- **What:** Ariel's remit is the money, read from headroom, and her headroom
-  server is granted separately from her verksted tools. Her seed keeps the web
-  off; the member on the pod has it on, which costs her every private tool
-  including `recall` (see the entry above) and buys her a page she has no remit
-  to fetch. Sophia is the one whose whole remit is the web. The same question
-  applies to the seed: `status` is not private and Ariel's seed holds it, but
-  the member on the pod does not, so the two have drifted.
-- **Why deferred:** It is a decision about what that advisor is for, not a bug,
-  and it is one tap on the settings page either way. Changing the seed would not
-  touch the member already on the volume — seeding never rewrites one.
-- **Unblocked by:** Deciding. Turning her web off gives her back the bench state
-  and her recall; leaving it on keeps her able to look up a rate or a price.
-- **Where:** `backend/src/council-store.ts` (`SEEDS`), and the member file at
-  `$COUNCIL_DIR/ariel.json` on the pod, which the settings page edits.
-
 ## What a tapped card did cannot be put back from the log
 
 - **What:** A move, a relabel and a calendar change the assistant made itself
@@ -882,18 +839,6 @@ what unblocks it / where the code lives.
   an egress NetworkPolicy.
 - **Where:** `backend/src/agent-user.ts`, `agent-gate.ts`, `agent-setup.ts`,
   `Dockerfile`; Homelab `k8s/talos/apps/verksted/deployment.yaml`.
-
-## main's ruleset lets an admin push past it
-
-- **What:** O-18 in the audit. The ruleset on `main` requires four checks but
-  allows admin bypass and does not require a pull request, while the
-  dependabot auto-merge workflow's safety comment leans on it as the gate.
-- **Why deferred:** Requiring a PR for admins as well changes how the owner
-  works on this repo, which is theirs to decide rather than a fix to make.
-- **Unblocked by:** The owner's call on removing the bypass and requiring a PR.
-  Then `gh api -X PUT repos/mortennordbye/verksted/rulesets/20606001` with the
-  pull_request rule added and `bypass_actors` emptied.
-- **Where:** GitHub repository settings; `.github/workflows/dependabot-auto-merge.yml`.
 
 ## Whether the e2e flake is gone is not yet known
 

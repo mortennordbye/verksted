@@ -76,6 +76,10 @@ export default async function attachRoutes(app: FastifyInstance) {
       ];
     } else {
       // "=" pins tmux to the exact name — never prefix-match the companion.
+      // Two clients on one session share one size, tmux's default `latest`:
+      // the device just picked up renders right and the other is wrong until
+      // it detaches. Chosen over `largest`, which crops the phone, the device
+      // this is mostly used from. Nothing in tmux gives each its own.
       args = ["-u", "attach-session", "-t", `=${id}`];
     }
 
