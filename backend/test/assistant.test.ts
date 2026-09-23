@@ -447,6 +447,41 @@ describe("POST /api/assistant/messages, not waited for", () => {
     expect(thread.entries.map((e: { text: string }) => e.text)).toEqual(["one", "first"]);
   });
 
+  it("writes the queue to the volume, and asks it after a restart (backlog)", async () => {
+    fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
+    await ask("one");
+    await ask("waiting through a restart");
+    const file = path.join(assistantDir, "queue.json");
+    await vi.waitFor(() =>
+      expect(JSON.parse(fs.readFileSync(file, "utf8"))).toMatchObject([
+        { text: "waiting through a restart" },
+      ]),
+    );
+    await settled();
+    await vi.waitFor(() => expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual([]));
+
+    // What a pod killed mid-turn leaves behind, read back by the next one.
+    fs.writeFileSync(
+      file,
+      JSON.stringify([
+        { id: "q1", text: "asked after the restart", images: [], roundTable: false },
+        { nonsense: true },
+      ]),
+    );
+    const { resumeQueue } = await import("../src/assistant.js");
+    expect(await resumeQueue()).toBe(1);
+    await vi.waitFor(
+      async () => {
+        const thread = (await app.inject({ url: "/api/assistant" })).json();
+        expect(thread.entries.map((e: { text: string }) => e.text)).toContain(
+          "asked after the restart",
+        );
+      },
+      { timeout: 5_000 },
+    );
+    await settled();
+  });
+
   it("still refuses a second turn to a caller waiting for the answer", async () => {
     fake.reply("claude", "-p", { stdout: run("first"), delayMs: 300 });
 

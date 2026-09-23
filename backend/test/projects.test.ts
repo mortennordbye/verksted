@@ -72,6 +72,22 @@ describe("POST /api/projects clone url validation", () => {
     }
   });
 
+  it("refuses a repo whose owner is on the blocked list", async () => {
+    await app.inject({
+      method: "PUT",
+      url: "/api/settings",
+      payload: { blockedOwners: ["clientco"] },
+    });
+    try {
+      for (const url of ["ClientCo/infra", "https://github.com/clientco/infra.git"]) {
+        const res = await clone(url);
+        expect(res.statusCode, url).toBe(403);
+      }
+    } finally {
+      await app.inject({ method: "PUT", url: "/api/settings", payload: { blockedOwners: [] } });
+    }
+  });
+
   it("still accepts an ordinary shorthand and a github url", async () => {
     // Reaching a non-400 means validation passed; the clone itself then fails
     // without a network or a token, which is not what this asserts.

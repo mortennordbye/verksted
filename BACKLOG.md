@@ -3,58 +3,6 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
-## Messages waiting for the chair are lost when the pod restarts
-
-- **What:** A message sent while a turn runs now waits on the server rather
-  than in the browser tab. It waits in memory, so a pod restart mid-turn
-  drops it.
-- **Why deferred:** A restart mid-turn already ends the turn itself. The tab
-  queue lost messages on every reload, which is the case that was hurting.
-- **Unblocked by:** Losing one this way. Then write the queue beside the thread
-  file and read it back at start.
-- **Where:** `backend/src/assistant.ts` (`chat.queued`, `ask`, `drain`).
-
-## A member seeded before a tool existed never gains it
-
-- **What:** Uriel on the pod holds `status, recall, list_memories, remember,
-forget, propose_memory` and none of the mail, calendar or document tools it
-  was written for. It was seeded when the council first shipped, and seeding
-  leaves an existing member exactly as it found it, so every tool added to
-  `SEEDS` since has reached a new bench and no old one. The mail tools this
-  branch adds land the same way: on the pod, the advisor that reads the mail
-  still cannot, until its tool list is set by hand on the settings page.
-- **Why deferred:** The rule that seeding never overwrites is the right one. A
-  member is a file a person edits from a phone, and a release that quietly put
-  tools back on one somebody had deliberately narrowed would be worse than this
-  is. Telling the two cases apart means recording what a member was seeded with,
-  which is a store change for a problem that has bitten once.
-- **Unblocked by:** Wanting a second advisor to gain a capability without
-  someone opening settings. Then keep the seeded tool list beside the member and
-  add only tools that are new to `SEEDS` since, leaving anything removed by hand
-  removed.
-- **Where:** `backend/src/council-store.ts` (`SEEDS`, `seedCouncil`, the
-  `.seeded` file), and the tools list on the settings page.
-
-## A blocked owner's maintainer queue is not blocked
-
-- **What:** The owner list on the settings page keeps GitHub notifications from
-  an employer's or a customer's org out of the feed. The other half of the
-  github source is the maintainer's queue, and its items are filed under the
-  local checkout's directory name (`demo #3: tidy the readme`) with no owner in
-  them, so the same check cannot be made. A customer repo cloned onto the pod
-  and given a maintainer schedule would still have its issue titles filed and
-  triaged.
-- **Why deferred:** It takes deliberately setting a nightly maintainer on a work
-  repo to reach, which is not a thing that happens by accident the way an inbox
-  notification does, and the fix means teaching `projects-store` what a
-  checkout's GitHub owner is — a git remote read on a path that currently
-  touches no network.
-- **Unblocked by:** Wanting a work repo on the bench at all. Then resolve each
-  project's owner from its `origin` remote once, cache it, and run the same
-  `blockedOwner` check in `pollQueue` (and, at that point, refuse the clone).
-- **Where:** `backend/src/pollers.ts` (`queueItems`, `pollQueue`,
-  `blockedOwner`), `backend/src/projects-store.ts`
-
 ## The phone screen may still end short with the keyboard up
 
 - **What:** The session shell is `dvh` with the keyboard down and `--vvh` with it
@@ -285,19 +233,6 @@ forget, propose_memory` and none of the mail, calendar or document tools it
   than a new subsystem.
 - **Where:** `backend/src/tts.ts`, `runtime/vk-say.py`, `frontend/src/useSpeech.ts`
   (`sortVoices`, which is what puts English first today)
-
-## Synthesis is not cached, so a reply read twice is made twice
-
-- **What:** Every request synthesises from scratch. The response carries a
-  five-minute private cache-control, so a browser re-reading the same reply may
-  reuse it, but nothing on the pod remembers anything — and the sample the
-  settings page plays is remade on every tap.
-- **Why deferred:** A reply is usually read once, and the cache that would help
-  is keyed on text plus voice, which is a store with an eviction policy for a
-  saving of about a second.
-- **Unblocked by:** Noticing the same sentences being made repeatedly — the
-  briefing is the likely one, since it says similar things every morning.
-- **Where:** `backend/src/tts.ts` (`synthesize`)
 
 ## What a session's work counts is the repo's movement, not the session's
 

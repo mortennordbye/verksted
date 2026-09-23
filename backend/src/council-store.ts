@@ -906,4 +906,44 @@ export async function seedCouncil(): Promise<void> {
     seeded.push(seed.id);
   }
   await writeJsonAtomic(marker, seeded);
+  await offerNewTools();
+}
+
+/**
+ * The tools each seed last offered its member, by id.
+ *
+ * Seeding never overwrites a member, which is right: it is a file a person
+ * edits from a phone. But it meant a tool added to a seed in a later release
+ * reached a new bench and never an old one. With what was offered last time on
+ * record, a tool new to the seed since is added, and one a person took away
+ * stays away, since it was offered before. A member with no record yet (a bench
+ * from before this file) is recorded as it stands and gains nothing this time.
+ */
+const SEEDED_TOOLS_FILE = ".seeded-tools";
+
+async function offerNewTools(): Promise<void> {
+  const file = path.join(env.COUNCIL_DIR, SEEDED_TOOLS_FILE);
+  let offered: Record<string, string[]>;
+  try {
+    offered = JSON.parse(await fs.readFile(file, "utf8")) as Record<string, string[]>;
+  } catch {
+    offered = {};
+  }
+  for (const seed of SEEDS) {
+    const member = await readMember(seed.id);
+    if (!member) continue;
+    const before = offered[seed.id];
+    const fresh = before
+      ? seed.tools.filter(
+          (t) =>
+            !before.includes(t) &&
+            !member.tools.includes(t) &&
+            // The web and anything private never sit together (validate).
+            !(member.web && PRIVATE_TOOLS.has(t)),
+        )
+      : [];
+    if (fresh.length) await saveMember({ ...member, tools: [...member.tools, ...fresh] });
+    offered[seed.id] = [...seed.tools];
+  }
+  await writeJsonAtomic(file, offered);
 }

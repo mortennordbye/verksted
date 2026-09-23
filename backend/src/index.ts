@@ -17,6 +17,7 @@ import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { seedCouncil } from "./council-store.js";
 import { startPlanHistory } from "./plan.js";
 import { startFeedWork } from "./assistant-jobs.js";
+import { resumeQueue } from "./assistant.js";
 import { reloadSchedules } from "./scheduler.js";
 import { startSweeper } from "./sweeper.js";
 import { restoreSessions } from "./session-launch.js";
@@ -86,6 +87,10 @@ startSweeper(app.log);
 startNotifier(app.log);
 startPollers(app.log);
 startFeedWork(app.log);
+// What was waiting for the chair when the pod went down.
+void resumeQueue()
+  .then((n) => n && app.log.info(`assistant: ${n} queued message(s) taken back after a restart`))
+  .catch((err: unknown) => app.log.warn(err, "the assistant's queue could not be read back"));
 startMaintenance(app.log);
 startNightlyBackup(app.log);
 // A pod killed mid-write leaves a temp file behind; sessions sweep theirs in

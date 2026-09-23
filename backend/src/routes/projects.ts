@@ -9,7 +9,8 @@ import { GIT_NO_REPO_CODE, git, worktreeParent } from "../git.js";
 import { PROJECT_NAME_RE, resolveInsideRepos } from "../paths.js";
 import { WorktreeError, addWorktree, listProjects } from "../projects-store.js";
 import * as store from "../sessions-store.js";
-import { execEnv } from "../settings-store.js";
+import { blockedOwner } from "../pollers.js";
+import { execEnv, readBlockedOwners } from "../settings-store.js";
 import { CLONE_NEEDS_BYTES, needRoom, perMinute } from "../limits.js";
 
 const GITHUB_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/;
@@ -62,6 +63,14 @@ export default async function projectRoutes(app: FastifyInstance) {
           !(GITHUB_URL_RE.test(url.replace(/\.git$/, "")) || REPO_SHORTHAND_RE.test(url))
         ) {
           return reply.code(400).send({ error: "invalid repo url" });
+        }
+        // A blocked owner's repo is not brought onto the bench at all: its
+        // issues would be the maintainer's queue, and its code a session's.
+        const repo = url.replace(/^https:\/\/github\.com\//, "").replace(/\.git$/, "");
+        if (blockedOwner(repo, await readBlockedOwners())) {
+          return reply
+            .code(403)
+            .send({ error: `${repo.split("/")[0]} is on the blocked owners list` });
         }
         const repoName = url
           .replace(/\.git$/, "")

@@ -890,6 +890,7 @@ export async function ask(
     throw new BusyError(`${MAX_QUEUED} messages are already waiting`);
   }
   chat.queued.push({ id: randomUUID(), text: prompt, images, roundTable });
+  saveQueue();
   announce();
   return { thread: await readThread(), done: null };
 }
@@ -899,8 +900,61 @@ export function unqueue(id: string): boolean {
   const at = chat.queued.findIndex((q) => q.id === id);
   if (at === -1) return false;
   chat.queued.splice(at, 1);
+  saveQueue();
   announce();
   return true;
+}
+
+/**
+ * The queue, on the volume beside the threads, so a pod restarted mid-turn
+ * still asks what was waiting behind it. Not a `.jsonl`, so the thread list and
+ * `search` never read it as a conversation.
+ */
+function queuePath(): string {
+  return path.join(env.ASSISTANT_DIR, "queue.json");
+}
+
+const queueWrites = keyedQueue();
+
+/** Written after every change, the latest state each time; one write at a time. */
+function saveQueue(): void {
+  void queueWrites("queue", () => writeJsonAtomic(queuePath(), chat.queued)).catch(() => {
+    // The queue in memory is still right; only a restart before the next
+    // change would lose it, which is how it always was.
+  });
+}
+
+function isQueued(v: unknown): v is ChatState["queued"][number] {
+  const q = v as ChatState["queued"][number];
+  return (
+    typeof q?.id === "string" &&
+    typeof q.text === "string" &&
+    Array.isArray(q.images) &&
+    q.images.every((i) => typeof i === "string") &&
+    typeof q.roundTable === "boolean"
+  );
+}
+
+/**
+ * At boot: take back what was waiting when the pod went down, and ask the
+ * first of it. The turn it was waiting behind ended with the pod.
+ */
+export async function resumeQueue(): Promise<number> {
+  let saved: unknown;
+  try {
+    saved = JSON.parse(await fs.readFile(queuePath(), "utf8"));
+  } catch {
+    return 0;
+  }
+  if (!Array.isArray(saved)) return 0;
+  chat.queued = saved.filter(isQueued).slice(0, MAX_QUEUED);
+  const taken = chat.queued.length;
+  saveQueue();
+  if (taken) {
+    announce();
+    drain();
+  }
+  return taken;
 }
 
 /**
@@ -911,6 +965,7 @@ function drain(): void {
   if (chat.turn) return;
   const next = chat.queued.shift();
   if (!next) return;
+  saveQueue();
   begin(next.text, next.images, next.roundTable).then(
     ({ done }) => done.catch(() => undefined),
     async (err: unknown) => {
