@@ -115,33 +115,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/claude-hooks.ts` (`ensureMcpConfig`, pattern to copy),
   `backend/src/sessions-store.ts` (`createSession`)
 
-## The dind sidecar's data mount has never been checked in the pod
-
-- **What:** Both halves are merged — `docker-compose.yml` mounts the data volume
-  into the `dind` service at `/data`, and Homelab #550 does the same for the
-  pod's sidecar — but only the dev half has been exercised. Unverified in the
-  pod: that the PVC really mounts into the sidecar (ReadWriteOnce, now claimed
-  by two containers in one pod), and that a bind mount from a session then
-  reaches the same files across NFS rather than a stale or empty view.
-- **Why deferred:** Needs the ArgoCD sync and a session in the real pod.
-- **Unblocked by:** `vk doctor` in a pod session, in a repo that has files in
-  it, reporting the bind-mount probe ok.
-- **Where:** Homelab repo `k8s/talos/apps/verksted/deployment.yaml`; this repo
-  `runtime/vk`, `docker-compose.yml` (the `dind` service)
-
-## File watching over the NFS PVC is unverified
-
-- **What:** With the sidecar mount above, a session can bind-mount its repo into
-  a dev container for hot reload. Whether inotify events cross the NFS volume
-  from the writing container to the watching one has never been checked in the
-  pod. If they do not, every watch-based dev server in a session needs polling,
-  and `SANDBOX.md` should say so as fact rather than as a caveat.
-- **Why deferred:** Needs the sidecar mount deployed first; unanswerable from a
-  laptop, where the data volume is local and inotify works.
-- **Unblocked by:** One session in the pod running a bind-mounted vite or tsx
-  watch and editing a file from the terminal.
-- **Where:** `runtime/SANDBOX.md` ("File watching")
-
 ## agy gets neither the sandbox note nor the house rules
 
 - **What:** `sandbox-doc.ts` writes to claude (`~/.claude/CLAUDE.md`) and codex
@@ -847,20 +820,17 @@ what unblocks it / where the code lives.
   session, kill, the terminal's shell sibling) forget it.
 - **Where:** `backend/src/tmux.ts` (`listSessionsDetail`), `backend/src/ws/attach.ts`.
 
-## The restore has never been rehearsed
+## Where the backups go offsite is not written down
 
-- **What:** O-03 in the audit. `vk backup` runs nightly and every run reads its
-  own manifest back, but no archive has ever been restored somewhere and looked
-  at. The backup target is a share on the same NAS as the PVC, and where that
-  NAS copies offsite, if anywhere, is not written down here.
-- **Why deferred:** It needs the pod and the NAS, not code. RUNBOOK.md now has
-  the steps.
-- **Unblocked by:** One `vk restore <archive> --target /tmp/restore-drill` from a
-  pod session, a look at what came back, and a line here (or in RUNBOOK.md)
-  with the date, the archive and what was checked. And a sentence on where the
-  NAS copy goes offsite.
-- **Where:** `RUNBOOK.md`, `runtime/vk` (`restore`), Homelab's NAS and backup
-  configuration.
+- **What:** O-03 in the audit. The restore itself has been rehearsed (RUNBOOK.md,
+  2026-09-23). What is left is that the backup target is a share on the same NAS
+  as the PVC, so one NAS failure takes both, and whether that NAS copies
+  anywhere else is not recorded here.
+- **Why deferred:** It is the NAS's configuration, not this repo's.
+- **Unblocked by:** Looking at the NAS's own backup tasks (Hyper Backup or a
+  cloud sync) and writing one sentence in RUNBOOK.md on where the copy goes, or
+  setting one up.
+- **Where:** `RUNBOOK.md` ("Restore from a backup"), Homelab's NAS configuration.
 
 ## The pod's backups are written unencrypted
 

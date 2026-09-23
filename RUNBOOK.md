@@ -28,8 +28,17 @@ an NFS mount off the NAS.
 
 **A drill, without touching anything live:** `vk restore <archive> --target
 /tmp/restore-drill` from a session terminal, then look at what came back (the
-repos, `settings.json`, `home/.claude`). No drill has been recorded yet; see
-BACKLOG, "The restore has never been rehearsed".
+repos, `settings.json`, `home/.claude`), and delete the copy: it holds every
+credential.
+
+Drills so far:
+
+- **2026-09-23**, `verksted-20260923-033000.tar.gz` (951 MB, written 01:30 by
+  image 0.0.1790104211): checksum verified, 1.3 GB restored in 17 s. All 8 repos
+  are git repositories with no `fsck --connectivity-only` errors; `settings.json`
+  parses with its 18 vars; the claude login, 159 session files (162 live, the
+  rest newer than the archive) and both assistant threads came back. Copy
+  removed.
 
 ## Roll back to an earlier image
 
