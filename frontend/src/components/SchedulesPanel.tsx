@@ -6,6 +6,7 @@ import type {
   MaintainerStage,
   Project,
   Schedule,
+  ScheduleTrigger,
   Settings as SettingsInfo,
   UnattendedRun,
 } from "../../../shared/api";
@@ -166,6 +167,40 @@ function CronField({
   );
 }
 
+/** What each trigger is called on screen. */
+const TRIGGERS: Record<ScheduleTrigger, string> = {
+  review: "a PR wants my review",
+  pr: "a PR opened",
+  "ci-failed": "CI failed",
+};
+
+/**
+ * What else fires a schedule besides its cron: something on GitHub in the
+ * schedule's repo. With one chosen the cron may be left empty.
+ */
+function TriggerField({
+  value,
+  onChange,
+}: {
+  value: ScheduleTrigger | null;
+  onChange: (trigger: ScheduleTrigger | null) => void;
+}) {
+  return (
+    <Select
+      value={value ?? ""}
+      onChange={(e) => onChange((e.target.value || null) as ScheduleTrigger | null)}
+      label="trigger"
+    >
+      <option value="">no trigger</option>
+      {Object.entries(TRIGGERS).map(([t, label]) => (
+        <option key={t} value={t}>
+          {label}
+        </option>
+      ))}
+    </Select>
+  );
+}
+
 /**
  * The two schedules a bench wants on its first day, as buttons rather than
  * prompts to compose: the morning brief, which is the product, and the
@@ -266,6 +301,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     // A shipped maintainer stage instead of a prompt of its own; empty is a
     // prompt. Session schedules only.
     stage: "" as "" | MaintainerStage,
+    // Session schedules only: an assistant one has no repo to react to.
+    trigger: null as ScheduleTrigger | null,
   });
   const [open, setOpen] = useState<string | null>(null);
   /**
@@ -280,6 +317,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
     cron: string;
     jitterMinutes: number;
     prompt: string;
+    trigger: ScheduleTrigger | null;
   } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -304,7 +342,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
 
   const add = () =>
     run(async () => {
-      const { project: drafted, stage, ...rest } = draft;
+      const { project: drafted, stage, trigger, ...rest } = draft;
       await api("/api/schedules", {
         method: "POST",
         body: JSON.stringify(
@@ -319,6 +357,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 // backend refused it.
                 project: project || drafted || projects?.[0]?.name,
                 ...(stage ? { stage } : {}),
+                ...(trigger ? { trigger } : {}),
               },
         ),
       });
@@ -365,7 +404,13 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   useEffect(() => {
     if (!fresh || !opened) return;
     setEdit(
-      (e) => e ?? { cron: opened.cron, jitterMinutes: opened.jitterMinutes, prompt: opened.prompt },
+      (e) =>
+        e ?? {
+          cron: opened.cron,
+          jitterMinutes: opened.jitterMinutes,
+          prompt: opened.prompt,
+          trigger: opened.trigger,
+        },
     );
   }, [fresh, opened]);
 
@@ -467,7 +512,13 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               )}
               <StatusChip
                 kind={s.enabled ? "run" : "idle"}
-                label={s.enabled ? whenLabel(s.nextRunAt) : "paused"}
+                label={
+                  !s.enabled
+                    ? "paused"
+                    : s.cron || !s.trigger
+                      ? whenLabel(s.nextRunAt)
+                      : "on its trigger"
+                }
               />
               <span className="ml-auto flex flex-wrap gap-2">
                 <Button onClick={() => toggleOpen(s)}>{open === s.id ? "hide" : "edit"}</Button>
@@ -483,7 +534,8 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               </span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-faint">
-              <span>{s.cron}</span>
+              {s.cron && <span>{s.cron}</span>}
+              {s.trigger && <span>when {TRIGGERS[s.trigger]}</span>}
               {s.stage && <span>stage: {s.stage}</span>}
               {s.jitterMinutes > 0 && <span>±{s.jitterMinutes} min jitter</span>}
               {s.skipWhenIdle && <span>skips a day when nothing ended</span>}
@@ -507,6 +559,12 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                     onChange={(cron) => setEdit((d) => d && { ...d, cron })}
                     width="w-[200px]"
                   />
+                  {s.project && (
+                    <TriggerField
+                      value={edit.trigger}
+                      onChange={(trigger) => setEdit((d) => d && { ...d, trigger })}
+                    />
+                  )}
                   <label className="text-[11.5px] text-faint">
                     jitter
                     <Input
@@ -534,7 +592,11 @@ export default function SchedulesPanel({ project }: { project?: string }) {
                 />
                 <Button
                   onClick={() => patch(s, edit).then(() => setOpen(null))}
-                  disabled={busy || !edit.cron.trim() || (!edit.prompt.trim() && !s.stage)}
+                  disabled={
+                    busy ||
+                    (!edit.cron.trim() && !edit.trigger) ||
+                    (!edit.prompt.trim() && !s.stage)
+                  }
                   variant="primary"
                   className="self-start"
                 >
@@ -603,6 +665,12 @@ export default function SchedulesPanel({ project }: { project?: string }) {
               width="w-[130px]"
             />
             {!assistantDraft && (
+              <TriggerField
+                value={draft.trigger}
+                onChange={(trigger) => setDraft((d) => ({ ...d, trigger }))}
+              />
+            )}
+            {!assistantDraft && (
               <Select
                 value={draft.stage}
                 onChange={(e) =>
@@ -662,6 +730,7 @@ export default function SchedulesPanel({ project }: { project?: string }) {
             disabled={
               busy ||
               !draft.name.trim() ||
+              (!draft.cron.trim() && !(draft.trigger && !assistantDraft)) ||
               (!draft.prompt.trim() && !(draft.stage && !assistantDraft)) ||
               (!project && !assistantDraft && !projects?.length)
             }
@@ -682,6 +751,12 @@ export default function SchedulesPanel({ project }: { project?: string }) {
         ok stays silent. A maintainer stage runs the other way round: its permissions deny rather
         than ask, so it never turns amber — it finishes with a report, or is ended for it after
         ninety minutes and recorded as failed.
+      </div>
+      <div className="mt-2.5 text-[13px] text-muted">
+        A trigger fires a schedule when GitHub notifies you of it in the schedule's repo (matched by
+        its origin remote), besides or instead of the cron. It goes through the same checks as a
+        tick, fires at most once every ten minutes, and the run is told which notification set it
+        off.
       </div>
       {!project && (
         <div className="mt-2.5 text-[13px] text-muted">

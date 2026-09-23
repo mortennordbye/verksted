@@ -821,6 +821,14 @@ export type ScheduleKind = "session" | "assistant";
  */
 export type MaintainerStage = "scout" | "build" | "gate";
 
+/**
+ * Something on GitHub that fires a schedule, besides or instead of its cron,
+ * read off the account's notifications for the schedule's own repo. "review"
+ * is a pull request that wants my review, "pr" a pull request opened, and
+ * "ci-failed" a workflow run that failed.
+ */
+export type ScheduleTrigger = "review" | "pr" | "ci-failed";
+
 /** An issue on the maintainer's queue, as the inbox lists it. */
 export interface MaintainerIssue {
   project: string;
@@ -857,8 +865,19 @@ export interface Schedule {
   kind: ScheduleKind;
   /** The repo it runs in. Empty for an assistant schedule, which has none. */
   project: string;
-  /** Five-field cron, read in the pod's timezone. */
+  /**
+   * Five-field cron, read in the pod's timezone. Empty only when `trigger` is
+   * set: such a schedule fires on the event alone.
+   */
   cron: string;
+  /**
+   * The GitHub event that also fires it, or null for the clock alone. Only a
+   * schedule with a project has one, since the event is matched to that
+   * project's origin remote; an assistant schedule has no project. At most
+   * once per ten minutes, and through the same overlap rule, ceilings and plan
+   * check as a tick.
+   */
+  trigger: ScheduleTrigger | null;
   /**
    * Random delay added to each fire, in minutes (0 = fire on the dot). Spreads
    * schedules that share a cron so they don't all start at once.

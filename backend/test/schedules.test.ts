@@ -204,6 +204,79 @@ describe("PATCH /api/schedules/:id", () => {
   });
 });
 
+describe("a schedule with a trigger", () => {
+  const patch = (id: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PATCH", url: `/api/schedules/${id}`, payload });
+
+  it("may leave the cron empty, and then has no next run", async () => {
+    const res = await create({
+      name: "on review",
+      project: "demo",
+      cron: "",
+      prompt: "review it",
+      trigger: "review",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().trigger).toBe("review");
+    expect(res.json().cron).toBe("");
+    expect(res.json().nextRunAt).toBeNull();
+  });
+
+  it("keeps a cron beside the trigger when it has both", async () => {
+    const res = await create({
+      name: "both",
+      project: "demo",
+      cron: CRON,
+      prompt: "x",
+      trigger: "ci-failed",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().trigger).toBe("ci-failed");
+    expect(Date.parse(res.json().nextRunAt)).toBeGreaterThan(Date.now());
+  });
+
+  it("needs a cron or a trigger, and a trigger it knows", async () => {
+    expect((await create({ name: "x", project: "demo", cron: " ", prompt: "x" })).statusCode).toBe(
+      400,
+    );
+    expect(
+      (await create({ name: "x", project: "demo", cron: "", prompt: "x", trigger: "push" }))
+        .statusCode,
+    ).toBe(400);
+  });
+
+  it("refuses a trigger on a schedule with no project", async () => {
+    const res = await create({
+      name: "x",
+      kind: "assistant",
+      cron: CRON,
+      prompt: "x",
+      trigger: "pr",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/needs a project/);
+    const assistant = (
+      await create({ name: "a", kind: "assistant", cron: CRON, prompt: "x" })
+    ).json();
+    expect((await patch(assistant.id, { trigger: "pr" })).statusCode).toBe(400);
+  });
+
+  it("checks the whole of what fires it after a patch", async () => {
+    const id = (
+      await create({ name: "t", project: "demo", cron: "", prompt: "x", trigger: "pr" })
+    ).json().id;
+    // The trigger was all it fired on.
+    expect((await patch(id, { trigger: null })).statusCode).toBe(400);
+    // With a cron in the same patch, it can go.
+    const res = await patch(id, { trigger: null, cron: CRON });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().trigger).toBeNull();
+    // And the cron cannot be emptied now that nothing else fires it.
+    expect((await patch(id, { cron: "" })).statusCode).toBe(400);
+    expect((await patch(id, { cron: "", trigger: "review" })).json().trigger).toBe("review");
+  });
+});
+
 describe("DELETE /api/schedules/:id", () => {
   it("removes the file, and 404s the second time", async () => {
     const id = (await create({ name: "d", project: "demo", cron: CRON, prompt: "x" })).json().id;

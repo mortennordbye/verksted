@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { CronPreview, MaintainerStage } from "../../../shared/api.js";
+import type { CronPreview, MaintainerStage, ScheduleTrigger } from "../../../shared/api.js";
 import { getMember } from "../council-store.js";
 import { repoDirOr404, resolveInsideRepos } from "../paths.js";
 import { reloadSchedules, runSchedule } from "../scheduler.js";
@@ -7,6 +7,9 @@ import * as store from "../schedules-store.js";
 
 const NAME = { type: "string", minLength: 1, maxLength: 120 };
 const CRON = { type: "string", minLength: 1, maxLength: 120 };
+// A stored cron may be empty, which the handlers allow only beside a trigger.
+const SCHEDULE_CRON = { type: "string", maxLength: 120 };
+const TRIGGER = { enum: ["review", "pr", "ci-failed", null] };
 // Empty is allowed by the schema and refused by the handler, since a stage
 // schedule has a prompt of its own and this is then only notes.
 const PROMPT = { type: "string", maxLength: 4000 };
@@ -93,6 +96,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       member?: string;
       convenes?: boolean;
       stage?: MaintainerStage;
+      trigger?: ScheduleTrigger | null;
     };
   }>(
     "/api/schedules",
@@ -108,7 +112,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             name: NAME,
             kind: { enum: ["session", "assistant"] },
             project: { type: "string", minLength: 1, maxLength: 200 },
-            cron: CRON,
+            cron: SCHEDULE_CRON,
             prompt: PROMPT,
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
@@ -116,6 +120,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
             member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
             convenes: { type: "boolean" },
             stage: STAGE,
+            trigger: TRIGGER,
           },
         },
       },
@@ -136,9 +141,14 @@ export default async function scheduleRoutes(app: FastifyInstance) {
           return reply.code(404).send({ error: "not found" });
         }
       }
-      if (!store.validCron(req.body.cron)) {
-        return reply.code(400).send({ error: `not a cron pattern: ${req.body.cron}` });
-      }
+      const cron = req.body.cron.trim();
+      const shape = store.shapeError({
+        // What would be stored: an assistant schedule keeps no project.
+        project: kind === "session" ? (req.body.project ?? "") : "",
+        cron,
+        trigger: req.body.trigger ?? null,
+      });
+      if (shape) return reply.code(400).send({ error: shape });
       // A member who does not exist would quietly fall back to the chair, and a
       // briefing answered in the wrong voice is the kind of wrong that reads as
       // working.
@@ -148,6 +158,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       const schedule = await store.createSchedule({
         ...req.body,
         kind,
+        cron,
         prompt,
         project: req.body.project ?? "",
       });
@@ -169,6 +180,7 @@ export default async function scheduleRoutes(app: FastifyInstance) {
       skipWhenIdle?: boolean;
       member?: string;
       convenes?: boolean;
+      trigger?: ScheduleTrigger | null;
     };
   }>(
     "/api/schedules/:id",
@@ -179,20 +191,31 @@ export default async function scheduleRoutes(app: FastifyInstance) {
           additionalProperties: false,
           properties: {
             name: NAME,
-            cron: CRON,
+            cron: SCHEDULE_CRON,
             prompt: PROMPT,
             enabled: { type: "boolean" },
             jitterMinutes: JITTER,
             skipWhenIdle: { type: "boolean" },
             member: { type: "string", pattern: "^([a-z][a-z0-9-]{0,31})?$" },
             convenes: { type: "boolean" },
+            trigger: TRIGGER,
           },
         },
       },
     },
     async (req, reply) => {
-      if (req.body.cron !== undefined && !store.validCron(req.body.cron)) {
-        return reply.code(400).send({ error: `not a cron pattern: ${req.body.cron}` });
+      if (req.body.cron !== undefined) req.body.cron = req.body.cron.trim();
+      // Either half of what fires it may change, so the whole is checked as it
+      // would be stored after this patch.
+      if (req.body.cron !== undefined || req.body.trigger !== undefined) {
+        const existing = await store.getSchedule(req.params.id);
+        if (!existing) return reply.code(404).send({ error: "not found" });
+        const shape = store.shapeError({
+          project: existing.project,
+          cron: req.body.cron ?? existing.cron,
+          trigger: req.body.trigger === undefined ? existing.trigger : req.body.trigger,
+        });
+        if (shape) return reply.code(400).send({ error: shape });
       }
       if (req.body.member && !(await getMember(req.body.member))) {
         return reply.code(400).send({ error: `no such council member: ${req.body.member}` });

@@ -5,6 +5,7 @@ import type {
   MaintainerIssue,
   Memory,
   ScheduleRun,
+  ScheduleTrigger,
   Session,
   SessionUsage,
 } from "../../shared/api.js";
@@ -18,6 +19,7 @@ import * as loops from "./loops-store.js";
 import { listQueue } from "./maintainer.js";
 import { listProposals } from "./memory-store.js";
 import { resolveInsideRepos } from "./paths.js";
+import { fireTriggers } from "./scheduler.js";
 import { listRuns, listSchedules } from "./schedules-store.js";
 import { listSessions } from "./sessions-store.js";
 import { readBlockedOwners } from "./settings-store.js";
@@ -215,6 +217,29 @@ export function notificationItems(threads: Notification[], blocked: string[] = [
       link: htmlUrl(n),
       version: n.updated_at,
     }));
+}
+
+/**
+ * What a notification that was never filed before says happened, for the
+ * schedules waiting on it (scheduler.fireTriggers).
+ *
+ * A pull request is "pr" the first time its thread shows up, and "review" as
+ * well when the reason is a review asked of you: both are true of it, and a
+ * schedule on either should hear. A workflow run arrives as a CheckSuite whose
+ * title says how it ended ("CI workflow run failed for main branch"), which is
+ * the only place the outcome is.
+ */
+export function repoEvents(n: Notification): ScheduleTrigger[] {
+  if (n.subject.type === "PullRequest") {
+    return n.reason === "review_requested" ? ["pr", "review"] : ["pr"];
+  }
+  if (
+    (n.subject.type === "CheckSuite" || n.subject.type === "WorkflowRun") &&
+    /\bfailed\b/i.test(n.subject.title)
+  ) {
+    return ["ci-failed"];
+  }
+  return [];
 }
 
 /** New mail: one item per message, the envelope until triage reads it. */
@@ -558,7 +583,26 @@ export async function pollGithub(log: Logger): Promise<number> {
   try {
     const threads = await ghNotifications();
     await feed.resolve("github:poller", "reading again");
-    const changed = await apply(notificationItems(threads, await readBlockedOwners()));
+    // What was filed before this pass, so the ones it files for the first time
+    // are known: a thread that only moved on is not a new event to react to.
+    const known = new Set((await feed.list()).map((i) => i.id));
+    const items = notificationItems(threads, await readBlockedOwners());
+    const changed = await apply(items);
+    // From the filed items, not the threads: a blocked owner's are never filed.
+    const fresh = new Set(items.map((i) => i.id).filter((id) => !known.has(id)));
+    const events = threads
+      .filter((n) => fresh.has(`github:${n.id}`))
+      .flatMap((n) =>
+        repoEvents(n).map((trigger) => ({
+          trigger,
+          repo: n.repository.full_name,
+          title: n.subject.title,
+          link: htmlUrl(n),
+        })),
+      );
+    // Its own failure, not GitHub's: a run that would not start is recorded on
+    // its schedule, and must not file "GitHub could not be read".
+    await fireTriggers(events, log).catch((err: unknown) => log.warn(err, "triggers failed"));
     await endSettledGithub(log);
     return changed;
   } catch (err) {
