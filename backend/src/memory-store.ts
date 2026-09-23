@@ -79,6 +79,14 @@ function toMemory(slug: string, raw: string, fallbackDate?: string): Memory | nu
     // not, and both the ordering and which facts the budget drops depend on it.
     // The file's own mtime is the answer that needs nothing from the agent.
     createdAt: meta.created || fallbackDate || null,
+    ...(meta.replaces
+      ? {
+          replaces: meta.replaces
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => SLUG_RE.test(s)),
+        }
+      : {}),
   };
 }
 
@@ -144,7 +152,13 @@ export async function save(input: {
 function frontmatter(
   slug: string,
   text: string,
-  meta: { type?: MemoryType; scope?: MemoryScope; source?: string; created: string },
+  meta: {
+    type?: MemoryType;
+    scope?: MemoryScope;
+    source?: string;
+    created: string;
+    replaces?: string[];
+  },
 ): string {
   const flat = (v: string) => v.replace(/\s*\n\s*/g, " ").trim();
   return [
@@ -154,6 +168,7 @@ function frontmatter(
     `scope: ${flat(meta.scope ?? "global")}`,
     `source: ${flat(meta.source ?? "asked directly")}`,
     `created: ${meta.created}`,
+    ...(meta.replaces?.length ? [`replaces: ${meta.replaces.join(", ")}`] : []),
     "---",
     "",
     text,
@@ -317,13 +332,19 @@ export async function propose(input: {
   type?: MemoryType;
   scope?: MemoryScope;
   source?: string;
+  /** Kept facts this takes the place of: a merge, or a newer wording. */
+  replaces?: string[];
 }): Promise<Memory> {
   if (!SLUG_RE.test(input.slug)) throw new Error("slug must be lowercase words joined by dashes");
   const text = input.text.trim();
   if (!text) throw new Error("a memory needs something to remember");
   // Proposing something already known is noise in the queue, not a correction:
   // correcting a kept fact is a thing the person does, in the settings page.
-  if (await read(input.slug)) throw new Error(`${input.slug} is already remembered`);
+  const replaces = (input.replaces ?? []).filter((s) => SLUG_RE.test(s));
+  // A proposal that replaces a fact may reuse its slug; any other may not.
+  if (!replaces.includes(input.slug) && (await read(input.slug))) {
+    throw new Error(`${input.slug} is already remembered`);
+  }
   if ((await droppedProposals())[input.slug]) {
     throw new Error(`${input.slug} was turned down, and is not proposed again`);
   }
@@ -337,6 +358,7 @@ export async function propose(input: {
       // answers "why does it think that?" about a fact nobody typed.
       source: input.source ?? "harvested",
       created: new Date().toISOString(),
+      replaces,
     }),
   );
   return (await readProposal(input.slug))!;
@@ -362,6 +384,9 @@ export async function keep(slug: string): Promise<Memory | null> {
     scope: proposal.scope,
     source: proposal.source ?? "harvested",
   });
+  // What it replaces goes once it is kept, and not before: dropping the
+  // proposal leaves every fact it named where it was.
+  for (const old of proposal.replaces ?? []) if (old !== slug) await remove(old);
   await fs.rm(proposalPath(slug), { force: true });
   return kept;
 }

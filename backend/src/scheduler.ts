@@ -1,6 +1,6 @@
 import * as schedules from "./schedules-store.js";
 import type { Schedule, Session } from "../../shared/api.js";
-import { runCatalogue, runJournal, runLearning } from "./assistant-jobs.js";
+import { runCatalogue, runCompaction, runJournal, runLearning } from "./assistant-jobs.js";
 import { MAX_CONVENED, runUnattended } from "./assistant.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
@@ -57,6 +57,9 @@ const CATALOGUE_CRON = "30 2 * * *";
 /** What the day's dismissals say about the sorting, before the journal. */
 let learningJob: Cron | null = null;
 const LEARNING_CRON = "50 23 * * *";
+/** The memory store read once a week for what could be merged; free until it is half full. */
+let compactionJob: Cron | null = null;
+const COMPACTION_CRON = "40 3 * * 0";
 /**
  * Cancels for jitter waits in flight, by the schedule each belongs to.
  *
@@ -437,6 +440,10 @@ async function rebuild(log: Logger): Promise<void> {
   learningJob?.stop();
   learningJob = new Cron(LEARNING_CRON, { protect: true, timezone: env.TZ }, () => {
     void runLearning(log).catch((err) => log.warn(err, "learning failed"));
+  });
+  compactionJob?.stop();
+  compactionJob = new Cron(COMPACTION_CRON, { protect: true, timezone: env.TZ }, () => {
+    void runCompaction(log).catch((err) => log.warn(err, "compaction failed"));
   });
   const stored = await schedules.listSchedules();
   // Only the waits whose schedule is no longer one to run: the rest are ticks

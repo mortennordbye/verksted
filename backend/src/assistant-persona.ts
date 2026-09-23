@@ -682,6 +682,32 @@ export function learningPrompt(name: string, rules: string): string {
 }
 
 /**
+ * The job on a compaction turn: read the kept facts and propose merges of the
+ * ones that say the same thing, and new wordings of the ones a newer fact
+ * contradicts. Only proposals: the person keeps or drops each.
+ */
+export function compactionPrompt(name: string): string {
+  return [
+    ...opening(name),
+    "",
+    "Below is everything remembered about the person and their work, one fact a",
+    "line as <slug>\t<type>\t<written>\t<text>, oldest first. The store has a",
+    "budget, and it is filling. Find facts that say the same thing, and facts a",
+    "newer one contradicts, and write each group as one fact in its place.",
+    "",
+    "Answer with one line per replacement, tab-separated, and nothing else:",
+    "",
+    "<new-slug>\t<slug,slug,...>\t<the fact, one or two sentences>",
+    "",
+    "The second column names every fact the new one replaces; it may reuse one",
+    "of their slugs. Keep what the facts say, in their own words where you can:",
+    "merge, do not summarise away. Where the newer of two facts is right, the new",
+    "fact says what the newer one says. Leave everything else alone, and when",
+    "nothing overlaps, answer with nothing. Do not call any tool.",
+  ].join("\n");
+}
+
+/**
  * The job on a catalogue turn: read a few documents' openings and say, for
  * each, what it is, who it is with, and every date in it that matters, in a
  * shape the backend can file and turn into loops.

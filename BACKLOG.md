@@ -339,18 +339,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/memory-store.ts` (`propose`, `dropProposal`),
   `backend/src/assistant-jobs.ts` (`runLearning`, `sortingRules`).
 
-## Assistant M4: memory has a budget but no compaction
-
-- **What:** The store is capped at 8 KB of injected text and drops the oldest
-  facts past it, reporting how many in the API and on the settings page. What is
-  missing is the weekly pass that merges duplicates and drops facts contradicted
-  by newer ones, so the cap is currently a cliff rather than a prompt to tidy.
-- **Why deferred:** Premature until enough memories exist to need it; the
-  reporting was built first so the cliff is at least visible.
-- **Unblocked by:** Reaching the budget in real use, then a schedule that reads
-  the store and rewrites it.
-- **Where:** `backend/src/memory-store.ts` (`BUDGET_BYTES`, `renderBlock`)
-
 ## The assistant's MCP server is hand-rolled JSON-RPC
 
 - **What:** `runtime/verksted-mcp.mjs` implements the three MCP methods it needs
