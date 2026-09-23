@@ -12,36 +12,40 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Through the dev image, as `make lint` and `make test` run it, so node-pty,
+  # ripgrep and shellcheck are the image's and not the runner's. Root in the
+  # container, so privilege separation's uid-switching tests run with the rest.
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # A Dockerfile change misses the build cache and builds the dev image cold.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
-          node-version: 24
-          cache: npm
-      # The backend file-search/replace routes shell out to ripgrep; the tests
-      # exercise the real binary. The runtime image installs it, so the CI runner
-      # needs it too (ubuntu-latest does not ship rg). shellcheck is on the
-      # runner already, but `npm run lint` now needs it, so it is named here
-      # rather than assumed.
-      - run: sudo apt-get update && sudo apt-get install -y ripgrep shellcheck
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      # The gh fixtures against a real gh, asked about this repository with
-      # the run's read-only token (backend/test/gh-shape.test.ts).
-      - run: npx vitest run test/gh-shape.test.ts
-        working-directory: backend
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          target: dev
+          load: true
+          tags: verksted-dev:ci
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:buildcache
+      # The gh fixtures are also held against a real gh, asked about this
+      # repository with the run's read-only token (backend/test/gh-shape.test.ts).
+      - run: >-
+          docker run --rm -v "$PWD:/app" -w /app
+          -e GH_SHAPE_REPO -e GH_TOKEN
+          verksted-dev:ci sh -c "npm ci && npm run lint && npm test && npm run build"
         env:
           GH_SHAPE_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-      # Privilege separation's tests switch uids, which needs root; `npm test`
-      # above skips them on the runner's own user.
-      - run: sudo --preserve-env=PATH npx vitest run test/agent-user.test.ts
-        working-directory: backend
-      - run: npm run build
 
   # The browser half of the suite. It was `make e2e` only, which means it ran
   # when someone remembered — and the app is edited by unattended agents, whose
