@@ -138,6 +138,32 @@ beforeAll(async () => {
   process.env.REPOS_DIR = reposDir;
   process.env.SESSIONS_DIR = sessionsDir;
   dataDir = useTempDataDirs("vk-e2e-data-");
+  // A thread with a tool call whose detail is one long unbreakable URL: the
+  // reply bubble grew to its 640px to fit it and ran off a phone screen, and
+  // an empty thread never showed it.
+  const conversation = "0e2e0000-0000-4000-8000-000000000001";
+  const at = new Date().toISOString();
+  fs.writeFileSync(path.join(process.env.ASSISTANT_DIR!, "current"), conversation);
+  fs.writeFileSync(
+    path.join(process.env.ASSISTANT_DIR!, `${conversation}.jsonl`),
+    [
+      { id: "u1", role: "user", text: "is there a table on saturday?", tools: [], at },
+      {
+        id: "a1",
+        role: "assistant",
+        text: "Only lunch. Run this to see:\n\n```sh\nmake test\n```",
+        tools: [
+          {
+            name: "mcp__browser__browser_navigate",
+            detail: `https://www.sevenrooms.com/explore/paooslo/reservations/create/search?date=2026-09-26&party_size=2&${"x".repeat(80)}`,
+          },
+        ],
+        at,
+      },
+    ]
+      .map((e) => JSON.stringify(e))
+      .join("\n") + "\n",
+  );
   const schedulesDir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-e2e-sched-"));
   process.env.SCHEDULES_DIR = schedulesDir;
 
@@ -654,6 +680,19 @@ describe("the app in a real browser", () => {
     await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
     await settled(page);
     expect(await smallButtons()).toEqual([]);
+  });
+
+  // A phone keeps four of the header's controls and moves the rest into a
+  // menu, since all eight were wider than the screen once a thread started.
+  it("reaches the assistant's panels through the phone's more menu", async () => {
+    await page.goto(`${base}/ai`, { waitUntil: "networkidle" });
+    await settled(page);
+    expect(await page.getByRole("button", { name: "who is on the bench" }).isVisible()).toBe(false);
+    await page.getByRole("button", { name: "more" }).click();
+    // The specialists, not the calendar: with no calendar set up here it
+    // answers 503, which the last test would count as a failure.
+    await page.getByRole("menuitemcheckbox", { name: "who is on the bench" }).click();
+    await page.getByRole("checkbox", { name: /Round table/ }).waitFor();
   });
 
   // The share and the thread, which had never been asked: both are reached

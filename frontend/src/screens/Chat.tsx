@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { DropdownMenu } from "radix-ui";
 import { useNavigate } from "react-router";
 import type { AssistantThread, CouncilMember, CreatedSession } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
@@ -78,12 +79,14 @@ function ToolButton({
   onClick,
   on,
   disabled,
+  className = "",
 }: {
   icon: IconName;
   title: string;
   onClick: () => void;
   on?: boolean;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
@@ -94,12 +97,20 @@ function ToolButton({
       aria-pressed={on}
       className={`tap-sq flex h-8 w-8 items-center justify-center rounded-lg transition-colors disabled:opacity-40 ${
         on ? "bg-accent-tint text-accent" : "text-muted hover:bg-surface-2 hover:text-text"
-      }`}
+      } ${className}`}
     >
       <Icon name={icon} size={17} />
     </button>
   );
 }
+
+/**
+ * The header's controls a phone moves into the "more" menu. On a touch screen
+ * each is 44px wide, and all eight did not fit beside the chair's name.
+ */
+const WIDE = "max-sm:hidden";
+const MENU_ITEM =
+  "tap flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2 data-[state=checked]:text-accent";
 
 export default function Chat() {
   // Socket, reconnect and the fetch that stands in while there is none.
@@ -515,6 +526,7 @@ export default function Chat() {
                       : "read every reply aloud, including ones you typed"
                   }
                   onClick={toggleSpeakReplies}
+                  className={WIDE}
                 />
               )}
               {(["browser", "calendar"] as const).map((p) => (
@@ -530,6 +542,7 @@ export default function Chat() {
                         : "the calendar, as a month"
                   }
                   onClick={() => setPanel((v) => (v === p ? null : p))}
+                  className={WIDE}
                 />
               ))}
               <ToolButton
@@ -537,6 +550,7 @@ export default function Chat() {
                 on={panel === "people"}
                 title={panel === "people" ? "close the specialists" : "who is on the bench"}
                 onClick={() => setPanel((v) => (v === "people" ? null : "people"))}
+                className={WIDE}
               />
               {/* Only once there is something to find: on a phone every
                   button here is taken from the chair's name. */}
@@ -563,6 +577,7 @@ export default function Chat() {
                   title="open this thread in a terminal, to drive it"
                   onClick={() => void openInTerminal()}
                   disabled={thinking}
+                  className={WIDE}
                 />
               )}
               {turns > 0 && (
@@ -573,6 +588,61 @@ export default function Chat() {
                   disabled={thinking}
                 />
               )}
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger
+                  aria-label="more"
+                  title="more"
+                  className="tap-sq flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text sm:hidden"
+                >
+                  <Icon name="more" size={17} />
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    align="end"
+                    sideOffset={6}
+                    className="z-50 min-w-[220px] rounded-xl bg-surface p-1 text-[14px] shadow-lg ring-1 ring-line"
+                  >
+                    {canSpeak() && (
+                      <DropdownMenu.CheckboxItem
+                        checked={speakReplies}
+                        onCheckedChange={toggleSpeakReplies}
+                        className={MENU_ITEM}
+                      >
+                        <Icon name="volume" size={15} />
+                        read replies aloud
+                      </DropdownMenu.CheckboxItem>
+                    )}
+                    {(["browser", "calendar", "people"] as const).map((p) => (
+                      <DropdownMenu.CheckboxItem
+                        key={p}
+                        checked={panel === p}
+                        onCheckedChange={() => setPanel((v) => (v === p ? null : p))}
+                        className={MENU_ITEM}
+                      >
+                        <Icon
+                          name={p === "browser" ? "globe" : p === "calendar" ? "calendar" : "users"}
+                          size={15}
+                        />
+                        {p === "browser"
+                          ? `${chair.name}'s browser`
+                          : p === "calendar"
+                            ? "the calendar"
+                            : "who is on the bench"}
+                      </DropdownMenu.CheckboxItem>
+                    ))}
+                    {turns > 0 && (
+                      <DropdownMenu.Item
+                        disabled={thinking}
+                        onSelect={() => void openInTerminal()}
+                        className={MENU_ITEM}
+                      >
+                        <Icon name="terminal" size={15} />
+                        open in a terminal
+                      </DropdownMenu.Item>
+                    )}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             </div>
           </div>
           {finding && (

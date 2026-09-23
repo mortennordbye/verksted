@@ -266,7 +266,7 @@ const Bubble = memo(function Bubble({
   }
   const last = entries.at(-1);
   return (
-    <div className="animate-rise flex w-fit max-w-[640px] flex-col gap-1 self-start rounded-[18px] rounded-bl-[6px] bg-surface px-3.5 py-2">
+    <div className="animate-rise flex w-fit max-w-[min(640px,100%)] flex-col gap-1 self-start rounded-[18px] rounded-bl-[6px] bg-surface px-3.5 py-2">
       {parts.map(({ entry, times }, i) => (
         <div
           key={entry.id}

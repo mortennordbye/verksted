@@ -153,6 +153,13 @@ const PATHS = {
   ),
   rename: <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" />,
   close: <path d="M18 6 6 18M6 6l12 12" />,
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </>
+  ),
   back: <path d="M19 12H5M12 19l-7-7 7-7" />,
   forward: <path d="M5 12h14M12 5l7 7-7 7" />,
   pull: <path d="M12 3v12M6 11l6 6 6-6M5 21h14" />,
