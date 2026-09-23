@@ -62,6 +62,18 @@ const REPLIES: Record<string, unknown> = {
     { path: "Receipts", name: "Receipts", role: "" },
   ],
   "POST /api/mail/move": { moved: 2 },
+  "GET /api/projects": [],
+  "GET /api/sessions": [],
+  "GET /api/runs": [
+    {
+      scheduleId: "sch-1a2b3c4d",
+      schedule: "nightly",
+      at: "2026-09-22T05:00:00.000Z",
+      outcome: "ok",
+      error: null,
+      report: "ok: green",
+    },
+  ],
   "POST /api/council": {
     id: "ledger",
     name: "Ledger",
@@ -632,6 +644,18 @@ describe("a turn that reads something of the person's", () => {
 
     expect(seen.some((r) => r.url === "/api/council/uriel/memory/rates")).toBe(true);
     expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
+  });
+});
+
+describe("what a read reports", () => {
+  it("names a scheduled run by its schedule, not by its id", async () => {
+    // It read `scheduleName`, which the wire type has never had, so every run
+    // was listed by id. The type check on this file is what caught it.
+    const res = (await callTool("status")) as { result: { content: { text: string }[] } };
+    const text = res.result.content[0].text;
+
+    expect(text).toContain("nightly  ok");
+    expect(text).not.toContain("sch-1a2b3c4d");
   });
 });
 

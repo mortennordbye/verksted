@@ -1650,6 +1650,14 @@ export interface MemoryList {
   dropped: number;
 }
 
+/** What the person typed into one finished session: GET /api/memory/material. */
+export interface SessionPrompts {
+  sessionId: string;
+  project: string;
+  endedAt: string | null;
+  prompts: string[];
+}
+
 export type AssistantEffort = "low" | "medium" | "high" | "xhigh" | "max";
 
 /** The assistant's identity and settings, editable on the settings page. */

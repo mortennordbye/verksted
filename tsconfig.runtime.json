@@ -4,9 +4,9 @@
 // response has (A-30 in the audit). Checked as JavaScript — no build step, no
 // types to write out — so the cost is JSDoc where an inference cannot reach.
 //
-// noImplicitAny is off on purpose: annotating every parameter of a file that
-// is deliberately untyped would be the whole pass, and the value here is the
-// property checks. Run by `npm run lint:runtime`.
+// Strict, noImplicitAny included: every backend answer is named by its wire
+// type from shared/api.ts at the call site, and `call()` answers `unknown`
+// where nobody did. Run by `npm run lint:runtime`.
 {
   "compilerOptions": {
     "allowJs": true,
@@ -17,7 +17,6 @@
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "strict": true,
-    "noImplicitAny": false,
     "skipLibCheck": true
   },
   "include": ["runtime/**/*.mjs"]

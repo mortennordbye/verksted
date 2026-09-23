@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { MemoryList } from "../../../shared/api.js";
+import type { MemoryList, MemoryType } from "../../../shared/api.js";
 import * as memory from "../memory-store.js";
 import { recentPrompts } from "../transcripts.js";
 
@@ -27,7 +27,7 @@ export default async function memoryRoutes(app: FastifyInstance) {
   app.get("/api/memory/proposed", async () => ({ proposals: await memory.listProposals() }));
 
   app.post<{
-    Body: { slug: string; text: string; type?: string; scope?: string; source?: string };
+    Body: { slug: string; text: string; type?: MemoryType; scope?: string; source?: string };
   }>(
     "/api/memory/proposed",
     {
@@ -48,11 +48,9 @@ export default async function memoryRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        return reply
-          .code(201)
-          .send(await memory.propose({ ...req.body, type: req.body.type as never }));
+        return reply.code(201).send(await memory.propose(req.body));
       } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   );
@@ -72,7 +70,7 @@ export default async function memoryRoutes(app: FastifyInstance) {
 
   app.put<{
     Params: { slug: string };
-    Body: { text: string; type?: string; scope?: string; source?: string };
+    Body: { text: string; type?: MemoryType; scope?: string; source?: string };
   }>(
     "/api/memory/:slug",
     {
@@ -94,13 +92,9 @@ export default async function memoryRoutes(app: FastifyInstance) {
     },
     async (req, reply) => {
       try {
-        return await memory.save({
-          slug: req.params.slug,
-          ...req.body,
-          type: req.body.type as never,
-        });
+        return await memory.save({ slug: req.params.slug, ...req.body });
       } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
+        return reply.code(400).send({ error: err instanceof Error ? err.message : String(err) });
       }
     },
   );
