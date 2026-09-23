@@ -116,7 +116,8 @@ export default function CouncilPanel() {
     if (!editing) return;
     setError(null);
     try {
-      const { id, chair: _chair, ...body } = editing;
+      // `narrowed` is the server's note on what it read, not something to save.
+      const { id, chair: _chair, narrowed: _narrowed, ...body } = editing;
       await api(`/api/council/${id}`, { method: "PUT", body: JSON.stringify(body) });
       setEditing(null);
       refresh();
@@ -425,6 +426,23 @@ export default function CouncilPanel() {
                       the web
                     </span>
                   )}
+                  {/* Ticked in the file and taken off on read: the web never
+                      sits beside anything private. Said, or an advisor that
+                      cannot recall anything has no visible reason. */}
+                  {m.narrowed?.map((t) => (
+                    <span
+                      key={t}
+                      title="not beside the web"
+                      className="rounded-full border border-dashed border-line px-2 py-0.5 font-mono text-[10.5px] text-faint line-through"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                  {m.narrowed?.length ? (
+                    <span className="basis-full text-[11.5px] text-wait">
+                      {m.narrowed.join(", ")} not held: not beside the web
+                    </span>
+                  ) : null}
                 </div>
               )}
             </div>

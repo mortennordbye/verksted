@@ -16,6 +16,11 @@ beforeAll(async () => {
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-facts-"));
   process.env.SESSIONS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-facts-s-"));
   process.env.STATIC_DIR = "";
+  // What each agent signs in with is read from these and nothing else.
+  process.env.SETTINGS_FILE = path.join(process.env.SESSIONS_DIR, "settings.json");
+  for (const key of ["CLAUDE_CODE_OAUTH_TOKEN", "OPENAI_API_KEY", "ANTIGRAVITY_API_KEY"]) {
+    delete process.env[key];
+  }
   const { buildApp } = await import("../src/app.js");
   ({ establishedCount } = await import("../src/maintenance.js"));
   app = await buildApp({ logger: false });
@@ -34,6 +39,41 @@ describe("GET /api/facts", () => {
     expect(facts.diskFree).toBeGreaterThan(0);
     expect(facts.memUsed).toBeGreaterThan(0);
     expect(facts.browsers).toBe(0);
+  });
+});
+
+describe("the agents in GET /api/facts (Milestone 4)", () => {
+  it("says what each would sign in with, and counts the MCP servers it gets", async () => {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-facts-home-"));
+    fs.mkdirSync(path.join(home, ".claude"));
+    fs.writeFileSync(
+      path.join(home, ".claude", ".credentials.json"),
+      JSON.stringify({ claudeAiOauth: { accessToken: "a", refreshToken: "r" } }),
+    );
+    fs.writeFileSync(
+      path.join(home, ".claude.json"),
+      JSON.stringify({ mcpServers: { one: {}, two: {} } }),
+    );
+    fs.mkdirSync(path.join(home, ".codex"));
+    fs.writeFileSync(
+      path.join(home, ".codex", "config.toml"),
+      '[mcp_servers.docs]\ncommand = "x"\n',
+    );
+    process.env.HOME = home;
+    try {
+      const { agents } = (await app.inject({ url: "/api/facts" })).json();
+      expect(agents).toEqual([
+        // The browser every session gets, and the user's two.
+        { agent: "claude", auth: "login", mcp: 3 },
+        { agent: "codex", auth: "none", mcp: 1 },
+        { agent: "antigravity", auth: "none", mcp: null },
+      ]);
+      // Never the credential itself.
+      expect(JSON.stringify(agents)).not.toContain('"r"');
+    } finally {
+      process.env.HOME = realHome;
+    }
   });
 });
 

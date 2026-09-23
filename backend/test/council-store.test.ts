@@ -193,6 +193,26 @@ describe("the roster", () => {
     expect((await store.getMember("uriel"))!.tools).toEqual(["status"]);
   });
 
+  it("says which tools it took off a member that reads the web (backlog)", async () => {
+    // Written before recall was private, or by hand: the web and recall both.
+    fs.writeFileSync(
+      path.join(process.env.COUNCIL_DIR!, "ariel.json"),
+      JSON.stringify({
+        id: "ariel",
+        name: "Ariel",
+        remit: "x",
+        tools: ["status", "recall"],
+        web: true,
+      }),
+    );
+    const ariel = (await store.getMember("ariel"))!;
+    expect(ariel.tools).toEqual(["status"]);
+    expect(ariel.narrowed).toEqual(["recall"]);
+    // Nothing to say about one that was never narrowed.
+    await store.saveMember({ ...ariel, tools: ["status"] });
+    expect((await store.getMember("ariel"))!.narrowed).toBeUndefined();
+  });
+
   it("refuses the web beside anything private, whoever asks", async () => {
     // A page an advisor fetches is how a prompt injection would carry the
     // private thing out, so the two never sit in one process.

@@ -612,6 +612,20 @@ export interface PodFacts {
   browsers: number;
   /** `docker system df` rows as strings, null when no daemon is reachable. */
   docker: { type: string; size: string; reclaimable: string }[] | null;
+  /** What each agent CLI would sign in with, and how many MCP servers it has. */
+  agents: AgentFact[];
+}
+
+export interface AgentFact {
+  agent: AgentName;
+  /**
+   * `token` or `key`: a credential on the settings page or in the pod's
+   * environment. `login`: the CLI's own sign-in on the volume. `none`: nothing
+   * it could start with.
+   */
+  auth: "token" | "key" | "login" | "none";
+  /** MCP servers a session of it gets; null where its config is not read. */
+  mcp: number | null;
 }
 
 /**
@@ -1241,6 +1255,11 @@ export interface CouncilMember {
   /** The one who takes every turn and decides who else is convened. */
   chair: boolean;
   enabled: boolean;
+  /**
+   * Set on read: tools the file holds that were taken off because the member
+   * reads the web, which never sits beside anything private. Never saved.
+   */
+  narrowed?: string[];
 }
 
 /**

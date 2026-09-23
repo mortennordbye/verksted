@@ -19,7 +19,7 @@ const member = (id: string, name: string): CouncilMember => ({
 });
 
 const MEMBERS = [
-  member("michael", "Michael"),
+  { ...member("michael", "Michael"), web: true, narrowed: ["recall"] },
   member("uriel", "Uriel"),
   member("sophia", "Sophia"),
 ];
@@ -92,5 +92,13 @@ describe("CouncilPanel (C-27)", () => {
     fireEvent.change(screen.getByLabelText(/their id/), { target: { value: "uriel" } });
     fireEvent.click(screen.getByRole("button", { name: "add" }));
     expect(screen.getByText("@uriel is already on the bench")).toBeTruthy();
+  });
+});
+
+describe("CouncilPanel (backlog: narrowed on read)", () => {
+  it("says which tools a member that reads the web does not hold", async () => {
+    const { default: CouncilPanel } = await import("../src/components/CouncilPanel");
+    render(<CouncilPanel />);
+    expect(screen.getByText("recall not held: not beside the web")).toBeTruthy();
   });
 });

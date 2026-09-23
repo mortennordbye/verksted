@@ -792,11 +792,15 @@ async function readMember(id: string): Promise<CouncilMember | null> {
     // would make that advisor vanish from the roster instead of narrowing it.
     // The settings page still refuses the pairing outright, where somebody can
     // see why.
-    const tools = (parsed.tools ?? []).filter((t) => parsed.web !== true || !PRIVATE_TOOLS.has(t));
+    const held = parsed.tools ?? [];
+    const tools = held.filter((t) => parsed.web !== true || !PRIVATE_TOOLS.has(t));
+    const narrowed = held.filter((t) => !tools.includes(t));
     // Validated on the way out too: a file edited by hand is the same input as
     // a form post, and a torn or wrong one should read as a missing member
     // rather than take a request down.
-    return validate({ ...parsed, tools, id });
+    const member = validate({ ...parsed, tools, id });
+    // Said, so the settings page can show why an advisor cannot recall.
+    return narrowed.length ? { ...member, narrowed } : member;
   } catch {
     return null;
   }
