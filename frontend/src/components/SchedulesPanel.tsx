@@ -398,21 +398,17 @@ export default function SchedulesPanel({ project }: { project?: string }) {
   }
 
   // Opened before this visit's answer landed: the editor waits for it rather
-  // than starting from what the row happened to be showing. `?? e` keeps what
-  // is being typed — every later poll answer runs this too.
+  // than starting from what the row happened to be showing. Only while there is
+  // no edit yet, so a later poll answer leaves what is being typed alone.
   const opened = schedules?.find((s) => s.id === open) ?? null;
-  useEffect(() => {
-    if (!fresh || !opened) return;
-    setEdit(
-      (e) =>
-        e ?? {
-          cron: opened.cron,
-          jitterMinutes: opened.jitterMinutes,
-          prompt: opened.prompt,
-          trigger: opened.trigger,
-        },
-    );
-  }, [fresh, opened]);
+  if (fresh && opened && edit === null) {
+    setEdit({
+      cron: opened.cron,
+      jitterMinutes: opened.jitterMinutes,
+      prompt: opened.prompt,
+      trigger: opened.trigger,
+    });
+  }
 
   return (
     <>

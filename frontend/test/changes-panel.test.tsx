@@ -36,6 +36,20 @@ const answer = (body: unknown, status = 200) =>
   );
 
 describe("ChangesPanel", () => {
+  // The review is adopted once and then owned by the overlay, so adopting a
+  // remembered answer would keep marks that predate the last review.
+  it("marks the review from this visit's answer, not a remembered one", async () => {
+    answer(changes({ review: { files: ["logo.png"], reviewed: 1, verdict: "approved" } }));
+    const first = render(<ChangesPanel sessionId="vk-demo-1" live={false} onOpenDiff={() => {}} />);
+    expect(await screen.findByText("✓ approved")).toBeDefined();
+    first.unmount();
+
+    answer(changes({ review: { files: [], reviewed: 0, verdict: "needs-work" } }));
+    render(<ChangesPanel sessionId="vk-demo-1" live={false} onOpenDiff={() => {}} />);
+    expect(screen.queryByText("✓ approved")).toBeNull();
+    expect(await screen.findByText("⚠ needs work")).toBeDefined();
+  });
+
   it("shows the range, its commits and its files", async () => {
     answer(changes());
     render(<ChangesPanel sessionId="vk-demo-1" live={false} onOpenDiff={() => {}} />);

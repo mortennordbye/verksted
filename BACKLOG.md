@@ -283,26 +283,6 @@ what unblocks it / where the code lives.
 - **Where:** `package.json` (`overrides`), `eslint.config.js` (the
   `jsx-a11y` block)
 
-## React Compiler lint rules from react-hooks 7 warn instead of erroring
-
-- **What:** `eslint-plugin-react-hooks` 7 folds in the React Compiler rules.
-  `react-hooks/refs` no longer fires: its five latest-ref sites now assign in a
-  `useLayoutEffect`. `react-hooks/set-state-in-effect` still does, on 7 sites,
-  and stays at `warn` so CI is not blocked, matching how the jsx-a11y findings
-  above it are handled.
-- **Why deferred:** Every remaining site is an effect that seeds or resets state
-  when something outside React changes, and each is commented as such. Unlike
-  the refs sites these have no mechanical fix: each effect has to be restructured
-  (derive during render, or move the set into the event that causes it), which
-  is a behavioural refactor of hooks that currently work.
-- **Unblocked by:** Wanting the React Compiler to be able to optimise these
-  components, which is when the rule stops being advisory. Then take them one
-  at a time, each with the screen it drives open in a browser.
-- **Where:** `frontend/src/api.ts`, `frontend/src/components/AssistantPanel.tsx`,
-  `frontend/src/components/ChangesPanel.tsx`, `frontend/src/components/ChatPane.tsx`
-  (two), `frontend/src/components/CommandPalette.tsx`,
-  `frontend/src/components/Terminal.tsx`
-
 ## Node major bumps are a manual LTS decision
 
 - **What:** `.github/dependabot.yml` ignores major updates to the `node` image,

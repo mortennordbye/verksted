@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { SessionChanges, SessionReview } from "../../../shared/api";
 import { usePoll } from "../api";
 import { fileIcon } from "../fileicons";
@@ -44,9 +44,7 @@ export default function ChangesPanel({
   // behind this panel is an hour wide on the sessions worth reviewing. Adopted
   // from a fresh answer only, since a remembered one predates the last marks.
   const [review, setReview] = useState<SessionReview | null>(null);
-  useEffect(() => {
-    if (data && fresh) setReview((prev) => prev ?? data.review);
-  }, [data, fresh]);
+  if (data && fresh && review === null) setReview(data.review);
 
   const files = data?.files ?? [];
   const read = new Set(review?.files ?? []);

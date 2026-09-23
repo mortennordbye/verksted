@@ -346,6 +346,47 @@ describe("usePoll", () => {
     expect(fetchMock.mock.calls.length).toBe(settled + 1);
   });
 
+  // A screen that switches what it polls, like the session screen moving to
+  // the next session, must not show one path's answer as the other's.
+  it("starts a new path over from what that path last said", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: "b" }));
+    const seen = renderHook(() => usePoll("/api/b"));
+    await waitFor(() => expect(seen.result.current.fresh).toBe(true));
+    seen.unmount();
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({ v: "a" }));
+    const { result, rerender } = renderHook(({ path }) => usePoll(path), {
+      initialProps: { path: "/api/a" },
+    });
+    await waitFor(() => expect(result.current.fresh).toBe(true));
+
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    rerender({ path: "/api/b" });
+    expect(result.current.data).toEqual({ v: "b" });
+    expect(result.current.fresh).toBe(false);
+    expect(result.current.loading).toBe(false);
+
+    rerender({ path: "/api/c" });
+    expect(result.current.data).toBeNull();
+    expect(result.current.loading).toBe(true);
+  });
+
+  it("drops an answer for the path it has moved off", async () => {
+    let answerA!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answerA = resolve)));
+    const { result, rerender } = renderHook(({ path }) => usePoll(path), {
+      initialProps: { path: "/api/a" },
+    });
+
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    rerender({ path: "/api/b" });
+    await act(async () => {
+      answerA(jsonResponse({ v: "a" }));
+    });
+    expect(result.current.data).toBeNull();
+    expect(result.current.fresh).toBe(false);
+  });
+
   it("does not fetch at all while the path is null", async () => {
     renderHook(() => usePoll(null));
     expect(fetchMock).not.toHaveBeenCalled();
