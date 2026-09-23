@@ -61,11 +61,13 @@ what unblocks it / where the code lives.
 - **Why deferred:** The cause is not known, and a fix before it is would be a
   guess. The process that lost each tick is gone, and nothing it logged tells a
   timer that never fired from a stamp that never finished.
-- **Unblocked by:** A log line at the top of `fire` (and one after the stamp),
-  then the next lost tick. If the first line is missing, it is the timer; if
-  only the second is, the write hung, and `writeAtomic`'s syncs on NFS are the
-  first place to look. A pod restart inside the hour after a cron is still the
-  way to see a real catch-up.
+- **Unblocked by:** The next lost tick, read in Loki. `fire` now logs
+  "firing" before the stamp and "stamped" after it, and croner's `protect`
+  logs a tick it skipped because the last one is still running. No "firing"
+  is the timer; "firing" without "stamped" is the write hanging, and
+  `writeAtomic`'s syncs on NFS are the first place to look; a "still running"
+  skip means an earlier firing hung and took this one with it. A pod restart
+  inside the hour after a cron is still the way to see a real catch-up.
 - **Where:** `backend/src/scheduler.ts` (`fire`, `catchUp`, `missedTick`),
   `backend/src/schedules-store.ts` (`stampFired`, `edits`),
   `backend/src/atomic-json.ts` (`writeAtomic`, `syncDir`)
