@@ -1437,7 +1437,7 @@ export type ProposalAction =
    * message at once; a removed event is gone from a calendar that has no
    * trash; and the trash and the junk folder are emptied by the server.
    *
-   * `rule`, `event` and `subjects` are not the model's to write. The pod reads
+   * `rule`, `event`, `subjects` and `messages` are not the model's to write. The pod reads
    * them from the account as the card is filed, so the card shows what is
    * there rather than what something said was there.
    */
@@ -1451,7 +1451,14 @@ export type ProposalAction =
       markRead?: boolean;
     }
   | { kind: "mail_rule_delete"; id: string; rule: GmailRule }
-  | { kind: "mail_label_delete"; name: string }
+  | {
+      kind: "mail_label_delete";
+      name: string;
+      /** The messages carrying it, read as the card is filed and again on the tap. */
+      messages?: string[];
+      /** There were more than the pod keeps, and the rest get no label back. */
+      capped?: boolean;
+    }
   | {
       kind: "calendar_delete";
       uid: string;

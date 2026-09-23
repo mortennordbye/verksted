@@ -66,10 +66,12 @@ export const UNDOABLE = new Set([
   "calendar_update",
   // A tapped card's lines (proposals.ts): the event it took off put back,
   // mail it moved to the trash or spam moved back, a filter it removed made
-  // again from the definition the card showed.
+  // again from the definition the card showed, a label it deleted made again
+  // by name and put back on the messages the tap read carried it.
   "card:calendar_delete",
   "card:mail_move",
   "card:mail_rule_delete",
+  "card:mail_label_delete",
 ]);
 
 /** Which calls have been put back, by the `at` of the call. Not a `.jsonl`, so never a day. */

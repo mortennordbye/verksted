@@ -1279,7 +1279,7 @@ const TOOLS = [
   {
     name: "mail_label_delete",
     description:
-      "Propose deleting one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it and cannot be put back, so it is a card and nothing is deleted until they tap it. The tap is refused while a filter still files into the label: propose removing that filter with mail_rule_delete first.",
+      "Propose deleting one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it, and only the first 500 of those are recorded to put it back on from the log, so it is a card and nothing is deleted until they tap it. The tap is refused while a filter still files into the label: propose removing that filter with mail_rule_delete first.",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string" }, why: { type: "string" } },
