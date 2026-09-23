@@ -535,6 +535,15 @@ export default function Hub() {
           {/* What each agent would sign in with. A session started on "none"
               opens at a login prompt, which is found out at the worst time:
               after a schedule has already fired it. */}
+          {/* Said only when it is wrong: a headroom checkout the server cannot
+              start from, which otherwise shows as an advisor with no tools. */}
+          {facts?.headroom && facts.headroom.missing.length > 0 && (
+            <div className="mt-4 border-t border-line pt-3 text-[12px] text-wait">
+              headroom is set up, but its server cannot start from the{" "}
+              {facts.headroom.branch ? `${facts.headroom.branch} branch` : "checkout"}: missing{" "}
+              {facts.headroom.missing.join(", ")}
+            </div>
+          )}
           {facts?.agents && (
             <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-line pt-3 text-[12px]">
               {facts.agents.map((a) => (

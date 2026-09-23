@@ -614,6 +614,11 @@ export interface PodFacts {
   docker: { type: string; size: string; reclaimable: string }[] | null;
   /** What each agent CLI would sign in with, and how many MCP servers it has. */
   agents: AgentFact[];
+  /**
+   * Whether headroom's server can start from its checkout: the branch, and
+   * what it needs that is not there. Null when headroom is not configured.
+   */
+  headroom: { branch: string | null; missing: string[] } | null;
 }
 
 export interface AgentFact {

@@ -8,6 +8,7 @@ import { ttlCache } from "../cache.js";
 import { env } from "../env.js";
 import { claudeCredentialsFile } from "../claude-home.js";
 import { credential } from "../settings-store.js";
+import { headroomServer } from "../assistant-policy.js";
 
 /** cgroup-v2 aware memory usage; falls back to OS totals outside a limit. */
 async function memory(): Promise<{ used: number; total: number }> {
@@ -163,13 +164,14 @@ async function dockerPorts(): Promise<ListeningPort[]> {
 
 export default async function factsRoutes(app: FastifyInstance) {
   app.get("/api/facts", async (): Promise<PodFacts> => {
-    const [stat, mem, docker, agents] = await Promise.all([
+    const [stat, mem, docker, agents, headroom] = await Promise.all([
       // One unreadable mount must not 500 the whole facts endpoint, which also
       // carries memory, browser count and the docker figures.
       fs.statfs(env.REPOS_DIR).catch(() => ({ blocks: 0, bsize: 0, bavail: 0 })),
       memory(),
       dockerDf(),
       agentFacts(),
+      headroomServer(),
     ]);
     return {
       diskTotal: stat.blocks * stat.bsize,
@@ -179,6 +181,7 @@ export default async function factsRoutes(app: FastifyInstance) {
       browsers: browserCount(),
       docker,
       agents,
+      headroom,
     };
   });
 

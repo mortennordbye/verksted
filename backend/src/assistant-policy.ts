@@ -352,6 +352,34 @@ export async function headroomConfigured(): Promise<boolean> {
 }
 
 /**
+ * Whether the headroom server can start from what is checked out, or null
+ * where headroom is not configured at all.
+ *
+ * It runs from the working tree, so a branch without `mcp/` or a checkout
+ * whose install was wiped takes its tools away with nothing to say so: the
+ * advisor answers as though headroom was never set up. This is the saying so.
+ */
+export async function headroomServer(): Promise<{
+  branch: string | null;
+  missing: string[];
+} | null> {
+  if (!(await headroomConfigured())) return null;
+  const missing: string[] = [];
+  for (const rel of ["mcp/server.ts", "node_modules/.bin/tsx"]) {
+    try {
+      await fs.access(path.join(HEADROOM_SERVER, rel));
+    } catch {
+      missing.push(rel);
+    }
+  }
+  const head = await fs
+    .readFile(path.join(HEADROOM_SERVER, ".git", "HEAD"), "utf8")
+    .catch(() => "");
+  const branch = /^ref: refs\/heads\/(.+)$/m.exec(head)?.[1] ?? (head.trim() ? "detached" : null);
+  return { branch, missing };
+}
+
+/**
  * The tool policy every speaker shares, and the part of it that is not data.
  *
  * A member is a JSON file somebody can edit from their phone. What that file

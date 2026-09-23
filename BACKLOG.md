@@ -24,22 +24,6 @@ what unblocks it / where the code lives.
 - **Where:** `frontend/src/screens/Session.tsx` (`useVisualViewport`, the root
   shell's `kbd:h-[var(--vvh,100dvh)]`, and the full-screen pane branch)
 
-## Ariel's headroom server runs out of a working tree
-
-- **What:** The server is `tsx mcp/server.ts` under `/data/repos/headroom`, so
-  what that advisor can do is decided by whatever is checked out there. A branch
-  without `mcp/`, a half-finished edit or a reinstall changes it, and the failure
-  mode is silent: the tools simply do not list, and the advisor answers as though
-  headroom was never configured — which is indistinguishable from the vars being
-  unset.
-- **Why deferred:** The alternative is pinning a copy into this image or running
-  headroom's HTTP transport beside it, and both cost more than the failure does
-  while one person uses one checkout.
-- **Unblocked by:** Wanting to work on a headroom branch and keep Ariel honest at
-  the same time; then either pin the server or surface "headroom configured but
-  not answering" as something visible rather than absent.
-- **Where:** `backend/src/assistant.ts` (`HEADROOM_SERVER`, `mcpConfig`)
-
 ## Verify Antigravity headless auth in the pod
 
 - **What:** `ANTIGRAVITY_API_KEY` is documented in `.env.example` but reports on
