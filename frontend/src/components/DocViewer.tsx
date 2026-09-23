@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import { api } from "../api";
 import { parseCsv } from "../csv";
-import { marks, rehypeMark } from "../find";
+import { marks, rehypeMark, useFindMarks } from "../find";
 import { MD, REMARK } from "./chat/markdown";
 import { SkeletonLines } from "./Skeleton";
 import Overlay, { OverlayHeader } from "./ui/Overlay";
@@ -138,10 +138,7 @@ export default function DocViewer({
   const [text, setText] = useState<string | null>(null);
   const [failed, setFailed] = useState<string | null>(null);
   const [find, setFind] = useState(initialFind);
-  const [hits, setHits] = useState(0);
   const body = useRef<HTMLDivElement>(null);
-  /** Which match the next jump goes to. */
-  const next = useRef(0);
 
   useEffect(() => {
     if (view !== "text") return;
@@ -154,21 +151,7 @@ export default function DocViewer({
     };
   }, [path, view]);
 
-  /** Count what was actually drawn: markdown syntax is not on the screen. */
-  useEffect(() => {
-    setHits(body.current?.querySelectorAll("mark").length ?? 0);
-    next.current = 0;
-  }, [text, find]);
-
-  const jump = useCallback(() => {
-    const found = body.current?.querySelectorAll("mark");
-    if (!found?.length) return;
-    const el = found[next.current % found.length];
-    next.current = (next.current + 1) % found.length;
-    for (const m of found) m.classList.remove("ring-1", "ring-wait");
-    el.classList.add("ring-1", "ring-wait");
-    el.scrollIntoView({ block: "center" });
-  }, []);
+  const { hits, jump } = useFindMarks(body, find, text);
 
   // Arriving from a search hit, on the match rather than at the top: the
   // document can be forty pages, and the reason for opening it is one line.

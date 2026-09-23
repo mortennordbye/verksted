@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Markdown from "react-markdown";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MD, REMARK } from "../src/components/chat/markdown";
 
 /**
@@ -44,5 +44,27 @@ describe("MD", () => {
     expect(container.querySelectorAll("img")).toHaveLength(0);
     // Not silently: the alt text is what the reader sees instead.
     expect(screen.getByText("receipt")).toBeTruthy();
+  });
+
+  it("gives a fenced block a copy button of its own, which copies the code alone", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(
+      <Markdown components={MD} remarkPlugins={REMARK}>
+        {"Run this:\n\n```sh\nmake test\n```"}
+      </Markdown>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "copy this code" }));
+    expect(writeText).toHaveBeenCalledWith("make test");
+  });
+
+  it("highlights a block whose fence names a language", async () => {
+    const { container } = render(
+      <Markdown components={MD} remarkPlugins={REMARK}>
+        {"```ts\nconst x = 1;\n```"}
+      </Markdown>,
+    );
+    await waitFor(() => expect(container.querySelector(".hljs-keyword")).not.toBeNull());
+    expect(container.querySelector("pre")?.textContent).toBe("const x = 1;\n");
   });
 });

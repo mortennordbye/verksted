@@ -1177,6 +1177,10 @@ Later the same day:
 - O-05: the agent CLIs (`runtime/cli`) no longer auto-merge; everything else non-major still does, by decision.
 - R-08: `plan.jsonl` lines and closed loops older than a year are pruned nightly. The session archive is kept
   on purpose (the usage page's all-time totals), and transcripts belong to the CLI.
+- C-30: code blocks in chat are highlighted when the fence names a language and have their own copy button; the
+  open thread has a find box (`useFindMarks`, shared with the document viewer); your last message can be put
+  back in the composer to edit and send again. By decision that is a new message, not a rewind: claude keeps
+  the conversation, and the one flag that would rewind it (`--resume-session-at`) is undocumented.
 
 What each one was:
 
