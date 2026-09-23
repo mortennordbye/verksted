@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
-import type { FeedItem, FeedSource, Loop, Session } from "../../../shared/api";
+import type { FeedItem, FeedItemFacts, FeedSource, Loop, Session } from "../../../shared/api";
 import { agoLabel, api, usePoll } from "../api";
+import { tokens } from "../format";
 import BandHeading from "../components/BandHeading";
 import type { IconName } from "../components/Icon";
 import PageHeader from "../components/PageHeader";
@@ -127,6 +128,54 @@ export function saysTheSame(item: FeedItem): boolean {
 }
 
 /**
+ * The sources whose rows have more to say once opened: a pull request's checks
+ * and size, a mail's first line, a run's time and tokens. Each costs a call to
+ * the source, so they are asked for when a row is opened, once, and not by the
+ * pollers for every item (GET /api/feed/:id/facts).
+ */
+const OPENED_FACTS = new Set<FeedSource>(["github", "mail", "bench", "schedule"]);
+
+/** A run's length as the mock words it: "4 m 12 s", "1 h 3 m". */
+function ranFor(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m} m ${s % 60} s` : `${Math.floor(m / 60)} h ${m % 60} m`;
+}
+
+/** What an opened row adds to its facts line, each only when the source had it. */
+function OpenedFacts({ item, facts }: { item: FeedItem; facts: FeedItemFacts }) {
+  const { checks, diff, firstLine, durationMs } = facts;
+  // A schedule's row already says what the run cost; once is enough.
+  const counted = item.facts.some((f) => f.endsWith(" tokens"));
+  return (
+    <>
+      {firstLine && <span className="[overflow-wrap:anywhere]">{firstLine}</span>}
+      {checks && checks !== "none" && (
+        <span
+          className={checks === "passing" ? "text-run" : checks === "failing" ? "text-fail" : ""}
+        >
+          {checks === "passing"
+            ? "✓ checks passing"
+            : checks === "failing"
+              ? "✗ checks failing"
+              : "checks pending"}
+        </span>
+      )}
+      {diff && (
+        <span>
+          <span className="text-run">+{diff.additions}</span>{" "}
+          <span className="text-fail">−{diff.deletions}</span> · {diff.files}{" "}
+          {diff.files === 1 ? "file" : "files"}
+        </span>
+      )}
+      {typeof durationMs === "number" && <span>ran {ranFor(durationMs)}</span>}
+      {typeof facts.tokens === "number" && !counted && <span>{tokens(facts.tokens)} tokens</span>}
+    </>
+  );
+}
+
+/**
  * A plain key press meant for the list: not typed into a field, not a chord
  * like Cmd+K, and not while a sheet or a confirm is up — those are dialogs, and
  * a key that snoozed the row behind one would be acting on what you cannot see.
@@ -165,6 +214,16 @@ function Row({
   onLeaving: (ids: string[], on: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [opened, setOpened] = useState<FeedItemFacts | "unasked" | "loading" | "failed">("unasked");
+  /** Open or close the row; the first open asks the source for what the row lacks. */
+  const toggle = () => {
+    setOpen((o) => !o);
+    if (opened !== "unasked" || !OPENED_FACTS.has(item.source)) return;
+    setOpened("loading");
+    api<FeedItemFacts>(`/api/feed/${encodeURIComponent(item.id)}/facts`).then(setOpened, () =>
+      setOpened("failed"),
+    );
+  };
   const [snoozing, setSnoozing] = useState(false);
   const external = item.link?.startsWith("http");
   const u = URGENCY[item.urgency];
@@ -232,7 +291,7 @@ function Row({
       if (e.key === "e" && canFinish) finish();
       else if (e.key === "s" && canSnooze) setSnoozing(true);
       else if (e.key === "o") {
-        if (!item.link) setOpen((o) => !o);
+        if (!item.link) toggle();
         else if (external) window.open(item.link, "_blank", "noreferrer");
         else void navigate(item.link);
       } else return;
@@ -278,7 +337,7 @@ function Row({
         />
         <button
           type="button"
-          onClick={() => setOpen((o) => !o)}
+          onClick={toggle}
           aria-expanded={open}
           // The row's own tap target, and on a one-line item it was 34px of a
           // list you scroll with a thumb.
@@ -300,11 +359,15 @@ function Row({
               {uncite(item.detail)}
             </span>
           )}
-          {item.facts.length > 0 && (
+          {(item.facts.length > 0 || opened !== "unasked") && (
             <span className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-[11px] text-faint">
               {item.facts.map((f) => (
                 <span key={f}>{f}</span>
               ))}
+              {opened === "loading" && (
+                <Skeleton className="inline-block h-3 w-28 self-center rounded bg-surface-2" />
+              )}
+              {typeof opened === "object" && <OpenedFacts item={item} facts={opened} />}
             </span>
           )}
         </button>

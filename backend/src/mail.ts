@@ -289,14 +289,7 @@ export async function read(uid: number): Promise<MailMessage | null> {
     const chosen =
       body.find((p) => p.type === "text/plain") ?? body.find((p) => p.type === "text/html");
     if (chosen?.part) {
-      const { content } = await client.download(String(uid), chosen.part, {
-        uid: true,
-        maxBytes: PART_BYTES,
-      });
-      const chunks: Buffer[] = [];
-      for await (const chunk of content) chunks.push(chunk as Buffer);
-      const raw = Buffer.concat(chunks).toString("utf8");
-      const text = (chosen.type === "text/html" ? htmlToText(raw) : raw).trim();
+      const text = await downloadText(client, uid, chosen.part, chosen.type, PART_BYTES);
       if (text) {
         return {
           ...summarise(head),
@@ -309,6 +302,61 @@ export async function read(uid: number): Promise<MailMessage | null> {
       }
     }
     return readWhole(client, uid);
+  });
+}
+
+/** One text part, at most `maxBytes` of it, as text: an HTML part reduced. */
+async function downloadText(
+  client: ImapFlow,
+  uid: number,
+  part: string,
+  type: string | undefined,
+  maxBytes: number,
+): Promise<string> {
+  const { content } = await client.download(String(uid), part, { uid: true, maxBytes });
+  const chunks: Buffer[] = [];
+  for await (const chunk of content) chunks.push(chunk as Buffer);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return (type === "text/html" ? htmlToText(raw) : raw).trim();
+}
+
+/**
+ * How much of a text part a row's first line is read from. More than a line,
+ * because an HTML part can open with kilobytes of markup that reduce to nothing.
+ */
+const LINE_BYTES = 32 * 1024;
+
+/**
+ * The first line of a message's text, for an inbox row that was opened.
+ *
+ * The text part only, capped, and no fallback to the whole source that `read`
+ * has: a row's one line is not worth a twenty megabyte download. A message
+ * that is one part is its own part "1", which imapflow knows to fetch as the
+ * body; one with no text part to name has no line.
+ */
+export async function firstLine(uid: number): Promise<string | null> {
+  return withInbox(async (client) => {
+    const head = await client.fetchOne(
+      String(uid),
+      { bodyStructure: true, uid: true },
+      { uid: true },
+    );
+    const root = head ? (head.bodyStructure as Part | undefined) : undefined;
+    if (!root) return null;
+    const parts = root.childNodes
+      ? walk(root).filter((p) => p.part && !isAttachment(p))
+      : isAttachment(root)
+        ? []
+        : [{ ...root, part: "1" }];
+    const chosen =
+      parts.find((p) => p.type === "text/plain") ?? parts.find((p) => p.type === "text/html");
+    if (!chosen?.part) return null;
+    const text = await downloadText(client, uid, chosen.part, chosen.type, LINE_BYTES);
+    const line = text
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean);
+    return line ? line.slice(0, 200) : null;
   });
 }
 

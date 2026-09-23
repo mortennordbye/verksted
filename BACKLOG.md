@@ -552,29 +552,6 @@ what unblocks it / where the code lives.
 - **Where:** `Dockerfile`, `backend/src/settings-store.ts` (`KNOWN_AGENT_KEYS`),
   `runtime/vk-guard`, `backend/src/maintainer.ts` (`readContract`)
 
-## The facts a feed row can show stop at what a poller already had
-
-- **What:** `FeedItem` now carries `from` and `facts`, and the mail and github
-  pollers fill them from what they were already holding — a sender and address,
-  a repository, a notification's kind and reason. `design/mock-inbox.html` promises
-  more than that: a pull request's check status and diff size, a mail's first
-  body line, a run's duration and token cost. None of those are filled, so a
-  row drawn from the mock will have two facts where the mock shows four.
-- **Why deferred:** Each of the missing ones costs a network call the poller
-  does not currently make. Checks and diff size are a `gh` call per pull
-  request, on a list that is routinely a dozen long; a body line is an IMAP
-  FETCH per message rather than the envelope-only SEARCH the poller does now.
-  Both turn a cheap five-minute poll into a chatty one, and the github half
-  spends rate limit that the notification poll shares.
-- **Unblocked by:** Deciding the poll may cost more, or fetching lazily — the
-  facts for one item when a row is opened rather than for every item on every
-  poll. The lazy shape is probably right and is a route plus a cache, not a
-  poller change.
-- **Where:** `backend/src/pollers.ts` (`mailItems`, `notificationItems`,
-  `queueItems`), `backend/src/mail.ts` (`recent`, `read`, `BODY_BYTES`),
-  `backend/src/gh.ts`, and `FeedItem.facts` in `shared/api.ts`. The mock is
-  `design/mock-inbox.html`.
-
 ## A removed label and a sent mail cannot be put back
 
 - **What:** A tapped card is a line of the tool log (`card:<kind>`), and a
