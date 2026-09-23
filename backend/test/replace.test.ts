@@ -26,7 +26,7 @@ describe("runReplace", () => {
       replacement: "baz",
       literal: true,
     });
-    expect(result).toEqual({ files: 2, replacements: 3 });
+    expect(result).toMatchObject({ files: 2, replacements: 3 });
     expect(fs.readFileSync(a, "utf8")).toBe("baz bar baz");
   });
 
@@ -42,7 +42,7 @@ describe("runReplace", () => {
       literal: true,
     });
     expect(fs.readFileSync(outside, "utf8")).toBe("token=foo");
-    expect(result).toEqual({ files: 0, replacements: 0 });
+    expect(result).toMatchObject({ files: 0, replacements: 0 });
   });
 
   it("keeps $-syntax literal for a plain-text search", async () => {
@@ -67,14 +67,14 @@ describe("runReplace", () => {
       literal: false,
     });
     expect(fs.readFileSync(a, "utf8")).toBe("[X]");
-    expect(result).toEqual({ files: 1, replacements: 1 });
+    expect(result).toMatchObject({ files: 1, replacements: 1 });
   });
 
   it("counts nothing and writes nothing when a listed file no longer matches", async () => {
     const a = file("stale.txt", "nothing here");
     expect(
       await runReplace({ paths: [a], source: "zzz", flags: "g", replacement: "x", literal: true }),
-    ).toEqual({ files: 0, replacements: 0 });
+    ).toMatchObject({ files: 0, replacements: 0 });
   });
 
   it("skips a file deleted under it rather than failing the whole run", async () => {
@@ -88,7 +88,7 @@ describe("runReplace", () => {
         replacement: "bar",
         literal: true,
       }),
-    ).toEqual({ files: 1, replacements: 1 });
+    ).toMatchObject({ files: 1, replacements: 1 });
   });
 
   // The reason this runs off the main thread at all: the pattern is client

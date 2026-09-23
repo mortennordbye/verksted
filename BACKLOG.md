@@ -254,24 +254,6 @@ what unblocks it / where the code lives.
 - **Where:** `backend/src/sessions-store.ts` (`createSession`),
   `backend/src/claude-hooks.ts` (pattern to copy)
 
-## Per-file selection and a dry run for repo-wide replace
-
-- **What:** `POST /api/projects/:name/replace` still rewrites every match in one
-  shot. The confirm now states how many matches in how many files and names the
-  first five, and the hit list is re-run afterwards so the result can be
-  checked — but there is no per-file selection, no server-side dry run, and no
-  undo.
-- **Why deferred:** A real dry run means a second response shape (per-file
-  before/after counts, ideally the replaced lines) and a review UI on top of it,
-  which is a feature rather than a safety fix. The immediate risk — an
-  unbounded rewrite behind a single unstyled `confirm()` — is addressed, and the
-  regex no longer runs on the event loop.
-- **Unblocked by:** Deciding whether the review step shows counts per file or
-  actual diff lines; the latter needs the endpoint to return content, which has
-  size implications on a phone.
-- **Where:** `backend/src/routes/files.ts` (the replace route),
-  `backend/src/replace.ts`, `frontend/src/components/SearchPanel.tsx`
-
 ## The antigravity CLI is the one thing in the image with no version to pin
 
 - **What:** claude, codex and the playwright MCP server are pinned in

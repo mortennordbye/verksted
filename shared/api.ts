@@ -796,6 +796,10 @@ export interface SearchFlags {
 export interface ReplaceResult {
   files: number;
   replacements: number;
+  /** Each file and its count, repo-relative; what a dry run is for. */
+  perFile: { path: string; replacements: number }[];
+  /** Nothing was written: the counts are what a replace would do. */
+  dryRun?: boolean;
 }
 
 /**
