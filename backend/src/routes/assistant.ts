@@ -11,6 +11,11 @@ import type {
   UnattendedRun,
 } from "../../../shared/api.js";
 import * as assistant from "../assistant.js";
+import { agentUser } from "../agent-user.js";
+import { assistantHome } from "../assistant-policy.js";
+import { transcriptPath } from "../claude-home.js";
+import { DESK, ensureDesk } from "../desk.js";
+import { createSession } from "../session-launch.js";
 import { env } from "../env.js";
 import { BusyError } from "../serial.js";
 import { readAssistantConfig, writeAssistantConfig } from "../settings-store.js";
@@ -544,6 +549,50 @@ export default async function assistantRoutes(app: FastifyInstance) {
           .send(text);
       } catch (err) {
         return reply.code(404).send({ error: (err as Error).message });
+      }
+    },
+  );
+
+  /**
+   * The thread in a terminal, to drive rather than chat to (Assistant M1).
+   *
+   * A desk session forking the chair's claude conversation: the transcript is
+   * copied beside the desk, where `--resume` looks, and `--fork-session` makes
+   * the terminal a conversation of its own, so what is typed there never lands
+   * in the chat's. Not while sessions run as their own user: the assistant's
+   * HOME is kept from that user on purpose, since it holds the mail and the
+   * calendar a turn has read.
+   */
+  app.post<{ Params: { id: string } }>(
+    "/api/assistant/threads/:id/terminal",
+    { schema: { params: threadId } },
+    async (req, reply) => {
+      if (agentUser()) {
+        return reply.code(409).send({
+          error:
+            "not while sessions run as their own user: the assistant's conversations are kept from it",
+        });
+      }
+      const from = transcriptPath(env.REPOS_DIR, req.params.id, assistantHome());
+      try {
+        await fs.access(from);
+      } catch {
+        return reply.code(404).send({ error: "this thread has no conversation to open yet" });
+      }
+      const desk = await ensureDesk();
+      const to = transcriptPath(desk, req.params.id);
+      await fs.mkdir(path.dirname(to), { recursive: true });
+      await fs.copyFile(from, to);
+      const threads = await assistant.listThreads();
+      const title = threads.find((t) => t.conversationId === req.params.id)?.title ?? "thread";
+      try {
+        const session = await createSession(DESK, desk, "claude", {
+          title: `assistant: ${title}`.slice(0, 80),
+          fork: req.params.id,
+        });
+        return reply.code(201).send(session);
+      } catch (err) {
+        return reply.code(409).send({ error: (err as Error).message });
       }
     },
   );

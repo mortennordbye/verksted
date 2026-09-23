@@ -200,3 +200,46 @@ describe("POST /api/projects/:name/sessions", () => {
     expect(portOf(next)).toBe(portOf(first));
   });
 });
+
+describe("POST /api/assistant/threads/:id/terminal (Assistant M1)", () => {
+  it("forks the thread's conversation into a desk session, and leaves the chat's own alone", async () => {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-m1-home-"));
+    process.env.HOME = home;
+    try {
+      const id = "12345678-1234-4234-8234-123456789abc";
+      const chat = path.join(home, ".claude", "projects", reposDir.replace(/\//g, "-"));
+      fs.mkdirSync(chat, { recursive: true });
+      fs.writeFileSync(path.join(chat, `${id}.jsonl`), '{"type":"user"}\n');
+
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/assistant/threads/${id}/terminal`,
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().project).toBe("desk");
+      const [argv] = fake.subcommand("tmux", "new-session");
+      expect(argv.join(" ")).toContain(`claude --resume ${id} --fork-session`);
+      // Copied beside the desk, where --resume looks; the original is untouched.
+      const desk = path.join(
+        home,
+        ".claude",
+        "projects",
+        path.join(reposDir, "desk").replace(/\//g, "-"),
+      );
+      expect(fs.existsSync(path.join(desk, `${id}.jsonl`))).toBe(true);
+      expect(fs.existsSync(path.join(chat, `${id}.jsonl`))).toBe(true);
+    } finally {
+      process.env.HOME = realHome;
+    }
+  });
+
+  it("says so for a thread with no conversation yet", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/assistant/threads/99999999-9999-4999-8999-999999999999/terminal",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});

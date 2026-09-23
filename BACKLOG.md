@@ -304,25 +304,6 @@ what unblocks it / where the code lives.
 - **Where:** `runtime/verksted-mcp.mjs` (`call`, `reason`), `tsconfig.runtime.json`,
   `backend/src/routes/assistant.ts`, `backend/src/routes/memory.ts`, `shared/api.ts`
 
-## Assistant M1: open the assistant's conversation in a terminal
-
-- **What:** Headless claude records its conversation under `$HOME` exactly as
-  the TUI does, so a tmux session running `claude --resume <id>` picks up the
-  thread you were chatting to. This is what keeps the chat from being a dead end
-  when you want to drive.
-- **Why deferred:** The mechanism is verified — a chatted turn lands at
-  `/data/home/.claude/projects/-data-repos/<id>.jsonl`, which is exactly where
-  the interactive CLI looks for a conversation started in `REPOS_DIR`. What is
-  missing is somewhere to put the session: every session id is
-  `vk-<project>-<seq>` and the assistant belongs to no project, so this needs
-  the session model to admit a projectless session rather than just a new
-  endpoint.
-- **Unblocked by:** Deciding how a projectless session is named and listed, then
-  a route that starts tmux on `claude --resume <conversationId>` in `REPOS_DIR`.
-- **Where:** `backend/src/sessions-store.ts` (`SESSION_ID_RE`, `createSession`,
-  `launchAgent` already builds `claude --resume <id>` for restores),
-  `frontend/src/screens/Assistant.tsx` (where the button goes)
-
 ## "Ask before anything irreversible" is an instruction, not enforcement
 
 - **What:** Of the two house rules, "leave no sign an agent wrote this" is now
