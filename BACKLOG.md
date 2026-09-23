@@ -181,18 +181,6 @@ what unblocks it / where the code lives.
   installer URL and a version assertion after it).
 - **Where:** `Dockerfile` (the `agy` block at the end of the `base` stage)
 
-## Run CI through the containers, not on the runner
-
-- **What:** CI still does `npm ci` on the GitHub runner, so node-pty is compiled
-  natively there, while CLAUDE.md says tooling runs in containers. The image is
-  now built and smoke-tested before it is pushed, which was the bigger gap.
-- **Why deferred:** Moving the test job onto compose means the runner builds the
-  dev image on every run; worth measuring against the current job time before
-  committing to it.
-- **Unblocked by:** Timing `docker compose run --rm backend npm test` on a cold
-  runner against the present `npm ci` path.
-- **Where:** `.github/workflows/ci.yml` (the `test` job)
-
 ## "Ask before anything irreversible" is an instruction, not enforcement
 
 - **What:** Of the two house rules, "leave no sign an agent wrote this" is now
@@ -483,17 +471,3 @@ what unblocks it / where the code lives.
 - **Where:** `e2e/smoke.test.ts` ("asks before a tap beside the file viewer
   throws away an edit" and the test after it),
   `frontend/src/useDismissOnBack.ts` (`ownBack`, `overlaysSettled`).
-
-## The pod's readiness probe still asks `health`
-
-- **What:** `GET /api/ready` answers 503 when tmux cannot be reached or the
-  sessions directory cannot be written to. Nothing asks it yet: the image's
-  `HEALTHCHECK` and the Deployment's probes both use `/api/health`, which
-  answers whenever the process does.
-- **Why deferred:** The Deployment lives in the Homelab repo. The `HEALTHCHECK`
-  was left on `health` on purpose: it restarts the container, which ends every
-  tmux session, and a volume that has gone read-only is not fixed by that.
-- **Unblocked by:** A `readinessProbe` on `/api/ready` in the Homelab manifest,
-  with `livenessProbe` left on `/api/health`.
-- **Where:** `backend/src/app.ts` (`/api/ready`), `Dockerfile` (`HEALTHCHECK`),
-  `RUNBOOK.md`.
