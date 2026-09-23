@@ -113,35 +113,6 @@ what unblocks it / where the code lives.
   `backend/src/gh.ts` and `backend/src/routes/github.ts` (the PR/checks
   queries), `backend/src/schedules-store.ts` (the record shape to extend)
 
-## An ordinary scheduled run still has no sign-off of its own
-
-- **What:** Adherence to `REPORT_CONTRACT` was the open question here, and a
-  week of real runs answered it: poor. Six headroom stage runs went silent in a
-  week — scout twice, build once, gate on three consecutive nights — while the
-  same gate schedule wrote a clean verdict on the nights either side. Stage runs
-  now handle it: the pane asks for the line (`runtime/vk-signoff`) and, failing
-  that, records that it asked. An ordinary scheduled session gets neither, so a
-  schedule with a prompt of its own still depends on the model remembering.
-- **Why deferred:** The fallback this entry used to propose — move
-  `DEFAULT_REPORT` onto ordinary schedules, "a one-line change" — is wrong for
-  them. An ordinary scheduled session is a TUI that does not exit, and its Stop
-  hook writes `waiting`, which is what turns the session amber for a person to
-  pick up. A Stop hook that also wrote a default report would file every
-  stop-to-ask as a failure, and `endSignedOffRuns` ends any scheduled session
-  that has a report — so it would kill the session at the moment the agent
-  stopped to ask a question, which is the case the amber chip exists for.
-  vk-signoff does not transfer either: it runs after the agent process exits,
-  and a TUI's does not.
-- **Unblocked by:** A signal that separates "finished and forgot" from "stopped
-  to ask" from inside a live TUI. The session's own conversation has it — a turn
-  that ended without a question is not the same shape as one that asked — and
-  `transcripts.ts` already reads entries by conversation id. Until then the slot
-  is no longer held (`roomForSession` takes it back after a day), so the cost is
-  a missing verdict rather than a missing night.
-- **Where:** `backend/src/sessions-store.ts` (`REPORT_CONTRACT`, `launchAgent`),
-  `backend/src/claude-hooks.ts` (`DEFAULT_REPORT`), `runtime/vk-signoff`,
-  `backend/src/scheduler.ts` (`endSignedOffRuns`, `roomForSession`)
-
 ## Terminal dictation is unverified on a real iPhone
 
 - **What:** The mic key in the session toolbar uses the browser's own speech

@@ -1168,6 +1168,81 @@ describe("a scheduled session that has signed off", () => {
   });
 });
 
+describe("a scheduled session that finished without its verdict (backlog)", () => {
+  /** The session's conversation, with its last turn saying `last`. */
+  function conversation(id: string, last: string): () => void {
+    const realHome = process.env.HOME;
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "vk-signoff-home-"));
+    process.env.HOME = home;
+    const conv = "12121212-1212-4212-8212-121212121212";
+    fs.writeFileSync(path.join(sessionsDir, `${id}.conv`), conv);
+    fs.writeFileSync(path.join(sessionsDir, `${id}.state`), "waiting");
+    const dir = path.join(
+      home,
+      ".claude",
+      "projects",
+      fs.realpathSync(path.join(reposDir, "demo")).replace(/\//g, "-"),
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    const at = new Date().toISOString();
+    fs.writeFileSync(
+      path.join(dir, `${conv}.jsonl`),
+      [
+        JSON.stringify({
+          type: "user",
+          uuid: "u1",
+          timestamp: at,
+          message: { role: "user", content: "render" },
+          origin: { kind: "human" },
+        }),
+        JSON.stringify({
+          type: "assistant",
+          uuid: "a1",
+          timestamp: at,
+          message: { role: "assistant", content: [{ type: "text", text: last }] },
+        }),
+      ].join("\n") + "\n",
+    );
+    return () => {
+      process.env.HOME = realHome;
+    };
+  }
+
+  it("is asked once for it, and the silence recorded if none comes", async () => {
+    const s = await schedule("render tonight's queue");
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
+    const restore = conversation(session!.id, "Rendered all three videos.");
+    try {
+      const later = Date.now() + watch.SIGNOFF_QUIET_MS + 60_000;
+      await watch.askForSignOff(log, later);
+      const asks = fake.subcommand("tmux", "send-keys").map((a) => a.join(" "));
+      expect(asks.some((a) => a.includes("sign-off line"))).toBe(true);
+
+      await watch.askForSignOff(log, later + watch.SIGNOFF_QUIET_MS);
+      expect(fs.readFileSync(path.join(sessionsDir, `${session!.id}.report`), "utf8")).toMatch(
+        /^failed: no sign-off \(asked, no answer\)/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("is left for a person when its last turn asked something", async () => {
+    const s = await schedule("render tonight's queue");
+    const session = await sessionFrom(s.id);
+    fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
+    const restore = conversation(session!.id, "Should I render the draft too?");
+    try {
+      await watch.askForSignOff(log, Date.now() + 3 * watch.SIGNOFF_QUIET_MS);
+      expect(fake.subcommand("tmux", "send-keys")).toEqual([]);
+      expect(fs.existsSync(path.join(sessionsDir, `${session!.id}.report`))).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("a tick the pod was down for", () => {
   afterEach(async () => {
     vi.useRealTimers();
