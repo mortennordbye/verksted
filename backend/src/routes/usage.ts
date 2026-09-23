@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { planError, planHistory, planUsage } from "../plan.js";
-import { archivedSessions, listSessions } from "../sessions-store.js";
+import { archivedSessions } from "../session-reaper.js";
+import { listSessions } from "../sessions-store.js";
 import { summarize } from "../usage.js";
 
 export default async function usageRoutes(app: FastifyInstance) {

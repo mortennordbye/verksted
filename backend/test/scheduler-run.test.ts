@@ -23,6 +23,7 @@ let reposDir: string;
 let sessionsDir: string;
 let schedulesDir: string;
 let scheduler: typeof import("../src/scheduler.js");
+let watch: typeof import("../src/unattended-watch.js");
 let store: typeof import("../src/schedules-store.js");
 let sessions: typeof import("../src/sessions-store.js");
 /** The copy the scheduler above holds: a test further down resets the module registry. */
@@ -147,6 +148,7 @@ beforeAll(async () => {
   process.env.MAINTAINER_DIR = path.resolve(import.meta.dirname, "../../runtime/maintainer");
   process.env.STATIC_DIR = "";
   scheduler = await import("../src/scheduler.js");
+  watch = await import("../src/unattended-watch.js");
   store = await import("../src/schedules-store.js");
   sessions = await import("../src/sessions-store.js");
   assistant = await import("../src/assistant.js");
@@ -434,7 +436,7 @@ describe("a schedule that runs a maintainer stage", () => {
     // The pane is back at its shell: the headless agent is gone.
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
       `=${session!.id}`,
@@ -456,7 +458,7 @@ describe("a schedule that runs a maintainer stage", () => {
         "$ claude -p ...\nerror: unknown option '--permission-mode'\n\nroot@pod:/data/repos/demo# \n",
     });
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect((await store.getSchedule(s.id))!.lastReport).toBe(
       "failed: no sign-off (exit 1, last line: error: unknown option '--permission-mode')",
@@ -473,7 +475,7 @@ describe("a schedule that runs a maintainer stage", () => {
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect((await store.getSchedule(s.id))!.lastReport).toBe("ok: filed 2");
     expect((await store.listRuns())[0].outcome).toBe("ok");
@@ -484,7 +486,7 @@ describe("a schedule that runs a maintainer stage", () => {
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
     expect((await store.getSchedule(s.id))!.lastReport).toBeNull();
@@ -495,7 +497,7 @@ describe("a schedule that runs a maintainer stage", () => {
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
-    await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
+    await watch.watchUnattended(log, Date.now() + watch.UNATTENDED_CAP_MS + 1);
 
     expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
       `=${session!.id}`,
@@ -509,7 +511,7 @@ describe("a schedule that runs a maintainer stage", () => {
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     fs.writeFileSync(path.join(sessionsDir, `${session!.id}.exit`), "0");
 
-    await scheduler.watchUnattended(log, Date.now() + scheduler.UNATTENDED_CAP_MS + 1);
+    await watch.watchUnattended(log, Date.now() + watch.UNATTENDED_CAP_MS + 1);
 
     expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
   });
@@ -585,7 +587,7 @@ describe("a schedule that runs the build stage", () => {
     // a worktree is only removed once the work in it is known to be clean.
     await sessions.sweepSessions();
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect(fs.existsSync(dir)).toBe(false);
     // The repo forgot the worktree too; the branch is still there.
@@ -624,7 +626,7 @@ describe("a schedule that runs the build stage", () => {
     fs.writeFileSync(path.join(sessionsDir, "vk-demo--maint-45-2.json"), JSON.stringify(live));
     fake.reply("tmux", "ls", { stdout: tmuxLsRows("vk-demo--maint-45-2") });
 
-    await scheduler.watchUnattended(log);
+    await watch.watchUnattended(log);
 
     expect(fs.existsSync(dir)).toBe(true);
   });
@@ -1135,7 +1137,7 @@ describe("a scheduled session that has signed off", () => {
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     signOff(session!.id, "ok: nothing to render");
 
-    await scheduler.endSignedOffRuns(log);
+    await watch.endSignedOffRuns(log);
 
     expect(fake.subcommand("tmux", "kill-session").map((a) => a.at(-1))).toContain(
       `=${session!.id}`,
@@ -1147,7 +1149,7 @@ describe("a scheduled session that has signed off", () => {
     const session = await sessionFrom(s.id);
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
 
-    await scheduler.endSignedOffRuns(log);
+    await watch.endSignedOffRuns(log);
 
     expect(fake.subcommand("tmux", "kill-session")).toEqual([]);
   });
@@ -1158,7 +1160,7 @@ describe("a scheduled session that has signed off", () => {
     fake.reply("tmux", "ls", { stdout: tmuxLsRows(session!.id) });
     signOff(session!.id, "ok: nothing to scout");
 
-    await scheduler.endSignedOffRuns(log);
+    await watch.endSignedOffRuns(log);
 
     // Its agent has not exited yet; ending it here would cut a headless run
     // short and skip the worktree cleanup watchUnattended does after it.

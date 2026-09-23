@@ -21,6 +21,7 @@ import { resolveInsideRepos } from "./paths.js";
 import { listRuns, listSchedules } from "./schedules-store.js";
 import { listSessions } from "./sessions-store.js";
 import { readBlockedOwners } from "./settings-store.js";
+import type { Logger } from "./logger.js";
 
 /**
  * The pollers: what turns a source into feed items.
@@ -37,10 +38,6 @@ import { readBlockedOwners } from "./settings-store.js";
  * carries is what the poller saw last, so a restart re-reading the source
  * finds everything already filed.
  */
-interface Logger {
-  info: (msg: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-}
 
 /** A session that stopped to ask: one item while it waits, done when answered. */
 export function sessionItems(sessions: Session[]): { seen: Seen[]; over: string[] } {

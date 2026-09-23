@@ -16,9 +16,10 @@ import { inject as injectMemory } from "./memory-store.js";
 import { ensureSandboxNotes } from "./sandbox-doc.js";
 import { seedCouncil } from "./council-store.js";
 import { startPlanHistory } from "./plan.js";
-import { reloadSchedules, startFeedWork } from "./scheduler.js";
+import { startFeedWork } from "./assistant-jobs.js";
+import { reloadSchedules } from "./scheduler.js";
 import { startSweeper } from "./sweeper.js";
-import { restoreSessions } from "./sessions-store.js";
+import { restoreSessions } from "./session-launch.js";
 
 // First boot on an empty volume, and the check env.ts cannot make at import:
 // that every directory the app writes to is there, or can be made, and takes a

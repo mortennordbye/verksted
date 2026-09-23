@@ -253,9 +253,12 @@ backend/src/
 ├── tui-prompt.ts     # the one scrape: what dialog the pane is drawing
 ├── tmux.ts           # execFile wrappers around tmux
 ├── sessions-store.ts # session metadata JSON + tmux liveness
+├── session-launch.ts # starting a session, and bringing them back after a restart
+├── session-reaper.ts # ending bare shells, and archiving old history
 ├── projects-store.ts # the repos on the volume, as the hub sees them
 ├── schedules-store.ts# recurring prompts: one JSON file per schedule
 ├── scheduler.ts      # cron timers -> unattended sessions
+├── assistant-jobs.ts # the assistant's own nightly work: journal, triage, catalogue
 ├── events.ts         # one watcher -> every client: what the UI used to poll for
 ├── sweeper.ts        # the job that writes what reads used to: ends, measurements
 ├── serial.ts         # one chain per key, for read-modify-write over one file

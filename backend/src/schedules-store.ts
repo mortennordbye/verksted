@@ -3,10 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Cron } from "croner";
 import type { MaintainerStage, Schedule, ScheduleRun, Session } from "../../shared/api.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { readJsonDir, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import { keyedQueue } from "./serial.js";
-import { listSessions, readReport } from "./sessions-store.js";
+import { listSessions, readReport, reportOutcome } from "./sessions-store.js";
 
 /** Generated ids only — nothing from a client is ever used as a filename. */
 export const SCHEDULE_ID_RE = /^sch-[0-9a-f]{8}$/;
@@ -161,15 +161,7 @@ async function readStored(id: string): Promise<Stored | null> {
 }
 
 async function readAllStored(): Promise<Stored[]> {
-  const files = await fs.readdir(env.SCHEDULES_DIR).catch(() => []);
-  const out: Stored[] = [];
-  for (const f of files.filter((f) => f.endsWith(".json") && SCHEDULE_ID_RE.test(f.slice(0, -5)))) {
-    try {
-      out.push(JSON.parse(await fs.readFile(path.join(env.SCHEDULES_DIR, f), "utf8")));
-    } catch {
-      // Skip an unreadable file rather than failing the whole list.
-    }
-  }
+  const out = await readJsonDir<Stored>(env.SCHEDULES_DIR, SCHEDULE_ID_RE);
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
@@ -316,12 +308,7 @@ function outcome(
   session: Session | undefined,
 ): ScheduleRun["outcome"] {
   if (run.error) return run.broke ? "failed" : "blocked";
-  if (report) {
-    if (/^attention\b/i.test(report)) return "attention";
-    if (/^failed\b/i.test(report)) return "failed";
-    if (/^ok\b/i.test(report)) return "ok";
-  }
-  return session && session.status !== "done" ? "running" : "done";
+  return reportOutcome(report, !!session && session.status !== "done");
 }
 
 /**

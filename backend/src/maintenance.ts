@@ -4,8 +4,10 @@ import { env } from "./env.js";
 import { exec } from "./exec.js";
 import { closeBrowser, unwatchedBrowsers } from "./browser.js";
 import * as feed from "./feed-store.js";
-import { archiveOldSessions, backfillUsage, reapFinishedSessions } from "./sessions-store.js";
+import { archiveOldSessions, reapFinishedSessions } from "./session-reaper.js";
+import { backfillUsage } from "./sessions-store.js";
 import { pruneAssistant } from "./assistant-retention.js";
+import type { Logger } from "./logger.js";
 
 /**
  * ESTABLISHED connections to a local port, from /proc/net/tcp{,6} content.
@@ -30,11 +32,6 @@ async function readTcpTables(): Promise<string> {
     out += "\n";
   }
   return out;
-}
-
-interface Logger {
-  info: (msg: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
 }
 
 const REAP_AFTER_MS = 15 * 60_000;

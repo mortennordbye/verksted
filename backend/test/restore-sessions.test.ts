@@ -13,7 +13,7 @@ import { FakeBin, tmuxLsRows } from "./helpers/fake-bin.js";
 let fake: FakeBin;
 let sessionsDir: string;
 let reposDir: string;
-let store: typeof import("../src/sessions-store.js");
+let launch: typeof import("../src/session-launch.js");
 
 const log = {
   info: () => {},
@@ -72,7 +72,7 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-sched-"));
   process.env.STATIC_DIR = "";
-  store = await import("../src/sessions-store.js");
+  launch = await import("../src/session-launch.js");
 });
 
 afterAll(() => {
@@ -94,7 +94,7 @@ describe("restoreSessions", () => {
     // happen is silence: the inbox has to say the pod went down.
     seed("vk-demo-1", { conv: "11111111-2222-3333-4444-555555555555", unattended: "scout" });
 
-    const failed = await store.restoreSessions(log);
+    const failed = await launch.restoreSessions(log);
 
     expect(created()).toEqual([]);
     expect(fs.readFileSync(path.join(sessionsDir, "vk-demo-1.report"), "utf8")).toMatch(
@@ -108,7 +108,7 @@ describe("restoreSessions", () => {
   it("restarts a live-but-orphaned claude session on its recorded conversation", async () => {
     seed("vk-demo-1", { conv: "11111111-2222-3333-4444-555555555555" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual(["vk-demo-1"]);
     expect(commandFor("vk-demo-1")).toContain(
@@ -121,7 +121,7 @@ describe("restoreSessions", () => {
     // is reading is dropped, leaving a session with no agent in it.
     seed("vk-demo-1", { conv: "11111111-1111-1111-1111-111111111111" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(fake.subcommand("tmux", "send-keys")).toEqual([]);
     // The trailing exec is what keeps the session alive once the agent exits —
@@ -132,7 +132,7 @@ describe("restoreSessions", () => {
   it("starts the agent in the session's own project directory", async () => {
     seed("vk-other-1", { project: "other", conv: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     const argv = fake.subcommand("tmux", "new-session")[0];
     expect(argv[argv.indexOf("-c") + 1]).toBe(fs.realpathSync(path.join(reposDir, "other")));
@@ -156,7 +156,7 @@ describe("restoreSessions", () => {
     seed("vk-gone-1", { project: "gone", conv: "55555555-5555-5555-5555-555555555555" });
     fake.reply("tmux", "ls", { stdout: tmuxLsRows("vk-demo-1") });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual([]);
   });
@@ -167,7 +167,7 @@ describe("restoreSessions", () => {
     // unknown. Restoring on a guess would double every running agent.
     fake.reply("tmux", "ls", { code: 1, stderr: "connect failed: permission denied" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual([]);
   });
@@ -176,7 +176,7 @@ describe("restoreSessions", () => {
     seed("vk-demo-1", { conv: "11111111-1111-1111-1111-111111111111" });
     fake.reply("tmux", "ls", { code: 1, stderr: "no server running on /tmp/tmux-0/default" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual(["vk-demo-1"]);
   });
@@ -185,7 +185,7 @@ describe("restoreSessions", () => {
     seed("vk-gone-1", { project: "gone", conv: "11111111-1111-1111-1111-111111111111" });
     seed("vk-demo-9", { conv: "99999999-9999-9999-9999-999999999999" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual(["vk-demo-9"]);
   });
@@ -193,7 +193,7 @@ describe("restoreSessions", () => {
   it("passes the session's own env into tmux, so hooks write to the right files", async () => {
     seed("vk-demo-1", { conv: "11111111-1111-1111-1111-111111111111" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     const argv = fake.subcommand("tmux", "new-session")[0];
     const env = Object.fromEntries(
@@ -211,7 +211,7 @@ describe("restoreSessions", () => {
     seed("vk-demo-2", { conv: "$(id)" });
     seed("vk-demo-3", { conv: "`whoami`" });
 
-    await store.restoreSessions(log);
+    await launch.restoreSessions(log);
 
     expect(created()).toEqual([]);
   });

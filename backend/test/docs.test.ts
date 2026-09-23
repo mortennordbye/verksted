@@ -20,7 +20,7 @@ let index: string;
 let docs: typeof import("../src/docs.js");
 let loops: typeof import("../src/loops-store.js");
 let paths: typeof import("../src/paths.js");
-let scheduler: typeof import("../src/scheduler.js");
+let jobs: typeof import("../src/assistant-jobs.js");
 
 const log = { info: () => {}, warn: () => {} };
 
@@ -55,7 +55,7 @@ beforeAll(async () => {
   docs = await import("../src/docs.js");
   loops = await import("../src/loops-store.js");
   paths = await import("../src/paths.js");
-  scheduler = await import("../src/scheduler.js");
+  jobs = await import("../src/assistant-jobs.js");
 
   fs.mkdirSync(path.join(share, "bil"), { recursive: true });
   fs.writeFileSync(
@@ -170,7 +170,7 @@ describe("the catalogue", () => {
       ),
     });
 
-    expect(await scheduler.runCatalogue(log, now)).toBe(2);
+    expect(await jobs.runCatalogue(log, now)).toBe(2);
 
     const argv = fake.argvFor("claude")[0];
     const prompt = argv[argv.indexOf("-p") + 1];
@@ -188,7 +188,7 @@ describe("the catalogue", () => {
     // The catalogue line answers a search before any body is opened.
     expect((await docs.search("insurance EL12345"))[0].path).toBe("bil/forsikring-2025.txt");
     // Nothing left to catalogue: the next night costs nothing.
-    expect(await scheduler.runCatalogue(log, now)).toBe(0);
+    expect(await jobs.runCatalogue(log, now)).toBe(0);
     expect(fake.argvFor("claude")).toHaveLength(1);
   });
 });
@@ -203,7 +203,7 @@ describe("without a share", () => {
       const res = await app.inject({ url: "/api/docs" });
       expect(res.statusCode).toBe(503);
       expect(res.json().error).toMatch(/nothing is mounted/);
-      expect(await scheduler.runCatalogue(log)).toBe(0);
+      expect(await jobs.runCatalogue(log)).toBe(0);
     } finally {
       env.DOCS_DIR = was!;
     }

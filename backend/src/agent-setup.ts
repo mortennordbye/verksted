@@ -5,11 +5,7 @@ import { assistantHome } from "./assistant-policy.js";
 import { claudeProjectDir } from "./claude-home.js";
 import { env } from "./env.js";
 import { exec } from "./exec.js";
-
-interface Logger {
-  info: (msg: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-}
+import type { Logger } from "./logger.js";
 
 /**
  * The volume as privilege separation needs it, at boot and before any session

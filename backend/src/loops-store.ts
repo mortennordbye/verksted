@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Loop } from "../../shared/api.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { readJsonDir, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 
 /**
@@ -28,23 +28,8 @@ export function slugify(text: string): string {
     .slice(0, 48);
 }
 
-async function readAll(): Promise<Loop[]> {
-  let names: string[];
-  try {
-    names = await fs.readdir(dir());
-  } catch {
-    return [];
-  }
-  const out: Loop[] = [];
-  for (const name of names) {
-    if (!name.endsWith(".json")) continue;
-    try {
-      out.push(JSON.parse(await fs.readFile(path.join(dir(), name), "utf8")) as Loop);
-    } catch {
-      // One unreadable loop loses one loop.
-    }
-  }
-  return out;
+function readAll(): Promise<Loop[]> {
+  return readJsonDir<Loop>(dir());
 }
 
 export async function get(slug: string): Promise<Loop | null> {

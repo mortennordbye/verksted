@@ -5,10 +5,7 @@ import { uploadsDir } from "./assistant-policy.js";
 import { calendarTrashDir } from "./calendar.js";
 import { mailLogDir } from "./mail-log.js";
 import { toolLogDir } from "./tool-log.js";
-
-interface Logger {
-  info: (msg: string) => void;
-}
+import type { Logger } from "./logger.js";
 
 /**
  * How long the assistant keeps what nobody asked it to keep (A-27).
@@ -52,7 +49,7 @@ async function pruneOlder(
   return n;
 }
 
-export async function pruneAssistant(log: Logger, now = Date.now()): Promise<number> {
+export async function pruneAssistant(log: Pick<Logger, "info">, now = Date.now()): Promise<number> {
   const cutoff = now - ASSISTANT_RETAIN_DAYS * 24 * 60 * 60_000;
   const threads = await pruneOlder(path.join(env.ASSISTANT_DIR, "unattended"), cutoff, (name) =>
     name.endsWith(".jsonl"),

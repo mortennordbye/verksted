@@ -1,10 +1,6 @@
 import { pollBench } from "./pollers.js";
 import { sweepSessions } from "./sessions-store.js";
-
-interface Logger {
-  info: (msg: string) => void;
-  warn: (obj: unknown, msg?: string) => void;
-}
+import type { Logger } from "./logger.js";
 
 /**
  * How often the volume is brought up to date with what tmux has.

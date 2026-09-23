@@ -2,7 +2,10 @@ import type { Session } from "../../shared/api.js";
 import { env } from "./env.js";
 import * as push from "./push-store.js";
 import type { SendResult } from "./push-store.js";
+import { reportVerdict } from "./report-verdict.js";
+import type { RestartFailure } from "./session-launch.js";
 import * as store from "./sessions-store.js";
+import type { Logger } from "./logger.js";
 
 type Status = Session["status"];
 
@@ -25,7 +28,7 @@ export function transitions(prev: Map<string, Status>, sessions: Session[]): Ses
  */
 export function shouldNotify(s: Session, report: string | null): boolean {
   if (s.status !== "done") return true;
-  return !report || !/^ok\b/i.test(report);
+  return reportVerdict(report) !== "ok";
 }
 
 /** What the notification says: the run's own words when it left any. */
@@ -42,7 +45,7 @@ interface Announcement {
   priority?: string;
 }
 
-async function ntfy(msg: Announcement, log: Logger): Promise<void> {
+async function ntfy(msg: Announcement, log: Pick<Logger, "warn">): Promise<void> {
   if (!env.NTFY_URL) return;
   try {
     const res = await fetch(env.NTFY_URL, {
@@ -68,7 +71,7 @@ async function ntfy(msg: Announcement, log: Logger): Promise<void> {
  * failing should silence the other, and ntfy is configured on some benches and
  * not others.
  */
-export async function announce(msg: Announcement, log: Logger): Promise<SendResult> {
+export async function announce(msg: Announcement, log: Pick<Logger, "warn">): Promise<SendResult> {
   const [, result] = await Promise.all([
     ntfy(msg, log),
     push.send({ title: msg.title, body: msg.body, url: msg.url }, log),
@@ -78,8 +81,8 @@ export async function announce(msg: Announcement, log: Logger): Promise<SendResu
 
 /** What `restoreSessions` found the restart had ended, said on the same channels. */
 export async function announceRestartFailures(
-  failed: store.RestartFailure[],
-  log: Logger,
+  failed: RestartFailure[],
+  log: Pick<Logger, "warn">,
 ): Promise<void> {
   for (const f of failed) {
     await announce(
@@ -95,7 +98,7 @@ export async function announceRestartFailures(
   }
 }
 
-async function notify(s: Session, report: string | null, log: Logger): Promise<void> {
+async function notify(s: Session, report: string | null, log: Pick<Logger, "warn">): Promise<void> {
   await announce(
     {
       title: `${s.title} · ${s.project}`,
@@ -108,17 +111,13 @@ async function notify(s: Session, report: string | null, log: Logger): Promise<v
   );
 }
 
-interface Logger {
-  warn: (obj: unknown, msg?: string) => void;
-}
-
 /**
  * Poll session statuses and push transitions to the ntfy topic and every
  * subscribed device. Polling (not hooks) because "finished" means the tmux
  * session died, which no hook can report, and no client is polling the API when
  * the phone is in a pocket.
  */
-export function startNotifier(log: Logger): void {
+export function startNotifier(log: Pick<Logger, "warn">): void {
   let prev: Map<string, Status> | null = null;
   // The session list can take longer than the interval on a long history. A
   // second pass on top of the first would read it all over again, and the two

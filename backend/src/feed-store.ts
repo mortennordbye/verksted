@@ -7,7 +7,7 @@ import type {
   FeedUrgency,
   ProposalAction,
 } from "../../shared/api.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { jsonIds, writeJsonAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
 import * as loops from "./loops-store.js";
 
@@ -68,17 +68,10 @@ async function readFileCached(file: string): Promise<FeedItem> {
 }
 
 async function readAll(): Promise<FeedItem[]> {
-  let names: string[];
-  try {
-    names = await fs.readdir(dir());
-  } catch {
-    return [];
-  }
   const out: FeedItem[] = [];
   const present = new Set<string>();
-  for (const name of names) {
-    if (!name.endsWith(".json")) continue;
-    const file = path.join(dir(), name);
+  for (const id of await jsonIds(dir())) {
+    const file = path.join(dir(), `${id}.json`);
     present.add(file);
     try {
       out.push(await readFileCached(file));
