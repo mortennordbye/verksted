@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ToolLogDay, ToolLogEntry } from "../../../../shared/api";
 import { api, usePoll } from "../../api";
 import { useConfirm } from "../../useConfirm";
+import Icon from "../Icon";
 import SectionLabel from "../SectionLabel";
 import { SkeletonList } from "../Skeleton";
 import { StatusChip } from "../StatusChip";
@@ -123,7 +124,7 @@ export default function ToolLog() {
               disabled={!older}
               aria-label="an earlier day"
             >
-              ‹
+              <Icon name="back" size={12} />
             </Button>
             <span className="text-[13px] font-semibold">{dayLabel(shown)}</span>
             <Button
@@ -132,7 +133,7 @@ export default function ToolLog() {
               disabled={!newer}
               aria-label="a later day"
             >
-              ›
+              <Icon name="forward" size={12} />
             </Button>
             <span className="ml-auto text-[11.5px] text-faint">
               {data.entries.length} call{data.entries.length === 1 ? "" : "s"}

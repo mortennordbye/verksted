@@ -37,9 +37,7 @@ function Section({ title, text }: { title: string; text: string }) {
         className="tap flex w-full items-center gap-2.5 py-2 text-left"
       >
         <span className="flex-none text-[11px] text-faint">{open ? "▾" : "▸"}</span>
-        <span className="min-w-0 flex-1 truncate text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
-          {title}
-        </span>
+        <span className="min-w-0 flex-1 truncate caps-sans">{title}</span>
         {rows === null ? (
           // "(all pods healthy)", "(none)", "(unreadable)" — the backend's own
           // words, which say more than a count of nothing would.

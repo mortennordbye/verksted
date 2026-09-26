@@ -8,7 +8,7 @@ let app: FastifyInstance;
 let pushFile: string;
 
 const sub = (n: number) => ({
-  endpoint: `https://push.example/${n}`,
+  endpoint: `https://web.push.apple.com/${n}`,
   keys: { p256dh: "BPq".padEnd(87, "x"), auth: "c2VjcmV0" },
 });
 
@@ -54,7 +54,7 @@ describe("POST /api/push/subscribe", () => {
     const res = await app.inject({ method: "POST", url: "/api/push/subscribe", payload: sub(1) });
     expect(res.statusCode).toBe(200);
     expect(res.json().devices).toBe(1);
-    expect(stored().subs[0].endpoint).toBe("https://push.example/1");
+    expect(stored().subs[0].endpoint).toBe("https://web.push.apple.com/1");
   });
 
   it("refreshes rather than duplicates the same endpoint", async () => {
@@ -67,16 +67,31 @@ describe("POST /api/push/subscribe", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/push/subscribe",
-      payload: { ...sub(2), endpoint: "http://push.example/2" },
+      payload: { ...sub(2), endpoint: "http://web.push.apple.com/2" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects an endpoint that is not a browser's push service (S-12)", async () => {
+    for (const endpoint of [
+      "https://push.example/2",
+      "https://web.push.apple.com.evil.example/2",
+      "https://10.0.0.1/2",
+    ]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/push/subscribe",
+        payload: { ...sub(2), endpoint },
+      });
+      expect(res.statusCode).toBe(400);
+    }
   });
 
   it("rejects a subscription without keys", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/push/subscribe",
-      payload: { endpoint: "https://push.example/3" },
+      payload: { endpoint: "https://web.push.apple.com/3" },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -88,11 +103,11 @@ describe("POST /api/push/unsubscribe", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/push/unsubscribe",
-      payload: { endpoint: "https://push.example/1" },
+      payload: { endpoint: "https://web.push.apple.com/1" },
     });
     expect(res.json().devices).toBe(1);
     expect(stored().subs.map((s: { endpoint: string }) => s.endpoint)).toEqual([
-      "https://push.example/4",
+      "https://web.push.apple.com/4",
     ]);
   });
 
@@ -100,7 +115,7 @@ describe("POST /api/push/unsubscribe", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/push/unsubscribe",
-      payload: { endpoint: "https://push.example/nope" },
+      payload: { endpoint: "https://web.push.apple.com/nope" },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().devices).toBe(1);

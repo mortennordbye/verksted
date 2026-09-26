@@ -3,15 +3,20 @@ import type { PushStatus, PushTestResult } from "../../../shared/api.js";
 import { announce } from "../notifier.js";
 import * as push from "../push-store.js";
 
-// Endpoints are opaque URLs owned by the browser's push service (Apple, Google,
-// Mozilla); the only thing worth insisting on is that they are https URLs of a
-// sane length. The keys are base64url blobs we never interpret ourselves.
+// Endpoints are opaque URLs owned by the browser's push service, and the pod
+// POSTs to whatever is stored here, so the host has to be one of those services
+// (S-12): any https URL made every notification a request to a host the caller
+// chose. The keys are base64url blobs we never interpret ourselves.
+const PUSH_HOSTS =
+  "^https://(web\\.push\\.apple\\.com|fcm\\.googleapis\\.com|android\\.googleapis\\.com|" +
+  "updates\\.push\\.services\\.mozilla\\.com|[a-z0-9-]+\\.notify\\.windows\\.com)/";
+
 const subscription = {
   type: "object",
   required: ["endpoint", "keys"],
   additionalProperties: false,
   properties: {
-    endpoint: { type: "string", maxLength: 1024, pattern: "^https://" },
+    endpoint: { type: "string", maxLength: 1024, pattern: PUSH_HOSTS },
     keys: {
       type: "object",
       required: ["p256dh", "auth"],
