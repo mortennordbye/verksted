@@ -159,4 +159,7 @@ export const env = {
   VK_AGENT_USER: process.env.VK_AGENT_USER ?? "",
   // The agent user's tmux server, which the backend reaches as root by path.
   VK_TMUX_SOCKET: process.env.VK_TMUX_SOCKET ?? "/run/verksted/tmux",
+  // The commit the image was built from, stamped by CI and `make build`; empty
+  // anywhere else. Not configuration: it is what /api/health reports.
+  VK_COMMIT: process.env.VK_COMMIT ?? "",
 };

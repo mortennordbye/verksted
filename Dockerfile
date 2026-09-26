@@ -395,6 +395,9 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/backend/node_modules ./backend/node_modules
 COPY --from=build /app/backend/dist ./backend/dist
 COPY --from=build /app/frontend/dist ./frontend/dist
+# Last, since it changes on every commit and busts only what comes after it.
+ARG VK_COMMIT=""
+ENV VK_COMMIT=$VK_COMMIT
 EXPOSE 8080
 # For `docker run` and compose; the cluster uses its own probes. The health route
 # answers from the process, not the volume, so a slow NFS read does not fail it.

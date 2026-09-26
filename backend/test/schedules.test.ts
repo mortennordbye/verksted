@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { FakeBin } from "./helpers/fake-bin.js";
 
@@ -57,11 +57,17 @@ describe("GET /api/schedules", () => {
     // Two, so the sort has to compare one of them as its left side.
     const bad = ["sch-0000beef", "sch-0000feed"].map((id) => path.join(schedulesDir, `${id}.json`));
     for (const file of bad) fs.writeFileSync(file, "{}");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
       const res = await app.inject({ url: "/api/schedules" });
       expect(res.statusCode).toBe(200);
       expect(res.json().map((s: { id: string }) => s.id)).toContain(created.json().id);
+      // And says which, so a schedule that stopped existing can be found (P7-3).
+      for (const file of bad) {
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining(`skipped ${file}`));
+      }
     } finally {
+      warn.mockRestore();
       for (const file of bad) fs.rmSync(file);
       await app.inject({ method: "DELETE", url: `/api/schedules/${created.json().id}` });
     }
