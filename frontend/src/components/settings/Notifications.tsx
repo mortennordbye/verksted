@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { PushStatus, PushTestResult } from "../../../../shared/api";
 import { api } from "../../api";
+import { devicePush, type PushState } from "../../push-state";
 import { vapidKey } from "../../vapid";
 import SectionLabel from "../SectionLabel";
 import { StatusChip } from "../StatusChip";
@@ -15,32 +16,16 @@ import Button from "../ui/Button";
  * enable button isn't offered yet.
  */
 export default function Notifications() {
-  const [state, setState] = useState<"loading" | "unavailable" | "denied" | "off" | "on">(
-    "loading",
-  );
+  const [state, setState] = useState<"loading" | PushState>("loading");
   const [devices, setDevices] = useState(0);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-        setState("unavailable");
-        return;
-      }
-      // getRegistration (not .ready, which never resolves without a worker):
-      // in dev, and in a plain browser tab on iOS, there is none.
-      const reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        setState("unavailable");
-        return;
-      }
-      if (Notification.permission === "denied") {
-        setState("denied");
-        return;
-      }
-      const sub = await reg.pushManager.getSubscription();
-      setState(sub ? "on" : "off");
+      const { state, sub } = await devicePush();
+      setState(state);
+      if (state === "unavailable" || state === "denied") return;
       // Told again, every time this panel is opened. The browser's half of the
       // subscription outlives the pod's: restore the volume from a backup and
       // the endpoint list goes back to whatever it held that night, while every

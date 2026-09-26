@@ -57,9 +57,7 @@ function SessionCard({
       >
         <AgentMark agent={session.agent} />
         <span className="sr-only">{session.agent}</span>
-        <span className="max-w-[7.5rem] flex-none truncate text-[11px] font-semibold tracking-[.06em] text-faint uppercase">
-          {session.project}
-        </span>
+        <span className="max-w-[7.5rem] flex-none truncate caps-sans">{session.project}</span>
         <span className="min-w-0 flex-1 truncate text-[14px] font-semibold tracking-[-.014em]">
           {session.title}
         </span>
@@ -82,9 +80,7 @@ function SessionCard({
       }`}
     >
       <span className="min-w-0 flex-1">
-        <span className="mb-0.5 block text-[11.5px] font-semibold tracking-[.06em] text-faint uppercase">
-          {session.project}
-        </span>
+        <span className="mb-0.5 block caps-sans">{session.project}</span>
         <span className="block truncate text-[15px] font-semibold tracking-[-.014em]">
           {session.title}
         </span>
@@ -130,7 +126,7 @@ function Stat({
   const pct = fraction == null ? null : Math.min(100, Math.max(0, fraction * 100));
   return (
     <div className="min-w-0">
-      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
+      <div className="mb-1 flex items-center gap-1.5 caps-sans">
         <Icon name={icon} size={13} />
         {label}
       </div>

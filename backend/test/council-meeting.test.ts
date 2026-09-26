@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { transcriptPath } from "../src/claude-home.js";
 import { FakeBin } from "./helpers/fake-bin.js";
@@ -118,6 +118,29 @@ describe("a question the chair keeps", () => {
     const got = entries(await say("hello"));
 
     expect(got[1].text).toBe("convene: nobody-at-all");
+  });
+});
+
+describe("stop, once the chair has asked for a meeting (A-32)", () => {
+  /**
+   * The chair's reply is in and names an advisor, but stop was pressed before
+   * the meeting was called. Nobody is asked: the advisors are what cost, and
+   * what the person stopped.
+   */
+  it("convenes nobody", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: michael"), holdMs: 10_000 });
+    whenAsked("Michael", "The cluster is green.");
+
+    const turn = say("is anything down?");
+    await vi.waitFor(() => expect(fake.argvFor("claude")).toHaveLength(1), { timeout: 3_000 });
+    // The line is written the moment the fake starts; give the reader a beat
+    // to have it before the stop lands.
+    await new Promise((r) => setTimeout(r, 300));
+    await app.inject({ method: "POST", url: "/api/assistant/stop" });
+    const got = entries(await turn);
+
+    expect(callsFor("Michael")).toHaveLength(0);
+    expect(got.some((e) => e.tools.some((t) => t.name === "convene"))).toBe(false);
   });
 });
 

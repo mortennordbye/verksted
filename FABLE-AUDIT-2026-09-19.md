@@ -1187,6 +1187,18 @@ Later the same day:
   stick-to-bottom scrolls (the window in one, an element that keeps its place on a prepend in the other), and
   the icon buttons, pills and chips, for which `ui/` has no primitive.
 
+On 2026-09-26:
+
+- F-26: the sans uppercase label is one `caps-sans` utility, one size and one tracking.
+- F-27: the calendar month's and the tool log's ‹ › are drawn icons.
+- F-45: Today's Sources list has a "push here" row when this device could get pushes, saying whether it does.
+- R-02: the docker prune runs at a fixed hour on croner.
+- R-35: a test with more ended sessions than the CDP pool is wide.
+- S-12: a push endpoint has to be on one of the browsers' push services.
+- A-32: the timeout test was already there; the stop between a held convene reply and the meeting is now pinned.
+
+Left, and in BACKLOG.md: A-27, A-28, A-31, R-28, P7-3, P7-5 and R-35's stop handles.
+
 What each one was:
 
 - **R-19.** The GitHub poller's error item still uses `feed.upsert` with a message-based version

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { CalendarEvent } from "../../../../shared/api";
 import { api } from "../../api";
+import Icon from "../Icon";
 import { SkeletonList } from "../Skeleton";
 import { dockBtn } from "./Dock";
 import Notice from "../ui/Notice";
@@ -70,7 +71,7 @@ export default function Month({ refresh }: { refresh: number }) {
         </span>
         <span className="flex-1" />
         <button onClick={() => go(-1)} aria-label="previous month" className={dockBtn}>
-          ‹
+          <Icon name="back" size={12} />
         </button>
         <button
           onClick={() => {
@@ -83,7 +84,7 @@ export default function Month({ refresh }: { refresh: number }) {
           today
         </button>
         <button onClick={() => go(1)} aria-label="next month" className={dockBtn}>
-          ›
+          <Icon name="forward" size={12} />
         </button>
       </div>
       {error && (

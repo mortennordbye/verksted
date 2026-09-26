@@ -36,11 +36,7 @@ function resetLabel(iso: string | null): string {
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mb-1 text-[11px] font-semibold tracking-[.08em] text-faint uppercase">
-      {children}
-    </div>
-  );
+  return <div className="mb-1 caps-sans">{children}</div>;
 }
 
 /**

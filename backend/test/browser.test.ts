@@ -3,7 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { CDP_PORT_BASE, ensureBrowser, nextCdpPort, validNavUrl } from "../src/browser.js";
+import {
+  CDP_PORT_BASE,
+  CDP_PORT_MAX,
+  ensureBrowser,
+  nextCdpPort,
+  validNavUrl,
+} from "../src/browser.js";
+import { usedCdpPorts, type Meta } from "../src/sessions-store.js";
 
 // Stands in for an image whose chromium is not where playwright-core looks for
 // it — what a playwright bump the Dockerfile did not follow leaves behind.
@@ -40,6 +47,18 @@ describe("nextCdpPort", () => {
     expect(nextCdpPort(new Set())).toBe(CDP_PORT_BASE);
     expect(nextCdpPort(new Set([CDP_PORT_BASE, CDP_PORT_BASE + 1]))).toBe(CDP_PORT_BASE + 2);
     expect(nextCdpPort(new Set([CDP_PORT_BASE + 1]))).toBe(CDP_PORT_BASE);
+  });
+
+  it("still has a port after more ended sessions than the pool is wide (R-01)", () => {
+    // Every port once held by a session that has since ended, and then some:
+    // only the one live session may keep its port from the next.
+    const wide = CDP_PORT_MAX - CDP_PORT_BASE + 1;
+    const metas = Array.from({ length: wide + 50 }, (_, i) => ({
+      id: `vk-demo-${i + 1}`,
+      cdpPort: CDP_PORT_BASE + (i % wide),
+      endedAt: i === 0 ? null : "2026-09-01T00:00:00.000Z",
+    })) as Meta[];
+    expect(nextCdpPort(usedCdpPorts(metas))).toBe(CDP_PORT_BASE + 1);
   });
 });
 

@@ -28,6 +28,7 @@ import Tabs from "../components/Tabs";
 import Skeleton from "../components/Skeleton";
 import TopBar from "../components/TopBar";
 import { useGrow } from "../useGrow";
+import { devicePush, type PushState } from "../push-state";
 import { canSpeak, useSpeech } from "../useSpeech";
 import Button from "../components/ui/Button";
 import Notice from "../components/ui/Notice";
@@ -340,6 +341,15 @@ function Composer({ name }: { name: string }) {
  * way to where it lives or to where its credential is typed.
  */
 function SourceHealth({ sources, ghDown }: { sources: SourceStatus | null; ghDown: boolean }) {
+  // The "needs you" half of the app is a push to this device, so whether it
+  // gets one belongs beside the sources (F-45). A browser that cannot get
+  // pushes at all, like a desktop tab in dev, has nothing to set up here.
+  const [push, setPush] = useState<PushState | null>(null);
+  useEffect(() => {
+    void devicePush()
+      .then(({ state }) => setPush(state))
+      .catch(() => undefined);
+  }, []);
   return (
     <div>
       <Label icon="sources">Sources</Label>
@@ -359,6 +369,9 @@ function SourceHealth({ sources, ghDown }: { sources: SourceStatus | null; ghDow
               "/settings?tab=sources",
             ],
             ["documents", sources?.docs ?? false, "document", "/docs", "/settings?tab=agents"],
+            ...(push && push !== "unavailable"
+              ? [["push here", push === "on", "bell", "/settings?tab=runs", "/settings?tab=runs"]]
+              : []),
           ] as [string, boolean, IconName, string | undefined, string][]
         ).map(([name, on, icon, home, setup]) => {
           // A source that is set up opens where it lives: the share in
@@ -906,9 +919,7 @@ function Running({ sessions, plain = false }: { sessions: Session[]; plain?: boo
               }`}
             >
               <AgentMark agent={s.agent} />
-              <span className="max-w-[7.5rem] flex-none truncate text-[11px] font-semibold tracking-[.06em] text-faint uppercase">
-                {s.project}
-              </span>
+              <span className="max-w-[7.5rem] flex-none truncate caps-sans">{s.project}</span>
               <span className="min-w-0 flex-1 truncate text-[13.5px]">{s.title}</span>
             </Link>
           ))}

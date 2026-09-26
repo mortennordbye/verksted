@@ -46,7 +46,12 @@ async function readTcpTables(): Promise<string> {
 }
 
 const REAP_AFTER_MS = 15 * 60_000;
-const PRUNE_EVERY_MS = 24 * 60 * 60_000;
+/**
+ * The docker prune, at a fixed hour for the reason the catch-up is (R-02): a
+ * 24-hour timer from boot never fired on a pod redeployed several times a day.
+ * No run on boot, since it can take minutes and has nothing urgent to do.
+ */
+const PRUNE_CRON = "40 5 * * *";
 /**
  * When the daily catch-up runs, where the pod is. Past the nightly backup at
  * 03:30 and past the maintainer's stages, so a measurement is not competing
@@ -63,10 +68,8 @@ const SESSION_SWEEP_EVERY_MS = 10 * 60_000;
  *   connection, hence the > 1 threshold. They relaunch on demand.
  * - end sessions whose agent has exited and left an idle pane behind, which
  *   otherwise read as running for good (see reapFinishedSessions).
- * - prune old docker build debris so agent images don't fill the volume. Still
- *   on a 24-hour interval from boot, which on a pod redeployed several times a
- *   day means rarely: the other half of R-02, and harmless in a way the two
- *   below are not, since nothing is lost by a prune that waits.
+ * - prune old docker build debris so agent images don't fill the volume, once
+ *   a night after the rest.
  * - measure the sessions that ended before there was a measurement at all. A
  *   few at a time, and it finds nothing once they all carry one: every path
  *   that ends a session measures it there and then. It ran on GET /api/usage
@@ -147,7 +150,7 @@ export function startMaintenance(log: Logger): void {
   new Cron(HOUSEKEEPING_CRON, { protect: true, timezone: env.TZ }, () => void catchUp());
   void catchUp();
 
-  setInterval(async () => {
+  new Cron(PRUNE_CRON, { protect: true, timezone: env.TZ }, async () => {
     try {
       const { stdout } = await exec("docker", ["system", "prune", "-af", "--filter", "until=72h"], {
         timeout: 600_000,
@@ -157,7 +160,7 @@ export function startMaintenance(log: Logger): void {
       // No daemon (e.g. `make run` without dind) is normal; log and move on.
       log.warn(err, "docker prune failed");
     }
-  }, PRUNE_EVERY_MS);
+  });
 }
 
 async function reapIdleBrowsers(idleSince: Map<string, number>, log: Logger): Promise<void> {
