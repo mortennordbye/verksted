@@ -457,8 +457,16 @@ what unblocks it / where the code lives.
   (`takeBack` in agent-setup.ts): left owned by 1001, git refused every one of
   them as root. The `securityContext` (no privilege escalation, RuntimeDefault
   seccomp) is on.
-- **Unblocked by:** The NAS share `k8s-volumes` granting uid 1001: its NFS rule
-  or its shared folder permissions. Check it from the pod with
+- **Checked 2026-09-26:** still denied. The NFS rules are "No mapping" with
+  sec=sys, so 1001 reaches the NAS unchanged, and `/data` is `drwxrwxrwx`
+  yet 1001 cannot list it: the gate is Synology's ACL, not the NFS rule or
+  the mode bits. The volume is `/volume1/k8s-volumes/talos/verksted/verksted-data`
+  on the NAS. Next: `synoacltool -get` on each level from `k8s-volumes` down,
+  then `synoacltool -del` where an ACL sits (the whole tree only with the pod
+  scaled to 0). Mapping all users to admin would let 1001 in by giving it
+  everything, which is the opposite of the point.
+- **Unblocked by:** The NAS share `k8s-volumes` granting uid 1001: its
+  shared folder ACL. Check it from the pod with
   `runuser -u vk-agent -- ls /data/repos` before setting `VK_AGENT_USER` again,
   then the session, terminal, session browser and `vk feedback` checks, then
   an egress NetworkPolicy.
