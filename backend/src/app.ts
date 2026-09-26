@@ -263,8 +263,11 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   // Liveness: the process answers. `build` is the frontend this image serves,
   // named the way the frontend names itself (its entry script's hash), so "has
   // the pod got the new build" is one request and not a look inside the pod.
+  // `commit` says which merge that was, since two merges that leave the
+  // frontend alone share one hash (R-28).
   const build = frontendBuild();
-  app.get("/api/health", async () => ({ ok: true, build }));
+  const commit = env.VK_COMMIT || null;
+  app.get("/api/health", async () => ({ ok: true, build, commit }));
 
   // Readiness: the two things every screen leans on. A pod whose volume has
   // gone read-only, or whose tmux cannot be reached, answers `health` happily

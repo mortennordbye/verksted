@@ -474,16 +474,15 @@ what unblocks it / where the code lives.
   closing the meeting is written twice (`runChair`, `unattendedTurn`), with
   real differences between the two. A-31: speech to text is English only, no
   injection regression suite against a real model, no server-side thread
-  compaction. R-28 and P7-5: no metrics, no `x-vk-build` header, and the build
-  id is the frontend hash, not the git SHA. P7-3: no one `JsonDirStore`;
-  records carry no version and a skipped file is not logged, since the store
-  readers take no logger. R-35: the `start*` functions return no stop handle.
+  compaction. P7-5: no metrics endpoint (event-loop lag, exec and timer
+  failures, queue depths). P7-3: no one `JsonDirStore`, and records carry no
+  version. R-35: the `start*` functions return no stop handle.
 - **Why deferred:** Each is a choice rather than a gap: a thread index, a
   split of the assistant module, a second speech model, a metrics surface, a
-  build arg through CI, a store abstraction. None of them is causing a problem
+  store abstraction. None of them is causing a problem
   today.
 - **Unblocked by:** Deciding to want one. A-27 when thread search gets slow
-  in practice; R-28 when a deploy needs telling apart from another with the
-  same frontend; A-28 before the next change to how meetings close.
+  in practice; P7-5 when something needs watching that the logs do not show;
+  A-28 before the next change to how meetings close.
 - **Where:** `backend/src/assistant.ts`, `transcribe.ts`, `atomic-json.ts`,
-  `maintenance.ts`, `pollers.ts`, `app.ts` (`/api/health`), `Dockerfile`.
+  `maintenance.ts`, `pollers.ts`, `app.ts`.

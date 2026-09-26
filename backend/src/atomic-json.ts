@@ -124,7 +124,8 @@ export function hasStrings(value: unknown, fields: readonly string[]): boolean {
 /**
  * Every record in a store's directory, parsed. One that will not read or parse,
  * or lacks one of `fields` as a string, is skipped: one torn file loses one
- * record, not the list.
+ * record, not the list. Skipped out loud (P7-3), or a schedule that quietly
+ * stopped existing is found only by noticing it has not run.
  */
 export async function readJsonDir<T>(
   dir: string,
@@ -133,11 +134,16 @@ export async function readJsonDir<T>(
 ): Promise<T[]> {
   const out: T[] = [];
   for (const id of await jsonIds(dir, valid)) {
+    const file = path.join(dir, `${id}.json`);
     try {
-      const value: unknown = JSON.parse(await fs.readFile(path.join(dir, `${id}.json`), "utf8"));
+      const value: unknown = JSON.parse(await fs.readFile(file, "utf8"));
       if (hasStrings(value, fields)) out.push(value as T);
-    } catch {
-      // Skipped, as above.
+      else console.warn(`skipped ${file}: not a record with ${fields.join(", ")}`);
+    } catch (err) {
+      // A file removed between the listing and the read is not a bad record.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.warn(`skipped ${file}: ${(err as Error).message}`);
+      }
     }
   }
   return out;

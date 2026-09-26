@@ -1197,7 +1197,10 @@ On 2026-09-26:
 - S-12: a push endpoint has to be on one of the browsers' push services.
 - A-32: the timeout test was already there; the stop between a held convene reply and the meeting is now pinned.
 
-Left, and in BACKLOG.md: A-27, A-28, A-31, R-28, P7-3, P7-5 and R-35's stop handles.
+Then R-28: `/api/health` reports the commit the image was built from (`VK_COMMIT`, a build arg from CI
+and `make build`). P7-3: a record `readJsonDir` skips is logged with its path.
+
+Left, and in BACKLOG.md: A-27, A-28, A-31, P7-3's one store, P7-5 and R-35's stop handles.
 
 What each one was:
 

@@ -228,6 +228,7 @@ jobs:
           context: .
           target: runtime
           push: true
+          build-args: VK_COMMIT=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # In the registry, beside the image, rather than the Actions cache:

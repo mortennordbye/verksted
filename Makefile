@@ -43,7 +43,8 @@ hooks: ## opt in to the repo's git hooks (a prettier check on what is staged)
 	git config core.hooksPath .githooks
 
 build: ## production image for this machine's arch; VK_PLATFORM=linux/amd64 for the cluster's
-	docker build $${VK_PLATFORM:+--platform $$VK_PLATFORM} --target runtime -t verksted .
+	docker build $${VK_PLATFORM:+--platform $$VK_PLATFORM} --target runtime \
+		--build-arg VK_COMMIT=$$(git rev-parse HEAD) -t verksted .
 
 run: ## run the production image locally (needs .env, see .env.example); VK_PORT overrides 8080
 	docker run --rm -it -p $${VK_BIND:-127.0.0.1}:$${VK_PORT:-8080}:8080 --env-file .env -v verksted-data:/data verksted

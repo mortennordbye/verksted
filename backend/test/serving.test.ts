@@ -29,6 +29,7 @@ beforeAll(async () => {
   process.env.SESSIONS_DIR = sessionsDir;
   process.env.REPOS_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-serve-repos-"));
   process.env.SCHEDULES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "vk-serve-sched-"));
+  process.env.VK_COMMIT = "1459871abc";
   const { buildApp } = await import("../src/app.js");
   app = await buildApp({ logger: false });
 });
@@ -69,7 +70,7 @@ describe("static files (R-29)", () => {
 describe("health and readiness (R-28)", () => {
   it("names the frontend build it serves, the way the frontend names itself", async () => {
     const res = await app.inject({ url: "/api/health" });
-    expect(res.json()).toEqual({ ok: true, build: "index-Ab12Cd34.js" });
+    expect(res.json()).toEqual({ ok: true, build: "index-Ab12Cd34.js", commit: "1459871abc" });
   });
 
   it("is ready with tmux answering and the volume writable", async () => {
