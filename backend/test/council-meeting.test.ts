@@ -144,6 +144,31 @@ describe("stop, once the chair has asked for a meeting (A-32)", () => {
   });
 });
 
+describe("stop, while an advisor answers a briefing", () => {
+  /**
+   * An unattended meeting closes with the chair signing off, as the chat's
+   * does. Stopped while the advisors are still answering, that closing turn is
+   * the one call still avoidable, so it is not made.
+   */
+  it("does not ask the chair to close", async () => {
+    fake.reply("claude", "-p", { stdout: run("convene: michael") });
+    fake.reply("claude", "-p", {
+      contains: "Your name is Michael.",
+      stdout: run("The cluster is green."),
+      holdMs: 10_000,
+    });
+    const { runUnattended, stopUnattended } = await import("../src/assistant.js");
+
+    const briefing = runUnattended("is anything down?", "", true);
+    await vi.waitFor(() => expect(callsFor("Michael")).toHaveLength(1), { timeout: 3_000 });
+    expect(stopUnattended()).toBe(true);
+
+    // The chair's opening and Michael: a closing turn spawned only to be ended
+    // at once would still be a third, and the daily ceiling counts it.
+    expect(await briefing).toMatchObject({ stopped: true, turns: 2 });
+  });
+});
+
 describe("a meeting of one", () => {
   /**
    * The closing turn is told not to repeat what the advisor said, which on a
@@ -581,7 +606,7 @@ describe("asking the whole room", () => {
   it("says who the ceiling left out rather than dropping them quietly", async () => {
     // A meeting that says "everyone" and means "the first six" is lying about
     // what it did, so whoever was left out is named in the mark.
-    const { MAX_EVERYONE } = await import("../src/assistant.js");
+    const { MAX_EVERYONE } = await import("../src/assistant-meeting.js");
     const extra = MAX_EVERYONE - 4;
     for (let i = 0; i < extra; i++) {
       await app.inject({

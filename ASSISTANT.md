@@ -221,7 +221,11 @@ Convening is a line of prose in the chair's reply (`convene: michael, ariel`),
 not a tool call, because a tool call would be a second round trip to say what
 the chair is already writing. The advisors then run in parallel, each with its
 own MCP config, its own tool list and its own memory; the chair closes the
-meeting when there is more than one of them to synthesise.
+meeting when there is more than one of them to synthesise. How a reply asks
+for a meeting, who that names and what each speaker is handed live in
+`assistant-meeting.ts`, and the chat and an unattended run both open their
+meetings through its `openMeeting`. Stop pressed during a meeting, in either,
+skips the closing turn.
 
 Two rules hold whatever a member's file says:
 

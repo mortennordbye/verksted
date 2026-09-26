@@ -1200,7 +1200,12 @@ On 2026-09-26:
 Then R-28: `/api/health` reports the commit the image was built from (`VK_COMMIT`, a build arg from CI
 and `make build`). P7-3: a record `readJsonDir` skips is logged with its path.
 
-Left, and in BACKLOG.md: A-27, A-28, A-31, P7-3's one store, P7-5 and R-35's stop handles.
+Then A-28's duplication: the meeting's words (the convene line, who it names, the briefings) moved to
+`assistant-meeting.ts`, and the chat and unattended runs both open a meeting through `openMeeting`. An
+unattended meeting stopped while its advisors answer no longer starts the closing turn.
+
+Left, and in BACKLOG.md: A-27, the rest of A-28 (the file's size), A-31, P7-3's one store, P7-5 and R-35's
+stop handles.
 
 What each one was:
 
