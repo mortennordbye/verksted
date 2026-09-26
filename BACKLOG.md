@@ -477,10 +477,9 @@ what unblocks it / where the code lives.
 
 - **What:** What Part 10 of `FABLE-AUDIT-2026-09-19.md` still lists as partial
   once the pod-only items are set aside. A-27: thread search and the thread
-  list parse every thread file (the cache holds four, on purpose). A-28:
-  `assistant.ts` is still about 1900 lines, and holding a convene reply then
-  closing the meeting is written twice (`runChair`, `unattendedTurn`), with
-  real differences between the two. A-31: speech to text is English only, no
+  list parse every thread file (the cache holds four, on purpose). A-28's
+  rest: `assistant.ts` is still about 1700 lines, with the thread store, the
+  turn runner and unattended runs in one file. A-31: speech to text is English only, no
   injection regression suite against a real model, no server-side thread
   compaction. P7-5: no metrics endpoint (event-loop lag, exec and timer
   failures, queue depths). P7-3: no one `JsonDirStore`, and records carry no
@@ -491,6 +490,6 @@ what unblocks it / where the code lives.
   today.
 - **Unblocked by:** Deciding to want one. A-27 when thread search gets slow
   in practice; P7-5 when something needs watching that the logs do not show;
-  A-28 before the next change to how meetings close.
+  A-28 when a change to the thread store or unattended runs gets hard to make.
 - **Where:** `backend/src/assistant.ts`, `transcribe.ts`, `atomic-json.ts`,
   `maintenance.ts`, `pollers.ts`, `app.ts`.

@@ -265,6 +265,7 @@ backend/src/
 ├── assistant.ts      # the assistant and its council: threads, meetings, unattended runs
 ├── assistant-turn.ts # one turn of the CLI: spawn, stream, time out, end the tree
 ├── assistant-policy.ts# a speaker's argv and env: built-ins, rules, MCP config
+├── assistant-meeting.ts# a meeting as words: the convene line, who it names, the briefings
 ├── assistant-taint.ts# what a turn has read closes what it may do next (A-01)
 ├── git.ts            # every git the backend runs, with hooks and textconv off
 ├── gh.ts             # the gh CLI, and what its errors mean

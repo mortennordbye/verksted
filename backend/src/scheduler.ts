@@ -1,7 +1,8 @@
 import * as schedules from "./schedules-store.js";
 import type { Schedule, ScheduleTrigger, Session } from "../../shared/api.js";
 import { runCatalogue, runCompaction, runJournal, runLearning } from "./assistant-jobs.js";
-import { MAX_CONVENED, runUnattended } from "./assistant.js";
+import { runUnattended } from "./assistant.js";
+import { MAX_CONVENED } from "./assistant-meeting.js";
 import { env } from "./env.js";
 import { syncDefaultBranch } from "./git.js";
 import type { Logger } from "./logger.js";
