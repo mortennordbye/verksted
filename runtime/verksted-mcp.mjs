@@ -652,7 +652,7 @@ const TOOLS = [
   {
     name: "desk_session",
     description:
-      "Propose an agent on a piece of life admin that is more than a lookup and not code: compare offers, fill in a form from a letter, draft a complaint with the clauses quoted, build a table from receipts. It runs as a full session in a directory of its own on the desk, with the documents readable in place, and leaves its output as files there. Nothing starts until the person taps the card, for the same reason start_session waits. Write the ask in full; it has to stand on its own.",
+      "Propose an agent on a piece of life admin too long for a turn, or that has to leave files behind: a table built from a year of receipts, a form filled out as a PDF. Research, comparisons and buying advice are not this: do them yourself with the web and your browser and answer in the chat. It runs as a full session in a directory of its own on the desk, with the documents readable in place, and leaves its output as files there. Nothing starts until the person taps the card, for the same reason start_session waits. Write the ask in full; it has to stand on its own.",
     inputSchema: {
       type: "object",
       properties: { title: { type: "string" }, ask: { type: "string" }, why: { type: "string" } },

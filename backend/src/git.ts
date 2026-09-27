@@ -279,12 +279,18 @@ export async function fileDiffIn(
   });
 }
 
-/** First useful line of a failed git command's stderr, for showing to the user. */
+/**
+ * The line of a failed git command's stderr that says why, for showing to the
+ * user. That is the fatal: or error: line where there is one: stderr also
+ * carries progress, like "Fetching submodule …", which comes first and says
+ * nothing about what went wrong.
+ */
 export function gitError(err: unknown): string {
-  const line = String((err as { stderr?: string }).stderr ?? "")
+  const lines = String((err as { stderr?: string }).stderr ?? "")
     .split("\n")
     .map((l) => l.trim())
-    .find((l) => l && !l.startsWith("hint:"));
+    .filter((l) => l && !l.startsWith("hint:"));
+  const line = lines.find((l) => /^(fatal|error):/.test(l)) ?? lines[0];
   return redactSecrets(line ?? "git failed").slice(0, 200);
 }
 

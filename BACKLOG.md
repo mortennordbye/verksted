@@ -3,6 +3,22 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## Desk sessions stop on claude's folder-trust dialog
+
+- **What:** Every desk task is a new directory, so every desk session opens on
+  "Is this a project you trust?" and waits there. The session list still shows
+  it as running, because claude's hooks have not fired yet, so the assistant
+  reports it as running too.
+- **Why deferred:** The fix is to pre-accept trust for the task directory in the
+  agent's `~/.claude.json`. That removes a safety prompt from an agent that
+  has a shell, and it should be decided on purpose rather than slipped in with
+  a persona change.
+- **Unblocked by:** A decision to pre-trust desk task directories (or the desk
+  root). Separately, the session status could read the pane's dialog
+  (`tui-prompt.ts`) so a session that is stuck shows as waiting.
+- **Where:** `backend/src/desk.ts` (`newTask`), `backend/src/tui-prompt.ts`,
+  `runtime/verksted-mcp.mjs` (`status`)
+
 ## The phone screen may still end short with the keyboard up
 
 - **What:** The session shell is `dvh` with the keyboard down and `--vvh` with it

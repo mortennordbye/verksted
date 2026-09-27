@@ -801,7 +801,11 @@ export default async function fileRoutes(app: FastifyInstance) {
       });
     } catch (err) {
       req.log.error(err, "git pull failed");
-      return reply.code(409).send({ error: gitError(err) });
+      const stderr = String((err as { stderr?: string }).stderr ?? "");
+      const error = /Not possible to fast-forward|Diverging branches/.test(stderr)
+        ? "diverged from the remote — push the local commits to a branch, or reset to drop them"
+        : gitError(err);
+      return reply.code(409).send({ error });
     }
     return { branch: await branchOf(repoDir) };
   });
