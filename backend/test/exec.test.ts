@@ -27,6 +27,13 @@ describe("what a failed git or gh says to the client (S-13)", () => {
     expect(ghMessage(remote)).not.toContain("ghp_abc123");
   });
 
+  it("names the failure, not the progress git printed before it", () => {
+    const stderr =
+      "Fetching submodule blog/themes/northlight\nhint: Diverging branches can't be fast-forwarded\nfatal: Not possible to fast-forward, aborting.\n";
+    expect(gitError({ stderr })).toBe("fatal: Not possible to fast-forward, aborting.");
+    expect(gitError({ stderr: "Fetching submodule x\n" })).toBe("Fetching submodule x");
+  });
+
   it("leaves an ordinary remote and an ssh one alone", () => {
     const plain = "fatal: repository 'https://github.com/o/r.git/' not found";
     expect(redactSecrets(plain)).toBe(plain);
