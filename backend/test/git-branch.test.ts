@@ -405,3 +405,36 @@ describe("workSince", () => {
     run(dir, "switch", "main");
   });
 });
+
+describe("a leftover index.lock", () => {
+  let dir: string;
+  const lock = () => path.join(dir, ".git", "index.lock");
+
+  beforeAll(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "vk-lock-"));
+    execFileSync("git", ["init", "-b", "main", dir], { stdio: "pipe" });
+    fs.writeFileSync(path.join(dir, "a.txt"), "a");
+  });
+
+  it("is cleared when a git that died long ago left it", async () => {
+    const { git } = await import("../src/git.js");
+    fs.writeFileSync(lock(), "");
+    const old = new Date(Date.now() - 60 * 60_000);
+    fs.utimesSync(lock(), old, old);
+
+    await git(dir, ["add", "a.txt"]);
+
+    expect(fs.existsSync(lock())).toBe(false);
+    expect(await git(dir, ["diff", "--cached", "--name-only"])).toBe("a.txt");
+  });
+
+  it("is left alone when it is recent enough to be held", async () => {
+    const { git } = await import("../src/git.js");
+    fs.writeFileSync(lock(), "");
+
+    await expect(git(dir, ["reset", "-q"])).rejects.toThrow();
+
+    expect(fs.existsSync(lock())).toBe(true);
+    fs.rmSync(lock());
+  });
+});

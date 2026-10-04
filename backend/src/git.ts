@@ -44,15 +44,48 @@ export async function gitRaw(
   args: string[],
   opts: { env?: NodeJS.ProcessEnv; timeout?: number } = {},
 ): Promise<string> {
-  const { stdout } = await exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, ...args], {
-    env: opts.env,
-    // Without these, execFile's 1 MB default silently truncates and kills the
-    // call, and every caller reads that as "clean" or "no files" — a wrong UI
-    // rather than an error. A big status or diff really does exceed 1 MB.
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: opts.timeout ?? 15_000,
-  });
-  return stdout;
+  const run = () =>
+    exec("git", [...GIT_NO_REPO_CODE, "-C", repoDir, ...args], {
+      env: opts.env,
+      // Without these, execFile's 1 MB default silently truncates and kills the
+      // call, and every caller reads that as "clean" or "no files" — a wrong UI
+      // rather than an error. A big status or diff really does exceed 1 MB.
+      maxBuffer: 16 * 1024 * 1024,
+      timeout: opts.timeout ?? 15_000,
+    });
+  try {
+    return (await run()).stdout;
+  } catch (err) {
+    if (!(await clearStaleIndexLock(err))) throw err;
+    return (await run()).stdout;
+  }
+}
+
+/** Older than this, an index.lock is left over from a git that died, not held
+ *  by one that is running: short of a commit left open in its editor, nothing
+ *  git does holds the index this long. */
+const STALE_LOCK_MS = 10 * 60_000;
+
+/**
+ * Remove the index.lock a failed command names, if it is old enough to be
+ * abandoned. A git killed mid-write (a pod restart, an OOM, a session ended
+ * under it) leaves the lock behind, and from then on every command that writes
+ * the index fails with "File exists" until someone deletes it by hand. git
+ * only takes the lock to write; a command refused it has changed nothing, so
+ * running it again is safe.
+ */
+async function clearStaleIndexLock(err: unknown): Promise<boolean> {
+  const stderr = String((err as { stderr?: string }).stderr ?? "");
+  const lock = /Unable to create '(.+\/index\.lock)': File exists/.exec(stderr)?.[1];
+  if (!lock) return false;
+  try {
+    const st = await fs.stat(lock);
+    if (Date.now() - st.mtimeMs < STALE_LOCK_MS) return false;
+    await fs.unlink(lock);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function git(
