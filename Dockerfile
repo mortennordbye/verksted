@@ -6,7 +6,7 @@
 # Digest as well as tag on every FROM: a tag is a pointer the publisher can move,
 # and "the image CI built" and "the image a laptop built an hour later" were only
 # the same thing by luck. Dependabot updates both halves together.
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a AS whisper
+FROM debian:trixie-slim@sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f AS whisper
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git build-essential cmake ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
