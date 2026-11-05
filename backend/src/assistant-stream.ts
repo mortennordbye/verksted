@@ -221,6 +221,22 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
   const sessionId = event.session_id;
   if (typeof sessionId === "string" && sessionId) state.conversationId = sessionId;
 
+  // The CLI summarised the conversation, because it filled or because it was told
+  // to. Worth a mark: what the model can see just changed.
+  if (event.type === "system" && event.subtype === "compact_boundary") {
+    const meta = event.compact_metadata as
+      { pre_tokens?: number; post_tokens?: number } | undefined;
+    if (typeof meta?.post_tokens === "number") state.context = meta.post_tokens;
+    const k = (n: number | undefined) => `${Math.round((n ?? 0) / 1000)}k`;
+    return {
+      role: "assistant",
+      text: "",
+      tools: [
+        { name: "compacted", detail: `${k(meta?.pre_tokens)} to ${k(meta?.post_tokens)} tokens` },
+      ],
+    };
+  }
+
   if (event.type === "system" && event.subtype === "init" && state.timing.init === null) {
     state.timing.init = state.now();
     if (Array.isArray(event.mcp_servers)) {

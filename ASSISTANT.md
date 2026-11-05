@@ -374,6 +374,9 @@ result event that says what it used, and `assistant-usage.ts` appends that to
 `<thread>.usage.log`: one line per run, the chair's and each advisor's. The
 thread carries the sum (`usage.total`) and the size of the chair's last prompt
 (`usage.context`), which is the conversation as every new turn sends it again.
-The chat header shows the total, and the "start fresh" nudge appears once that
-prompt passes 100k tokens; a thread from before the measuring falls back to
-counting replies. Unattended turns are not measured here.
+The chat header shows the total, and a nudge appears once that prompt passes 100k
+tokens, offering to summarise the thread or start fresh; a thread from before the
+measuring falls back to counting replies. Summarising is `/compact` sent to the
+thread, which the CLI answers headlessly (checked on 2.1.318, cold and warm), and
+leaves a mark in the thread. The CLI can also do it on its own as a thread fills,
+and that leaves the same mark. Unattended turns are not measured here.
