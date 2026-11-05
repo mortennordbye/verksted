@@ -13,7 +13,6 @@ const chair: CouncilMember = {
   tools: [],
   web: false,
   colour: "amber",
-  face: "raccoon",
   voice: "",
   chair: true,
   enabled: true,

@@ -470,7 +470,7 @@ describe("adding somebody", () => {
   const add = (body: Record<string, unknown>) =>
     app.inject({ method: "POST", url: "/api/council", payload: body });
 
-  const roster = async (): Promise<{ id: string; name: string; face: string }[]> =>
+  const roster = async (): Promise<{ id: string; name: string }[]> =>
     (await app.inject({ url: "/api/council" })).json();
 
   const ledger = {
@@ -478,7 +478,6 @@ describe("adding somebody", () => {
     remit: "what this bench costs to run",
     persona: "You watch the money.",
     tools: ["status"],
-    face: "bear",
   };
 
   // The council directory outlives a test here, unlike the transcript, so
@@ -495,7 +494,7 @@ describe("adding somebody", () => {
     const res = await add({ ...ledger, id: "ledger" });
 
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ id: "ledger", face: "bear", enabled: true });
+    expect(res.json()).toMatchObject({ id: "ledger", enabled: true });
     expect((await roster()).map((m) => m.id)).toContain("ledger");
   });
 
@@ -515,11 +514,11 @@ describe("adding somebody", () => {
     expect(res.json()).toMatchObject({ tools: [], web: false });
   });
 
-  it("gives one that chose no face a face of its own", async () => {
-    const res = await add({ ...ledger, id: "warden", face: undefined });
+  it("drops a face sent by a tab from before portraits went", async () => {
+    const res = await add({ ...ledger, id: "warden", face: "bear" });
 
     expect(res.statusCode).toBe(201);
-    expect(res.json().face).toBeTruthy();
+    expect(res.json().face).toBeUndefined();
   });
 });
 

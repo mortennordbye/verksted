@@ -1,6 +1,6 @@
 import { Link } from "react-router";
 import type { CouncilMember } from "../../../../shared/api";
-import Portrait, { MEMBER_TEXT } from "../Face";
+import Monogram, { MEMBER_TEXT } from "../Monogram";
 import Icon from "../Icon";
 import { SkeletonList } from "../Skeleton";
 
@@ -53,7 +53,7 @@ export default function People({
             m.enabled ? "" : "opacity-55"
           }`}
         >
-          <Portrait face={m.face} colour={m.colour} size={36} tone mood="idle" />
+          <Monogram name={m.name} colour={m.colour} size={36} />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
             <div className="flex items-center gap-2">
               <span className={`text-[14px] font-semibold ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>

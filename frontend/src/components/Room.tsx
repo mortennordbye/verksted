@@ -13,7 +13,7 @@ import UserBubble from "./chat/UserBubble";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import { marks, rehypeMark } from "../find";
-import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
+import Monogram, { MEMBER_CARD, MEMBER_TEXT } from "./Monogram";
 import Overlay from "./ui/Overlay";
 
 /**
@@ -311,7 +311,7 @@ const Bubble = memo(function Bubble({
   );
 });
 
-/** A specialist's answer: its own face, name and colour, and the time beside them. */
+/** A specialist's answer: its own initial, name and colour, and the time beside them. */
 const Card = memo(function Card({
   who,
   entry,
@@ -328,7 +328,7 @@ const Card = memo(function Card({
       }`}
     >
       <div className="flex items-center gap-2.5">
-        <Portrait face={who.face} colour={who.colour} size={28} tone mood="idle" />
+        <Monogram name={who.name} colour={who.colour} size={28} />
         <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
         <span className="ml-auto flex items-center gap-2">
           {entry.text && <CopyButton text={entry.text} />}
@@ -466,7 +466,7 @@ export default function Room({
   };
 
   // Who else has a turn in flight: the specialists do not stream their words,
-  // so their faces are the only sign they are answering (C-26).
+  // so these are the only sign they are answering (C-26).
   const speaking = (thread.speaking ?? [])
     .map((id) => members.find((m) => m.id === id))
     .filter((m): m is CouncilMember => !!m && !m.chair);
@@ -504,7 +504,7 @@ export default function Room({
         <div aria-hidden="true" className="flex items-center gap-2 text-[12.5px] text-muted">
           <span className="flex -space-x-1.5">
             {speaking.map((m) => (
-              <Portrait key={m.id} face={m.face} colour={m.colour} size={22} tone mood="speaking" />
+              <Monogram key={m.id} name={m.name} colour={m.colour} size={22} speaking />
             ))}
           </span>
           {speaking.map((m) => m.name).join(", ")} answering…

@@ -78,7 +78,6 @@ const REPLIES: Record<string, unknown> = {
     id: "ledger",
     name: "Ledger",
     remit: "what this bench costs",
-    face: "bear",
     colour: "rose",
     tools: ["status"],
     web: false,
@@ -457,13 +456,12 @@ describe("one advisor's tools", () => {
       name: "Ledger",
       remit: "what this bench costs",
       persona: "You watch the money.",
-      face: "bear",
       colour: "rose",
     });
 
     expect(seen[0]?.method).toBe("POST");
     expect(seen[0]?.url).toBe("/api/council");
-    expect(JSON.parse(seen[0]?.body ?? "{}")).toMatchObject({ id: "ledger", face: "bear" });
+    expect(JSON.parse(seen[0]?.body ?? "{}")).toMatchObject({ id: "ledger" });
     expect(JSON.stringify(res)).toContain("added Ledger (@ledger)");
   });
 

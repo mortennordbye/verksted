@@ -36,7 +36,9 @@ const MEMBER_FIELDS = {
     type: "string",
     enum: ["amber", "violet", "teal", "rose", "sky", "lime"],
   },
-  face: { type: "string", enum: ["owl", "fox", "bear", "cat", "robot", "raccoon"] },
+  // Portraits are gone. Still accepted and dropped, so a tab open across the
+  // deploy can save rather than being refused for a field it no longer shows.
+  face: { type: "string", maxLength: 20 },
   enabled: { type: "boolean" },
 };
 

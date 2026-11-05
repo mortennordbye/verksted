@@ -12,7 +12,6 @@ const member = (id: string, name: string): CouncilMember => ({
   tools: [],
   web: false,
   colour: "sky",
-  face: "robot",
   voice: "",
   chair: false,
   enabled: true,

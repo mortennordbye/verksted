@@ -8,7 +8,7 @@ import type {
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
-import Portrait, { FACES, Face, MEMBER_TEXT, MEMBER_RULE } from "./Face";
+import Monogram, { MEMBER_RULE, MEMBER_TEXT } from "./Monogram";
 import { playSample, voiceLabel } from "../useSpeech";
 import { EFFORTS } from "./AssistantPanel";
 import Button from "./ui/Button";
@@ -80,7 +80,6 @@ const blank = (id: string): CouncilMember => ({
   tools: [],
   web: false,
   colour: "sky",
-  face: "owl",
   voice: "",
   chair: false,
   enabled: true,
@@ -231,28 +230,6 @@ export default function CouncilPanel() {
         )}
       </div>
 
-      {/* Drawn in the colour picked above, because that is the pair you are
-            actually choosing: the same fox in two hues is two advisors. */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {FACES.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setEditing({ ...editing, face: f })}
-            aria-pressed={editing.face === f}
-            aria-label={f}
-            title={f}
-            className={`tap flex h-9 w-9 items-center justify-center rounded-full border ${
-              editing.face === f
-                ? `${MEMBER_RULE[editing.colour]} ${MEMBER_TEXT[editing.colour]} bg-surface-2`
-                : "border-line text-faint hover:border-line-strong"
-            }`}
-          >
-            <Face face={f} className="h-[22px] w-[22px]" />
-          </button>
-        ))}
-      </div>
-
       <label className="flex items-center gap-2 text-[13px] text-muted">
         <input
           type="checkbox"
@@ -329,7 +306,7 @@ export default function CouncilPanel() {
               }`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Portrait face={m.face} colour={m.colour} size={32} title={m.remit} />
+                <Monogram name={m.name} colour={m.colour} size={32} title={m.remit} />
                 <span className={`text-[13.5px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
                 <span className="font-mono text-[11px] text-faint">
                   {m.chair ? "chair" : `@${m.id}`}

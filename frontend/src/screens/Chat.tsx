@@ -10,7 +10,7 @@ import Month from "../components/assistant/Month";
 import People from "../components/assistant/People";
 import Threads from "../components/assistant/Threads";
 import Composer, { Ico } from "../components/chat/Composer";
-import Portrait from "../components/Face";
+import Monogram from "../components/Monogram";
 import Icon, { type IconName } from "../components/Icon";
 import Room from "../components/Room";
 import UserBubble from "../components/chat/UserBubble";
@@ -59,7 +59,6 @@ const NO_CHAIR: CouncilMember = {
   tools: [],
   web: false,
   colour: "amber",
-  face: "raccoon",
   voice: "",
   chair: true,
   enabled: true,
@@ -498,13 +497,7 @@ export default function Chat() {
             laptop screen before anything had been said. */}
         <div className="border-b border-line-strong bg-bg/90 backdrop-blur-md">
           <div className="mx-auto flex max-w-[800px] items-center gap-2.5 px-[18px] py-2">
-            <Portrait
-              face={chair.face}
-              colour={chair.colour}
-              size={30}
-              tone
-              mood={thinking ? "speaking" : "idle"}
-            />
+            <Monogram name={chair.name} colour={chair.colour} size={30} speaking={thinking} />
             <div className="flex min-w-0 flex-1 flex-col leading-tight">
               <span title={chair.remit} className="truncate text-[14px] font-semibold">
                 {chair.name}

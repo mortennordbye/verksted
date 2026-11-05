@@ -194,9 +194,6 @@
   --animate-blink: blink 1.2s steps(1) infinite;
   --animate-pulse-run: pulse-run 1.6s ease-in-out infinite;
 
-  /* A council face's mouth while it is answering. */
-  --animate-vk-talk: vk-talk 0.3s ease-in-out infinite;
-
   /* A card arriving on the table: it rises into place rather than appearing. */
   --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   /* A seat whose occupant is talking. currentColor, so the halo is theirs. */
@@ -242,16 +239,6 @@
   @keyframes skeleton-pulse {
     50% {
       opacity: 0.5;
-    }
-  }
-
-  @keyframes vk-talk {
-    0%,
-    100% {
-      transform: scaleY(0.35);
-    }
-    50% {
-      transform: scaleY(1);
     }
   }
 }
@@ -423,15 +410,6 @@ select:focus-visible {
   border-radius: 4px;
 }
 
-/* An SVG shape scales about the viewBox origin unless it is told otherwise,
-   which sends a mouth sliding off the chin instead of opening. The animation
-   itself is the utility next to this class, so Tailwind sees it used and keeps
-   the keyframes. */
-.vk-talk {
-  transform-box: fill-box;
-  transform-origin: center;
-}
-
 @media (prefers-reduced-motion: reduce) {
   /* `animate-pulse` is Tailwind's own, and it was the one this list missed —
      six of them, including the dot that says the pod cannot be reached and the
@@ -441,8 +419,7 @@ select:focus-visible {
   .animate-glow,
   .animate-pulse,
   .animate-pulse-run,
-  .animate-rise,
-  .animate-vk-talk {
+  .animate-rise {
     animation: none;
   }
 }
