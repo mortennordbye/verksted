@@ -60,9 +60,16 @@ headroom. To give a turn another variable, add it to `TURN_ENV_KEYS` in
 the rules, the MCP config and the environment.
 
 Everything else is the verksted MCP server (`runtime/verksted-mcp.mjs`), plus
-two that are the chair's alone: a headless Chromium it can navigate, click and
-type in, and headroom's own server for the household finances. Headroom's reads
-are allowed by name in `assistant-policy.ts`, so a turn cannot write there.
+what is the chair's alone: a headless Chromium it can navigate, click and type in,
+and the connectors, which are headroom for the household finances and LogEveryLift
+for training. `assistant-connectors.ts` names each connector's reads, so a turn
+cannot write there, and a tool it does not name is refused.
+
+LogEveryLift takes OAuth only. The person signs in once from Settings, Sources; the
+pod keeps the refresh token with the other source credentials and refreshes it
+(`logeverylift-auth.ts`). A turn gets a current access token in its environment, the
+MCP config names the variable, and no session sees either. When there is no token
+the server is left out and the chair is told training is not connected.
 
 **The chair holds every tool there is.** The council is not where a capability
 is kept away from it. That was tried and it was wrong: routing a lookup through

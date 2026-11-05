@@ -52,6 +52,7 @@ import {
 } from "./assistant-policy.js";
 import { forgetUsage, recordUsage, threadUsage } from "./assistant-usage.js";
 import * as journal from "./journal-store.js";
+import * as logeverylift from "./logeverylift-auth.js";
 import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
 import { BusyError, keyedQueue } from "./serial.js";
@@ -1053,8 +1054,22 @@ async function chairSpeaker(): Promise<Speaker> {
 
 /** The profile and the last few days, read fresh for every chair turn. */
 async function promptContext(): Promise<PromptContext> {
-  const [profile, days] = await Promise.all([readProfile(), journal.recent()]);
-  return { profile, journal: journal.render(days) };
+  const [profile, days, lifting] = await Promise.all([
+    readProfile(),
+    journal.recent(),
+    logeverylift.accessToken(),
+  ]);
+  return {
+    profile,
+    journal: journal.render(days),
+    ...(lifting
+      ? {}
+      : {
+          unavailable: [
+            "LogEveryLift is not connected right now, so you cannot read their training. If they ask, say so and that it is signed in to under Settings, Sources.",
+          ],
+        }),
+  };
 }
 
 /**

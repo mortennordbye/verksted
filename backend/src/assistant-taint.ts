@@ -1,3 +1,5 @@
+import { CONNECTOR_CALL, CONNECTOR_MATCHER } from "./assistant-connectors.js";
+
 /**
  * What a turn has already touched, and what that costs it.
  *
@@ -73,10 +75,9 @@ export function reachedTheWeb(turn: string | undefined): boolean {
 }
 
 const WEB_CALL = /^(WebFetch$|WebSearch$|mcp__browser__)/;
-const PRIVATE_CALL = /^mcp__headroom__/;
 
 /** What the PreToolUse hook matches on: every call the gate has an opinion about. */
-export const GATED_TOOLS = "WebFetch|WebSearch|mcp__browser__.*|mcp__headroom__.*";
+export const GATED_TOOLS = `WebFetch|WebSearch|mcp__browser__.*|${CONNECTOR_MATCHER}`;
 
 export type GateRuling = { allow: true; closeBrowser: boolean } | { allow: false; reason: string };
 
@@ -98,7 +99,7 @@ export function ruleOnCall(turn: string, tool: string): GateRuling {
     remember(usedWeb, turn);
     return { allow: true, closeBrowser: false };
   }
-  if (PRIVATE_CALL.test(tool)) {
+  if (CONNECTOR_CALL.test(tool)) {
     if (reachedTheWeb(turn)) {
       return {
         allow: false,

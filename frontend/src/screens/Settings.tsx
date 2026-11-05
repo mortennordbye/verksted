@@ -21,6 +21,7 @@ import { Input } from "../components/ui/Field";
 import Notice from "../components/ui/Notice";
 import { toast } from "../components/ui/Toast";
 import GoogleCalendar from "../components/settings/GoogleCalendar";
+import LogEveryLift from "../components/settings/LogEveryLift";
 import Notifications from "../components/settings/Notifications";
 import Backups from "../components/settings/Backups";
 import AppReset from "../components/settings/AppReset";
@@ -156,6 +157,7 @@ export default function Settings() {
         {show("assistant") && <MemoryPanel />}
         {show("assistant") && <ToolLog />}
         {show("sources") && <GoogleCalendar />}
+        {show("sources") && <LogEveryLift />}
         {show("sources") && <BlockedOwners owners={data?.blockedOwners ?? []} refresh={refresh} />}
         {show("sources") && <GmailRules />}
         {show("agents") && (
