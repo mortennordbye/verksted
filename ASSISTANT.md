@@ -48,9 +48,8 @@ directory and its `--add-dir` without a rule, and a bare `Read` rule is not
 confined to either (checked against 2.1.278, it read a file beside the repos).
 With no rule, 2.1.318 reads inside both and refuses a file beside them.
 On top of that, `/proc`, `$HOME` and the settings file are denied by path, which
-holds whatever the mode or the allow list later become. An advisor that reads
-the web gets no Read, Grep or Glob at all: a repo is where the `.env` files
-are.
+holds whatever the mode or the allow list later become. An advisor gets none of
+them: it holds no tools at all.
 
 A turn's environment is named, not inherited: PATH, HOME, the locale, a proxy
 if there is one, and `CLAUDE_*` (the sign-in). `GH_TOKEN`, the other agents'
@@ -214,41 +213,42 @@ agents and that browser as their own unix user. BACKLOG has it.
 
 ## The council
 
-Advisors are **experience**: a subject somebody has thought about longer than
-the chair has. They are convened for judgement — what the money can stand,
-whether a change is safe to merge, whether the cluster actually took a deploy —
-or to disagree with each other in front of you. A question the chair could have
-answered by looking is one it looks at itself.
+Advisors give **second opinions and do no work**. The chair does the looking and
+the acting. An advisor reads what the chair found and says what it makes of it:
+what the money can stand, whether a change is safe to merge, or where another
+advisor is wrong. Its answer can run long, and is shown in full. A question the
+chair could answer by looking is one it looks at itself.
 
 A member is a JSON file on the volume, editable from the settings page: a name,
-a remit, a persona, a model, an effort, a face, a colour, a voice, and the
-tools it holds. Five are seeded on an empty bench and never rewritten after —
-a member edited or deleted by hand stays edited or deleted: the cluster, the
-code, the mail and the documents, the money, and the web.
+a remit, a persona, a model, an effort, a face, a colour and a voice. Five are
+seeded on an empty bench and never rewritten after, so a member edited or deleted
+by hand stays that way. A persona saved before this rule may still talk about
+reading things, and the advisor's job tells it that is out of date.
 
-Convening is a line of prose in the chair's reply (`convene: michael, ariel`),
-not a tool call, because a tool call would be a second round trip to say what
-the chair is already writing. The advisors then run in parallel, each with its
-own MCP config, its own tool list and its own memory; the chair closes the
-meeting when there is more than one of them to synthesise. How a reply asks
-for a meeting, who that names and what each speaker is handed live in
-`assistant-meeting.ts`, and the chat and an unattended run both open their
-meetings through its `openMeeting`. Stop pressed during a meeting, in either,
-skips the closing turn.
+**No advisor holds a tool, a server or the web**, whatever its file says. The
+store drops them on read and on write (`validate` in `council-store.ts`), and
+`policyFor` gives an advisor empty lists on the command line. What it has kept in
+its notebook is still in its prompt, and nothing adds to it any more.
 
-Two rules hold whatever a member's file says:
+A meeting always runs the same way:
 
-- **No advisor holds a chair-only tool.** Enforced by the server as well as by
-  the settings page, because the file is on a volume somebody can edit.
-- **No advisor holds anything private beside the web.** A page it fetches is
-  how the private thing would leave. The pairing is dropped when the member is
-  read rather than refused, because that rule tightens over time and a member
-  saved before a tool was marked private should be narrowed, not made to
-  vanish.
+1. The chair does the looking. It writes `convene: michael, ariel` or
+   `discuss: michael, ariel` with what it found, or the person types `@ariel` or
+   `@all` and the chair is asked to look first.
+2. The advisors answer, in parallel for `convene` and in order for `discuss`.
+   What the chair found reaches them marked as data.
+3. The chair closes with the last word, one advisor included. That closing turn is
+   how their answer reaches the chair's own conversation, so it is what lets the
+   chair take the follow-up. It carries up to 4,000 characters of each answer,
+   since it is re-sent with every later turn.
 
-Driving a browser stays the chair's alone. The advisors read the web only to
-answer the question put to them — asked for input, not given a second way to
-act on it.
+Convening is a line of prose rather than a tool call, because a tool call would be
+a second round trip to say what the chair is already writing. How a reply asks for
+a meeting and what each speaker is handed live in `assistant-meeting.ts`. Stop
+pressed during a meeting skips the closing turn.
+
+A schedule that names an advisor runs the same way, unattended: the chair works
+and signs off, and the advisor gives its opinion on what the chair found.
 
 ## Memory
 
@@ -352,7 +352,7 @@ summarises state and hands work off, and the model doing the actual engineering
 is the one in the session it starts. The settings page overrides both.
 
 A meeting costs a call per advisor plus the chair's close, which is why
-convening is for judgement and not for fetching. Tool results stay in the
+convening is for judgement and not for fetching, and `@ariel` costs three calls. Tool results stay in the
 conversation and are re-sent with every later turn, so each tool answers in the
 fewest lines that still carry the decision — `status` is one call where three
 lookups would be three round trips.

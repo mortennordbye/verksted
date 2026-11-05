@@ -10,6 +10,8 @@ what unblocks it / where the code lives.
   reads are not private. A fetched page or browser page does not set `readOutside`,
   so `remember` still writes directly after one. And the next turn starts clean
   while `--resume` still carries what was read, so the rule holds per turn only.
+  Separately, any private read closes the one shared browser, so an unattended
+  run can close the pane somebody has open.
 - **Why deferred:** The gate shipped for the two confirmed holes (private read
   then `WebFetch`, and headroom reads). Counting `Read` as private would bar the
   web from any turn that opens a repo, so it wants a path rule instead.
@@ -18,6 +20,22 @@ what unblocks it / where the code lives.
   a resumed thread inherits its last turn's taint.
 - **Where:** `backend/src/assistant-taint.ts`, `backend/src/assistant-policy.ts`,
   `runtime/verksted-mcp.mjs`.
+
+## What the advisors held is still half wired
+
+- **What:** With advisors holding no tools, `VK_MEMBER`, the routing of `remember`
+  and `forget` to an advisor's own store, and the `chairOnly` flag in the policy
+  table in `runtime/verksted-mcp.mjs` no longer do anything for a live turn. A
+  member's notebook is read into its prompt and nothing writes to it. A persona
+  saved on the pod before the change still describes reading things, and only the
+  advisor's job corrects that.
+- **Why deferred:** Removing them changes the policy table a test pins against the
+  backend's copy, and the store migration wants its own review. Nothing is unsafe
+  in the meantime, because the argv decides.
+- **Unblocked by:** A cleanup pass, and rewriting the five seed personas on the pod
+  from the settings page or by a one-off migration.
+- **Where:** `runtime/verksted-mcp.mjs`, `backend/src/memory-store.ts`,
+  `backend/src/assistant-policy.ts`.
 
 ## A desk session stuck on a dialog reads as running
 

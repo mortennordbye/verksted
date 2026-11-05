@@ -200,7 +200,7 @@ interface Launch {
 /** A speaker's environment, less the turn id that names one run of it. */
 async function speakerEnv(speaker: Speaker, unattended: boolean): Promise<NodeJS.ProcessEnv> {
   return {
-    ...(await turnEnv(holdsHeadroom(speaker.id === CHAIR_ID ? null : speaker.id, unattended))),
+    ...(await turnEnv(holdsHeadroom(speaker.id === CHAIR_ID ? null : speaker.id, speaker.tools))),
     // Matches the mcpConfig() browser entry, which only exists for the
     // chair's attended turns — this is the endpoint its wrapper connects to.
     ...(speaker.id === CHAIR_ID && !unattended

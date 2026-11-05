@@ -794,17 +794,9 @@ describe("a schedule that runs the assistant", () => {
     expect(await scheduler.skipForIdle((await store.getSchedule(idle.id))!)).toBe(false);
   });
 
-  it("runs the advisor a schedule names, in that advisor's voice", async () => {
-    // A cluster briefing at 07:00 is worth more from the one that watches the
-    // cluster than from the chair relaying it. One advisor, one model call: a
-    // schedule never holds a meeting, because the daily ceiling counts turns.
+  it("has the chair do the work a schedule names an advisor for, then asks its opinion", async () => {
     const { saveMember } = await import("../src/council-store.js");
-    await saveMember({
-      id: "michael",
-      name: "Michael",
-      remit: "the cluster",
-      tools: ["cluster_status"],
-    });
+    await saveMember({ id: "michael", name: "Michael", remit: "the cluster" });
     const s = await store.createSchedule({
       name: "cluster briefing",
       kind: "assistant",
@@ -815,20 +807,36 @@ describe("a schedule that runs the assistant", () => {
     });
     fake.reset();
     fake.reply("claude", "-p", { stdout: reply("ok: nothing degraded.") });
+    fake.reply("claude", "-p", {
+      contains: "Your name is Michael.",
+      stdout: reply("Agreed, though one node is close to full."),
+    });
+    fake.reply("claude", "-p The council answered.", {
+      stdout: reply("attention: one node is nearly full."),
+    });
+    // A fresh registry, because the day's count is module state.
+    vi.resetModules();
+    const fresh = await import("../src/scheduler.js");
 
-    const out = await scheduler.runSchedule(s.id, log);
+    const out = await fresh.runSchedule(s.id, log);
 
-    expect(out).toEqual({ reply: "ok: nothing degraded." });
-    const [argv] = fake.argvFor("claude");
-    expect(argv[argv.indexOf("--append-system-prompt") + 1]).toContain("Your name is Michael.");
-    // Unattended still means unattended: it keeps its own tools but loses the
-    // web and everything that changes anything.
-    expect(argv[argv.indexOf("--disallowed-tools") + 1]).toContain("WebFetch");
-    const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
-      mcpServers: { verksted: { env: Record<string, string> } };
-    };
-    expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
-    expect(config.mcpServers.verksted.env.VK_TOOLS).toBe("cluster_status");
+    expect(out).toEqual({ reply: "attention: one node is nearly full." });
+    const [first, advisor] = fake.argvFor("claude");
+    // The chair does the looking, with its unattended tools and no web.
+    expect(first[first.indexOf("--append-system-prompt") + 1]).not.toContain(
+      "Your name is Michael.",
+    );
+    expect(first[first.indexOf("--disallowed-tools") + 1]).toContain("WebFetch");
+    // The advisor only ever sees what the chair found, and holds nothing.
+    expect(advisor[advisor.indexOf("--append-system-prompt") + 1]).toContain(
+      "Your name is Michael.",
+    );
+    expect(advisor[1]).toContain("ok: nothing degraded.");
+    expect(advisor[advisor.indexOf("--tools") + 1]).toBe("");
+    const config = JSON.parse(
+      fs.readFileSync(advisor[advisor.indexOf("--mcp-config") + 1], "utf8"),
+    ) as { mcpServers: Record<string, unknown> };
+    expect(config.mcpServers).toEqual({});
   });
 
   it("falls back to the chair when a schedule names nobody", async () => {
@@ -880,38 +888,16 @@ describe("a schedule that runs the assistant", () => {
     // the chair's rather than whichever advisor happened to finish last.
     expect(out).toEqual({ reply: "attention: two PRs need you." });
     expect(fake.argvFor("claude")).toHaveLength(4);
-    // The advisors were unattended too: no web, and no tools that change things.
+    // The advisors were unattended too, and hold nothing either way.
     const [michael] = fake
       .argvFor("claude")
       .filter((argv) => argv.join(" ").includes("Your name is Michael."));
     expect(michael[michael.indexOf("--disallowed-tools") + 1]).toContain("WebFetch");
+    expect(michael[michael.indexOf("--tools") + 1]).toBe("");
     const config = JSON.parse(
       fs.readFileSync(michael[michael.indexOf("--mcp-config") + 1], "utf8"),
-    ) as { mcpServers: { verksted: { env: Record<string, string> } } };
-    expect(config.mcpServers.verksted.env.VK_UNATTENDED).toBe("1");
-
-    /*
-     * And each advisor got its own file.
-     *
-     * The convened advisors run under one Promise.all, and every unattended
-     * speaker used to write the same `mcp-unattended.json`: the last writer
-     * decided what all of them could reach. An advisor could start holding
-     * another's tools, writing to another's memory, or reading headroom
-     * without the deny list added for the one member meant to have it.
-     */
-    const [raphael] = fake
-      .argvFor("claude")
-      .filter((argv) => argv.join(" ").includes("Your name is Raphael."));
-    const configFor = (argv: string[]) => argv[argv.indexOf("--mcp-config") + 1];
-    expect(configFor(michael)).not.toBe(configFor(raphael));
-    const memberOf = (argv: string[]) =>
-      (
-        JSON.parse(fs.readFileSync(configFor(argv), "utf8")) as {
-          mcpServers: { verksted: { env: Record<string, string> } };
-        }
-      ).mcpServers.verksted.env.VK_MEMBER;
-    expect(memberOf(michael)).toBe("michael");
-    expect(memberOf(raphael)).toBe("raphael");
+    ) as { mcpServers: Record<string, unknown> };
+    expect(config.mcpServers).toEqual({});
   });
 
   it("does not let a briefing convene unless it was asked to", async () => {

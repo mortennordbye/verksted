@@ -457,7 +457,6 @@ describe("one advisor's tools", () => {
       name: "Ledger",
       remit: "what this bench costs",
       persona: "You watch the money.",
-      tools: ["status"],
       face: "bear",
       colour: "rose",
     });

@@ -246,7 +246,7 @@ const STARTERS: {
   {
     name: "finance watch",
     cron: "30 7 * * *",
-    member: "ariel",
+    member: "",
     convenes: false,
     prompt: [
       "Read headroom's overview and budget summary. Against the floors and limits",
