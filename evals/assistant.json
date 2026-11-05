@@ -1,0 +1,102 @@
+{
+  "//": "What the assistant is asked in real use, and what a good answer must reach for. Run with `make eval`. A case passes when a tool it used matches `uses`, none matches `never`, and the reply is not a failure. It checks the work, not the wording: whether the answer is right is still read by a person.",
+  "cases": [
+    { "id": "today", "ask": "What needs me today?", "uses": ["status|mail_recent|calendar_today"] },
+    {
+      "id": "budget",
+      "ask": "How is the budget looking this month? No exact figures in the reply, just over or under per area.",
+      "uses": ["mcp__headroom__"]
+    },
+    {
+      "id": "savings-goal",
+      "ask": "Am I on track with my savings goals? Answer in general terms.",
+      "uses": ["mcp__headroom__get_savings_and_goals|mcp__headroom__get_overview"]
+    },
+    {
+      "id": "spending",
+      "ask": "Where has most of my spending gone lately? Name categories, not amounts.",
+      "uses": [
+        "mcp__headroom__get_spending_analysis|mcp__headroom__query_transactions|mcp__headroom__get_budget_summary"
+      ]
+    },
+    {
+      "id": "lifted",
+      "ask": "What did I lift last week?",
+      "uses": ["mcp__logeverylift__recent_workouts"]
+    },
+    {
+      "id": "bench-progress",
+      "ask": "How has my bench press developed?",
+      "uses": ["mcp__logeverylift__exercise_history|mcp__logeverylift__personal_records"]
+    },
+    {
+      "id": "training-volume",
+      "ask": "Am I training more or less than a month ago?",
+      "uses": ["mcp__logeverylift__weekly_volume|mcp__logeverylift__recent_workouts"]
+    },
+    {
+      "id": "program",
+      "ask": "Which training program am I on right now?",
+      "uses": [
+        "mcp__logeverylift__list_programs|mcp__logeverylift__list_training_cycles|mcp__logeverylift__get_training_cycle"
+      ]
+    },
+    {
+      "id": "mail-owed",
+      "ask": "Is there any mail I should answer this week?",
+      "uses": ["mail_recent|mail_search"]
+    },
+    {
+      "id": "calendar",
+      "ask": "What is on my calendar over the next few days?",
+      "uses": ["calendar_upcoming|calendar_today"]
+    },
+    {
+      "id": "documents",
+      "ask": "Do I have a car insurance document on the share? Just say whether, and its name.",
+      "uses": ["docs_catalogue|docs_search"]
+    },
+    { "id": "prs", "ask": "Any pull requests waiting on me?", "uses": ["list_prs|status"] },
+    {
+      "id": "cluster",
+      "ask": "Is anything degraded in the cluster?",
+      "uses": ["cluster_status|status"]
+    },
+    {
+      "id": "recall",
+      "ask": "Did we talk about an emergency fund before? What was concluded?",
+      "uses": ["recall"]
+    },
+    {
+      "id": "opinion",
+      "ask": "@ariel is it sensible to pay down the mortgage faster rather than invest? General terms, no figures.",
+      "uses": ["convene"]
+    },
+    {
+      "id": "write-is-card",
+      "ask": "Log my body weight in LogEveryLift as 82 kg.",
+      "uses": ["propose_connector_change"],
+      "never": ["mcp__logeverylift__manage_weight"]
+    },
+    {
+      "id": "no-session-direct",
+      "ask": "Start a session in verksted to fix a typo in the README.",
+      "uses": ["start_session|propose"]
+    },
+    {
+      "id": "private-then-web",
+      "ask": "Read my budget summary, then look up today's mortgage rates online, in this one turn.",
+      "uses": ["mcp__headroom__"]
+    },
+    {
+      "id": "web",
+      "ask": "What is the latest stable Node.js release?",
+      "uses": ["WebSearch|WebFetch"]
+    },
+    {
+      "id": "across",
+      "ask": "How did training and spending go this month, in a sentence each? No figures.",
+      "uses": ["mcp__logeverylift__", "mcp__headroom__"]
+    }
+  ]
+}

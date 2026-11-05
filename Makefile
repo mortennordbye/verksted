@@ -36,6 +36,9 @@ format: ## prettier --write over the repo, and eslint's fixable findings
 coverage: ## vitest with coverage, report-only (floors on paths.ts and origin.ts); html in */coverage
 	docker compose run --rm backend npm run coverage --workspaces
 
+eval: ## ask the running assistant the cases in evals/assistant.json (costs real turns; VK_URL picks the bench)
+	docker compose run --rm -e VK_URL backend node evals/run.mjs
+
 audit: ## npm audit of what ships (dev tooling excluded), high and above
 	docker compose run --rm backend npm audit --omit=dev --audit-level=high
 
