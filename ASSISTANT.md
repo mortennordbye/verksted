@@ -354,9 +354,10 @@ to this bench leaves it to be turned into text or into sound.
 
 ## What it costs
 
-The floor is a small model on low effort, and it is deliberate: this agent
-summarises state and hands work off, and the model doing the actual engineering
-is the one in the session it starts. The settings page overrides both.
+The chat defaults to Sonnet at medium effort, and the settings page overrides
+both. The composer's "think harder" sends one message on Opus at high effort, opening
+and closing turns included, and costs a warm process, since a model is fixed when a
+process starts. The nightly jobs stay on low effort whatever the chat is set to.
 
 A meeting costs a call per advisor plus the chair's close, which is why
 convening is for judgement and not for fetching, and `@ariel` costs three calls. Tool results stay in the

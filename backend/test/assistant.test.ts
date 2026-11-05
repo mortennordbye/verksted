@@ -312,12 +312,26 @@ describe("POST /api/assistant/messages", () => {
     expect(browserArgs).toContain('--cdp-endpoint "$VK_BROWSER_CDP"');
   });
 
-  it("runs on the cheap settings, since the real work happens in the sessions it starts", async () => {
+  it("runs on sonnet at medium effort unless the settings say otherwise", async () => {
     await say("hello");
 
     const [argv] = fake.argvFor("claude");
     expect(argv[argv.indexOf("--model") + 1]).toBe("sonnet");
-    expect(argv[argv.indexOf("--effort") + 1]).toBe("low");
+    expect(argv[argv.indexOf("--effort") + 1]).toBe("medium");
+  });
+
+  it("uses the strongest settings for one message when asked, and then goes back", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/assistant/messages",
+      payload: { text: "a hard one", think: true },
+    });
+    await say("an easy one");
+
+    const [hard, easy] = fake.argvFor("claude");
+    expect(hard[hard.indexOf("--model") + 1]).toBe("opus");
+    expect(hard[hard.indexOf("--effort") + 1]).toBe("high");
+    expect(easy[easy.indexOf("--model") + 1]).toBe("sonnet");
   });
 
   it("passes the prompt as its own argument, never through a shell", async () => {
