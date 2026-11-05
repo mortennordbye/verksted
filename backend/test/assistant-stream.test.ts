@@ -382,3 +382,35 @@ describe("a thread being summarised", () => {
     expect(state.context).toBe(4_321);
   });
 });
+
+describe("a tool that failed", () => {
+  it("is marked on its chip, and one that worked is not", () => {
+    const state = newStreamState();
+    consumeChunk(
+      `${assistant([
+        { type: "tool_use", id: "bad", name: "WebFetch", input: {} },
+        { type: "tool_use", id: "good", name: "Read", input: {} },
+      ])}\n`,
+      state,
+    );
+    consumeChunk(
+      `${JSON.stringify({
+        type: "user",
+        message: {
+          content: [
+            { type: "tool_result", tool_use_id: "bad", is_error: true, content: "refused" },
+            { type: "tool_result", tool_use_id: "good", content: "ok" },
+          ],
+        },
+      })}\n`,
+      state,
+    );
+
+    const [entry] = consumeChunk(`${assistant([{ type: "text", text: "Done." }])}\n`, state);
+
+    expect(entry.tools).toEqual([
+      { name: "WebFetch", detail: "", failed: true },
+      { name: "Read", detail: "" },
+    ]);
+  });
+});

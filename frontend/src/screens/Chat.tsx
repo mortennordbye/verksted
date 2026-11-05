@@ -13,6 +13,7 @@ import Threads from "../components/assistant/Threads";
 import ComposerMenu, { useComposerMenu, type MenuItem } from "../components/chat/ComposerMenu";
 import Composer, { Ico } from "../components/chat/Composer";
 import { WorkingDot } from "../components/Member";
+import { toolLabel } from "../components/chat/toolLabel";
 import Icon, { type IconName } from "../components/Icon";
 import Room from "../components/Room";
 import UserBubble from "../components/chat/UserBubble";
@@ -495,7 +496,7 @@ export default function Chat() {
           ? thread.live
             ? "writing…"
             : thread.liveTools?.length
-              ? `${thread.liveTools.at(-1)!.name}…`
+              ? `${toolLabel(thread.liveTools.at(-1)!.name)}…`
               : thread.liveThinking
                 ? "thinking…"
                 : "starting…"

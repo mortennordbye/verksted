@@ -69,6 +69,11 @@ card is checked against the server and shows the whole call, and the tap is what
 runs it, through the backend's own client (`connector-client.ts`). Restoring a whole
 revision, market imports and setting the AI context are not offered at all.
 
+Two reads are also drawn: headroom's budget summary as three figures, and weekly
+training volume as bars. `assistant-cards.ts` picks named, type-checked fields out of
+the tool's own result, never the model's text, and anything that does not fit gives
+no card. A card is stored with the reply, on the same volume as the reply's words.
+
 LogEveryLift takes OAuth only. The person signs in once from Settings, Sources; the
 pod keeps the refresh token with the other source credentials and refreshes it
 (`logeverylift-auth.ts`). A turn gets a current access token in its environment, the
