@@ -61,7 +61,8 @@ the rules, the MCP config and the environment.
 
 Everything else is the verksted MCP server (`runtime/verksted-mcp.mjs`), plus
 two that are the chair's alone: a headless Chromium it can navigate, click and
-type in, and headroom's own server for the household finances.
+type in, and headroom's own server for the household finances. Headroom's reads
+are allowed by name in `assistant-policy.ts`, so a turn cannot write there.
 
 **The chair holds every tool there is.** The council is not where a capability
 is kept away from it. That was tried and it was wrong: routing a lookup through
