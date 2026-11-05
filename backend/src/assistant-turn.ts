@@ -414,7 +414,7 @@ function adoptWarm(speaker: Speaker, conversationId: string): Promise<Warm | nul
 /**
  * The two ways claude refuses a conversation id: asked to resume one it has no
  * transcript of, or to name one it already has. Both were read off the real
- * CLI (2.1.278), and both come before any model call.
+ * CLI (2.1.318), and both come before any model call.
  */
 const WRONG_FLAG_RE = /No conversation found with session ID|Session ID \S+ is already in use/;
 

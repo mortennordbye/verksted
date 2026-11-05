@@ -46,6 +46,7 @@ Read, Grep and Glob reach the repos and the uploads directory and nothing else.
 They are deliberately not on the allow list: the CLI reads inside its working
 directory and its `--add-dir` without a rule, and a bare `Read` rule is not
 confined to either (checked against 2.1.278, it read a file beside the repos).
+With no rule, 2.1.318 reads inside both and refuses a file beside them.
 On top of that, `/proc`, `$HOME` and the settings file are denied by path, which
 holds whatever the mode or the allow list later become. An advisor that reads
 the web gets no Read, Grep or Glob at all: a repo is where the `.env` files
