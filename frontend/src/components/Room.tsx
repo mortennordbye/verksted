@@ -379,12 +379,21 @@ function blocks(entries: AssistantEntry[]): Block[] {
   return out;
 }
 
+/** Where a new thread can start, one for each thing it reads. */
+const STARTERS = [
+  "What needs me today?",
+  "How is the budget looking this month?",
+  "What did I lift last week?",
+  "Anything in my mail I should answer?",
+];
+
 export default function Room({
   thread,
   members,
   chair,
   onRetry,
   onEdit,
+  onAsk,
   find = "",
 }: {
   thread: AssistantThread;
@@ -392,6 +401,8 @@ export default function Room({
   chair: CouncilMember;
   /** Put the last thing you said back in the composer, to change and send again. */
   onEdit?: (text: string, images: string[]) => void;
+  /** Send a starter question from the empty thread. */
+  onAsk?: (text: string) => void;
   /** Marked wherever it occurs in what was said (C-30). */
   find?: string;
   /** Ask the last thing said again, with what it carried. */
@@ -478,12 +489,26 @@ export default function Room({
       className="flex flex-col gap-5"
     >
       {thread.entries.length === 0 && (
-        <div className="mt-8 text-center">
-          <div className="text-[13.5px] text-muted">nothing said yet</div>
-          <p className="mx-auto mt-2 max-w-[42ch] text-[14px] text-faint">
-            Ask what needs you, or tell it something to remember. It reads your projects, sessions,
-            runs and the cluster, and brings in a specialist when a question is theirs.
+        <div className="mt-10 flex flex-col items-center text-center">
+          <h2 className="text-h1 font-semibold">What needs you?</h2>
+          <p className="mt-2 max-w-[46ch] text-[14px] text-muted">
+            It reads your money, training, mail, documents and the bench, and asks the council for a
+            second opinion when one would help.
           </p>
+          {onAsk && (
+            <div className="mt-5 flex max-w-[560px] flex-wrap justify-center gap-2">
+              {STARTERS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => onAsk(q)}
+                  className="tap rounded-full border border-line bg-surface px-3.5 py-2 text-[13.5px] text-muted transition-colors hover:border-accent hover:text-text"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

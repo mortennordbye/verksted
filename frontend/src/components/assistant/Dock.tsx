@@ -79,7 +79,7 @@ export default function Dock({
       role="dialog"
       aria-modal={covers}
       aria-label={title}
-      className={`fixed inset-0 z-50 flex flex-col bg-bg ${
+      className={`fixed inset-0 z-50 flex flex-col bg-bg motion-safe:animate-pop-in ${
         full ? "" : "desk:left-1/2 desk:z-30 desk:border-l desk:border-line"
       }`}
     >
