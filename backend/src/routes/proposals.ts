@@ -1,3 +1,5 @@
+import { CONNECTORS } from "../assistant-connectors.js";
+import * as connector from "../connector-client.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { GmailRule, ProposalAction } from "../../../shared/api.js";
@@ -37,6 +39,7 @@ const ACTION = {
   properties: {
     kind: {
       enum: [
+        "connector_write",
         "send",
         "calendar_put",
         "merge_pr",
@@ -68,9 +71,16 @@ function ruleText(r: Omit<GmailRule, "id" | "archive" | "markRead"> & Partial<Gm
   return `${match.filter(Boolean).join(" ")} -> ${does.filter(Boolean).join(", ")}`;
 }
 
+const connectorLabel = (id: string) => CONNECTORS.find((c) => c.id === id)?.label ?? id;
+
 /** What the card says, from what the action is. */
 export function describe(a: ProposalAction): { title: string; detail: string } {
   switch (a.kind) {
+    case "connector_write":
+      return {
+        title: `${connectorLabel(a.connector)}: ${a.tool.replaceAll("_", " ")}`,
+        detail: JSON.stringify(a.args, null, 2),
+      };
     case "send":
       return { title: `Send to ${a.to}: ${a.subject}`, detail: a.body };
     case "calendar_put":
@@ -145,6 +155,24 @@ export function validateAction(a: Record<string, unknown>): ProposalAction {
     return v;
   };
   switch (a.kind) {
+    case "connector_write": {
+      const connector = CONNECTORS.find((c) => c.id === a.connector);
+      if (!connector) throw new Error(`no such connector: ${String(a.connector)}`);
+      const tool = str("tool", 100);
+      if (!connector.writes.includes(tool)) {
+        throw new Error(`${tool} is not a change a card can ask ${connector.label} for`);
+      }
+      const args = a.args ?? {};
+      if (typeof args !== "object" || Array.isArray(args))
+        throw new Error("args must be an object");
+      if (JSON.stringify(args).length > 10_000) throw new Error("args are too long");
+      return {
+        kind: "connector_write",
+        connector: connector.id,
+        tool,
+        args: args as Record<string, unknown>,
+      };
+    }
     case "send": {
       const to = str("to", 300);
       if (!/^[^\s@,;]+@[^\s@,;]+(\s*[,;]\s*[^\s@,;]+@[^\s@,;]+)*$/.test(to.trim())) {
@@ -319,6 +347,22 @@ async function snapshot(a: ProposalAction): Promise<ProposalAction> {
       const { ids, capped } = await gmail.labelled(label.id);
       return { kind: a.kind, name: a.name, messages: ids, ...(capped ? { capped } : {}) };
     }
+    case "connector_write": {
+      // Asked of the server as it is now, so a card never promises a tool that has
+      // gone, and a call missing what it needs fails here and not after the tap.
+      let tool: { required: string[] } | null;
+      try {
+        tool = await connector.describeTool(a.connector, a.tool);
+      } catch (err) {
+        throw new Unfileable(
+          `could not reach ${connectorLabel(a.connector)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!tool) throw new Unfileable(`${connectorLabel(a.connector)} has no tool ${a.tool}`);
+      const missing = tool.required.filter((k) => !(k in a.args));
+      if (missing.length) throw new Unfileable(`${a.tool} also needs: ${missing.join(", ")}`);
+      return a;
+    }
     case "calendar_delete": {
       const { summary, start, end, recurring, location } = await calendar.peek(a.uid, a);
       return {
@@ -456,6 +500,10 @@ export default async function proposalRoutes(app: FastifyInstance) {
 /** Through the app's own routes, so their checks are these checks. */
 async function execute(app: FastifyInstance, a: ProposalAction): Promise<string> {
   switch (a.kind) {
+    case "connector_write": {
+      const answer = await connector.callTool(a.connector, a.tool, a.args);
+      return `${connectorLabel(a.connector)} did it: ${answer.slice(0, 300)}`;
+    }
     case "send": {
       const { messageId } = await mail.send(a);
       return `sent to ${a.to}${messageId ? ` (${messageId})` : ""}`;

@@ -477,6 +477,7 @@ const POLICY = {
   calendar_update: { chairOnly: true, private: true, effect: "reversible" },
   // Nothing puts a deleted event back, a whole series least of all.
   calendar_delete: { chairOnly: true, private: true, effect: "card" },
+  propose_connector_change: { chairOnly: true, effect: "card" },
 
   // What the bench remembers, and what it has been told about the person.
   // Searches every conversation the chair ever had, whoever is asking — mail
@@ -1391,6 +1392,26 @@ const TOOLS = [
     },
     run: async (a) =>
       `now: ${eventLine(await call("PATCH", `/api/calendar/events/${encodeURIComponent(a.uid)}`, { ...eventBody(a), ...targetOf(a) }))}`,
+  },
+  {
+    name: "propose_connector_change",
+    description:
+      "Propose a change in headroom (connector headroom: a transaction, a budget, a goal, a debt) or LogEveryLift (connector logeverylift: a program, a training cycle, body weight). You cannot change either directly. Name the tool and its arguments as that server describes them; it is checked against the server and shown to the person in full, and nothing happens until they tap it. Read what is there first, so the arguments are right.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connector: { enum: ["headroom", "logeverylift"] },
+        tool: { type: "string", description: "the tool's name, without any mcp__ prefix" },
+        args: { type: "object", description: "the arguments the tool takes" },
+        why: { type: "string" },
+      },
+      required: ["connector", "tool", "args"],
+    },
+    run: (a) =>
+      propose(
+        { kind: "connector_write", connector: a.connector, tool: a.tool, args: a.args },
+        a.why,
+      ),
   },
   {
     name: "calendar_delete",

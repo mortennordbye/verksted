@@ -15,6 +15,15 @@ export interface Connector {
   reads: string[];
   /** Reads refused outright, because each returns the whole database. */
   denied: string[];
+  /** Plain words for a card. */
+  label: string;
+  /**
+   * What a card may ask for. Never on any allow list: a turn can only propose one,
+   * and the person's tap is what runs it. Left off on purpose: restoring a whole
+   * revision, importing market data, and setting the AI context, which is a line of
+   * instructions that a poisoned mail could otherwise ask a person to wave through.
+   */
+  writes: string[];
 }
 
 export const CONNECTORS: Connector[] = [
@@ -41,6 +50,35 @@ export const CONNECTORS: Connector[] = [
       "what_if",
     ],
     denied: ["get_raw_data", "get_history_revision"],
+    label: "Headroom",
+    writes: [
+      "add_bonus",
+      "add_fixed_expense",
+      "add_goal",
+      "add_rule",
+      "add_salary",
+      "add_transaction",
+      "delete_debt",
+      "delete_fixed_expense",
+      "delete_goal",
+      "delete_rule",
+      "delete_savings_account",
+      "delete_transaction",
+      "set_category_budget",
+      "set_co_owners",
+      "set_monthly_income",
+      "set_profile",
+      "undo_change",
+      "update_asset",
+      "update_assumptions",
+      "update_current_mortgage",
+      "update_fixed_expense",
+      "update_goal",
+      "update_loan",
+      "update_transaction",
+      "upsert_debt",
+      "upsert_savings_account",
+    ],
   },
   {
     id: "logeverylift",
@@ -57,6 +95,17 @@ export const CONNECTORS: Connector[] = [
       "weekly_volume",
     ],
     denied: [],
+    label: "LogEveryLift",
+    writes: [
+      "create_program",
+      "delete_program",
+      "edit_cycle_slot",
+      "edit_program_exercise",
+      "manage_training_cycle",
+      "manage_weight",
+      "update_profile",
+      "update_program",
+    ],
   },
 ];
 

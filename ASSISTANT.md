@@ -63,7 +63,11 @@ Everything else is the verksted MCP server (`runtime/verksted-mcp.mjs`), plus
 what is the chair's alone: a headless Chromium it can navigate, click and type in,
 and the connectors, which are headroom for the household finances and LogEveryLift
 for training. `assistant-connectors.ts` names each connector's reads, so a turn
-cannot write there, and a tool it does not name is refused.
+cannot write there, and a tool it does not name is refused. A change goes through
+`propose_connector_change`, which files a card from the writes that table names. The
+card is checked against the server and shows the whole call, and the tap is what
+runs it, through the backend's own client (`connector-client.ts`). Restoring a whole
+revision, market imports and setting the AI context are not offered at all.
 
 LogEveryLift takes OAuth only. The person signs in once from Settings, Sources; the
 pod keeps the refresh token with the other source credentials and refreshes it

@@ -455,6 +455,14 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     effect: "reversible",
   },
   {
+    name: "propose_connector_change",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "card",
+  },
+  {
     name: "calendar_delete",
     unattended: false,
     chairOnly: true,

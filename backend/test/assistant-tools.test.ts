@@ -232,6 +232,7 @@ describe("the tool set", () => {
         "person_note",
         "pr_detail",
         "propose",
+        "propose_connector_change",
         "propose_memory",
         "read_session_output",
         "recall",
