@@ -89,6 +89,59 @@ function Volume({ weeks }: { weeks: { weekStart: string; volumeKg: number; sessi
   );
 }
 
+/**
+ * Spending by category as ranked bars: one hue, the bar's length is the amount,
+ * the figure in text colour beside it, and a tick where a budget sits.
+ */
+function Spending({
+  month: key,
+  categories,
+}: {
+  month: string;
+  categories: { category: string; amount: number; budget?: number }[];
+}) {
+  const max = Math.max(...categories.map((c) => Math.max(c.amount, c.budget ?? 0)), 1);
+  return (
+    <>
+      <span className="text-[13px] font-semibold text-text">Spending, {month(key)}</span>
+      <div className="flex flex-col gap-2">
+        {categories.map((c) => (
+          <div
+            key={c.category}
+            className="grid grid-cols-[minmax(0,7rem)_1fr_auto] items-center gap-2.5"
+          >
+            <span className="truncate text-[12.5px] text-muted capitalize">{c.category}</span>
+            <span
+              className="relative h-2 rounded-full bg-surface-2"
+              title={`${c.category}: ${kr.format(c.amount)} kr${
+                c.budget ? ` of a ${kr.format(c.budget)} kr budget` : ""
+              }`}
+            >
+              <span
+                className={`absolute inset-y-0 left-0 rounded-full ${
+                  c.budget && c.amount > c.budget ? "bg-fail" : "bg-chart-1"
+                }`}
+                style={{ width: `${(c.amount / max) * 100}%` }}
+              />
+              {c.budget ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute -inset-y-0.5 w-0.5 rounded-full bg-text/60"
+                  style={{ left: `${(c.budget / max) * 100}%` }}
+                />
+              ) : null}
+            </span>
+            <span className="font-mono text-[12px] text-text">
+              {kr.format(c.amount)}
+              {c.budget ? <span className="text-faint"> / {kr.format(c.budget)}</span> : null}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /** A tool's result as a picture, under the chips of the reply that used it. */
 export default function DataCard({ card }: { card: AssistantCard }) {
   return (
@@ -105,6 +158,8 @@ export default function DataCard({ card }: { card: AssistantCard }) {
             <Stat label="saved" value={`${kr.format(card.saved)} kr`} />
           </div>
         </>
+      ) : card.kind === "spending" ? (
+        <Spending month={card.month} categories={card.categories} />
       ) : (
         <Volume weeks={card.weeks} />
       )}
