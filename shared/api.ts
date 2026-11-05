@@ -1084,12 +1084,19 @@ export type BrowserServerMsg =
  * the full input: the chat draws these as chips, and a tool's arguments can be
  * a whole file.
  */
+/** A tool's result as a picture: figures picked from what the tool itself returned. */
+export type AssistantCard =
+  | { kind: "budget"; month: string; income: number; fixed: number; saved: number; rate?: string }
+  | { kind: "volume"; weeks: { weekStart: string; volumeKg: number; sessions: number }[] };
+
 export interface AssistantToolCall {
   name: string;
   /** Short human-readable argument, e.g. the path read or the command run. */
   detail: string;
   /** The tool answered with an error, or the call was refused. */
   failed?: boolean;
+  /** What it returned, drawn, for the few tools worth it (assistant-cards.ts). */
+  card?: AssistantCard;
 }
 
 /** One turn in a thread. */

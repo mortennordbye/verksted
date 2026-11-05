@@ -1,4 +1,5 @@
 import type { AssistantEntry, AssistantToolCall, SessionUsage } from "../../shared/api.js";
+import { cardFor } from "./assistant-cards.js";
 
 /**
  * Turning `claude -p --output-format stream-json` into thread entries.
@@ -134,6 +135,16 @@ export interface StreamTiming {
   tools: { name: string; ms: number }[];
   /** Calls asked for and not yet answered, by call id. */
   open: Map<string, { name: string; at: number }>;
+}
+
+/** A tool result's text, whether it came as a string or as text blocks. */
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return (content as ContentBlock[])
+    .filter((c) => c.type === "text" && typeof c.text === "string")
+    .map((c) => c.text)
+    .join("");
 }
 
 export function newStreamState(
@@ -335,6 +346,10 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       if (b.type === "tool_result") {
         const call = state.openCalls.get(b.tool_use_id ?? "");
         if (call && b.is_error) call.failed = true;
+        if (call && !b.is_error) {
+          const card = cardFor(call.name, resultText(b.content));
+          if (card) call.card = card;
+        }
         state.openCalls.delete(b.tool_use_id ?? "");
       }
       if (b.type !== "tool_result" || !Array.isArray(b.content)) continue;

@@ -10,6 +10,7 @@ import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
 import CopyButton from "./chat/CopyButton";
 import UserBubble from "./chat/UserBubble";
+import DataCard from "./chat/DataCard";
 import { toolLabel } from "./chat/toolLabel";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
@@ -160,6 +161,7 @@ const Said = memo(function Said({
   return (
     <>
       {tools.length > 0 && <ToolChips tools={tools} />}
+      {tools.map((t, i) => t.card && <DataCard key={i} card={t.card} />)}
       {/* What a tool showed it, a browser screenshot most of all: the thing it
           is asking you to confirm, so it is shown rather than described. */}
       {entry.images?.length ? (
