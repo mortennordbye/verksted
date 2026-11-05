@@ -207,32 +207,69 @@ const CONV_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * context, so a hit there would spend a result slot on something that can be
  * read by scrolling up.
  *
- * Substring matching, all words required, no index. The store is a few hundred
- * kilobytes of text on a volume this pod owns; anything cleverer would be a
- * database, which is the thing this app is built not to have.
+ * Substring matching with no index: the store is a few hundred kilobytes of text on
+ * a volume this pod owns, and anything cleverer would be a database, which is the
+ * thing this app is built not to have. Every word matching comes first, then a
+ * longer query missing one word. Newest first within that.
  */
 export async function search(query: string, limit = 8): Promise<AssistantSearchHit[]> {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const words = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))];
   if (!words.length) return [];
+  // Short queries narrow: every word. A longer one may miss a word, since the way
+  // something was said last month is rarely the way it is asked now.
+  const need = words.length <= 2 ? words.length : words.length - 1;
   const open = new Set([await currentConversation()]);
   const files = await fs.readdir(env.ASSISTANT_DIR).catch(() => []);
-  const hits: AssistantSearchHit[] = [];
+  const hits: (AssistantSearchHit & { matched: number })[] = [];
   for (const file of files) {
     if (!file.endsWith(".jsonl")) continue;
     const conversationId = file.slice(0, -6);
     if (!CONV_RE.test(conversationId) || open.has(conversationId)) continue;
-    for (const entry of await readEntries(conversationId)) {
-      const text = entry.text.toLowerCase();
-      if (!words.every((w) => text.includes(w))) continue;
+    for (const { entry, lower } of await searchable(conversationId)) {
+      const found = words.filter((w) => lower.includes(w));
+      if (found.length < need) continue;
       hits.push({
         conversationId,
         at: entry.at,
         role: entry.role,
-        text: around(entry.text, entry.text.toLowerCase().indexOf(words[0] ?? "")),
+        text: around(entry.text, lower.indexOf(found[0] ?? "")),
+        matched: found.length,
       });
     }
   }
-  return hits.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+  return hits
+    .sort((a, b) => b.matched - a.matched || b.at.localeCompare(a.at))
+    .slice(0, limit)
+    .map(({ matched: _matched, ...hit }) => hit);
+}
+
+/**
+ * A thread's words, parsed once for as long as its file has not changed. The thread
+ * cache holds the open few, so a search used to push them all out and parse every
+ * thread on the volume, every time.
+ */
+const searchIndex = new Map<
+  string,
+  { size: number; mtimeMs: number; rows: { entry: AssistantEntry; lower: string }[] }
+>();
+
+async function searchable(conversationId: string) {
+  const file = threadPath(conversationId, false);
+  try {
+    const { size, mtimeMs } = await fs.stat(file);
+    const held = searchIndex.get(conversationId);
+    if (held?.size === size && held.mtimeMs === mtimeMs) return held.rows;
+    const rows = parseEntries(await fs.readFile(file, "utf8")).map((entry) => ({
+      entry,
+      lower: entry.text.toLowerCase(),
+    }));
+    searchIndex.set(conversationId, { size, mtimeMs, rows });
+    return rows;
+  } catch {
+    // Deleted between the listing and here.
+    searchIndex.delete(conversationId);
+    return [];
+  }
 }
 
 /**
@@ -796,6 +833,20 @@ function isEntry(value: unknown): value is AssistantEntry {
   );
 }
 
+function parseEntries(raw: string): AssistantEntry[] {
+  const entries: AssistantEntry[] = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry: unknown = JSON.parse(line);
+      if (isEntry(entry)) entries.push(entry);
+    } catch {
+      // One corrupt line loses one turn, not the whole conversation.
+    }
+  }
+  return entries;
+}
+
 async function readEntries(conversationId: string, unattended = false): Promise<AssistantEntry[]> {
   const file = threadPath(conversationId, unattended);
   try {
@@ -803,16 +854,7 @@ async function readEntries(conversationId: string, unattended = false): Promise<
     const held = threads.get(file);
     if (held && held.size === size && held.mtimeMs === mtimeMs) return held.entries;
     const raw = await fs.readFile(file, "utf8");
-    const entries: AssistantEntry[] = [];
-    for (const line of raw.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const entry: unknown = JSON.parse(line);
-        if (isEntry(entry)) entries.push(entry);
-      } catch {
-        // One corrupt line loses one turn, not the whole conversation.
-      }
-    }
+    const entries = parseEntries(raw);
     if (threads.size >= THREAD_CACHE && !threads.has(file)) {
       const oldest = threads.keys().next().value;
       if (oldest !== undefined) threads.delete(oldest);
@@ -827,6 +869,7 @@ async function readEntries(conversationId: string, unattended = false): Promise<
 /** Forget every cached read. For tests, which rewrite thread files in place. */
 export function resetThreadCache(): void {
   threads.clear();
+  searchIndex.clear();
 }
 
 /**

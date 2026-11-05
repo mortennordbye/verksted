@@ -493,6 +493,30 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
   return proposed;
 }
 
+/** Nights a restarted pod looks back over for a journal nobody wrote. */
+const JOURNAL_LOOKBACK_DAYS = 3;
+/** Longer than the gap between two nightly runs, so one on time never counts as missed. */
+const CATALOGUE_STALE_MS = 26 * 3_600_000;
+
+/**
+ * The nights a pod was down for.
+ *
+ * The nightly timers fire only if the pod is up at that minute, and a deploy at
+ * 23:55 lost the day's journal for good. Run once at boot. Days with nothing said
+ * cost nothing, and neither does a share with nothing left to catalogue.
+ */
+export async function catchUpNights(log: Logger, now = new Date()): Promise<void> {
+  for (let back = JOURNAL_LOOKBACK_DAYS; back >= 1; back--) {
+    const day = journal.today(new Date(now.getTime() - back * 86_400_000));
+    if ((await journal.readDay(day)).trim()) continue;
+    if (await runJournal(log, day)) log.info(`journal caught up for ${day}`);
+  }
+  if (!(await docs.configured())) return;
+  const stamps = Object.values(await docs.readCatalogue()).map((e) => Date.parse(e.at));
+  const newest = stamps.length ? Math.max(...stamps) : 0;
+  if (now.getTime() - newest > CATALOGUE_STALE_MS) await runCatalogue(log, now.getTime());
+}
+
 /** Run once the store is this full; below it there is nothing worth the call. */
 const COMPACT_FROM = 0.5;
 

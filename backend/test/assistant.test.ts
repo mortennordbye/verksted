@@ -783,6 +783,22 @@ describe("recall", () => {
     expect(res.json().hits[0].text).toContain("how does the homelab promotion work?");
   });
 
+  it("finds a turn that has most of the words, and puts the closest match first", async () => {
+    fake.reply("claude", "-p", { stdout: run("Noted.") });
+    await say("the cabin roof needs new shingles before winter");
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+    fake.reply("claude", "-p", { stdout: run("Noted.") });
+    await say("the cabin key is under the mat");
+    await app.inject({ method: "POST", url: "/api/assistant/new" });
+
+    const hits = (
+      await app.inject({ url: "/api/assistant/search?q=cabin+roof+shingles+leak" })
+    ).json().hits as { text: string }[];
+
+    expect(hits[0].text).toContain("shingles");
+    expect(hits.some((h) => h.text.includes("key is under the mat"))).toBe(false);
+  });
+
   it("does not search the conversation it is already in", async () => {
     // A hit there would spend a result on something already in the context.
     await say("something about promotion");
