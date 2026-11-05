@@ -25,12 +25,12 @@ const SERVERS: Record<string, string> = {
 export function toolLabel(name: string): string {
   const known = NAMED[name];
   if (known) return known;
-  const mcp = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name);
-  const server = mcp?.[1] ?? "";
-  const words = (mcp?.[2] ?? name)
-    .replace(new RegExp(`^${server}_`), "")
+  const [prefix, server = "", ...rest] = name.split("__");
+  const isMcp = prefix === "mcp" && rest.length > 0;
+  const tool = isMcp ? rest.join("__") : name;
+  const words = (tool.startsWith(`${server}_`) ? tool.slice(server.length + 1) : tool)
     .replace(/^(get|list|query)_/, "")
     .replaceAll("_", " ");
-  const from = SERVERS[server] ?? server;
+  const from = isMcp ? (SERVERS[server] ?? server) : "";
   return from ? `${from}: ${words}` : words;
 }
