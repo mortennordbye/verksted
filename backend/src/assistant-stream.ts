@@ -116,11 +116,38 @@ export interface StreamState {
    * has finished writing the sentence around it.
    */
   onTool?: (name: string) => void;
+  /** When things happened in this run, for the one line of timing a turn logs. */
+  timing: StreamTiming;
+  now: () => number;
 }
 
-export function newStreamState(onTool?: (name: string) => void): StreamState {
+/** Clock readings as the stream reports them; null until the thing has happened. */
+export interface StreamTiming {
+  init: number | null;
+  firstToken: number | null;
+  firstTool: number | null;
+  /** From the init event: which MCP servers came up. */
+  servers: { name: string; status: string }[];
+  tools: { name: string; ms: number }[];
+  /** Calls asked for and not yet answered, by call id. */
+  open: Map<string, { name: string; at: number }>;
+}
+
+export function newStreamState(
+  onTool?: (name: string) => void,
+  now: () => number = Date.now,
+): StreamState {
   return {
     ...(onTool ? { onTool } : {}),
+    now,
+    timing: {
+      init: null,
+      firstToken: null,
+      firstTool: null,
+      servers: [],
+      tools: [],
+      open: new Map(),
+    },
     conversationId: null,
     error: null,
     usage: null,
@@ -155,6 +182,25 @@ export function liveView(state: StreamState): LiveView {
   return { text: state.live, thinking: state.thinking, tools };
 }
 
+/**
+ * Where a turn's wait went, in milliseconds after `asked`, so a slow turn can be
+ * read off the log. Cache counts are what say whether the prompt is being reused.
+ */
+export function timingOf(state: StreamState, asked: number) {
+  const { init, firstToken, firstTool, servers, tools } = state.timing;
+  const since = (at: number | null) => (at === null ? null : at - asked);
+  return {
+    init: since(init),
+    firstToken: since(firstToken),
+    firstTool: since(firstTool),
+    total: state.now() - asked,
+    servers,
+    tools,
+    cacheRead: state.usage?.cacheRead ?? 0,
+    cacheWrite: state.usage?.cacheWrite ?? 0,
+  };
+}
+
 /** The four counts the API reports, under this app's names for them. */
 function tokens(usage: unknown): Omit<SessionUsage, "turns" | "costUsd"> | null {
   if (!usage || typeof usage !== "object") return null;
@@ -175,6 +221,15 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
   const sessionId = event.session_id;
   if (typeof sessionId === "string" && sessionId) state.conversationId = sessionId;
 
+  if (event.type === "system" && event.subtype === "init" && state.timing.init === null) {
+    state.timing.init = state.now();
+    if (Array.isArray(event.mcp_servers)) {
+      state.timing.servers = (event.mcp_servers as { name?: unknown; status?: unknown }[]).map(
+        (s) => ({ name: String(s.name), status: String(s.status) }),
+      );
+    }
+  }
+
   // Token-level deltas, which is what makes an answer appear as it is written
   // rather than seconds later in one lump. The finished `assistant` event still
   // follows and is what actually gets stored; this is only what to show while
@@ -190,10 +245,13 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       // Told as the call starts as well as once it is complete: the taint rule
       // wants to know as early as there is anything to know.
       if (state.writingTool) state.onTool?.(state.writingTool);
+      state.timing.firstTool ??= state.now();
     } else if (inner?.type === "content_block_delta" && inner.delta?.type === "text_delta") {
       state.live += inner.delta.text ?? "";
+      state.timing.firstToken ??= state.now();
     } else if (inner?.type === "content_block_delta" && inner.delta?.type === "thinking_delta") {
       state.thinking += inner.delta.thinking ?? "";
+      state.timing.firstToken ??= state.now();
     }
     return null;
   }
@@ -213,7 +271,10 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       if (b.type === "tool_use" && typeof b.name === "string") {
         state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
         state.onTool?.(b.name);
-        if (b.id) state.toolNames.set(b.id, b.name);
+        if (b.id) {
+          state.toolNames.set(b.id, b.name);
+          state.timing.open.set(b.id, { name: b.name, at: state.now() });
+        }
       }
     }
     // A turn that is only tool calls carries its tools forward to whichever
@@ -241,6 +302,11 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
     const message = event.message as { content?: ContentBlock[] } | undefined;
     const blocks = Array.isArray(message?.content) ? message.content : [];
     for (const b of blocks) {
+      const asked = b.type === "tool_result" ? state.timing.open.get(b.tool_use_id ?? "") : null;
+      if (asked) {
+        state.timing.tools.push({ name: asked.name, ms: state.now() - asked.at });
+        state.timing.open.delete(b.tool_use_id ?? "");
+      }
       if (b.type !== "tool_result" || !Array.isArray(b.content)) continue;
       if (state.toolNames.get(b.tool_use_id ?? "") === "Read") continue;
       for (const c of b.content as ContentBlock[]) {

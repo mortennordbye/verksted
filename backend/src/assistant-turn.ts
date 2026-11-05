@@ -8,6 +8,7 @@ import {
   finishStream,
   liveView,
   newStreamState,
+  timingOf,
   type Entry as StreamEntry,
   type LiveView,
   type Shot,
@@ -310,6 +311,8 @@ function spawnCli(args: string[], childEnv: NodeJS.ProcessEnv, stdin: boolean): 
  */
 interface Warm {
   key: string;
+  conversationId: string;
+  startedAt: number;
   launch: Launch;
   resume: boolean;
   child: Child;
@@ -336,8 +339,13 @@ async function warmKey(speaker: Speaker, conversationId: string): Promise<string
     .digest("hex");
 }
 
-function discardWarm(): void {
+function discardReason(w: Warm | null, conversationId: string): string {
+  return w?.conversationId === conversationId ? "speaker or env changed" : "thread changed";
+}
+
+function discardWarm(reason: string): void {
   if (!warm) return;
+  console.info(`assistant warm process discarded: ${reason}`);
   clearTimeout(warm.expiry);
   endTree(warm.child);
   warm = null;
@@ -359,13 +367,15 @@ export function warmUp(
   const run = warming.then(async () => {
     const key = await warmKey(speaker, conversationId);
     if (warm && warm.key === key && !warm.exited) return;
-    discardWarm();
+    discardWarm(warm?.exited ? "it exited" : discardReason(warm, conversationId));
     const resume = await exists(transcriptPath(env.REPOS_DIR, conversationId, assistantHome()));
     const launch = await prepare(speaker, conversationId, false);
     if (!idle()) return;
     const child = spawnCli(launch.args(resume, null), launch.env, true);
     const w: Warm = {
       key,
+      conversationId,
+      startedAt: Date.now(),
       launch,
       resume,
       child,
@@ -375,7 +385,7 @@ export function warmUp(
       onOut: (d) => (w.out += d),
       onErr: (d) => (w.err = (w.err + d).slice(-4_000)),
       expiry: setTimeout(() => {
-        if (warm === w) discardWarm();
+        if (warm === w) discardWarm("it waited too long");
       }, WARM_MS),
     };
     w.expiry.unref();
@@ -398,7 +408,7 @@ function adoptWarm(speaker: Speaker, conversationId: string): Promise<Warm | nul
     const key = await warmKey(speaker, conversationId);
     const w = warm;
     if (w.key !== key || w.exited) {
-      discardWarm();
+      discardWarm(w.exited ? "it exited" : discardReason(w, conversationId));
       return null;
     }
     warm = null;
@@ -491,7 +501,9 @@ export async function turn(o: {
     await o.sink(shots?.length ? { ...entry, images: await saveShots(shots) } : entry);
   };
 
-  // When the prompt went in, for the one line of timing a turn logs.
+  // How the run started, and when the prompt went in, for the one line of
+  // timing a turn logs.
+  const warmAge = adopted ? Date.now() - adopted.startedAt : null;
   let asked = 0;
   const attempt = (resume: boolean) => {
     const child = spawnCli(launch.args(resume, withImages), launch.env, false);
@@ -517,21 +529,12 @@ export async function turn(o: {
     new Promise<{ err: string; timedOut: boolean }>((resolve) => {
       let err = errSoFar;
       let timedOut = false;
-      let heard = false;
       let queue: Promise<unknown> = Promise.resolve();
       const timer = setTimeout(() => {
         timedOut = true;
         endTree(child);
       }, speaker.timeoutMs);
       const onData = (d: string) => {
-        if (!heard && asked) {
-          heard = true;
-          // How long the wait for a first word was, and whether the process
-          // was already up: the one number that says where a slow turn went.
-          console.info(
-            `assistant turn ${turnId}: ${adopted ? "warm" : "cold"}, first output ${Date.now() - asked}ms after the prompt`,
-          );
-        }
         const entries = consumeChunk(d, state);
         if (!entries.length) {
           // Nothing completed, but what is on screen moved: the answer, the
@@ -589,6 +592,17 @@ export async function turn(o: {
 
   for (const entry of finishStream(state)) await record(entry);
   const error = state.error;
+  // Every turn, failed ones too: a turn that never got going is the slow one.
+  console.info(
+    `assistant turn ${JSON.stringify({
+      turn: turnId,
+      speaker: speaker.id,
+      start: adopted ? "warm" : "cold",
+      warmAge,
+      unattended,
+      ...timingOf(state, asked),
+    })}`,
+  );
   // A turn that failed or ran out of time still took what it took.
   if (state.usage) await o.onUsage?.({ usage: state.usage, context: state.context });
 
