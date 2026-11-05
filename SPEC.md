@@ -95,7 +95,7 @@ It started as three levels, and those are still the spine:
 Around them since: **Today**, the front door once a day (the brief, what is
 running, the inbox's newest, the sources and the recent runs); the **inbox**,
 what every schedule, poller and session filed, triaged and undoable; the
-**assistant**, a chat with a council of advisors that can act on the bench;
+**assistant**, a chat that can act on the bench, with a council for second opinions;
 the **documents**, a read-only window onto the NAS share; and **settings**.
 A command palette (⌘K, or the top bar's search) finds any of it.
 

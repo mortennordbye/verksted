@@ -130,13 +130,11 @@ describe("what a turn may read", () => {
     expect(after(argv, "--disallowed-tools")).toContain(`Read(/${settingsFile})`);
   });
 
-  it("gives the advisor that reads the web no way to read a repo", async () => {
-    // A repo is where the .env files are, and a fetch is how one leaves.
+  it("gives an advisor no way to read a repo or the web", async () => {
     await say("@sophia what changed in node 24?");
-    const tools = after(argvOf("sophia"), "--tools").split(",");
 
-    expect(tools).toContain("WebFetch");
-    for (const tool of ["Read", "Grep", "Glob"]) expect(tools).not.toContain(tool);
+    expect(after(argvOf("sophia"), "--tools")).toBe("");
+    expect(after(argvOf("sophia"), "--disallowed-tools")).toContain("WebFetch");
   });
 });
 

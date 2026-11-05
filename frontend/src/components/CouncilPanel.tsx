@@ -17,12 +17,11 @@ import { Input, Select, Textarea } from "./ui/Field";
 import { useConfirm } from "../useConfirm";
 
 /**
- * The council: who else answers, and what each of them may look at.
+ * The council: who gives a second opinion, and how each of them thinks.
  *
  * A member is a file on the volume, so this is the whole of adding one — no
- * redeploy, the way a schedule works. What the form deliberately cannot offer
- * is a way to run a command: the denied built-ins are fixed in the backend, and
- * the tools listed here are only the ones no advisor can do harm with.
+ * redeploy, the way a schedule works. Advisors hold no tools: the chair does the
+ * work and they give an opinion on what it found.
  *
  * The chair is shown but not editable here; it is the assistant, and it is
  * edited in the panel above.
@@ -89,10 +88,6 @@ const blank = (id: string): CouncilMember => ({
 
 export default function CouncilPanel() {
   const { data, refresh } = usePoll<CouncilMember[]>("/api/council", 60_000);
-  const { data: inventory } = usePoll<{ tools: { name: string; chairOnly: boolean }[] }>(
-    "/api/council/tools",
-    600_000,
-  );
   const [editing, setEditing] = useState<CouncilMember | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voices, setVoices] = useState<string[]>([]);
@@ -110,15 +105,11 @@ export default function CouncilPanel() {
   }, []);
 
   const members = data ?? [];
-  // Only what an advisor may hold: the rest are the chair's and would be
-  // refused on save, so offering them would be offering a mistake.
-  const offerable = (inventory?.tools ?? []).filter((t) => !t.chairOnly).map((t) => t.name);
   async function save() {
     if (!editing) return;
     setError(null);
     try {
-      // `narrowed` is the server's note on what it read, not something to save.
-      const { id, chair: _chair, narrowed: _narrowed, ...body } = editing;
+      const { id, chair: _chair, ...body } = editing;
       await api(`/api/council/${id}`, { method: "PUT", body: JSON.stringify(body) });
       setEditing(null);
       refresh();
@@ -262,39 +253,6 @@ export default function CouncilPanel() {
         ))}
       </div>
 
-      <div className="mt-1 text-[12px] text-muted">What they may look at</div>
-      <div className="flex flex-wrap gap-1.5">
-        {offerable.map((tool) => {
-          const on = editing.tools.includes(tool);
-          return (
-            <button
-              key={tool}
-              type="button"
-              onClick={() =>
-                setEditing({
-                  ...editing,
-                  tools: on ? editing.tools.filter((t) => t !== tool) : [...editing.tools, tool],
-                })
-              }
-              aria-pressed={on}
-              className={`tap rounded-full border px-2.5 py-1 font-mono text-[11px] ${
-                on ? "border-accent/50 bg-accent-tint text-accent" : "border-line text-faint"
-              }`}
-            >
-              {tool}
-            </button>
-          );
-        })}
-      </div>
-
-      <label className="flex items-center gap-2 text-[13px] text-muted">
-        <input
-          type="checkbox"
-          checked={editing.web}
-          onChange={(e) => setEditing({ ...editing, web: e.target.checked })}
-        />
-        can read the web
-      </label>
       <label className="flex items-center gap-2 text-[13px] text-muted">
         <input
           type="checkbox"
@@ -405,47 +363,6 @@ export default function CouncilPanel() {
                   {m.model} · {m.effort}
                 </span>
               </div>
-
-              {!m.chair && (
-                <div className="flex flex-wrap gap-1">
-                  {m.tools.length ? (
-                    m.tools.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-full border border-line px-2 py-0.5 font-mono text-[10.5px] text-faint"
-                      >
-                        {t}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-[11.5px] text-faint">
-                      no tools: answers from memory alone
-                    </span>
-                  )}
-                  {m.web && (
-                    <span className="rounded-full border border-line px-2 py-0.5 text-[11px] text-faint">
-                      the web
-                    </span>
-                  )}
-                  {/* Ticked in the file and taken off on read: the web never
-                      sits beside anything private. Said, or an advisor that
-                      cannot recall anything has no visible reason. */}
-                  {m.narrowed?.map((t) => (
-                    <span
-                      key={t}
-                      title="not beside the web"
-                      className="rounded-full border border-dashed border-line px-2 py-0.5 font-mono text-[10.5px] text-faint line-through"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                  {m.narrowed?.length ? (
-                    <span className="basis-full text-[11.5px] text-wait">
-                      {m.narrowed.join(", ")} not held: not beside the web
-                    </span>
-                  ) : null}
-                </div>
-              )}
             </div>
           ),
         )}

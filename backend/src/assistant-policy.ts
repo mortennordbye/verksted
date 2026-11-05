@@ -124,17 +124,8 @@ const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task", ...readDe
 export const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
 /**
- * The one advisor whose id is fixed to headroom, and what neither it nor the
- * chair may do there once they have it.
- *
- * A member id fixed in code rather than a field on the member, and for the same
- * reason the denied built-ins are: a member is a JSON file somebody can edit
- * from a phone, and "may read the household finances" is not a checkbox worth
- * having on that form. The chair reads headroom too, on a live turn — see
- * `policyFor` and `mcpConfig` — for a plain lookup ("what did I save last
- * month"); Ariel stays who the chair convenes for a question that wants
- * judgement on those numbers, an unattended run's finance watch, or a member
- * asked by name.
+ * What the chair may do in headroom. Advisors hold nothing: they give second
+ * opinions on what the chair found.
  *
  * The reads are named one by one, because under `--permission-mode dontAsk` a
  * call no allow rule covers is refused before it reaches the server (checked
@@ -147,7 +138,6 @@ export const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"
  * is made of: a page that talks a turn into something can only carry out what
  * the turn was able to fetch.
  */
-export const HEADROOM_MEMBER = "ariel";
 const HEADROOM_TOOL = (t: string) => `mcp__headroom__${t}`;
 export const HEADROOM_READS = [
   "get_assets_and_debts",
@@ -175,8 +165,8 @@ const HEADROOM_DENIED = ["get_raw_data", "get_history_revision"].map(HEADROOM_TO
 const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
 
 /** Who is offered headroom at all; `null` is the chair. */
-export function holdsHeadroom(member: string | null, unattended: boolean): boolean {
-  return member === HEADROOM_MEMBER || (member === null && !unattended);
+export function holdsHeadroom(member: string | null, tools: string[] | null): boolean {
+  return member === null && tools?.length !== 0;
 }
 
 /**
@@ -244,15 +234,14 @@ function mcpConfig(
   // Ariel's schedule to answer. Never without both vars set, so a bench that
   // does not run headroom offers no tools that would fail on every call. The
   // deny list on the writes holds whether or not anyone is reading.
-  const headroom = holdsHeadroom(member, unattended) && headroomConfigured;
+  const headroom = holdsHeadroom(member, tools) && headroomConfigured;
   // The chair's own browser, never an advisor's and never unattended, for the
   // same reason as headroom: a briefing reads the bench, and the bench is
   // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
   // through the backend, then hand playwright-mcp the CDP endpoint it booted.
   const browser = member === null && !unattended;
-  // An empty list is a speaker that may call none of them — Ariel, who holds
-  // headroom and nothing here, and a turn with a job of its own, which holds
-  // nothing at all. Not the same as null, which is the chair and means every
+  // An empty list is a speaker that may call none of them: an advisor, and a
+  // turn with a job of its own. Not the same as null, which is the chair and means every
   // tool: the server is left out rather than offered with an empty filter,
   // because VK_TOOLS="" reads back as unset and so as no filter at all.
   const verksted = tools?.length !== 0;
@@ -426,42 +415,27 @@ export async function headroomServer(): Promise<{
  * rather than in council-store.ts so that no form post can reach them.
  */
 export function policyFor(member: CouncilMember): ToolPolicy {
-  const web = member.web ? ["WebFetch", "WebSearch"] : [];
-  const headroom = member.id === HEADROOM_MEMBER || member.chair === true;
-  // Driving a browser is the chair's alone. The advisors read the web for the
-  // question put to them (WebFetch/WebSearch above) and stay that way: asked
-  // for input, not given a second way to act on it.
-  const browser = member.chair ? ["mcp__browser"] : [];
-  // An advisor that reads the web does not also read the repos. council-store
-  // takes the private verksted tools off such a member for the same reason, and
-  // a repo is where the .env files are: the two together are what a page needs
-  // to carry something out. The chair keeps both, and what holds it is the rule
-  // in assistant-taint.ts rather than a missing tool.
-  const reads = member.web && !member.chair ? [] : BUILTIN_READ;
+  if (!member.chair) {
+    // A second opinion, and nothing else: no built-ins, no servers, no web.
+    return { builtins: [], allowed: [], tools: [], denied: [...DENIED_TOOLS, ...WEB_TOOLS] };
+  }
+  // The chair keeps the repos and the web together, and what holds it is the
+  // rule in assistant-taint.ts rather than a missing tool.
   return {
-    builtins: [...reads, ...web],
-    allowed: [...web, "mcp__verksted", ...browser, ...(headroom ? HEADROOM_READS : [])],
-    // The chair keeps every tool, so it is offered the server unfiltered; an
-    // advisor is offered exactly what its file names — which council-store has
-    // already taken anything private out of, if this member reads the web.
-    tools: member.chair ? null : member.tools,
-    denied: [
-      ...DENIED_TOOLS,
-      ...(member.web ? [] : WEB_TOOLS),
-      ...(headroom ? HEADROOM_DENIED : []),
-    ],
+    builtins: [...BUILTIN_READ, ...WEB_TOOLS],
+    allowed: [...WEB_TOOLS, "mcp__verksted", "mcp__browser", ...HEADROOM_READS],
+    tools: null,
+    denied: [...DENIED_TOOLS, ...HEADROOM_DENIED],
   };
 }
 
 /**
- * What a member may touch on a run nobody is reading: the unattended set, and
- * for the one that reads headroom, headroom's named reads, exactly as when
- * someone is watching.
+ * What the chair may touch on a run nobody is reading: the unattended set and
+ * headroom's named reads, so a finance watch has figures to report.
  */
-export function unattendedPolicy(member: CouncilMember): Pick<ToolPolicy, "allowed" | "denied"> {
-  const headroom = member.id === HEADROOM_MEMBER;
+export function unattendedPolicy(): Pick<ToolPolicy, "allowed" | "denied"> {
   return {
-    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...(headroom ? HEADROOM_READS : [])],
-    denied: [...UNATTENDED_DENIED_TOOLS, ...(headroom ? HEADROOM_DENIED : [])],
+    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...HEADROOM_READS],
+    denied: [...UNATTENDED_DENIED_TOOLS, ...HEADROOM_DENIED],
   };
 }

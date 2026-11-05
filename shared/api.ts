@@ -1265,9 +1265,9 @@ export interface CouncilMember {
   persona: string;
   model: string;
   effort: AssistantEffort;
-  /** Verksted MCP tools this member may use; validated against the inventory. */
+  /** Verksted MCP tools it may use: every one for the chair, none for an advisor. */
   tools: string[];
-  /** Whether it may read the web (WebFetch/WebSearch). */
+  /** Whether it may read the web: the chair, and no advisor. */
   web: boolean;
   colour: CouncilColour;
   /**
@@ -1285,11 +1285,6 @@ export interface CouncilMember {
   /** The one who takes every turn and decides who else is convened. */
   chair: boolean;
   enabled: boolean;
-  /**
-   * Set on read: tools the file holds that were taken off because the member
-   * reads the web, which never sits beside anything private. Never saved.
-   */
-  narrowed?: string[];
 }
 
 /**

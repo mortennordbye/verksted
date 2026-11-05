@@ -36,30 +36,15 @@ const member = (over: Record<string, unknown> = {}) => ({
 });
 
 describe("what a member file may say", () => {
-  it("refuses a tool that does not exist", async () => {
-    // The inventory is checked here rather than left to the child process,
-    // because a typo should be a message on the settings page.
-    await expect(store.saveMember(member({ tools: ["clusterstatus"] }))).rejects.toThrow(
-      /no such tool/,
+  it("holds no tools and no web, whatever a form or a file says", async () => {
+    const saved = await store.saveMember(member({ tools: ["start_session"], web: true }));
+
+    expect(saved).toMatchObject({ tools: [], web: false });
+    fs.writeFileSync(
+      path.join(process.env.COUNCIL_DIR!, "michael.json"),
+      JSON.stringify(member({ tools: ["mail_read"], web: true })),
     );
-  });
-
-  it("refuses a tool that is the chair's alone", async () => {
-    // The line that keeps "the assistant delegates, it does not execute" true
-    // of the whole council: an advisor cannot be given a way to change anything
-    // outside its own head.
-    for (const tool of ["start_session", "merge_pr", "end_session", "notify", "run_schedule"]) {
-      await expect(store.saveMember(member({ tools: [tool] }))).rejects.toThrow(/chair's alone/);
-    }
-  });
-
-  it("lets an advisor keep its own notes", async () => {
-    // remember and forget are the exception, and it is blast radius rather than
-    // trust: the server routes a member's to its own store, which nothing
-    // outside that member's next turn ever reads.
-    const saved = await store.saveMember(member({ tools: ["remember", "forget"] }));
-
-    expect(saved.tools).toEqual(["remember", "forget"]);
+    expect(await store.getMember("michael")).toMatchObject({ tools: [], web: false });
   });
 
   it("refuses an id that could name a file outside the directory", async () => {
@@ -106,14 +91,12 @@ describe("the roster", () => {
     expect(roster.slice(1).map((m) => m.id)).toEqual(["michael"]);
   });
 
-  it("gives the chair every tool and an advisor only its own", async () => {
+  it("gives the chair every tool and an advisor none", async () => {
     await store.saveMember(member());
     const [chair, advisor] = await store.listCouncil();
 
-    // Every tool but the ones that are a member's alone: the chair never
-    // reads a stranger's mail.
     expect(chair.tools).toEqual(store.TOOL_INVENTORY.map((t) => t.name));
-    expect(advisor.tools).toEqual(["status", "cluster_status"]);
+    expect(advisor.tools).toEqual([]);
   });
 
   it("reads a hand-edited file that broke the rules as a missing member", async () => {
@@ -155,80 +138,9 @@ describe("the roster", () => {
     expect((await store.listMembers()).map((m) => m.id)).not.toContain("sophia");
   });
 
-  it("gives an old member a tool its seed gained since, and not one taken away (backlog)", async () => {
-    await store.seedCouncil();
-    const seed = store.SEEDS.find((s) => s.id === "uriel")!;
-    const [kept, dropped] = seed.tools;
-    // Narrowed by hand on the settings page.
-    const uriel = (await store.getMember("uriel"))!;
-    await store.saveMember({ ...uriel, tools: uriel.tools.filter((t) => t !== dropped) });
-
-    // A later release gives the seed a tool it did not have.
-    const added = store.TOOL_INVENTORY.map((t) => t.name).find(
-      (t) =>
-        !seed.tools.includes(t) &&
-        !store.TOOL_INVENTORY.find((i) => i.name === t)?.chairOnly &&
-        !(seed.web && store.PRIVATE_TOOLS.has(t)),
-    )!;
-    const original = seed.tools;
-    seed.tools = [...original, added];
-    try {
-      await store.seedCouncil();
-      const now = (await store.getMember("uriel"))!.tools;
-      expect(now).toContain(added);
-      expect(now).toContain(kept);
-      expect(now).not.toContain(dropped);
-    } finally {
-      seed.tools = original;
-    }
-  });
-
-  it("adds nothing to a member it has no record of offering to", async () => {
-    await store.seedCouncil();
-    fs.rmSync(path.join(process.env.COUNCIL_DIR!, ".seeded-tools"));
-    const uriel = (await store.getMember("uriel"))!;
-    await store.saveMember({ ...uriel, tools: ["status"] });
-
-    await store.seedCouncil();
-    expect((await store.getMember("uriel"))!.tools).toEqual(["status"]);
-  });
-
-  it("says which tools it took off a member that reads the web (backlog)", async () => {
-    // Written before recall was private, or by hand: the web and recall both.
-    fs.writeFileSync(
-      path.join(process.env.COUNCIL_DIR!, "ariel.json"),
-      JSON.stringify({
-        id: "ariel",
-        name: "Ariel",
-        remit: "x",
-        tools: ["status", "recall"],
-        web: true,
-      }),
-    );
-    const ariel = (await store.getMember("ariel"))!;
-    expect(ariel.tools).toEqual(["status"]);
-    expect(ariel.narrowed).toEqual(["recall"]);
-    // Nothing to say about one that was never narrowed.
-    await store.saveMember({ ...ariel, tools: ["status"] });
-    expect((await store.getMember("ariel"))!.narrowed).toBeUndefined();
-  });
-
-  it("refuses the web beside anything private, whoever asks", async () => {
-    // A page an advisor fetches is how a prompt injection would carry the
-    // private thing out, so the two never sit in one process.
-    expect(() =>
-      store.validate({ id: "leak", name: "Leak", remit: "x", tools: ["mail_read"], web: true }),
-    ).toThrow(/cannot sit beside the web/);
-    expect(
-      store.validate({ id: "post", name: "Post", remit: "x", tools: ["mail_read"], web: false })
-        .tools,
-    ).toEqual(["mail_read"]);
-  });
-
   /**
-   * The chair holds every tool there is, the web included: the council is for
-   * judgement and for a subject somebody else knows better, not for keeping a
-   * capability away from it. What holds in place of the old rule is that a turn
+   * The chair holds every tool there is, the web included, because it does the
+   * work and the council only gives second opinions. What holds in place of the old rule is that a turn
    * holds the web or the person's own things and never both — see
    * assistant-taint.ts — and that a session is a card rather than a thing it
    * starts.
@@ -243,12 +155,10 @@ describe("the roster", () => {
     expect(chair.web).toBe(true);
   });
 
-  it("seeds nobody who can change anything outside their own head", async () => {
+  it("seeds nobody who holds anything at all", async () => {
     await store.seedCouncil();
-    const chairOnly = new Set(store.TOOL_INVENTORY.filter((t) => t.chairOnly).map((t) => t.name));
 
-    for (const m of await store.listMembers()) {
-      expect(m.tools.filter((t) => chairOnly.has(t))).toEqual([]);
-    }
+    for (const seed of store.SEEDS) expect(seed).toMatchObject({ tools: [], web: false });
+    for (const m of await store.listMembers()) expect(m.tools).toEqual([]);
   });
 });

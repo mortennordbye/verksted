@@ -59,9 +59,6 @@ async function badVoice(voice: string | undefined): Promise<string | null> {
 export default async function councilRoutes(app: FastifyInstance) {
   app.get("/api/council", () => council.listCouncil());
 
-  /** The tools a member may be given, so the settings page can offer them. */
-  app.get("/api/council/tools", () => ({ tools: council.TOOL_INVENTORY }));
-
   app.put<{ Params: { id: string }; Body: Partial<CouncilMember> }>(
     "/api/council/:id",
     {

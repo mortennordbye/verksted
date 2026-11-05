@@ -30,6 +30,8 @@ import {
 import {
   addressed,
   briefing,
+  advisorQuestion,
+  chairOpens,
   conveneRequest,
   meetingDetail,
   openMeeting,
@@ -42,11 +44,8 @@ import { writeJsonAtomic, writeTextAtomic } from "./atomic-json.js";
 import { CHAIR_ID, chair, getMember, listMembers } from "./council-store.js";
 import { env } from "./env.js";
 import {
-  HEADROOM_MEMBER,
-  UNATTENDED_ALLOWED_TOOLS,
   UNATTENDED_BUILTIN_TOOLS,
   UNATTENDED_DENIED_TOOLS,
-  headroomConfigured,
   policyFor,
   unattendedPolicy,
   uploadsDir,
@@ -1035,48 +1034,6 @@ async function speakerFor(member: CouncilMember, prompt: string): Promise<Speake
 }
 
 /**
- * An advisor speaking with nobody reading: its own voice and subject, its
- * tools narrowed further by the unattended filter. The timeout is the
- * caller's, since a briefing of its own gets a turn's worth and an answer
- * inside a meeting gets a member's.
- */
-async function unattendedSpeakerFor(
-  member: CouncilMember,
-  instructions: string,
-  timeoutMs: number,
-): Promise<Speaker> {
-  return {
-    id: member.id,
-    model: member.model,
-    effort: member.effort,
-    systemPrompt: memberPrompt(member, instructions, await renderForMember(member.id), true),
-    builtins: UNATTENDED_BUILTIN_TOOLS,
-    ...unattendedPolicy(member),
-    tools: member.tools,
-    timeoutMs,
-  };
-}
-
-/**
- * Everything one advisor can reach, said in the roster the chair routes from.
- *
- * Three sources, and only this file knows all three: the tools on the member,
- * the web flag, and headroom, which is a whole MCP server given to one id and
- * appears in no tool list anywhere. The memory tools are left out because every
- * advisor has them, so naming them once per advisor says nothing and costs the
- * same as saying it once.
- */
-const EVERYONE_HAS = new Set(["recall", "list_memories", "remember", "forget", "propose_memory"]);
-
-function reachOf(m: CouncilMember, headroom: boolean): string[] {
-  return [
-    ...m.tools.filter((t) => !EVERYONE_HAS.has(t)),
-    ...(m.web ? ["the web"] : []),
-    ...(m.id === HEADROOM_MEMBER && headroom ? ["headroom: budgets, balances, what is due"] : []),
-  ];
-}
-
-/**
  * The chair, ready to speak, with the roster it may put a question to.
  *
  * The roster is in its prompt whether or not anyone is on it: with nobody, the
@@ -1084,16 +1041,13 @@ function reachOf(m: CouncilMember, headroom: boolean): string[] {
  * before there was a council.
  */
 async function chairSpeaker(): Promise<Speaker> {
-  const [config, me, members, ctx, headroom] = await Promise.all([
+  const [config, me, members, ctx] = await Promise.all([
     readAssistantConfig(),
     chair(),
     listMembers(),
     promptContext(),
-    headroomConfigured(),
   ]);
-  const roster = members
-    .filter((m) => m.enabled)
-    .map((m) => ({ id: m.id, name: m.name, remit: m.remit, can: reachOf(m, headroom) }));
+  const roster = members.filter((m) => m.enabled);
   return speakerFor(me, systemPrompt(config.name, config.instructions, roster, ctx));
 }
 
@@ -1172,13 +1126,14 @@ async function speak(o: {
  * Run one turn: record what was asked, ask claude, record what came back.
  *
  * Three shapes, and which one runs is decided by what was typed and by what
- * the chair says first:
+ * the chair says first. The chair does the work in all three, and advisors only
+ * ever give an opinion on what it found:
  *
- * - `@michael ...` goes straight to that advisor. One call, no chair.
- * - the chair answers itself. One turn, which is what a question cost before
- *   there was a council, and what most questions still cost.
- * - the chair opens with `convene:` or `discuss:`, the advisors named answer,
- *   and the chair is asked once more with what they said.
+ * - the chair answers itself. One turn, which is what most questions cost.
+ * - the chair opens with `convene:` or `discuss:` and what it found, the advisors
+ *   named answer, and the chair is asked once more with what they said.
+ * - `@michael ...` or `@all ...` asks the chair to do the looking first, and then
+ *   runs the same meeting.
  */
 export async function send(
   prompt: string,
@@ -1246,19 +1201,8 @@ export async function begin(
   const run = async (): Promise<AssistantThread> => {
     try {
       const direct = await addressed(prompt);
-      if (direct?.everyone) {
-        // Nobody has to decide who this belongs to: it was put to the room. The
-        // chair's opening turn is skipped entirely, so asking everybody costs
-        // one call fewer than a meeting it had to be talked into.
-        await runEveryone(threadId, direct, roundTable);
-      } else if (direct?.members[0]) {
-        await speak({
-          threadId,
-          member: direct.members[0],
-          systemPrompt: await memberSystemPrompt(direct.members[0]),
-          prompt: direct.rest,
-          images,
-        });
+      if (direct) {
+        await runAddressed(threadId, direct, images, roundTable);
       } else {
         await runChair(threadId, prompt, images, roundTable);
       }
@@ -1327,40 +1271,51 @@ async function runChair(
   announce();
   if (!called.length) return;
 
-  const answers = await runAdvisors(threadId, prompt, called, round);
+  const findings = conveneRequest(held.text)?.rest ?? "";
+  const answers = await runAdvisors(threadId, advisorQuestion(prompt, findings), called, round);
 
   // Nothing was stopped if the advisors were already answering when the button
   // was pressed, but the closing turn has not been paid for yet, and it is the
   // one thing still avoidable.
   if (cancelled.has(threadId)) return;
 
-  // One advisor is not a meeting, and there is nothing to synthesise: the
-  // closing turn is told not to repeat the answer, which on a lookup leaves it
-  // nothing to say and charges a third call to say it. Addressing that same
-  // advisor as @uriel has always ended at its answer, so this is the routing
-  // the chair chose reaching the same place the person could have reached
-  // themselves. Two or more still close, because that is where the synthesis
-  // the closing turn exists for actually happens.
-  if (called.length === 1) return;
-
+  // Always, one advisor included: this is how their answer reaches the chair's
+  // own conversation, and so what lets it take the follow-up.
   await closeMeeting(threadId, prompt, answers, round, speakerPrompt);
 }
 
 /**
- * Put one question to the whole room, because that is what was asked.
+ * A meeting somebody called by name, with `@id` or `@all`.
  *
- * No opening chair turn: `@all` has already decided who answers, so making the
- * chair decide it again would be a call spent on a routing question with one
- * possible answer. It still closes, the way every other meeting shape does.
+ * Nobody has to decide who answers, but the chair still does the looking, because
+ * an advisor cannot, and still closes, so the follow-up has somewhere to go.
  */
-async function runEveryone(threadId: string, asked: Addressed, roundTable: boolean): Promise<void> {
+async function runAddressed(
+  threadId: string,
+  asked: Addressed,
+  images: string[],
+  roundTable: boolean,
+): Promise<void> {
+  const speakerPrompt = (await chairSpeaker()).systemPrompt;
+  const { text: findings } = await speak({
+    threadId,
+    member: await chair(),
+    systemPrompt: speakerPrompt,
+    prompt: chairOpens(
+      asked.rest,
+      asked.members.map((m) => m.name),
+    ),
+    images,
+  });
+  if (cancelled.has(threadId)) return;
+
   const round = roundTable && asked.members.length > 1;
   await appendEntry(threadId, {
     role: "assistant",
     text: "",
     tools: [
       {
-        name: round ? "discuss" : "everyone",
+        name: round ? "discuss" : asked.everyone ? "everyone" : "convene",
         detail: meetingDetail(asked.members, asked.dropped),
       },
     ],
@@ -1369,9 +1324,14 @@ async function runEveryone(threadId: string, asked: Addressed, roundTable: boole
   });
   announce();
 
-  const answers = await runAdvisors(threadId, asked.rest, asked.members, round);
+  const answers = await runAdvisors(
+    threadId,
+    advisorQuestion(asked.rest, findings),
+    asked.members,
+    round,
+  );
   if (cancelled.has(threadId)) return;
-  await closeMeeting(threadId, asked.rest, answers, round, (await chairSpeaker()).systemPrompt);
+  await closeMeeting(threadId, asked.rest, answers, round, speakerPrompt);
 }
 
 /**
@@ -1510,48 +1470,28 @@ async function unattendedTurn(
   const ctx = own ? { profile: "", journal: "" } : await promptContext();
   const roster =
     mayConvene && !memberId && !own ? (await listMembers()).filter((m) => m.enabled) : [];
-  // Headroom is offered on an unattended run too — the finance watch is a
-  // schedule Ariel answers — so the roster must say so, or the chair reads its
-  // one money advisor as having nothing and asks nobody.
-  const headroomHere = roster.length ? await headroomConfigured() : false;
-  // A named advisor answers in its own voice, on its own subject, with its own
-  // tools narrowed further by the unattended filter. One of them, never a
-  // meeting: the daily ceiling counts turns, and a briefing that convened three
-  // advisors would quietly be four calls against a budget that counted one.
-  const member = memberId ? await getMember(memberId) : null;
-  const speaker: Speaker =
-    member && !member.chair
-      ? await unattendedSpeakerFor(member, config.instructions, TURN_TIMEOUTS.chair)
-      : {
-          id: CHAIR_ID,
-          model: own?.model ?? config.model,
-          effort: own?.effort ?? config.effort,
-          systemPrompt:
-            own?.systemPrompt ??
-            unattendedPrompt(
-              config.name,
-              config.instructions,
-              roster.map((m) => ({
-                id: m.id,
-                name: m.name,
-                remit: m.remit,
-                can: reachOf(m, headroomHere),
-              })),
-              ctx,
-            ),
-          // A turn with a job of its own genuinely gets nothing: no built-ins,
-          // no allow list, and an MCP config with no servers in it. The comment
-          // on the triage job says it "reads nothing and writes nothing itself,
-          // which is what makes it safe" — that was a sentence in a prompt, and
-          // triage is fed raw mail subject lines. It is the argv now.
-          builtins: own ? [] : UNATTENDED_BUILTIN_TOOLS,
-          allowed: own ? [] : UNATTENDED_ALLOWED_TOOLS,
-          denied: UNATTENDED_DENIED_TOOLS,
-          // The MCP server cuts the mutating tools itself under VK_UNATTENDED,
-          // so there is nothing more to name here.
-          tools: own ? [] : null,
-          timeoutMs: TURN_TIMEOUTS.chair,
-        };
+  // A schedule that names an advisor still has the chair do the work; the advisor
+  // then gives its opinion on what the chair found.
+  const named = memberId ? await getMember(memberId) : null;
+  const commenter = named && !named.chair ? named : null;
+  const speaker: Speaker = {
+    id: CHAIR_ID,
+    model: own?.model ?? config.model,
+    effort: own?.effort ?? config.effort,
+    systemPrompt:
+      own?.systemPrompt ?? unattendedPrompt(config.name, config.instructions, roster, ctx),
+    // A turn with a job of its own genuinely gets nothing: no built-ins, no allow
+    // list, and an MCP config with no servers in it. The comment on the triage job
+    // says it "reads nothing and writes nothing itself, which is what makes it
+    // safe" — that was a sentence in a prompt, and triage is fed raw mail subject
+    // lines. It is the argv now.
+    builtins: own ? [] : UNATTENDED_BUILTIN_TOOLS,
+    ...(own ? { allowed: [], denied: UNATTENDED_DENIED_TOOLS } : unattendedPolicy()),
+    // The MCP server cuts the mutating tools itself under VK_UNATTENDED, so there
+    // is nothing more to name here.
+    tools: own ? [] : null,
+    timeoutMs: TURN_TIMEOUTS.chair,
+  };
   unattendedRunning = true;
   const current = {
     label,
@@ -1564,7 +1504,7 @@ async function unattendedTurn(
   try {
     // Set from inside the sink below, which TypeScript cannot see through.
     const heldBox: { entry: AssistantEntry | null } = { entry: null };
-    await turn({
+    const { text: said } = await turn({
       speaker,
       claudeConversationId: conversationId,
       prompt,
@@ -1593,12 +1533,18 @@ async function unattendedTurn(
     const meeting = held && !current.stopped ? await openMeeting(held, "never") : null;
     if (held && !meeting) await appendEntry(conversationId, held, true);
     if (meeting) await appendEntry(conversationId, meeting.entry, true);
-    const called = meeting?.called ?? [];
+    const called = commenter && !current.stopped ? [commenter] : (meeting?.called ?? []);
+    const findings = commenter ? said : held ? (conveneRequest(held.text)?.rest ?? "") : "";
     const answers = await Promise.all(
-      called.map(async (member) => {
-        const said = await unattendedMemberTurn(conversationId, member, prompt, config);
-        return { name: member.name, text: said };
-      }),
+      called.map(async (member) => ({
+        name: member.name,
+        text: await unattendedMemberTurn(
+          conversationId,
+          member,
+          advisorQuestion(prompt, findings),
+          config,
+        ),
+      })),
     );
     turns += called.length;
     // Stopped while the advisors answered: the closing turn is the one call
@@ -1643,7 +1589,7 @@ async function unattendedTurn(
  * A fresh conversation every time, like the chair's: a schedule has no
  * yesterday in it, and a thread per advisor per schedule would grow forever.
  * Its answer is recorded under its own name so `claude --resume` opens exactly
- * what ran, and returned so the chair can sign off on it.
+ * what ran, and returned so the chair can weigh it in the sign-off.
  */
 async function unattendedMemberTurn(
   conversationId: string,
@@ -1653,7 +1599,17 @@ async function unattendedMemberTurn(
 ): Promise<string> {
   const own = randomUUID();
   const { text } = await turn({
-    speaker: await unattendedSpeakerFor(member, config.instructions, TURN_TIMEOUTS.member),
+    speaker: {
+      id: member.id,
+      model: member.model,
+      effort: member.effort,
+      systemPrompt: memberPrompt(member, config.instructions, await renderForMember(member.id)),
+      builtins: [],
+      allowed: [],
+      denied: UNATTENDED_DENIED_TOOLS,
+      tools: [],
+      timeoutMs: TURN_TIMEOUTS.member,
+    },
     claudeConversationId: own,
     prompt,
     images: [],
