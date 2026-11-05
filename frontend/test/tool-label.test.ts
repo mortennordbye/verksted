@@ -5,6 +5,7 @@ describe("what a tool is called on screen", () => {
   it.each([
     ["WebFetch", "read a page"],
     ["convene", "asked"],
+    ["compacted", "summarised earlier"],
     ["mcp__headroom__get_budget_summary", "finances: budget summary"],
     ["mcp__logeverylift__recent_workouts", "training: recent workouts"],
     ["mcp__browser__browser_navigate", "browser: navigate"],

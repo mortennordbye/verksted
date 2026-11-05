@@ -13,6 +13,7 @@ const NAMED: Record<string, string> = {
   convene: "asked",
   discuss: "round table",
   everyone: "asked everyone",
+  compacted: "summarised earlier",
 };
 
 const SERVERS: Record<string, string> = {
