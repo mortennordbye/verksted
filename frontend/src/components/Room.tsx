@@ -13,7 +13,7 @@ import UserBubble from "./chat/UserBubble";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import { marks, rehypeMark } from "../find";
-import Portrait, { MEMBER_CARD, MEMBER_TEXT } from "./Face";
+import { MEMBER_CARD, MEMBER_TEXT, WorkingDot } from "./Member";
 import Overlay from "./ui/Overlay";
 
 /**
@@ -311,7 +311,7 @@ const Bubble = memo(function Bubble({
   );
 });
 
-/** A specialist's answer: its own face, name and colour, and the time beside them. */
+/** A specialist's answer: its name in its own colour, and the time beside it. */
 const Card = memo(function Card({
   who,
   entry,
@@ -323,12 +323,11 @@ const Card = memo(function Card({
 }) {
   return (
     <div
-      className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
+      className={`animate-rise flex w-full flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
         entry.failed ? "bg-fail/[.07] ring-fail/30" : MEMBER_CARD[who.colour]
       }`}
     >
       <div className="flex items-center gap-2.5">
-        <Portrait face={who.face} colour={who.colour} size={28} tone mood="idle" />
         <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
         <span className="ml-auto flex items-center gap-2">
           {entry.text && <CopyButton text={entry.text} />}
@@ -466,7 +465,7 @@ export default function Room({
   };
 
   // Who else has a turn in flight: the specialists do not stream their words,
-  // so their faces are the only sign they are answering (C-26).
+  // so these are the only sign they are answering (C-26).
   const speaking = (thread.speaking ?? [])
     .map((id) => members.find((m) => m.id === id))
     .filter((m): m is CouncilMember => !!m && !m.chair);
@@ -502,9 +501,9 @@ export default function Room({
       {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
       {thinking && speaking.length > 0 && (
         <div aria-hidden="true" className="flex items-center gap-2 text-[12.5px] text-muted">
-          <span className="flex -space-x-1.5">
+          <span className="flex gap-1">
             {speaking.map((m) => (
-              <Portrait key={m.id} face={m.face} colour={m.colour} size={22} tone mood="speaking" />
+              <WorkingDot key={m.id} colour={m.colour} />
             ))}
           </span>
           {speaking.map((m) => m.name).join(", ")} answering…

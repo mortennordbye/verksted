@@ -231,7 +231,7 @@ advisor is wrong. Its answer can run long, and is shown in full. A question the
 chair could answer by looking is one it looks at itself.
 
 A member is a JSON file on the volume, editable from the settings page: a name,
-a remit, a persona, a model, an effort, a face, a colour and a voice. Five are
+a remit, a persona, a model, an effort, a colour and a voice. Five are
 seeded on an empty bench and never rewritten after, so a member edited or deleted
 by hand stays that way. A persona saved before this rule may still talk about
 reading things, and the advisor's job tells it that is out of date.

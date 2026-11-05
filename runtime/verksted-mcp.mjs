@@ -1474,7 +1474,7 @@ const TOOLS = [
   {
     name: "council_add",
     description:
-      "Add an advisor to the council. Use it when the person says they want someone for a subject nobody here covers — do not offer it for a question you can answer yourself. The remit is one line saying what they are for, and the persona is how they think, written as instructions to them in the second person: it is the whole of their character, so make it specific about what they weigh and what they refuse to guess at. An advisor has no tools and only gives an opinion on what you found. Colours are amber, violet, teal, rose, sky and lime; faces are owl, fox, bear, cat, robot and raccoon — pick ones nobody else on the roster already has. Say who you are about to add and what for, then add them.",
+      "Add an advisor to the council. Use it when the person says they want someone for a subject nobody here covers — do not offer it for a question you can answer yourself. The remit is one line saying what they are for, and the persona is how they think, written as instructions to them in the second person: it is the whole of their character, so make it specific about what they weigh and what they refuse to guess at. An advisor has no tools and only gives an opinion on what you found. Colours are amber, violet, teal, rose, sky and lime: pick one nobody else on the roster already has. Say who you are about to add and what for, then add them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1486,7 +1486,6 @@ const TOOLS = [
         remit: { type: "string", description: "one line: what they are for" },
         persona: { type: "string", description: "how they think, addressed to them" },
         colour: { enum: ["amber", "violet", "teal", "rose", "sky", "lime"] },
-        face: { enum: ["owl", "fox", "bear", "cat", "robot", "raccoon"] },
       },
       required: ["id", "name", "remit", "persona"],
     },
@@ -1498,9 +1497,8 @@ const TOOLS = [
           remit: a.remit,
           persona: a.persona,
           ...(a.colour ? { colour: a.colour } : {}),
-          ...(a.face ? { face: a.face } : {}),
         })
-      ).then((m) => `added ${m.name} (@${m.id}), ${m.face} in ${m.colour}: ${m.remit}.`),
+      ).then((m) => `added ${m.name} (@${m.id}) in ${m.colour}: ${m.remit}.`),
   },
   {
     name: "repo_diff",
