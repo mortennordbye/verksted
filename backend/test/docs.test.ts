@@ -163,10 +163,24 @@ describe("the catalogue", () => {
     const now = Date.parse("2026-08-30T02:30:00.000Z");
     fake.reply("claude", "-p", {
       stdout: run(
-        [
-          "bil/forsikring-2025.txt\tCar insurance policy for EL12345, with If; premium 8 400 kr\t2026-09-03 renewal; 2026-08-20 notice period starts; 2020-01-01 long ago",
-          "notes.md\tNotes about the cabin: Kari wants the living room painted in May\t-",
-        ].join("\n"),
+        JSON.stringify({
+          documents: [
+            {
+              path: "bil/forsikring-2025.txt",
+              line: "Car insurance policy for EL12345, with If; premium 8 400 kr",
+              dates: [
+                { on: "2026-09-03", what: "renewal" },
+                { on: "2026-08-20", what: "notice period starts" },
+                { on: "2020-01-01", what: "long ago" },
+              ],
+            },
+            {
+              path: "notes.md",
+              line: "Notes about the cabin: Kari wants the living room painted in May",
+              dates: [],
+            },
+          ],
+        }),
       ),
     });
 

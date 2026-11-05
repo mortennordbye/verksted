@@ -75,12 +75,18 @@ describe("runCompaction", () => {
     await fill();
     fake.reply("claude", "-p", {
       stdout: run(
-        [
-          "coffee\tcoffee,coffee-oat\tDrinks coffee with oat milk.",
-          // A fact that is not there replaces nothing, so it is not proposed.
-          "ghost\tnot-a-fact\tSomething invented.",
-          "garbage line",
-        ].join("\n"),
+        JSON.stringify({
+          replacements: [
+            {
+              slug: "coffee",
+              replaces: ["coffee", "coffee-oat"],
+              fact: "Drinks coffee with oat milk.",
+            },
+            // A fact that is not there replaces nothing, so it is not proposed.
+            { slug: "ghost", replaces: ["not-a-fact"], fact: "Something invented." },
+            { slug: "garbage" },
+          ],
+        }),
       ),
     });
 
@@ -108,7 +114,17 @@ describe("runCompaction", () => {
   it("leaves every fact where it was when the merge is dropped", async () => {
     await fill();
     fake.reply("claude", "-p", {
-      stdout: run("coffee-all\tcoffee,coffee-oat\tDrinks coffee with oat milk."),
+      stdout: run(
+        JSON.stringify({
+          replacements: [
+            {
+              slug: "coffee-all",
+              replaces: ["coffee", "coffee-oat"],
+              fact: "Drinks coffee with oat milk.",
+            },
+          ],
+        }),
+      ),
     });
     expect(await jobs.runCompaction(log)).toBe(1);
 

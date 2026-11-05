@@ -120,6 +120,8 @@ export interface Speaker extends ToolPolicy {
   effort: string;
   systemPrompt: string;
   timeoutMs: number;
+  /** A JSON Schema the answer must fit, for a job whose reply is data. */
+  jsonSchema?: object;
 }
 
 /**
@@ -268,6 +270,7 @@ async function prepare(
     speaker.denied.join(" "),
     "--append-system-prompt",
     speaker.systemPrompt,
+    ...(speaker.jsonSchema ? ["--json-schema", JSON.stringify(speaker.jsonSchema)] : []),
   ];
 
   return { turnId, args, env: { ...(await speakerEnv(speaker, unattended)), VK_TURN: turnId } };

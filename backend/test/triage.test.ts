@@ -73,6 +73,12 @@ const arrived = (id: string, title: string) =>
     version: "1",
   });
 
+/** A triage answer, in the shape the schema holds the model to. */
+const verdicts = (...list: Record<string, string>[]) =>
+  JSON.stringify({
+    verdicts: list.map((v) => ({ loop: null, new_loop: null, new_loop_due: null, ...v })),
+  });
+
 describe("triage", () => {
   it("costs nothing when nothing is waiting to be judged", async () => {
     expect(await jobs.runTriage(log, true)).toBe(0);
@@ -90,10 +96,16 @@ describe("triage", () => {
     await arrived("github:3", "left out on purpose");
     fake.reply("claude", "-p", {
       stdout: run(
-        [
-          "github:1\tquiet\tRenovate, patch-level, green.\t-",
-          "github:2\tattention\tKari needs an answer about the cabin by Friday.\tnew: answer Kari about the cabin | 2026-09-05",
-        ].join("\n"),
+        verdicts(
+          { id: "github:1", urgency: "quiet", summary: "Renovate, patch-level, green." },
+          {
+            id: "github:2",
+            urgency: "attention",
+            summary: "Kari needs an answer about the cabin by Friday.",
+            new_loop: "answer Kari about the cabin",
+            new_loop_due: "2026-09-05",
+          },
+        ),
       ),
     });
 
@@ -136,7 +148,14 @@ describe("triage", () => {
   it("does not open a second loop for an item it has already attached to one", async () => {
     await arrived("github:4", "homelab: review the terraform bump");
     fake.reply("claude", "-p", {
-      stdout: run("github:4\tnew\tA terraform bump waiting on you.\tnew: review the PR | -"),
+      stdout: run(
+        verdicts({
+          id: "github:4",
+          urgency: "new",
+          summary: "A terraform bump waiting on you.",
+          new_loop: "review the PR",
+        }),
+      ),
     });
     await jobs.runTriage(log, true);
     expect((await feed.get("github:4"))!.loop).toBe("review-the-pr");
@@ -154,7 +173,14 @@ describe("triage", () => {
       version: "2",
     });
     fake.reply("claude", "-p", {
-      stdout: run("github:4\tnew\tStill waiting on you.\tnew: review the PR | -"),
+      stdout: run(
+        verdicts({
+          id: "github:4",
+          urgency: "new",
+          summary: "Still waiting on you.",
+          new_loop: "review the PR",
+        }),
+      ),
     });
     await jobs.runTriage(log, true);
 
@@ -173,7 +199,14 @@ describe("triage", () => {
       version: "3",
     });
     fake.reply("claude", "-p", {
-      stdout: run("github:4\tnew\tBack again.\tnew: review the PR | -"),
+      stdout: run(
+        verdicts({
+          id: "github:4",
+          urgency: "new",
+          summary: "Back again.",
+          new_loop: "review the PR",
+        }),
+      ),
     });
     await jobs.runTriage(log, true);
     expect((await feed.get("github:4"))!.loop).toBe("review-the-pr-2");
@@ -186,7 +219,9 @@ describe("triage", () => {
       payload: { text: "Renovate's patch bumps are never worth attention.", type: "preference" },
     });
     await arrived("github:6", "verksted: Bump eslint");
-    fake.reply("claude", "-p", { stdout: run("github:6\tquiet\tRenovate.\t-") });
+    fake.reply("claude", "-p", {
+      stdout: run(verdicts({ id: "github:6", urgency: "quiet", summary: "Renovate." })),
+    });
 
     await jobs.runTriage(log, true);
 
@@ -217,7 +252,14 @@ describe("triage", () => {
     await feed.setState("mail:2", "done");
     fake.reply("claude", "-p", {
       stdout: run(
-        "newsletters-quiet\tNewsletters from the deals sender are quiet, never attention.",
+        JSON.stringify({
+          rules: [
+            {
+              slug: "newsletters-quiet",
+              rule: "Newsletters from the deals sender are quiet, never attention.",
+            },
+          ],
+        }),
       ),
     });
 
@@ -276,7 +318,9 @@ describe("triage", () => {
 
   it("spaces itself out, so a busy hour is six calls and not sixty", async () => {
     await arrived("github:4", "one");
-    fake.reply("claude", "-p", { stdout: run("github:4\tnew\tOne.\t-") });
+    fake.reply("claude", "-p", {
+      stdout: run(verdicts({ id: "github:4", urgency: "new", summary: "One." })),
+    });
     // Well past whatever the test above stamped.
     const t0 = Date.now() + 30 * 60_000;
     expect(await jobs.runTriage(log, false, t0)).toBe(1);
