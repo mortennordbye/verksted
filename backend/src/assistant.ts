@@ -256,15 +256,21 @@ const searchIndex = new Map<
 async function searchable(conversationId: string) {
   const file = threadPath(conversationId, false);
   try {
-    const { size, mtimeMs } = await fs.stat(file);
-    const held = searchIndex.get(conversationId);
-    if (held?.size === size && held.mtimeMs === mtimeMs) return held.rows;
-    const rows = parseEntries(await fs.readFile(file, "utf8")).map((entry) => ({
-      entry,
-      lower: entry.text.toLowerCase(),
-    }));
-    searchIndex.set(conversationId, { size, mtimeMs, rows });
-    return rows;
+    // One handle for the size and the words, so what is kept is what was measured.
+    const handle = await fs.open(file, "r");
+    try {
+      const { size, mtimeMs } = await handle.stat();
+      const held = searchIndex.get(conversationId);
+      if (held?.size === size && held.mtimeMs === mtimeMs) return held.rows;
+      const rows = parseEntries(await handle.readFile("utf8")).map((entry) => ({
+        entry,
+        lower: entry.text.toLowerCase(),
+      }));
+      searchIndex.set(conversationId, { size, mtimeMs, rows });
+      return rows;
+    } finally {
+      await handle.close();
+    }
   } catch {
     // Deleted between the listing and here.
     searchIndex.delete(conversationId);
