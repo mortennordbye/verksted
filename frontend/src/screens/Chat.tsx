@@ -725,6 +725,7 @@ export default function Chat() {
             chair={chair}
             onRetry={retry}
             onEdit={edit}
+            onAsk={(text) => void post(text, [], "typed")}
             find={query}
           />
         )}

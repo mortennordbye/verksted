@@ -175,4 +175,20 @@ describe("Room (C-30, edit)", () => {
     );
     expect(screen.queryByRole("button", { name: "edit and send again" })).toBeNull();
   });
+
+  it("offers somewhere to start in an empty thread, and asks it when tapped", () => {
+    const asked: string[] = [];
+    render(
+      <Room
+        thread={{ ...thread([]), entries: [] }}
+        members={[]}
+        chair={chair}
+        onAsk={(q) => asked.push(q)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "What did I lift last week?" }));
+
+    expect(asked).toEqual(["What did I lift last week?"]);
+  });
 });
