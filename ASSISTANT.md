@@ -46,6 +46,7 @@ Read, Grep and Glob reach the repos and the uploads directory and nothing else.
 They are deliberately not on the allow list: the CLI reads inside its working
 directory and its `--add-dir` without a rule, and a bare `Read` rule is not
 confined to either (checked against 2.1.278, it read a file beside the repos).
+With no rule, 2.1.318 reads inside both and refuses a file beside them.
 On top of that, `/proc`, `$HOME` and the settings file are denied by path, which
 holds whatever the mode or the allow list later become. An advisor that reads
 the web gets no Read, Grep or Glob at all: a repo is where the `.env` files
@@ -179,12 +180,19 @@ So a turn holds one half or the other:
   closed if it cannot, so there is no moment between the mail arriving and the
   browser going.
 - A turn that has already **reached the web** — `WebFetch`, `WebSearch`, or the
-  browser — is refused the read instead. Those are on the CLI's command line,
-  fixed when the turn was spawned, so unlike the browser they cannot be taken
-  back; the rule has to run the other way round for them. The backend notices
-  as the stream reports each tool, which is before the next tool call rather
-  than after the sentence around it. A browser call counts; the browser's
+  browser — is refused the read instead. A browser call counts; the browser's
   server starting does not, since the CLI starts it on every chair turn.
+
+The web tools and headroom's reads go through a gate before they run: a
+PreToolUse HTTP hook on every assistant turn (`gateSettings` in
+`assistant-policy.ts`), answered by `POST /api/assistant/turn/gate`. It rules and
+records in one step, so a read followed by a fetch is refused either way round,
+and `onFailure: "block"` means a backend it cannot reach refuses the call. The
+verksted server's own private reads pay through `/api/assistant/turn/private`
+and share the same record.
+
+Built-in `Read` of a repo file does not count as private, so a turn can read a
+repo and then the web. BACKLOG has it.
 
 Per turn, because that is the unit a prompt injection acts within. The next
 turn holds everything again, and a person opening the browser pane themselves

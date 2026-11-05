@@ -46,6 +46,81 @@ const start = (turn?: string) =>
 const readPrivate = (turn: string) =>
   app.inject({ method: "POST", url: "/api/assistant/turn/private", payload: { turn } });
 
+const gate = (turn: string | null, tool: string) =>
+  app.inject({
+    method: "POST",
+    url: "/api/assistant/turn/gate",
+    ...(turn ? { headers: { "x-vk-turn": turn } } : {}),
+    payload: { tool_name: tool, tool_input: {}, session_id: "ignored" },
+  });
+
+const refused = (res: { json: () => unknown }) =>
+  (res.json() as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput
+    ?.permissionDecision === "deny";
+
+describe("the gate a turn's web and private calls go through", () => {
+  it("refuses a fetch once the turn has read something private", async () => {
+    // The attack the rule exists for: nothing stopped this before, because the
+    // browser was the only half that could be taken away.
+    expect((await readPrivate("gate-a")).statusCode).toBe(200);
+
+    expect(refused(await gate("gate-a", "WebFetch"))).toBe(true);
+    expect(refused(await gate("gate-a", "WebSearch"))).toBe(true);
+    expect(refused(await gate("gate-a", "mcp__browser__browser_navigate"))).toBe(true);
+  });
+
+  it("refuses a finance read once the turn has reached the web", async () => {
+    expect(refused(await gate("gate-b", "WebFetch"))).toBe(false);
+
+    expect(refused(await gate("gate-b", "mcp__headroom__get_overview"))).toBe(true);
+  });
+
+  it("counts a finance read as private: the browser goes and the web is shut", async () => {
+    closed.length = 0;
+
+    expect(refused(await gate("gate-c", "mcp__headroom__get_overview"))).toBe(false);
+
+    expect(closed).toEqual(["assistant"]);
+    expect(refused(await gate("gate-c", "WebFetch"))).toBe(true);
+  });
+
+  it("does not let a refused fetch cost the turn its next read", async () => {
+    // The stream notes a tool as it is written, before the gate has ruled on it.
+    const { noteTool } = await import("../src/assistant-taint.js");
+    expect((await readPrivate("gate-d")).statusCode).toBe(200);
+    noteTool("gate-d", "WebFetch");
+    expect(refused(await gate("gate-d", "WebFetch"))).toBe(true);
+
+    expect((await readPrivate("gate-d")).statusCode).toBe(200);
+    expect(refused(await gate("gate-d", "mcp__headroom__get_overview"))).toBe(false);
+  });
+
+  it("answers an error with no turn id, which the hook reads as a refusal", async () => {
+    expect((await gate(null, "WebFetch")).statusCode).toBe(403);
+  });
+
+  it("rules on nothing it was not built for", async () => {
+    expect(refused(await gate("gate-e", "mcp__verksted__notify"))).toBe(true);
+  });
+
+  it("gives every turn the hook, in the form that fails closed", async () => {
+    const { gateSettings } = await import("../src/assistant-policy.js");
+    const { GATED_TOOLS } = await import("../src/assistant-taint.js");
+
+    const { hooks } = JSON.parse(gateSettings());
+    const [entry] = hooks.PreToolUse;
+
+    expect(entry.matcher).toBe(GATED_TOOLS);
+    expect(entry.hooks[0]).toMatchObject({
+      type: "http",
+      onFailure: "block",
+      headers: { "X-VK-Turn": "$VK_TURN" },
+      allowedEnvVars: ["VK_TURN"],
+    });
+    expect(entry.hooks[0].url).toMatch(/\/api\/assistant\/turn\/gate$/);
+  });
+});
+
 describe("a turn that reads something private", () => {
   it("closes the browser it had, and does not get it back by asking again", async () => {
     // The CLI starts the browser's server before its first call on every chair
