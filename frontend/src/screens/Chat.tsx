@@ -129,6 +129,8 @@ export default function Chat() {
   const [sending, setSending] = useState<{ stamp: number; text: string; after: number }[]>([]);
   /** The next message is put to the specialists to talk over (C-26). */
   const [roundTable, setRoundTable] = useState(false);
+  /** The strongest model for the next message, and only that one. */
+  const [think, setThink] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   // Gabriel's own browser (chair-only, see assistant.ts's mcpConfig). Not
   // remembered across reloads, the way the session screen's toggle isn't
@@ -293,8 +295,10 @@ export default function Chat() {
           images,
           wait: false,
           ...(roundTable ? { roundTable: true } : {}),
+          ...(think ? { think: true } : {}),
         }),
       });
+      setThink(false);
       setThread((had) => adopt(had, accepted));
     } catch (e) {
       setError((e as Error).message);
@@ -875,13 +879,31 @@ export default function Chat() {
               ? "listening…"
               : thinking
                 ? "working… anything sent now waits its turn"
-                : roundTable
-                  ? "round table: the specialists talk this one over"
-                  : "Ask, or tell me something…"
+                : think
+                  ? "think harder: the strongest model, for this message"
+                  : roundTable
+                    ? "round table: the specialists talk this one over"
+                    : "Ask, or tell me something…"
           }
           fieldRef={grow}
           className="shadow-[0_20px_60px_light-dark(rgba(26,32,27,.14),rgba(0,0,0,.55))]"
         >
+          {!thinking && (
+            <button
+              onClick={() => setThink((on) => !on)}
+              aria-pressed={think}
+              aria-label="think harder"
+              title="think harder: the strongest model, for this message"
+              className={`tap-sq flex h-9 w-9 flex-none items-center justify-center rounded-xl transition-colors hover:bg-line-strong/40 ${
+                think ? "bg-accent-tint text-accent" : "text-muted"
+              }`}
+            >
+              <Ico>
+                <path d="M9 18h6M10 21h4" />
+                <path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z" />
+              </Ico>
+            </button>
+          )}
           {canSpeak() && canListen() && !thinking && (
             <button
               onClick={toggleVoice}

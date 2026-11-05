@@ -43,7 +43,13 @@ export default async function assistantRoutes(app: FastifyInstance) {
   app.get("/api/assistant", () => assistant.readThread());
 
   app.post<{
-    Body: { text: string; images?: string[]; roundTable?: boolean; wait?: boolean };
+    Body: {
+      text: string;
+      images?: string[];
+      roundTable?: boolean;
+      think?: boolean;
+      wait?: boolean;
+    };
   }>(
     "/api/assistant/messages",
     {
@@ -67,6 +73,8 @@ export default async function assistantRoutes(app: FastifyInstance) {
             // parallel. Per turn, not a setting: it costs more and takes longer,
             // so it is a thing you switch on for a question worth it.
             roundTable: { type: "boolean" },
+            // The strongest model on high effort, for this one message.
+            think: { type: "boolean" },
             // False answers 202 as soon as the question is recorded, with the
             // thread as it then stands; the socket carries the turn. The chat
             // screen asks for that. The default still answers when the turn is
@@ -88,6 +96,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
             text,
             req.body.images ?? [],
             req.body.roundTable === true,
+            req.body.think === true,
           );
           done?.catch((err: unknown) => req.log.error(err, "assistant turn failed"));
           return await reply.code(202).send(thread);
@@ -96,6 +105,7 @@ export default async function assistantRoutes(app: FastifyInstance) {
           text,
           req.body.images ?? [],
           req.body.roundTable === true,
+          req.body.think === true,
         );
         return await done;
       } catch (err) {

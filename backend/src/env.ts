@@ -31,7 +31,7 @@ if (ntfyUrl && !/^https?:\/\//.test(ntfyUrl)) {
 // These are the floor, not the ceiling: the settings page overrides both.
 const assistantModel = process.env.ASSISTANT_MODEL ?? "sonnet";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
-const assistantEffort = process.env.ASSISTANT_EFFORT ?? "low";
+const assistantEffort = process.env.ASSISTANT_EFFORT ?? "medium";
 if (!EFFORTS.includes(assistantEffort)) {
   fail(`ASSISTANT_EFFORT must be one of ${EFFORTS.join(", ")}, got "${assistantEffort}"`);
 }

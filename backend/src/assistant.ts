@@ -351,7 +351,7 @@ interface ChatState {
    * What was sent while a turn ran. On the server rather than in the tab that
    * sent it, where a reload or a phone locking lost it without a word.
    */
-  queued: (AssistantQueued & { roundTable: boolean })[];
+  queued: (AssistantQueued & { roundTable: boolean; think?: boolean })[];
   /**
    * A mint in flight, so concurrent callers agree on one conversation.
    *
@@ -894,12 +894,13 @@ export async function ask(
   prompt: string,
   images: string[] = [],
   roundTable = false,
+  think = false,
 ): Promise<{ thread: AssistantThread; done: Promise<AssistantThread> | null }> {
-  if (!chat.turn) return begin(prompt, images, roundTable);
+  if (!chat.turn) return begin(prompt, images, roundTable, think);
   if (chat.queued.length >= MAX_QUEUED) {
     throw new BusyError(`${MAX_QUEUED} messages are already waiting`);
   }
-  chat.queued.push({ id: randomUUID(), text: prompt, images, roundTable });
+  chat.queued.push({ id: randomUUID(), text: prompt, images, roundTable, think });
   saveQueue();
   announce();
   return { thread: await readThread(), done: null };
@@ -976,7 +977,7 @@ function drain(): void {
   const next = chat.queued.shift();
   if (!next) return;
   saveQueue();
-  begin(next.text, next.images, next.roundTable).then(
+  begin(next.text, next.images, next.roundTable, next.think === true).then(
     ({ done }) => done.catch(() => undefined),
     async (err: unknown) => {
       const threadId = await currentConversation();
@@ -1175,6 +1176,7 @@ export async function begin(
   prompt: string,
   images: string[] = [],
   roundTable = false,
+  think = false,
 ): Promise<{ thread: AssistantThread; done: Promise<AssistantThread> }> {
   // Taken before anything is awaited, which is the whole of why it is a plain
   // flag: everything below this line yields, and a guard that yields first is
@@ -1217,9 +1219,9 @@ export async function begin(
     try {
       const direct = await addressed(prompt);
       if (direct) {
-        await runAddressed(threadId, direct, images, roundTable);
+        await runAddressed(threadId, direct, images, roundTable, await theChair(think));
       } else {
-        await runChair(threadId, prompt, images, roundTable);
+        await runChair(threadId, prompt, images, roundTable, await theChair(think));
       }
     } catch (err) {
       // A CLI that fails says so in the thread itself. This is the rest: a
@@ -1259,14 +1261,24 @@ export async function begin(
   return { thread: await readThread(), done };
 }
 
+/**
+ * The chair, on the strongest settings when this one message asked for them. The
+ * turns of a meeting all use it, so the same model that looked also weighs what the
+ * advisors said. The next message goes back to the settings.
+ */
+async function theChair(think: boolean): Promise<CouncilMember> {
+  const me = await chair();
+  return think ? { ...me, model: "opus", effort: "high" } : me;
+}
+
 /** The chair's turn, and the meeting it may call. */
 async function runChair(
   threadId: string,
   prompt: string,
   images: string[],
-  roundTable = false,
+  roundTable: boolean,
+  me: CouncilMember,
 ): Promise<void> {
-  const me = await chair();
   const speakerPrompt = (await chairSpeaker()).systemPrompt;
 
   const { held } = await speak({
@@ -1296,7 +1308,7 @@ async function runChair(
 
   // Always, one advisor included: this is how their answer reaches the chair's
   // own conversation, and so what lets it take the follow-up.
-  await closeMeeting(threadId, prompt, answers, round, speakerPrompt);
+  await closeMeeting(threadId, prompt, answers, round, speakerPrompt, me);
 }
 
 /**
@@ -1310,11 +1322,12 @@ async function runAddressed(
   asked: Addressed,
   images: string[],
   roundTable: boolean,
+  me: CouncilMember,
 ): Promise<void> {
   const speakerPrompt = (await chairSpeaker()).systemPrompt;
   const { text: findings } = await speak({
     threadId,
-    member: await chair(),
+    member: me,
     systemPrompt: speakerPrompt,
     prompt: chairOpens(
       asked.rest,
@@ -1346,7 +1359,7 @@ async function runAddressed(
     round,
   );
   if (cancelled.has(threadId)) return;
-  await closeMeeting(threadId, asked.rest, answers, round, speakerPrompt);
+  await closeMeeting(threadId, asked.rest, answers, round, speakerPrompt, me);
 }
 
 /**
@@ -1401,10 +1414,11 @@ async function closeMeeting(
   answers: { name: string; text: string }[],
   round: boolean,
   speakerPrompt: string,
+  me: CouncilMember,
 ): Promise<void> {
   await speak({
     threadId,
-    member: await chair(),
+    member: me,
     systemPrompt: speakerPrompt,
     prompt: briefing(
       question,

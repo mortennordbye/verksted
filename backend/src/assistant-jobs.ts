@@ -54,6 +54,12 @@ export function startFeedWork(log: Logger): void {
 }
 
 /**
+ * These run on their own and sort or summarise, so they stay on low effort whatever
+ * the chat is set to. Raising the chat's default should not raise the night's bill.
+ */
+const JOB_EFFORT = "low";
+
+/**
  * An unattended turn on the one slot of the day's ceiling its caller reserved.
  *
  * Handed back if the turn never starts: `runUnattended` throws `BusyError` on a
@@ -98,7 +104,7 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
     false,
     {
       model: env.ASSISTANT_MODEL,
-      effort: env.ASSISTANT_EFFORT,
+      effort: JOB_EFFORT,
       systemPrompt: journalPrompt(name),
     },
     "journal",
@@ -241,7 +247,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
     false,
     {
       model: env.ASSISTANT_MODEL,
-      effort: env.ASSISTANT_EFFORT,
+      effort: JOB_EFFORT,
       systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
       schema: TRIAGE_SCHEMA,
     },
@@ -357,7 +363,7 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
     false,
     {
       model: env.ASSISTANT_MODEL,
-      effort: env.ASSISTANT_EFFORT,
+      effort: JOB_EFFORT,
       systemPrompt: cataloguePrompt(name),
       schema: CATALOGUE_SCHEMA,
     },
@@ -451,7 +457,7 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
     false,
     {
       model: env.ASSISTANT_MODEL,
-      effort: env.ASSISTANT_EFFORT,
+      effort: JOB_EFFORT,
       systemPrompt: learningPrompt(name, await sortingRules()),
       schema: LEARNING_SCHEMA,
     },
@@ -521,7 +527,7 @@ export async function runCompaction(log: Logger): Promise<number> {
     false,
     {
       model: env.ASSISTANT_MODEL,
-      effort: env.ASSISTANT_EFFORT,
+      effort: JOB_EFFORT,
       systemPrompt: compactionPrompt(name),
       schema: COMPACTION_SCHEMA,
     },
