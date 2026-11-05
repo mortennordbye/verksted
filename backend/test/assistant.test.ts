@@ -925,7 +925,7 @@ describe("GET /api/assistant/stream", () => {
     }
   });
 
-  it("sends the thread whole once, then leaves the entries out of the frames that add none", async () => {
+  it("sends the thread whole once, then only what was added", async () => {
     // Its own instance, because `inject` cannot upgrade — and everything in
     // this test goes through it. An earlier case resets the module registry,
     // so a server built here and the `app` built in beforeAll hold two
@@ -947,15 +947,19 @@ describe("GET /api/assistant/stream", () => {
       const frames = await watching.done;
 
       // A turn announces several times: the user entry, the spawn, the reply,
-      // the end. Only the ones that appended something carry entries.
+      // the end. Only the first carries the whole list.
       expect(frames.length).toBeGreaterThan(2);
       expect(frames[0].entries).toBeDefined();
-      expect(frames.some((f) => f.entries === undefined)).toBe(true);
+      expect(frames.slice(1).every((f) => f.entries === undefined)).toBe(true);
 
-      // Every frame that does carry them carries the whole list, so a client
-      // that replaces rather than appends is always right.
-      const last = frames.filter((f) => f.entries).at(-1)!;
-      expect(last.entries!.map((e) => e.text)).toEqual([
+      // Laid on top of each other the way a client does, they are the thread.
+      const held = [...frames[0].entries!];
+      for (const f of frames.slice(1)) {
+        if (!f.appended) continue;
+        expect(f.after).toBe(held.length);
+        held.push(...f.appended);
+      }
+      expect(held.map((e) => e.text).slice(-2)).toEqual([
         "what needs me today?",
         "Two things need you.",
       ]);

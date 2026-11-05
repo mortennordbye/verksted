@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
-import type { AssistantFrame, AssistantThread } from "../../shared/api";
+import type { AssistantEntry, AssistantFrame, AssistantThread } from "../../shared/api";
 import { api } from "./api";
 
 /** 1s, 2s, 4s, 8s, then every 16. */
@@ -40,6 +40,33 @@ export function adopt(held: AssistantThread | null, accepted: AssistantThread): 
  * a reload, and a first connect that failed said "connecting…" for as long as
  * the screen stayed open.
  */
+const OUT_OF_STEP = Symbol("out of step");
+
+/**
+ * A frame, on top of what is held. Entries already here keep their identity, so
+ * nothing on screen parses its markdown again for a frame that only added to the end.
+ */
+export function applyFrame(
+  prev: AssistantThread | null,
+  frame: AssistantFrame,
+): AssistantThread | null | typeof OUT_OF_STEP {
+  const { entries, appended, after, liveDelta, liveFrom, ...rest } = frame;
+  let held: AssistantEntry[];
+  if (entries) held = entries;
+  else if (!prev) return null;
+  else if (appended) {
+    if (after !== prev.entries.length) return OUT_OF_STEP;
+    held = [...prev.entries, ...appended];
+  } else held = prev.entries;
+
+  const thread: AssistantThread = { ...rest, entries: held };
+  if (liveDelta !== undefined) {
+    if ((prev?.live ?? "").length !== liveFrom) return OUT_OF_STEP;
+    thread.live = (prev?.live ?? "") + liveDelta;
+  }
+  return thread;
+}
+
 export function useAssistantStream(): {
   thread: AssistantThread | null;
   /**
@@ -87,13 +114,13 @@ export function useAssistantStream(): {
         try {
           const frame = JSON.parse(e.data) as AssistantFrame;
           setThread((prev) => {
-            // No entries means nothing has been said since the last frame, so
-            // the ones already held are still the ones — kept by reference, so
-            // nothing on screen re-parses its markdown for a frame that only
-            // moved `live` on by a token.
-            if (frame.entries) return frame as AssistantThread;
-            if (!prev) return null;
-            return { ...frame, entries: prev.entries };
+            const next = applyFrame(prev, frame);
+            // Out of step with the server: reconnecting sends the thread whole.
+            if (next === OUT_OF_STEP) {
+              ws?.close();
+              return prev;
+            }
+            return next;
           });
         } catch {
           // A frame we cannot read is not worth taking the screen down for.
