@@ -3,6 +3,22 @@
 Known gaps agreed to leave for later. Format per entry: what / why deferred /
 what unblocks it / where the code lives.
 
+## The taint rule's remaining gaps
+
+- **What:** Three paths the assistant's taint gate does not close. A turn can
+  `Read` a repo file such as a `.env` and then reach the web, because built-in
+  reads are not private. A fetched page or browser page does not set `readOutside`,
+  so `remember` still writes directly after one. And the next turn starts clean
+  while `--resume` still carries what was read, so the rule holds per turn only.
+- **Why deferred:** The gate shipped for the two confirmed holes (private read
+  then `WebFetch`, and headroom reads). Counting `Read` as private would bar the
+  web from any turn that opens a repo, so it wants a path rule instead.
+- **Unblocked by:** Denying `.env` paths by rule in `assistant-policy.ts`,
+  telling the MCP server about web use through the gate, and a decision on whether
+  a resumed thread inherits its last turn's taint.
+- **Where:** `backend/src/assistant-taint.ts`, `backend/src/assistant-policy.ts`,
+  `runtime/verksted-mcp.mjs`.
+
 ## A desk session stuck on a dialog reads as running
 
 - **What:** A session whose claude is sitting on a dialog before its first

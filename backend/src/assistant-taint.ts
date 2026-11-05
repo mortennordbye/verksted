@@ -63,8 +63,55 @@ export function noteTool(turn: string, name: string): void {
   if (WEB_TOOLS.has(name) || name.startsWith("mcp__browser")) remember(usedWeb, turn);
 }
 
+/**
+ * A turn that has read something private can only have tried: the gate refused
+ * the call. The stream notes a tool as it is written, before the gate has ruled,
+ * and a refused fetch must not cost the turn its next read as well.
+ */
 export function reachedTheWeb(turn: string | undefined): boolean {
-  return turn !== undefined && usedWeb.has(turn);
+  return turn !== undefined && usedWeb.has(turn) && !readPrivate.has(turn);
+}
+
+const WEB_CALL = /^(WebFetch$|WebSearch$|mcp__browser__)/;
+const PRIVATE_CALL = /^mcp__headroom__/;
+
+/** What the PreToolUse hook matches on: every call the gate has an opinion about. */
+export const GATED_TOOLS = "WebFetch|WebSearch|mcp__browser__.*|mcp__headroom__.*";
+
+export type GateRuling = { allow: true; closeBrowser: boolean } | { allow: false; reason: string };
+
+/**
+ * Rule on one tool call before it runs, and record it in the same step, so two
+ * calls made at once cannot both find the turn clean. This is what holds the
+ * rule for the tools this backend cannot take back: the stream only ever saw
+ * them after they had been asked for, and nothing stopped them.
+ */
+export function ruleOnCall(turn: string, tool: string): GateRuling {
+  if (WEB_CALL.test(tool)) {
+    if (readPrivate.has(turn)) {
+      return {
+        allow: false,
+        reason:
+          "This turn has read something private, so it cannot reach the web. Answer from what you have, and do the web part in a separate turn.",
+      };
+    }
+    remember(usedWeb, turn);
+    return { allow: true, closeBrowser: false };
+  }
+  if (PRIVATE_CALL.test(tool)) {
+    if (reachedTheWeb(turn)) {
+      return {
+        allow: false,
+        reason:
+          "This turn has reached the web, so it cannot read anything private. Do the two in separate turns.",
+      };
+    }
+    remember(readPrivate, turn);
+    return { allow: true, closeBrowser: true };
+  }
+  // Only reachable if the matcher and these patterns part ways, and a call
+  // nobody has ruled on is not one to wave through.
+  return { allow: false, reason: `No rule covers ${tool}.` };
 }
 
 /** Test seam: module state, and a test file is one process. */

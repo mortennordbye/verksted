@@ -179,12 +179,19 @@ So a turn holds one half or the other:
   closed if it cannot, so there is no moment between the mail arriving and the
   browser going.
 - A turn that has already **reached the web** — `WebFetch`, `WebSearch`, or the
-  browser — is refused the read instead. Those are on the CLI's command line,
-  fixed when the turn was spawned, so unlike the browser they cannot be taken
-  back; the rule has to run the other way round for them. The backend notices
-  as the stream reports each tool, which is before the next tool call rather
-  than after the sentence around it. A browser call counts; the browser's
+  browser — is refused the read instead. A browser call counts; the browser's
   server starting does not, since the CLI starts it on every chair turn.
+
+The web tools and headroom's reads go through a gate before they run: a
+PreToolUse HTTP hook on every assistant turn (`gateSettings` in
+`assistant-policy.ts`), answered by `POST /api/assistant/turn/gate`. It rules and
+records in one step, so a read followed by a fetch is refused either way round,
+and `onFailure: "block"` means a backend it cannot reach refuses the call. The
+verksted server's own private reads pay through `/api/assistant/turn/private`
+and share the same record.
+
+Built-in `Read` of a repo file does not count as private, so a turn can read a
+repo and then the web. BACKLOG has it.
 
 Per turn, because that is the unit a prompt injection acts within. The next
 turn holds everything again, and a person opening the browser pane themselves

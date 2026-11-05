@@ -21,6 +21,7 @@ import { noteTool } from "./assistant-taint.js";
 import {
   assistantHome,
   ensureMcpConfig,
+  gateSettings,
   holdsHeadroom,
   turnEnv,
   uploadsDir,
@@ -247,6 +248,8 @@ async function prepare(
     // still be a classifier's call. The claim that this agent has exactly the
     // verksted tools is only true with it.
     "--strict-mcp-config",
+    "--settings",
+    gateSettings(),
     // Images the user attached; the agent reads them from here by path.
     "--add-dir",
     uploadsDir(),

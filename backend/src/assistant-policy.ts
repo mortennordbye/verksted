@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { CouncilMember } from "../../shared/api.js";
 import { agentUser } from "./agent-user.js";
+import { GATED_TOOLS } from "./assistant-taint.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { CHAIR_ID } from "./council-store.js";
 import { env } from "./env.js";
@@ -343,6 +344,34 @@ export async function ensureMcpConfig(o: {
     mcpConfig(o.unattended, o.tools, isChair ? null : o.id, await headroomConfigured(), o.turn),
   );
   return file;
+}
+
+/**
+ * The hook that holds the taint rule, for every assistant turn. An HTTP hook with
+ * `onFailure: "block"` because that is the form that fails closed: checked against
+ * the real CLI (2.1.318), a gate that cannot be reached refuses the call, where a
+ * command hook whose script is missing lets it through.
+ */
+export function gateSettings(): string {
+  return JSON.stringify({
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: GATED_TOOLS,
+          hooks: [
+            {
+              type: "http",
+              url: `http://127.0.0.1:${env.PORT}/api/assistant/turn/gate`,
+              headers: { "X-VK-Turn": "$VK_TURN" },
+              allowedEnvVars: ["VK_TURN"],
+              timeout: 30,
+              onFailure: "block",
+            },
+          ],
+        },
+      ],
+    },
+  });
 }
 
 /** Whether this bench runs headroom at all: both vars, or no server is offered. */

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { BrowserServerMsg, BrowserClientMsg } from "../../../shared/api.js";
 import * as browser from "../browser.js";
-import { barBrowsing, browsingBarred, reachedTheWeb } from "../assistant-taint.js";
+import { barBrowsing, browsingBarred, reachedTheWeb, ruleOnCall } from "../assistant-taint.js";
 import { handle } from "./browser.js";
 
 /**
@@ -42,6 +42,48 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
       barBrowsing(req.body.turn);
       await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
       return { browsing: "closed" };
+    },
+  );
+
+  /**
+   * The PreToolUse hook of every assistant turn, asked before a web or private
+   * call runs. Its config sets `onFailure: "block"`, so a backend that is down or
+   * answers an error refuses the call rather than letting it through.
+   *
+   * The turn id is a header filled from the environment the backend wrote, so
+   * nothing a model can say reaches it, and the tool name is the one the CLI is
+   * about to run.
+   */
+  app.post<{ Body: { tool_name: string } }>(
+    "/api/assistant/turn/gate",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["tool_name"],
+          properties: { tool_name: { type: "string", maxLength: 200 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const turn = req.headers["x-vk-turn"];
+      if (typeof turn !== "string" || !turn) {
+        return reply.code(403).send({ error: "no turn" });
+      }
+      const ruling = ruleOnCall(turn, req.body.tool_name);
+      if (!ruling.allow) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: ruling.reason,
+          },
+        };
+      }
+      // Before the answer, as for the MCP server's own private reads. A browser
+      // that will not close is a read that does not happen.
+      if (ruling.closeBrowser) await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
+      return {};
     },
   );
 
