@@ -11,7 +11,6 @@ const only = process.argv.slice(2);
 /** @typedef {{ id: string; ask: string; uses: string[]; never?: string[] }} Case */
 /** @type {{ cases: Case[] }} */
 const { cases } = JSON.parse(readFileSync(new URL("./assistant.json", import.meta.url), "utf8"));
-const headers = { "content-type": "application/json", origin: base };
 
 /**
  * @param {string} path
@@ -21,7 +20,8 @@ const headers = { "content-type": "application/json", origin: base };
 async function call(path, body) {
   const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers,
+    // The content type only with a body: Fastify refuses an empty JSON one.
+    headers: { origin: base, ...(body ? { "content-type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status} ${await res.text()}`);
