@@ -439,6 +439,7 @@ export default function Chat() {
   const menuItems = useMemo<MenuItem[]>(
     () => [
       { value: "/new", label: "/new", hint: "start a new thread" },
+      { value: "/compact", label: "/compact", hint: "summarise this thread and carry on" },
       ...(advisors.length
         ? [{ value: "@all ", label: "@all", hint: "a second opinion from the whole council" }]
         : []),
@@ -453,6 +454,11 @@ export default function Chat() {
       void newThread();
       return;
     }
+    if (item.value === "/compact") {
+      setText("");
+      void post("/compact", [], "typed");
+      return;
+    }
     setText(item.value);
   };
   const menu = useComposerMenu(text, menuItems, pickFromMenu);
@@ -464,9 +470,8 @@ export default function Chat() {
   }
 
   // Every turn re-sends the whole thread, so a long one gets steadily more
-  // expensive to continue. Nothing truncates it automatically — dropping the
-  // middle of a conversation silently is worse than saying it is getting long —
-  // so this is the nudge to start a fresh one when the subject has changed.
+  // expensive to continue. Nothing here shortens it silently, so this is the nudge:
+  // summarise it and carry on, or start fresh when the subject has changed.
   const turns = thread?.entries.filter((e) => e.role === "user").length ?? 0;
   /**
    * What the thread actually costs, which is not the same as how often you have
@@ -826,8 +831,14 @@ export default function Chat() {
         {long && !thinking && (
           <div className="mb-2 flex items-center gap-3 rounded-xl bg-wait/10 px-3 py-2 text-[12.5px] text-wait ring-1 ring-wait/30">
             <span className="min-w-0 flex-1">
-              {carries} If the subject has moved on, start fresh.
+              {carries} Summarise it to carry on, or start fresh if the subject has moved on.
             </span>
+            <button
+              onClick={() => void post("/compact", [], "typed")}
+              className="flex-none rounded-lg px-2.5 py-1 font-semibold text-wait transition-colors hover:bg-wait/15"
+            >
+              summarise
+            </button>
             <button
               onClick={() => void newThread()}
               className="flex flex-none items-center gap-1.5 rounded-lg bg-wait/15 px-2.5 py-1 font-semibold hover:brightness-110"

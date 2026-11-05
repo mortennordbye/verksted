@@ -364,3 +364,21 @@ describe("a job answering to a schema", () => {
     expect(state.error).toBe("no");
   });
 });
+
+describe("a thread being summarised", () => {
+  it("leaves a mark saying so, and the smaller size is what the next turn carries", () => {
+    const state = newStreamState();
+
+    const [entry] = consumeChunk(
+      `${JSON.stringify({
+        type: "system",
+        subtype: "compact_boundary",
+        compact_metadata: { trigger: "manual", pre_tokens: 123_456, post_tokens: 4_321 },
+      })}\n`,
+      state,
+    );
+
+    expect(entry.tools).toEqual([{ name: "compacted", detail: "123k to 4k tokens" }]);
+    expect(state.context).toBe(4_321);
+  });
+});
