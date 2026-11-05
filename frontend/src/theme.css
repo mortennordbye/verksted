@@ -196,8 +196,6 @@
 
   /* A card arriving on the table: it rises into place rather than appearing. */
   --animate-rise: rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  /* A seat whose occupant is talking. currentColor, so the halo is theirs. */
-  --animate-glow: glow 2.2s ease-in-out infinite;
   /* A skeleton is held back for a beat, so an answer that lands inside it
      never flashes grey, then breathes slowly. The fade alone for reduced motion. */
   --animate-skeleton-in: skeleton-in 0.2s ease-out 150ms both;
@@ -221,16 +219,6 @@
       transform: translateY(8px);
     }
   }
-  @keyframes glow {
-    0%,
-    100% {
-      box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 0 7px color-mix(in srgb, currentColor 38%, transparent);
-    }
-  }
-
   @keyframes skeleton-in {
     from {
       opacity: 0;
@@ -416,7 +404,6 @@ select:focus-visible {
      one that says the microphone is open, each pulsing away for someone who
      asked the system for no animation. */
   .animate-blink,
-  .animate-glow,
   .animate-pulse,
   .animate-pulse-run,
   .animate-rise {

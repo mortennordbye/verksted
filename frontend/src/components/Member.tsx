@@ -1,7 +1,8 @@
 import type { CouncilColour } from "../../../shared/api";
 
 /**
- * Who is speaking: a member's initial in their own colour.
+ * A council member's colour, as the classes Tailwind has to see. A member is drawn
+ * as a name in type, with no avatar.
  *
  * The hue classes are written out rather than interpolated because Tailwind scans
  * source text: a class assembled at runtime never reaches the stylesheet.
@@ -24,13 +25,13 @@ export const MEMBER_RULE: Record<CouncilColour, string> = {
   lime: "border-member-lime/40",
 };
 
-export const MEMBER_FILL: Record<CouncilColour, string> = {
-  amber: "bg-member-amber/15",
-  violet: "bg-member-violet/15",
-  teal: "bg-member-teal/15",
-  rose: "bg-member-rose/15",
-  sky: "bg-member-sky/15",
-  lime: "bg-member-lime/15",
+export const MEMBER_DOT: Record<CouncilColour, string> = {
+  amber: "bg-member-amber",
+  violet: "bg-member-violet",
+  teal: "bg-member-teal",
+  rose: "bg-member-rose",
+  sky: "bg-member-sky",
+  lime: "bg-member-lime",
 };
 
 /** A card tinted with what they said: their colour, faintly, edge and ground. */
@@ -43,29 +44,12 @@ export const MEMBER_CARD: Record<CouncilColour, string> = {
   lime: "bg-member-lime/[.07] ring-member-lime/25",
 };
 
-export default function Monogram({
-  name,
-  colour,
-  speaking = false,
-  size = 30,
-  title,
-}: {
-  name: string;
-  colour: CouncilColour;
-  speaking?: boolean;
-  size?: number;
-  title?: string;
-}) {
+/** A turn in flight: the only thing that moves while somebody is working. */
+export function WorkingDot({ colour }: { colour: CouncilColour }) {
   return (
     <span
       aria-hidden="true"
-      title={title}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.45) }}
-      className={`inline-flex flex-none items-center justify-center rounded-full font-semibold select-none ${MEMBER_TEXT[colour]} ${MEMBER_FILL[colour]} ${
-        speaking ? "animate-glow" : ""
-      }`}
-    >
-      {name.trim().charAt(0).toUpperCase()}
-    </span>
+      className={`inline-block h-1.5 w-1.5 flex-none animate-pulse rounded-full ${MEMBER_DOT[colour]}`}
+    />
   );
 }

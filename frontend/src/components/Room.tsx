@@ -13,7 +13,7 @@ import UserBubble from "./chat/UserBubble";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import { marks, rehypeMark } from "../find";
-import Monogram, { MEMBER_CARD, MEMBER_TEXT } from "./Monogram";
+import { MEMBER_CARD, MEMBER_TEXT, WorkingDot } from "./Member";
 import Overlay from "./ui/Overlay";
 
 /**
@@ -311,7 +311,7 @@ const Bubble = memo(function Bubble({
   );
 });
 
-/** A specialist's answer: its own initial, name and colour, and the time beside them. */
+/** A specialist's answer: its name in its own colour, and the time beside it. */
 const Card = memo(function Card({
   who,
   entry,
@@ -323,12 +323,11 @@ const Card = memo(function Card({
 }) {
   return (
     <div
-      className={`animate-rise flex max-w-[640px] flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
+      className={`animate-rise flex w-full flex-col gap-2.5 rounded-2xl p-4 ring-1 ${
         entry.failed ? "bg-fail/[.07] ring-fail/30" : MEMBER_CARD[who.colour]
       }`}
     >
       <div className="flex items-center gap-2.5">
-        <Monogram name={who.name} colour={who.colour} size={28} />
         <span className={`text-[13.5px] font-bold ${MEMBER_TEXT[who.colour]}`}>{who.name}</span>
         <span className="ml-auto flex items-center gap-2">
           {entry.text && <CopyButton text={entry.text} />}
@@ -502,9 +501,9 @@ export default function Room({
       {writing !== undefined && !joinsLast && <Bubble entries={[]} live={writing} />}
       {thinking && speaking.length > 0 && (
         <div aria-hidden="true" className="flex items-center gap-2 text-[12.5px] text-muted">
-          <span className="flex -space-x-1.5">
+          <span className="flex gap-1">
             {speaking.map((m) => (
-              <Monogram key={m.id} name={m.name} colour={m.colour} size={22} speaking />
+              <WorkingDot key={m.id} colour={m.colour} />
             ))}
           </span>
           {speaking.map((m) => m.name).join(", ")} answering…

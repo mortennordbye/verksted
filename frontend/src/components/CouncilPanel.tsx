@@ -8,7 +8,7 @@ import type {
 import { api, usePoll } from "../api";
 import SectionLabel from "./SectionLabel";
 import Skeleton from "./Skeleton";
-import Monogram, { MEMBER_RULE, MEMBER_TEXT } from "./Monogram";
+import { MEMBER_RULE, MEMBER_TEXT } from "./Member";
 import { playSample, voiceLabel } from "../useSpeech";
 import { EFFORTS } from "./AssistantPanel";
 import Button from "./ui/Button";
@@ -306,8 +306,12 @@ export default function CouncilPanel() {
               }`}
             >
               <div className="flex flex-wrap items-center gap-2">
-                <Monogram name={m.name} colour={m.colour} size={32} title={m.remit} />
-                <span className={`text-[13.5px] ${MEMBER_TEXT[m.colour]}`}>{m.name}</span>
+                <span
+                  title={m.remit}
+                  className={`text-[13.5px] font-semibold ${MEMBER_TEXT[m.colour]}`}
+                >
+                  {m.name}
+                </span>
                 <span className="font-mono text-[11px] text-faint">
                   {m.chair ? "chair" : `@${m.id}`}
                 </span>
