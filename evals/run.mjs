@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Asks the assistant every case in assistant.json, in a thread of its own, and says
+// Asks the assistant every case in assistant.json, each in a thread of its own, and says
 // which used the tools a good answer needs. Talks to a running bench over HTTP, so
 // it costs real turns: run it on purpose (`make eval`), not in CI.
 //
@@ -11,7 +11,6 @@ const only = process.argv.slice(2);
 /** @typedef {{ id: string; ask: string; uses: string[]; never?: string[] }} Case */
 /** @type {{ cases: Case[] }} */
 const { cases } = JSON.parse(readFileSync(new URL("./assistant.json", import.meta.url), "utf8"));
-const headers = { "content-type": "application/json", origin: base };
 
 /**
  * @param {string} path
@@ -21,17 +20,19 @@ const headers = { "content-type": "application/json", origin: base };
 async function call(path, body) {
   const res = await fetch(`${base}${path}`, {
     method: "POST",
-    headers,
+    // The content type only with a body: Fastify refuses an empty JSON one.
+    headers: { origin: base, ...(body ? { "content-type": "application/json" } : {}) },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) throw new Error(`${path}: HTTP ${res.status} ${await res.text()}`);
   return /** @type {Promise<import("../shared/api.js").AssistantThread>} */ (res.json());
 }
 
-await call("/api/assistant/new");
 let passed = 0;
 const run = cases.filter((c) => !only.length || only.includes(c.id));
 for (const c of run) {
+  // A thread each, so no case is answered from what an earlier one fetched.
+  await call("/api/assistant/new");
   const started = Date.now();
   const thread = await call("/api/assistant/messages", { text: c.ask, wait: true });
   const seconds = ((Date.now() - started) / 1000).toFixed(1);
