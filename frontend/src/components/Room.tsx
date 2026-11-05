@@ -10,6 +10,7 @@ import Ago, { DayRule, newDay } from "./Ago";
 import { cite, citeUrl } from "./chat/cite";
 import CopyButton from "./chat/CopyButton";
 import UserBubble from "./chat/UserBubble";
+import { toolLabel } from "./chat/toolLabel";
 import Icon from "./Icon";
 import { MD, REMARK } from "./chat/markdown";
 import { marks, rehypeMark } from "../find";
@@ -83,19 +84,54 @@ function Attached({ name }: { name: string }) {
   );
 }
 
-function ToolChip({ name, detail, running }: { name: string; detail: string; running?: boolean }) {
+function ToolChip({ call, running }: { call: AssistantToolCall; running?: boolean }) {
+  const { name, detail, failed } = call;
   return (
-    <span className="inline-flex max-w-full items-center gap-2 rounded-full bg-surface-2 px-2.5 py-1 font-mono text-[11px] text-muted">
+    <span
+      title={name}
+      className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[11.5px] text-muted"
+    >
       {running ? (
         <span className="inline-block h-1.5 w-1.5 flex-none animate-pulse rounded-full bg-accent" />
+      ) : failed ? (
+        <Icon name="close" size={11} className="flex-none text-fail" />
       ) : (
-        <span className="flex-none text-run">✓</span>
+        <Icon name="check" size={11} className="flex-none text-run" />
       )}
       <span className="truncate">
-        {name}
-        {detail && <span className="text-faint"> · {detail}</span>}
+        {toolLabel(name)}
+        {detail && <span className="font-mono text-[10.5px] text-faint"> · {detail}</span>}
       </span>
     </span>
+  );
+}
+
+/** Past this many, a reply's tools fold away: a long turn is a wall of pills. */
+const CHIPS_SHOWN = 4;
+
+function ToolChips({ tools }: { tools: AssistantToolCall[] }) {
+  const chips = (
+    <div className="flex flex-wrap gap-1.5">
+      {tools.map((t, i) => (
+        <ToolChip key={i} call={t} />
+      ))}
+    </div>
+  );
+  if (tools.length <= CHIPS_SHOWN) return chips;
+  const failed = tools.filter((t) => t.failed).length;
+  return (
+    <details className="group/tools">
+      <summary className="tap inline-flex cursor-pointer list-none items-center gap-1.5 rounded-full bg-surface-2 px-2.5 py-1 text-[11.5px] text-muted hover:text-text [&::-webkit-details-marker]:hidden">
+        <Icon
+          name="chevron"
+          size={11}
+          className="transition-transform group-open/tools:rotate-90"
+        />
+        used {tools.length} tools
+        {failed > 0 && <span className="text-fail">, {failed} failed</span>}
+      </summary>
+      <div className="mt-2">{chips}</div>
+    </details>
   );
 }
 
@@ -123,13 +159,7 @@ const Said = memo(function Said({
   const tools = entry.tools.filter((t) => t.name !== "handoff");
   return (
     <>
-      {tools.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {tools.map((t, i) => (
-            <ToolChip key={i} name={t.name} detail={t.detail} />
-          ))}
-        </div>
-      )}
+      {tools.length > 0 && <ToolChips tools={tools} />}
       {/* What a tool showed it, a browser screenshot most of all: the thing it
           is asking you to confirm, so it is shown rather than described. */}
       {entry.images?.length ? (
@@ -207,12 +237,7 @@ function Working({ live }: { live: LiveTurn }) {
       {live.tools.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {live.tools.map((t, i) => (
-            <ToolChip
-              key={i}
-              name={t.name}
-              detail={t.detail}
-              running={!live.text && i === live.tools.length - 1}
-            />
+            <ToolChip key={i} call={t} running={!live.text && i === live.tools.length - 1} />
           ))}
         </div>
       )}

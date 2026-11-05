@@ -1088,6 +1088,8 @@ export interface AssistantToolCall {
   name: string;
   /** Short human-readable argument, e.g. the path read or the command run. */
   detail: string;
+  /** The tool answered with an error, or the call was refused. */
+  failed?: boolean;
 }
 
 /** One turn in a thread. */

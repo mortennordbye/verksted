@@ -153,6 +153,7 @@ const PATHS = {
     </>
   ),
   rename: <path d="M17 3a2.8 2.8 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z" />,
+  chevron: <path d="m9 18 6-6-6-6" />,
   close: <path d="M18 6 6 18M6 6l12 12" />,
   more: (
     <>

@@ -22,6 +22,7 @@ interface ContentBlock {
   name?: string;
   id?: string;
   tool_use_id?: string;
+  is_error?: boolean;
   input?: Record<string, unknown>;
   content?: unknown;
   source?: { media_type?: string; data?: string };
@@ -93,6 +94,8 @@ export interface StreamState {
   pendingShots: Shot[];
   /** Tool names by call id, so a result can be told apart by what made it. */
   toolNames: Map<string, string>;
+  /** Calls not yet answered by id, so an error can be marked on the chip it belongs to. */
+  openCalls: Map<string, AssistantToolCall>;
   /** Bytes arrived since the last newline; a chunk boundary is not a line. */
   buffer: string;
   /**
@@ -155,6 +158,7 @@ export function newStreamState(
     pendingTools: [],
     pendingShots: [],
     toolNames: new Map(),
+    openCalls: new Map(),
     buffer: "",
     live: "",
     thinking: "",
@@ -288,8 +292,10 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       // the result below, and it is not a tool anybody asked for.
       if (b.type === "tool_use" && b.name === "StructuredOutput") continue;
       if (b.type === "tool_use" && typeof b.name === "string") {
-        state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
+        const call: AssistantToolCall = { name: b.name, detail: toolDetail(b.input) };
+        state.pendingTools.push(call);
         state.onTool?.(b.name);
+        if (b.id) state.openCalls.set(b.id, call);
         if (b.id) {
           state.toolNames.set(b.id, b.name);
           state.timing.open.set(b.id, { name: b.name, at: state.now() });
@@ -325,6 +331,11 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       if (asked) {
         state.timing.tools.push({ name: asked.name, ms: state.now() - asked.at });
         state.timing.open.delete(b.tool_use_id ?? "");
+      }
+      if (b.type === "tool_result") {
+        const call = state.openCalls.get(b.tool_use_id ?? "");
+        if (call && b.is_error) call.failed = true;
+        state.openCalls.delete(b.tool_use_id ?? "");
       }
       if (b.type !== "tool_result" || !Array.isArray(b.content)) continue;
       if (state.toolNames.get(b.tool_use_id ?? "") === "Read") continue;
