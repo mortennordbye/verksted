@@ -91,6 +91,7 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
     mail_rule_delete: "remove it",
     mail_label_delete: "delete it",
     calendar_delete: "take it off",
+    connector_write: "do it",
     mail_move: "move them",
   };
   const label = LABELS[a.kind];
@@ -191,6 +192,11 @@ export default function ProposalCard({ item, onChange }: { item: FeedItem; onCha
           {a.capped ? `more than ${a.messages?.length} messages` : "every message"} and can be put
           back from the log{a.capped ? " on the first ones only" : ""}
         </div>
+      )}
+      {a.kind === "connector_write" && (
+        <pre className="overflow-x-auto rounded-md border border-line bg-surface px-3 py-2 font-mono text-[12px] whitespace-pre-wrap">
+          {JSON.stringify(a.args, null, 2)}
+        </pre>
       )}
       {a.kind === "calendar_delete" && (
         <div className="rounded-md border border-line bg-surface px-3 py-2 text-[13px]">

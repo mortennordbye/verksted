@@ -1380,6 +1380,8 @@ export type FeedState = "new" | "seen" | "done" | "snoozed";
  * shown whole on the card, executed on the pod on the tap and never before.
  */
 export type ProposalAction =
+  /** A change in headroom or LogEveryLift, run through that service's own tool. */
+  | { kind: "connector_write"; connector: string; tool: string; args: Record<string, unknown> }
   | { kind: "send"; to: string; subject: string; body: string; inReplyTo?: string }
   | {
       kind: "calendar_put";

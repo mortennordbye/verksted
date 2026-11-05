@@ -187,6 +187,14 @@ export async function turnEnv(connectors: boolean): Promise<Record<string, strin
   return out;
 }
 
+/** How to start headroom's own server: tsx from its own node_modules, no network. */
+export function headroomCommand(): { command: string; args: string[] } {
+  return {
+    command: path.join(HEADROOM_SERVER, "node_modules/.bin/tsx"),
+    args: [path.join(HEADROOM_SERVER, "mcp/server.ts")],
+  };
+}
+
 /** Where the MCP server the assistant acts through lives inside the image. */
 function mcpConfig(
   unattended: boolean,
@@ -232,10 +240,7 @@ function mcpConfig(
       ...(headroom
         ? {
             headroom: {
-              // tsx from headroom's own node_modules rather than npx: no
-              // network, and the server is the one that repo ships and tests.
-              command: path.join(HEADROOM_SERVER, "node_modules/.bin/tsx"),
-              args: [path.join(HEADROOM_SERVER, "mcp/server.ts")],
+              ...headroomCommand(),
               // No env block: HEADROOM_URL and HEADROOM_PASSWORD are settings
               // vars, and an MCP server inherits the environment the CLI was
               // spawned with — which is where agentEnv() already puts them.
