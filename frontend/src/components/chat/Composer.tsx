@@ -1,4 +1,11 @@
-import { useRef, useState, type DragEvent, type ReactNode, type Ref } from "react";
+import {
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 /**
  * The composer's icons, drawn rather than typed.
@@ -69,7 +76,10 @@ export default function Composer({
   fieldRef,
   className = "",
   children,
+  onFieldKey,
 }: {
+  /** Sees a key first, and says whether it took it: a menu above the field. */
+  onFieldKey?: (e: KeyboardEvent<HTMLTextAreaElement>) => boolean;
   value: string;
   onChange: (text: string) => void;
   onSend: () => void;
@@ -142,6 +152,7 @@ export default function Composer({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={(e) => {
+          if (onFieldKey?.(e)) return;
           // Enter sends, shift+enter breaks the line. On a phone the key is a
           // newline either way, which is why the button is always there.
           if (e.key === "Enter" && !e.shiftKey) {

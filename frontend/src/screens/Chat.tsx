@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DropdownMenu } from "radix-ui";
 import { useNavigate } from "react-router";
 import type { AssistantThread, CouncilMember, CreatedSession } from "../../../shared/api";
@@ -8,7 +8,9 @@ import { threadCost } from "../threadCost";
 import Dock, { BrowserView, DESK } from "../components/assistant/Dock";
 import Month from "../components/assistant/Month";
 import People from "../components/assistant/People";
+import ThreadRail from "../components/assistant/ThreadRail";
 import Threads from "../components/assistant/Threads";
+import ComposerMenu, { useComposerMenu, type MenuItem } from "../components/chat/ComposerMenu";
 import Composer, { Ico } from "../components/chat/Composer";
 import Portrait from "../components/Face";
 import Icon, { type IconName } from "../components/Icon";
@@ -431,6 +433,29 @@ export default function Chat() {
       setError(`could not start a new thread: ${(e as Error).message}`);
     }
   }
+
+  // Who can be addressed, and the one command there is, as they are typed.
+  const advisors = useMemo(() => (roster ?? []).filter((m) => !m.chair && m.enabled), [roster]);
+  const menuItems = useMemo<MenuItem[]>(
+    () => [
+      { value: "/new", label: "/new", hint: "start a new thread" },
+      ...(advisors.length
+        ? [{ value: "@all ", label: "@all", hint: "a second opinion from the whole council" }]
+        : []),
+      ...advisors.map((m) => ({ value: `@${m.id} `, label: `@${m.id}`, hint: m.remit })),
+    ],
+    [advisors],
+  );
+  const pickFromMenu = (item: MenuItem) => {
+    if (item.value === "/new") {
+      if (thinking) return;
+      setText("");
+      void newThread();
+      return;
+    }
+    setText(item.value);
+  };
+  const menu = useComposerMenu(text, menuItems, pickFromMenu);
 
   /** Opening an old thread: what was read is already whatever is read aloud. */
   function openThread(opened: AssistantThread) {
@@ -861,9 +886,11 @@ export default function Chat() {
           </div>
         )}
         {/* Tonal and lifted off the page: it is the one thing here you act on. */}
+        <ComposerMenu items={menu.shown} active={menu.active} onPick={pickFromMenu} />
         <Composer
           value={text}
           onChange={setText}
+          onFieldKey={menu.onKey}
           onSend={() => void send()}
           onAttach={(files) => void attach(files)}
           onRefused={setError}
@@ -950,6 +977,16 @@ export default function Chat() {
       </div>
 
       <Tabs />
+
+      {!panel && (
+        <ThreadRail
+          current={thread?.conversationId}
+          turns={turns}
+          locked={thinking}
+          onOpen={openThread}
+          onNew={() => void newThread()}
+        />
+      )}
 
       {browsing && (
         <Threads
