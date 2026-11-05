@@ -1,5 +1,12 @@
 import { Dialog } from "radix-ui";
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useDismissOnBack } from "../../useDismissOnBack";
 import Icon from "../Icon";
 
@@ -13,6 +20,26 @@ const PLACEMENT = {
   panel: "items-center p-2 sm:p-4",
   top: "items-start px-4 pt-[12vh]",
 } as const;
+
+/** How the box comes in and goes out, per placement: a sheet slides on a phone. */
+const MOTION = {
+  sheet: {
+    in: "motion-safe:animate-sheet-in min-[800px]:motion-safe:animate-pop-in",
+    out: "motion-safe:animate-sheet-out min-[800px]:motion-safe:animate-pop-out",
+  },
+  panel: { in: "motion-safe:animate-pop-in", out: "motion-safe:animate-pop-out" },
+  top: { in: "motion-safe:animate-pop-in", out: "motion-safe:animate-pop-out" },
+} as const;
+
+/** The longest of the out animations in theme.css, which the unmount waits for. */
+const OUT_MS = 200;
+
+/**
+ * Close the overlay this is inside, playing its way out first. The caller's own
+ * onClose, called straight, would unmount the box mid-frame.
+ */
+const DismissContext = createContext<(() => void) | null>(null);
+export const useOverlayDismiss = () => useContext(DismissContext);
 
 /**
  * Every modal in the app, on Radix's Dialog.
@@ -50,6 +77,23 @@ export default function Overlay({
 }) {
   useDismissOnBack(!routed, onClose);
   const box = useRef<HTMLDivElement>(null);
+  // Closing plays the out animation, then hands over to onClose. A caller that
+  // declines (busy) leaves the overlay mounted, so it comes back in. Back is
+  // left immediate: useDismissOnBack's handover between overlays is timed to
+  // the task, and a delay there is a race.
+  const [closing, setClosing] = useState(false);
+  const dismiss = () => {
+    if (closing) return;
+    const moving =
+      typeof matchMedia === "function" &&
+      matchMedia("(prefers-reduced-motion: no-preference)").matches;
+    if (!moving) return onClose();
+    setClosing(true);
+    setTimeout(() => {
+      onClose();
+      setClosing(false);
+    }, OUT_MS);
+  };
   // What had focus before, to give it back. Radix gives it to the dialog's
   // Trigger, and nothing here opens through one: a sheet is opened by state,
   // from a button, a menu row or a key. Taken in a layout effect, which runs
@@ -60,9 +104,11 @@ export default function Overlay({
   }, []);
 
   return (
-    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+    <Dialog.Root open onOpenChange={(open) => !open && dismiss()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60" />
+        <Dialog.Overlay
+          className={`fixed inset-0 z-40 bg-black/60 ${closing ? "motion-safe:animate-fade-out" : "motion-safe:animate-fade-in"}`}
+        />
         {/* The flex frame is what places the box; Radix's own overlay above is
             only the dimmed backdrop, so a click on the frame is a click away. */}
         <div
@@ -86,10 +132,10 @@ export default function Overlay({
                 opener.current.focus();
               }
             }}
-            className={`pointer-events-auto flex flex-col border border-line bg-surface outline-none ${className}`}
+            className={`pointer-events-auto flex flex-col border border-line bg-surface outline-none ${MOTION[placement][closing ? "out" : "in"]} ${className}`}
           >
             {!ownTitle && <Dialog.Title className="sr-only">{label}</Dialog.Title>}
-            {children}
+            <DismissContext.Provider value={dismiss}>{children}</DismissContext.Provider>
           </Dialog.Content>
         </div>
       </Dialog.Portal>
@@ -115,6 +161,8 @@ export function OverlayHeader({
   /** Controls between the title and the close button, pushed to the right. */
   children?: ReactNode;
 }) {
+  // Inside an Overlay, its animated way out, which ends in the same onClose.
+  const dismiss = useOverlayDismiss() ?? onClose;
   return (
     <div className="flex items-center gap-2 border-b border-line px-3.5 py-2.5 font-mono text-[12px] text-muted">
       <span className="flex min-w-0 items-center gap-2 truncate">{title}</span>
@@ -123,7 +171,7 @@ export function OverlayHeader({
         {/* The way out of a full-screen overlay on a phone, so it gets the 44px
             the rest of the app's icon controls have. */}
         <button
-          onClick={onClose}
+          onClick={dismiss}
           aria-label="close"
           className="tap-sq flex flex-none items-center justify-center px-2 text-faint hover:text-text"
         >
