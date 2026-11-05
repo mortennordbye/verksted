@@ -155,9 +155,7 @@ const Said = memo(function Said({
         // The count sits beside the words as a badge: after a paragraph it
         // landed on a line of its own, which read as a stray mark.
         <div className="flex items-start gap-2">
-          <div
-            className={`min-w-0 flex-1 text-[15px] leading-[1.55] ${entry.failed ? "text-fail" : ""}`}
-          >
+          <div className={`min-w-0 flex-1 text-reply ${entry.failed ? "text-fail" : ""}`}>
             <Markdown
               components={MD}
               remarkPlugins={REMARK}
@@ -231,7 +229,7 @@ function Working({ live }: { live: LiveTurn }) {
 function Writing({ live }: { live: string }) {
   const shown = useDeferredValue(live);
   return (
-    <div className="vk-writing text-[15px] leading-[1.55]">
+    <div className="vk-writing text-reply">
       <Markdown components={MD} remarkPlugins={REMARK} urlTransform={citeUrl}>
         {cite(shown)}
       </Markdown>
@@ -240,10 +238,14 @@ function Writing({ live }: { live: string }) {
 }
 
 /**
- * A run of the chair's replies as one bubble, the way a messaging app merges a
- * burst from one sender: the parts stacked with a hairline between them and the
- * time once, at the end. The same words said twice in a row (a failure the CLI
- * reported on two turns) show once, marked with how many times.
+ * A run of the chair's replies, the full width of the column so a long answer or
+ * a table reads as a document: the parts stacked, and the time once, at the end.
+ * The same words said twice in a row (a failure the CLI reported on two turns)
+ * show once, marked with how many times.
+ *
+ * Full width also means it does not change width as it is written, and it does
+ * not rise in: it has been on screen since its first word, and the entry landing
+ * is a new element that would replay the animation over what is being read.
  */
 const Bubble = memo(function Bubble({
   entries,
@@ -266,22 +268,23 @@ const Bubble = memo(function Bubble({
   }
   const last = entries.at(-1);
   return (
-    <div className="animate-rise flex w-fit max-w-[min(640px,100%)] flex-col gap-1 self-start rounded-[18px] rounded-bl-[6px] bg-surface px-3.5 py-2">
-      {parts.map(({ entry, times }, i) => (
-        <div
-          key={entry.id}
-          className={`flex flex-col gap-2 ${i > 0 ? "mt-1 border-t border-line pt-1.5" : ""}`}
-        >
+    <div className="group flex w-full flex-col gap-3">
+      {parts.map(({ entry, times }) => (
+        <div key={entry.id} className="flex flex-col gap-2">
           <Said entry={entry} times={times} find={find} />
         </div>
       ))}
-      {live !== undefined && (
-        <div className={parts.length ? "mt-1 border-t border-line pt-1.5" : ""}>
-          <Working live={live} />
-        </div>
-      )}
+      {live !== undefined && <Working live={live} />}
       {last && live === undefined && (
-        <div className="-mt-0.5 flex items-center gap-2 self-end">
+        // Out of the way until wanted where there is a pointer to want it with, and
+        // always there on a phone, which has no hover to reveal it.
+        <div
+          className={`-mt-1 flex items-center gap-2 transition-opacity duration-150 ${
+            last.failed
+              ? ""
+              : "pointer-fine:opacity-0 pointer-fine:group-focus-within:opacity-100 pointer-fine:group-hover:opacity-100"
+          }`}
+        >
           {onRetry && last.failed && (
             // A failed turn was only painted red. What went wrong is usually
             // the pod or the CLI, not the question, and typing it out again on
@@ -301,7 +304,7 @@ const Bubble = memo(function Bubble({
               .filter(Boolean)
               .join("\n\n")}
           />
-          <Ago at={last.at} className="font-mono text-[10px] leading-none text-faint" />
+          <Ago at={last.at} className="font-mono text-meta leading-none text-faint" />
         </div>
       )}
     </div>
@@ -423,8 +426,10 @@ export default function Room({
   const draw = (b: Block, i: number) => {
     if (b.kind === "user") {
       const e = b.entry;
+      // No rise: it was already on screen as the pending bubble, and this is that
+      // same message landing.
       return (
-        <div className="animate-rise flex flex-col items-end gap-1.5">
+        <div className="flex flex-col items-end gap-1.5">
           {e.images?.map((name) => (
             <Attached key={name} name={name} />
           ))}
@@ -471,7 +476,7 @@ export default function Room({
       role="log"
       aria-live="polite"
       aria-label="the conversation"
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-5"
     >
       {thread.entries.length === 0 && (
         <div className="mt-8 text-center">

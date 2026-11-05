@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Element } from "hast";
 import { copyText } from "../../clipboard";
 import { highlightAs } from "../../highlight";
@@ -25,6 +25,8 @@ function source(pre: Element | undefined): { language: string | null; text: stri
   return { language: lang ? lang.slice("language-".length) : null, text };
 }
 
+const HIGHLIGHT_PAUSE_MS = 150;
+
 /**
  * A fenced block in an answer: highlighted when the fence names a language
  * highlight.js knows, and with its own copy button (C-30). The message's copy
@@ -34,23 +36,41 @@ function source(pre: Element | undefined): { language: string | null; text: stri
 export default function CodeBlock({ node, children }: { node?: Element; children: ReactNode }) {
   const src = source(node);
   const [done, setDone] = useState<{ of: string; html: string } | null>(null);
+  const hasPainted = useRef(false);
   const language = src?.language;
   const text = src?.text;
   useEffect(() => {
     if (!language || text === undefined) return;
     let live = true;
-    void highlightAs(language, text).then((html) => {
-      if (live && html !== null) setDone({ of: text, html });
-    });
+    // While a block is being written the text changes ten times a second, and
+    // highlighting every one of those runs on the main thread. The first paint
+    // goes at once, and later ones wait for a pause.
+    const wait = setTimeout(
+      () => {
+        void highlightAs(language, text).then((html) => {
+          if (live && html !== null) setDone({ of: text, html });
+        });
+      },
+      hasPainted.current ? HIGHLIGHT_PAUSE_MS : 0,
+    );
+    hasPainted.current = true;
     return () => {
       live = false;
+      clearTimeout(wait);
     };
   }, [language, text]);
-  const html = done && done.of === text ? done.html : null;
+  // The last highlight stays up while more of the same block arrives: falling
+  // back to plain text each time is a flash of colour on every token.
+  const html = done && text?.startsWith(done.of) ? done.html : null;
 
   return (
-    <div className="relative mb-2 last:mb-0">
-      <pre className="overflow-x-auto rounded-md border border-line bg-term p-2.5 font-mono text-[12px] text-text scheme-dark [&_code]:bg-transparent [&_code]:p-0">
+    <div className="relative mb-3 last:mb-0">
+      {language && (
+        <span className="absolute top-2 right-8 font-mono text-meta text-faint select-none">
+          {language}
+        </span>
+      )}
+      <pre className="overflow-x-auto rounded-lg border border-line bg-term p-3 pt-7 font-mono text-code text-text scheme-dark [&_code]:bg-transparent [&_code]:p-0">
         {html !== null ? <code dangerouslySetInnerHTML={{ __html: html }} /> : children}
       </pre>
       {text !== undefined && (

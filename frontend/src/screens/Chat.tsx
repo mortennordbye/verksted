@@ -126,7 +126,7 @@ export default function Chat() {
    * rather than when the POST comes back (C-13). Usually a few milliseconds;
    * down a bad tunnel it is the only sign the tap landed.
    */
-  const [sending, setSending] = useState<{ stamp: number; text: string }[]>([]);
+  const [sending, setSending] = useState<{ stamp: number; text: string; after: number }[]>([]);
   /** The next message is put to the specialists to talk over (C-26). */
   const [roundTable, setRoundTable] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -193,14 +193,14 @@ export default function Chat() {
   useEffect(() => {
     if (!atLatest) return;
     scrollTo({ top: document.documentElement.scrollHeight, behavior: scrollBehavior() });
-  }, [
-    thread?.entries.length,
-    thread?.status,
-    thread?.live,
-    thread?.liveThinking,
-    thread?.liveTools,
-    atLatest,
-  ]);
+  }, [thread?.entries.length, thread?.status, atLatest]);
+
+  // As it is written, without animating: a smooth scroll restarted ten times a
+  // second stutters, and falls behind the text it is chasing.
+  useEffect(() => {
+    if (!atLatest) return;
+    scrollTo({ top: document.documentElement.scrollHeight });
+  }, [thread?.live, thread?.liveThinking, thread?.liveTools, atLatest]);
 
   // Whether the bottom is on screen. The margin is generous on purpose: the
   // composer and the tab bar sit over the last few lines.
@@ -279,7 +279,8 @@ export default function Chat() {
   async function post(value: string, images: string[], from: "typed" | "spoken" | "retry") {
     setError(null);
     const stamp = Date.now() + Math.random();
-    setSending((s) => [...s, { stamp, text: value || "(see image)" }]);
+    const after = thread?.entries.filter((e) => e.role === "user").length ?? 0;
+    setSending((s) => [...s, { stamp, text: value || "(see image)", after }]);
     try {
       // Answered as soon as the question is on record (`wait: false`): the
       // socket carries the turn, and a request held open for a whole meeting is
@@ -701,8 +702,13 @@ export default function Chat() {
         {/* Sent, and not yet on record: drawn at once so the tap is seen to
             land, faint until the server has it (C-13). */}
         {sending
-          // The socket can bring the question before the POST answers.
-          .filter((m) => m.text !== thread?.entries.findLast((e) => e.role === "user")?.text)
+          // The socket can bring the question before the POST answers. Only a
+          // message that arrived since this was sent counts: the same words said
+          // twice are two messages.
+          .filter((m) => {
+            const said = thread?.entries.filter((e) => e.role === "user") ?? [];
+            return !(said.length > m.after && said.at(-1)?.text === m.text);
+          })
           .map((m) => (
             <UserBubble key={m.stamp} size="lg" pending className="self-end">
               {m.text}
@@ -754,21 +760,24 @@ export default function Chat() {
       {/* Stuck just clear of the bottom bar on a phone (55px is that bar's
           height), and back to its own inset where there is none. Painted with
           the page ground so the thread passing behind does not show around
-          its corners. No rule above it: the field is a lifted card already,
-          and a line across the page on top of that read as a second border.
-          With the keyboard up the bar is hidden, so it sits on the keys. */}
-      <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))] kbd:bottom-0 kbd:pb-2">
+          its corners, and fading into it above so the thread does not end on a
+          hard edge. With the keyboard up the bar is hidden, so it sits on the
+          keys. */}
+      <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-10 mx-auto w-full max-w-[800px] flex-none bg-bg px-[18px] pt-2 pb-3 before:pointer-events-none before:absolute before:inset-x-0 before:-top-6 before:h-6 before:bg-linear-to-t before:from-bg before:to-transparent min-[800px]:bottom-0 min-[800px]:pb-[max(14px,env(safe-area-inset-bottom))] kbd:bottom-0 kbd:pb-2">
         {/* Gone up to read something while it keeps talking: the way back,
             rather than being dragged there by the next token. In the sticky
             card so it clears the tab bar on a phone without a second set of
             insets to keep right. */}
         {!atLatest && thread && thread.entries.length > 0 && (
-          <div className="mb-2 flex justify-center">
+          <div className="absolute inset-x-0 -top-9 flex justify-center">
             <button
-              onClick={() => scrollTo({ top: document.documentElement.scrollHeight })}
-              className="tap rounded-full border border-line bg-surface px-3 py-1 text-[11.5px] text-muted shadow-sm hover:border-accent hover:text-accent"
+              onClick={() =>
+                scrollTo({ top: document.documentElement.scrollHeight, behavior: scrollBehavior() })
+              }
+              className="tap flex items-center gap-1 rounded-full border border-line bg-surface px-3 py-1 text-[11.5px] text-muted shadow-sm transition-colors hover:border-accent hover:text-accent"
             >
-              latest ↓
+              latest
+              <Icon name="down" size={11} />
             </button>
           </div>
         )}
