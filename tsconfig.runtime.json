@@ -19,5 +19,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["runtime/**/*.mjs"]
+  "include": ["runtime/**/*.mjs", "evals/**/*.mjs"]
 }

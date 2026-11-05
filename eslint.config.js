@@ -76,7 +76,7 @@ export default tseslint.config(
     //
     // Types are the half still missing here: `// @ts-check` with JSDoc imports
     // from shared/api.ts is tracked in BACKLOG.md.
-    files: ["runtime/**/*.mjs"],
+    files: ["runtime/**/*.mjs", "evals/**/*.mjs"],
     languageOptions: {
       globals: globals.node,
       parserOptions: { projectService: false, project: null },
