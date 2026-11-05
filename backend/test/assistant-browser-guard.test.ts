@@ -84,6 +84,12 @@ describe("the gate a turn's web and private calls go through", () => {
     expect(refused(await gate("gate-c", "WebFetch"))).toBe(true);
   });
 
+  it("counts a training read as private too", async () => {
+    expect(refused(await gate("gate-f", "mcp__logeverylift__recent_workouts"))).toBe(false);
+
+    expect(refused(await gate("gate-f", "WebFetch"))).toBe(true);
+  });
+
   it("does not let a refused fetch cost the turn its next read", async () => {
     // The stream notes a tool as it is written, before the gate has ruled on it.
     const { noteTool } = await import("../src/assistant-taint.js");

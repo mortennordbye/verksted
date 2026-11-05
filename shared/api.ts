@@ -1626,6 +1626,13 @@ export interface GmailRule {
 }
 
 /** Google sign-in for the calendar, as the settings page shows it. */
+export interface LogEveryLiftStatus {
+  /** A sign-in is stored. */
+  connected: boolean;
+  /** Why the service last refused it, in its words, or null. */
+  error: string | null;
+}
+
 export interface GoogleCalendarStatus {
   /** GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are both saved. */
   clientSet: boolean;

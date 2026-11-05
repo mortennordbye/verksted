@@ -2,10 +2,12 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { CouncilMember } from "../../shared/api.js";
 import { agentUser } from "./agent-user.js";
+import { CONNECTOR_DENIED, CONNECTOR_READS } from "./assistant-connectors.js";
 import { GATED_TOOLS } from "./assistant-taint.js";
 import { writeJsonAtomic } from "./atomic-json.js";
 import { CHAIR_ID } from "./council-store.js";
 import { env } from "./env.js";
+import * as logeverylift from "./logeverylift-auth.js";
 import { agentEnv } from "./settings-store.js";
 
 /**
@@ -123,49 +125,11 @@ function readDenied(): string[] {
 const DENIED_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit", "Task", ...readDenied()];
 export const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"];
 
-/**
- * What the chair may do in headroom. Advisors hold nothing: they give second
- * opinions on what the chair found.
- *
- * The reads are named one by one, because under `--permission-mode dontAsk` a
- * call no allow rule covers is refused before it reaches the server (checked
- * against the real CLI, 2.1.318). Allowing the server whole auto-approved every
- * tool on it, and a deny list only stopped the writes somebody remembered to
- * name. A tool headroom adds later is refused until it is added here.
- *
- * A write goes through a card in the app, not through this. The two reads denied
- * outright each return the whole database, when the aggregates are what advice
- * is made of: a page that talks a turn into something can only carry out what
- * the turn was able to fetch.
- */
-const HEADROOM_TOOL = (t: string) => `mcp__headroom__${t}`;
-export const HEADROOM_READS = [
-  "get_assets_and_debts",
-  "get_budget_summary",
-  "get_debt_analysis",
-  "get_employer_cost",
-  "get_forecast",
-  "get_home_valuation",
-  "get_housing",
-  "get_mortgage",
-  "get_overview",
-  "get_pension",
-  "get_recommendations",
-  "get_salary_and_tax",
-  "get_savings_and_goals",
-  "get_spending_analysis",
-  "get_year_review",
-  "list_history",
-  "query_transactions",
-  "what_if",
-].map(HEADROOM_TOOL);
-const HEADROOM_DENIED = ["get_raw_data", "get_history_revision"].map(HEADROOM_TOOL);
-
 /** Its own repo's server, run from the volume: nothing here is a second copy. */
 const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
 
 /** Who is offered headroom at all; `null` is the chair. */
-export function holdsHeadroom(member: string | null, tools: string[] | null): boolean {
+export function holdsConnectors(member: string | null, tools: string[] | null): boolean {
   return member === null && tools?.length !== 0;
 }
 
@@ -205,19 +169,21 @@ const TURN_ENV_KEYS = new Set([
 const TURN_ENV_PREFIXES = ["LC_", "XDG_", "CLAUDE_"];
 const HEADROOM_KEYS = ["HEADROOM_URL", "HEADROOM_PASSWORD"];
 
-export async function turnEnv(headroom: boolean): Promise<Record<string, string>> {
+export async function turnEnv(connectors: boolean): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries({ ...process.env, ...(await agentEnv()) })) {
     if (value === undefined) continue;
     if (
       TURN_ENV_KEYS.has(key) ||
       TURN_ENV_PREFIXES.some((p) => key.startsWith(p)) ||
-      (headroom && HEADROOM_KEYS.includes(key))
+      (connectors && HEADROOM_KEYS.includes(key))
     ) {
       out[key] = value;
     }
   }
   out.HOME = assistantHome();
+  const lifting = connectors ? await logeverylift.accessToken() : null;
+  if (lifting) out.LOGEVERYLIFT_TOKEN = lifting;
   return out;
 }
 
@@ -227,6 +193,7 @@ function mcpConfig(
   tools: string[] | null,
   member: string | null,
   headroomConfigured: boolean,
+  liftingSignedIn: boolean,
   turn: string,
 ) {
   // Ariel always; the chair too, but only on a live turn — a nightly briefing
@@ -234,7 +201,9 @@ function mcpConfig(
   // Ariel's schedule to answer. Never without both vars set, so a bench that
   // does not run headroom offers no tools that would fail on every call. The
   // deny list on the writes holds whether or not anyone is reading.
-  const headroom = holdsHeadroom(member, tools) && headroomConfigured;
+  const held = holdsConnectors(member, tools);
+  const headroom = held && headroomConfigured;
+  const lifting = held && liftingSignedIn;
   // The chair's own browser, never an advisor's and never unattended, for the
   // same reason as headroom: a briefing reads the bench, and the bench is
   // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
@@ -273,6 +242,18 @@ function mcpConfig(
               // Checked against the CLI rather than assumed. Naming them here
               // would mean the backend reading a credential it has no use for
               // and writing it into a second file on the volume.
+            },
+          }
+        : {}),
+      ...(lifting
+        ? {
+            logeverylift: {
+              type: "http",
+              url: logeverylift.MCP_URL,
+              // The name of the variable, not the token: turnEnv puts a current
+              // one in the environment, and the CLI fills it in (checked against
+              // 2.1.318). This file stays free of anything worth stealing.
+              headers: { Authorization: "Bearer ${LOGEVERYLIFT_TOKEN}" },
             },
           }
         : {}),
@@ -339,7 +320,14 @@ export async function ensureMcpConfig(o: {
   // var, and the server reads them from the environment it inherits.
   await writeJsonAtomic(
     file,
-    mcpConfig(o.unattended, o.tools, isChair ? null : o.id, await headroomConfigured(), o.turn),
+    mcpConfig(
+      o.unattended,
+      o.tools,
+      isChair ? null : o.id,
+      await headroomConfigured(),
+      isChair && o.tools?.length !== 0 && (await logeverylift.accessToken()) !== null,
+      o.turn,
+    ),
   );
   return file;
 }
@@ -423,9 +411,9 @@ export function policyFor(member: CouncilMember): ToolPolicy {
   // rule in assistant-taint.ts rather than a missing tool.
   return {
     builtins: [...BUILTIN_READ, ...WEB_TOOLS],
-    allowed: [...WEB_TOOLS, "mcp__verksted", "mcp__browser", ...HEADROOM_READS],
+    allowed: [...WEB_TOOLS, "mcp__verksted", "mcp__browser", ...CONNECTOR_READS],
     tools: null,
-    denied: [...DENIED_TOOLS, ...HEADROOM_DENIED],
+    denied: [...DENIED_TOOLS, ...CONNECTOR_DENIED],
   };
 }
 
@@ -435,7 +423,7 @@ export function policyFor(member: CouncilMember): ToolPolicy {
  */
 export function unattendedPolicy(): Pick<ToolPolicy, "allowed" | "denied"> {
   return {
-    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...HEADROOM_READS],
-    denied: [...UNATTENDED_DENIED_TOOLS, ...HEADROOM_DENIED],
+    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...CONNECTOR_READS],
+    denied: [...UNATTENDED_DENIED_TOOLS, ...CONNECTOR_DENIED],
   };
 }
