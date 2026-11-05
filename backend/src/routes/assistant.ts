@@ -3,8 +3,6 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import type {
   AssistantConfig,
-  AssistantEntry,
-  AssistantFrame,
   AssistantThread,
   AssistantTool,
   AssistantVoices,

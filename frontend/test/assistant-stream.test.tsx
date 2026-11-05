@@ -287,13 +287,12 @@ describe("a frame on top of what is held", () => {
     text: id,
     tools: [],
   });
-  const base = (over: Partial<AssistantThread> = {}) =>
-    ({
-      conversationId: "c",
-      status: "thinking",
-      entries: [entry("a")],
-      ...over,
-    }) as AssistantThread;
+  const base = (over: Partial<AssistantThread> = {}): AssistantThread => ({
+    conversationId: "c",
+    status: "thinking",
+    entries: [entry("a")],
+    ...over,
+  });
   const frame = (over: Partial<AssistantFrame>) =>
     ({ conversationId: "c", status: "thinking", ...over }) as AssistantFrame;
 
