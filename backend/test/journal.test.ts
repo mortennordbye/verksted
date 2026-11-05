@@ -77,6 +77,40 @@ function thread(id: string, turns: [string, string][]): void {
   fs.writeFileSync(path.join(assistantDir, `${id}.jsonl`), `${lines.join("\n")}\n`);
 }
 
+/** A thread with these turns, said a whole number of days ago. */
+function threadOn(id: string, daysAgo: number, turns: [string, string][]): void {
+  const at = new Date(Date.now() - daysAgo * 86_400_000).toISOString();
+  const lines = turns.map(([role, text]) =>
+    JSON.stringify({ id: `${id}-${text.length}`, role, text, tools: [], at }),
+  );
+  fs.writeFileSync(path.join(assistantDir, `${id}.jsonl`), `${lines.join("\n")}\n`);
+}
+
+describe("the nights a pod was down for", () => {
+  it("writes a missing journal for a day something was said, and only that day", async () => {
+    threadOn("22222222-2222-4222-8222-222222222222", 1, [
+      ["user", "the boiler man comes thursday"],
+      ["assistant", "Noted."],
+    ]);
+    fake.reply("claude", "-p", { stdout: run("The boiler man comes on Thursday.") });
+
+    await jobs.catchUpNights(log);
+
+    expect(fake.argvFor("claude")).toHaveLength(1);
+    const yesterday = journal.today(new Date(Date.now() - 86_400_000));
+    expect(await journal.readDay(yesterday)).toContain("boiler");
+  });
+
+  it("leaves a day alone that already has its journal", async () => {
+    threadOn("33333333-3333-4333-8333-333333333333", 1, [["user", "hello"]]);
+    await journal.writeDay(journal.today(new Date(Date.now() - 86_400_000)), "Said hello.");
+
+    await jobs.catchUpNights(log);
+
+    expect(fake.argvFor("claude")).toHaveLength(0);
+  });
+});
+
 describe("the journal", () => {
   it("costs nothing on a day nobody said anything", async () => {
     expect(await jobs.runJournal(log)).toBe(false);

@@ -19,6 +19,7 @@ import { startPlanHistory } from "./plan.js";
 import { startFeedWork } from "./assistant-jobs.js";
 import { resumeQueue } from "./assistant.js";
 import { reloadSchedules } from "./scheduler.js";
+import { catchUpNights } from "./assistant-jobs.js";
 import { startSweeper } from "./sweeper.js";
 import { restoreSessions } from "./session-launch.js";
 
@@ -97,6 +98,10 @@ startNightlyBackup(app.log);
 // restoreSessions, and this is the schedules' equivalent.
 await sweepTempFiles(env.SCHEDULES_DIR);
 await reloadSchedules(app.log);
+// The nights this pod was down for, once it has settled rather than during boot.
+setTimeout(() => {
+  void catchUpNights(app.log).catch((err) => app.log.warn(err, "night catch-up failed"));
+}, 120_000).unref();
 // How full the plan is, once an hour, kept: the account keeps no history.
 startPlanHistory(app.log);
 
