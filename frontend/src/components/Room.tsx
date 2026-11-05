@@ -23,8 +23,8 @@ import Overlay from "./ui/Overlay";
  *
  * The chair is named once, in the header the chat screen draws, so what it
  * says reads as the conversation itself: one bubble for a run of replies, the
- * time once at the end. When it brings a specialist in, that answer lands as a
- * card with the specialist's own face, name and colour, since who is speaking
+ * time once at the end. When it asks the council, each opinion lands as a card
+ * in that member's name and colour, since who is speaking
  * is the news there. What it keeps from a chat is the order: it is a
  * conversation, and a conversation reads top to bottom.
  */
@@ -338,7 +338,7 @@ const Bubble = memo(function Bubble({
   );
 });
 
-/** A specialist's answer: its name in its own colour, and the time beside it. */
+/** A council member's opinion: its name in its own colour, and the time beside it. */
 const Card = memo(function Card({
   who,
   entry,
@@ -375,9 +375,9 @@ type Block =
   | { kind: "run"; entries: AssistantEntry[] };
 
 /**
- * The thread as what the screen draws: your messages, specialists' cards, and
+ * The thread as what the screen draws: your messages, the council's cards, and
  * the chair's replies gathered into runs. A run ends at anything of yours or a
- * specialist's, or at a pause longer than RUN_MS.
+ * council member's, or at a pause longer than RUN_MS.
  */
 /** The entry a block opens with: its day, and a key that outlives the block growing. */
 function firstAt(b: Block): AssistantEntry {
@@ -502,7 +502,7 @@ export default function Room({
     );
   };
 
-  // Who else has a turn in flight: the specialists do not stream their words,
+  // Who else has a turn in flight: the council does not stream its words,
   // so these are the only sign they are answering (C-26).
   const speaking = (thread.speaking ?? [])
     .map((id) => members.find((m) => m.id === id))

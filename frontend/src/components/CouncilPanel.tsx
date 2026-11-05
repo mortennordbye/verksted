@@ -261,7 +261,7 @@ export default function CouncilPanel() {
 
   return (
     <section className="mt-8">
-      <SectionLabel icon="users">Specialists</SectionLabel>
+      <SectionLabel icon="users">Council</SectionLabel>
       <h2 className="mb-1 text-[21px] font-semibold tracking-tight">
         {data ? (
           `${members.length} on the bench`
