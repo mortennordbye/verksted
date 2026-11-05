@@ -1453,7 +1453,7 @@ export function runUnattended(
    * The system prompt replaces the briefing job wholesale; the roster is not
    * offered, since a turn that must not call a tool must not convene either.
    */
-  own: { model: string; effort: string; systemPrompt: string } | null = null,
+  own: { model: string; effort: string; systemPrompt: string; schema?: object } | null = null,
   /** What the settings page calls it while it runs. */
   label = "assistant",
 ): Promise<{ text: string; failed: boolean; turns: number; stopped: boolean }> {
@@ -1474,7 +1474,7 @@ async function unattendedTurn(
   prompt: string,
   memberId: string,
   mayConvene: boolean,
-  own: { model: string; effort: string; systemPrompt: string } | null,
+  own: { model: string; effort: string; systemPrompt: string; schema?: object } | null,
   label: string,
 ): Promise<{ text: string; failed: boolean; turns: number; stopped: boolean }> {
   // The queue above is what keeps this to one at a time; this is the invariant
@@ -1506,6 +1506,7 @@ async function unattendedTurn(
     // is nothing more to name here.
     tools: own ? [] : null,
     timeoutMs: TURN_TIMEOUTS.chair,
+    ...(own?.schema ? { jsonSchema: own.schema } : {}),
   };
   unattendedRunning = true;
   const current = {

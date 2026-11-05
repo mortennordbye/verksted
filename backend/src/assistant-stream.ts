@@ -268,6 +268,9 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
       .filter(Boolean)
       .join("\n\n");
     for (const b of blocks) {
+      // A job answering to a schema answers through this. The answer arrives with
+      // the result below, and it is not a tool anybody asked for.
+      if (b.type === "tool_use" && b.name === "StructuredOutput") continue;
       if (b.type === "tool_use" && typeof b.name === "string") {
         state.pendingTools.push({ name: b.name, detail: toolDetail(b.input) });
         state.onTool?.(b.name);
@@ -350,6 +353,15 @@ function consumeEvent(event: Record<string, unknown>, state: StreamState): Entry
           : errors.trim() || null;
       state.error =
         detail ?? (typeof event.subtype === "string" ? event.subtype : "the run failed");
+    } else if (event.structured_output !== undefined && event.structured_output !== null) {
+      // What a --json-schema run said, as its words: it wrote no text of its own.
+      const entry: Entry = {
+        role: "assistant",
+        text: JSON.stringify(event.structured_output),
+        tools: state.pendingTools,
+      };
+      state.pendingTools = [];
+      return entry;
     }
   }
   return null;

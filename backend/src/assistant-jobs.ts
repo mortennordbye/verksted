@@ -114,11 +114,62 @@ export async function runJournal(log: Logger, day = journal.today()): Promise<bo
 }
 
 /**
- * One triage verdict, as parsed off a line of the reply.
+ * The list a job's JSON answer carries, or nothing.
  *
- * Exported for the test: the grammar is the whole contract with the model, and
- * a line that does not fit is skipped rather than guessed at.
+ * The CLI holds a --json-schema reply to its shape, but this is still text a model
+ * wrote after reading strangers' mail, so each job checks every value it uses, and
+ * a row that does not fit is skipped rather than guessed at.
  */
+function rows(text: string, key: string): Record<string, unknown>[] {
+  try {
+    const list = (JSON.parse(text) as Record<string, unknown>)[key];
+    return Array.isArray(list)
+      ? list.filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+
+const OBJECT = { type: "object", additionalProperties: false } as const;
+const STRING = { type: "string" } as const;
+const answerOf = (key: string, properties: Record<string, object>) => ({
+  ...OBJECT,
+  required: [key],
+  properties: {
+    [key]: {
+      type: "array",
+      items: { ...OBJECT, required: Object.keys(properties), properties },
+    },
+  },
+});
+
+const TRIAGE_SCHEMA = answerOf("verdicts", {
+  id: STRING,
+  urgency: { type: "string", enum: ["attention", "new", "quiet"] },
+  summary: STRING,
+  loop: { type: ["string", "null"] },
+  new_loop: { type: ["string", "null"] },
+  new_loop_due: { type: ["string", "null"] },
+});
+const CATALOGUE_SCHEMA = answerOf("documents", {
+  path: STRING,
+  line: STRING,
+  dates: {
+    type: "array",
+    items: { ...OBJECT, required: ["on", "what"], properties: { on: STRING, what: STRING } },
+  },
+});
+const LEARNING_SCHEMA = answerOf("rules", { slug: STRING, rule: STRING });
+const COMPACTION_SCHEMA = answerOf("replacements", {
+  slug: STRING,
+  replaces: { type: "array", items: STRING },
+  fact: STRING,
+});
+
+/** One triage verdict, as read off the reply. Exported for the test. */
 export interface Verdict {
   id: string;
   urgency: FeedUrgency;
@@ -128,22 +179,23 @@ export interface Verdict {
 
 export function parseVerdicts(text: string): Verdict[] {
   const out: Verdict[] = [];
-  for (const raw of text.split("\n")) {
-    const parts = raw.split("\t").map((p) => p.trim());
-    if (parts.length < 3) continue;
-    const [id, urgency = "", summary = "", loop = "-"] = parts;
+  for (const row of rows(text, "verdicts")) {
+    const id = str(row.id);
+    const urgency = str(row.urgency);
     if (!id || !["attention", "new", "quiet"].includes(urgency)) continue;
-    let ref: Verdict["loop"] = null;
-    if (loop.startsWith("new:")) {
-      const [what, due = "-"] = loop
-        .slice(4)
-        .split("|")
-        .map((p) => p.trim());
-      if (what) ref = { open: what, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null };
-    } else if (loop && loop !== "-") {
-      ref = { slug: loop };
-    }
-    out.push({ id, urgency: urgency as FeedUrgency, summary, loop: ref });
+    const due = str(row.new_loop_due);
+    const opens = str(row.new_loop);
+    const slug = str(row.loop);
+    out.push({
+      id,
+      urgency: urgency as FeedUrgency,
+      summary: str(row.summary),
+      loop: opens
+        ? { open: opens, due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null }
+        : slug
+          ? { slug }
+          : null,
+    });
   }
   return out;
 }
@@ -191,6 +243,7 @@ export async function runTriage(log: Logger, force = false, now = Date.now()): P
       model: env.ASSISTANT_MODEL,
       effort: env.ASSISTANT_EFFORT,
       systemPrompt: triagePrompt(name, profile, loops.render(open), rules),
+      schema: TRIAGE_SCHEMA,
     },
     "triage",
   );
@@ -265,15 +318,14 @@ export function parseCatalogue(
   text: string,
 ): { rel: string; line: string; dates: { on: string; what: string }[] }[] {
   const out: { rel: string; line: string; dates: { on: string; what: string }[] }[] = [];
-  for (const raw of text.split("\n")) {
-    const [rel, line, dates = "-"] = raw.split("\t").map((p) => p.trim());
+  for (const row of rows(text, "documents")) {
+    const rel = str(row.path);
+    const line = str(row.line);
     if (!rel || !line) continue;
-    const parsed: { on: string; what: string }[] = [];
-    for (const part of dates.split(";")) {
-      const m = /^(\d{4}-\d{2}-\d{2})\s*(.*)$/.exec(part.trim());
-      if (m?.[1]) parsed.push({ on: m[1], what: (m[2] ?? "").trim() || "date" });
-    }
-    out.push({ rel, line, dates: parsed });
+    const dates = (Array.isArray(row.dates) ? (row.dates as Record<string, unknown>[]) : [])
+      .map((d) => ({ on: str(d?.on), what: str(d?.what) || "date" }))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.on));
+    out.push({ rel, line, dates });
   }
   return out;
 }
@@ -307,6 +359,7 @@ export async function runCatalogue(log: Logger, now = Date.now()): Promise<numbe
       model: env.ASSISTANT_MODEL,
       effort: env.ASSISTANT_EFFORT,
       systemPrompt: cataloguePrompt(name),
+      schema: CATALOGUE_SCHEMA,
     },
     "catalogue",
   );
@@ -400,6 +453,7 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
       model: env.ASSISTANT_MODEL,
       effort: env.ASSISTANT_EFFORT,
       systemPrompt: learningPrompt(name, await sortingRules()),
+      schema: LEARNING_SCHEMA,
     },
     "learning",
   );
@@ -409,8 +463,9 @@ export async function runLearning(log: Logger, day = journal.today()): Promise<n
     return 0;
   }
   let proposed = 0;
-  for (const raw of text.split("\n")) {
-    const [slug, rule] = raw.split("\t").map((p) => p.trim());
+  for (const row of rows(text, "rules")) {
+    const slug = str(row.slug);
+    const rule = str(row.rule);
     if (!slug || !rule) continue;
     try {
       await memory.propose({
@@ -468,6 +523,7 @@ export async function runCompaction(log: Logger): Promise<number> {
       model: env.ASSISTANT_MODEL,
       effort: env.ASSISTANT_EFFORT,
       systemPrompt: compactionPrompt(name),
+      schema: COMPACTION_SCHEMA,
     },
     "compaction",
   );
@@ -477,11 +533,12 @@ export async function runCompaction(log: Logger): Promise<number> {
     return 0;
   }
   let proposed = 0;
-  for (const raw of text.split("\n")) {
-    const [slug, olds, fact] = raw.split("\t").map((p) => p.trim());
-    if (!slug || !olds || !fact) continue;
+  for (const row of rows(text, "replacements")) {
+    const slug = str(row.slug);
+    const fact = str(row.fact);
+    if (!slug || !fact || !Array.isArray(row.replaces)) continue;
     // Only facts that are there: a name the model invented replaces nothing.
-    const named = olds.split(",").flatMap((s) => bySlug.get(s.trim()) ?? []);
+    const named = row.replaces.flatMap((s) => bySlug.get(str(s)) ?? []);
     const [first] = named;
     if (!first) continue;
     const replaces = named.map((f) => f.slug);

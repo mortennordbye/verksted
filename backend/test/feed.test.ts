@@ -791,13 +791,27 @@ describe("the pollers", () => {
 
 describe("triage verdicts", () => {
   it("are read off tab-separated lines, and a bad line is skipped", () => {
-    const text = [
-      "github:1\tattention\tReview asked for on #97; two files.\t-",
-      "github:2\tquiet\tRenovate bumped a patch.\tnew: reply to Kari | 2026-09-02",
-      "github:3\tnew\tCI on your branch.\trenew-the-domain",
-      "not a verdict at all",
-      "github:4\tloud\tno such urgency\t-",
-    ].join("\n");
+    const text = JSON.stringify({
+      verdicts: [
+        {
+          id: "github:1",
+          urgency: "attention",
+          summary: "Review asked for on #97; two files.",
+          loop: null,
+          new_loop: null,
+        },
+        {
+          id: "github:2",
+          urgency: "quiet",
+          summary: "Renovate bumped a patch.",
+          new_loop: "reply to Kari",
+          new_loop_due: "2026-09-02",
+        },
+        { id: "github:3", urgency: "new", summary: "CI on your branch.", loop: "renew-the-domain" },
+        "not a verdict at all",
+        { id: "github:4", urgency: "loud", summary: "no such urgency" },
+      ],
+    });
     expect(jobs.parseVerdicts(text)).toEqual([
       {
         id: "github:1",

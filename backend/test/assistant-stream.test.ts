@@ -332,3 +332,35 @@ describe("where a turn's wait went", () => {
     expect(timingOf(state, 5)).toMatchObject({ init: null, firstToken: null, tools: [] });
   });
 });
+
+describe("a job answering to a schema", () => {
+  it("records what the result carries as its words, with no tool shown for it", () => {
+    const state = newStreamState();
+    consumeChunk(
+      `${assistant([{ type: "tool_use", id: "t1", name: "StructuredOutput", input: {} }])}\n`,
+      state,
+    );
+    const answer = { rules: [{ slug: "a", rule: "b" }] };
+
+    const [entry] = consumeChunk(
+      `${JSON.stringify({ type: "result", subtype: "success", structured_output: answer })}\n`,
+      state,
+    );
+
+    expect(entry.text).toBe(JSON.stringify(answer));
+    expect(entry.tools).toEqual([]);
+    expect(state.pendingTools).toEqual([]);
+  });
+
+  it("ignores it on a failed run", () => {
+    const state = newStreamState();
+
+    const got = consumeChunk(
+      `${JSON.stringify({ type: "result", is_error: true, result: "no", structured_output: {} })}\n`,
+      state,
+    );
+
+    expect(got).toEqual([]);
+    expect(state.error).toBe("no");
+  });
+});
