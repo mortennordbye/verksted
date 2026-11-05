@@ -135,31 +135,40 @@ export const UNATTENDED_DENIED_TOOLS = [...DENIED_TOOLS, "WebFetch", "WebSearch"
  * judgement on those numbers, an unattended run's finance watch, or a member
  * asked by name.
  *
- * The deny list is the half that works. An allow list only auto-approves, and
- * `mcp__headroom` can only be allowed whole; verksted's own server is narrowed
- * per member through VK_TOOLS, and headroom's has no such switch. Naming the
- * tools individually in --disallowed-tools does hold — verified against the
- * CLI, which refuses the call rather than merely leaving it unapproved.
+ * The reads are named one by one, because under `--permission-mode dontAsk` a
+ * call no allow rule covers is refused before it reaches the server (checked
+ * against the real CLI, 2.1.318). Allowing the server whole auto-approved every
+ * tool on it, and a deny list only stopped the writes somebody remembered to
+ * name. A tool headroom adds later is refused until it is added here.
  *
- * What is denied is every write, so the advisor cannot move a budget it was
- * only asked about, and `get_raw_data`, which returns the whole database when
- * the aggregates it keeps are what advice is actually made of. That second one
- * is not about trust: this advisor reads the web, and a page that talks it into
- * something can only carry out what the advisor was able to fetch.
+ * A write goes through a card in the app, not through this. The two reads denied
+ * outright each return the whole database, when the aggregates are what advice
+ * is made of: a page that talks a turn into something can only carry out what
+ * the turn was able to fetch.
  */
 export const HEADROOM_MEMBER = "ariel";
-const HEADROOM_DENIED = [
-  "set_category_budget",
-  "add_goal",
-  "update_goal",
-  "add_fixed_expense",
-  "update_fixed_expense",
-  "update_assumptions",
-  "set_ai_context",
-  "set_profile",
-  "restore_revision",
-  "get_raw_data",
-].map((t) => `mcp__headroom__${t}`);
+const HEADROOM_TOOL = (t: string) => `mcp__headroom__${t}`;
+export const HEADROOM_READS = [
+  "get_assets_and_debts",
+  "get_budget_summary",
+  "get_debt_analysis",
+  "get_employer_cost",
+  "get_forecast",
+  "get_home_valuation",
+  "get_housing",
+  "get_mortgage",
+  "get_overview",
+  "get_pension",
+  "get_recommendations",
+  "get_salary_and_tax",
+  "get_savings_and_goals",
+  "get_spending_analysis",
+  "get_year_review",
+  "list_history",
+  "query_transactions",
+  "what_if",
+].map(HEADROOM_TOOL);
+const HEADROOM_DENIED = ["get_raw_data", "get_history_revision"].map(HEADROOM_TOOL);
 
 /** Its own repo's server, run from the volume: nothing here is a second copy. */
 const HEADROOM_SERVER = path.join(env.REPOS_DIR, "headroom");
@@ -402,7 +411,7 @@ export function policyFor(member: CouncilMember): ToolPolicy {
   const reads = member.web && !member.chair ? [] : BUILTIN_READ;
   return {
     builtins: [...reads, ...web],
-    allowed: [...web, "mcp__verksted", ...browser, ...(headroom ? ["mcp__headroom"] : [])],
+    allowed: [...web, "mcp__verksted", ...browser, ...(headroom ? HEADROOM_READS : [])],
     // The chair keeps every tool, so it is offered the server unfiltered; an
     // advisor is offered exactly what its file names — which council-store has
     // already taken anything private out of, if this member reads the web.
@@ -417,13 +426,13 @@ export function policyFor(member: CouncilMember): ToolPolicy {
 
 /**
  * What a member may touch on a run nobody is reading: the unattended set, and
- * for the one that reads headroom, headroom's reads. The writes and the raw
- * dump stay denied, exactly as when someone is watching.
+ * for the one that reads headroom, headroom's named reads, exactly as when
+ * someone is watching.
  */
 export function unattendedPolicy(member: CouncilMember): Pick<ToolPolicy, "allowed" | "denied"> {
   const headroom = member.id === HEADROOM_MEMBER;
   return {
-    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...(headroom ? ["mcp__headroom"] : [])],
+    allowed: [...UNATTENDED_ALLOWED_TOOLS, ...(headroom ? HEADROOM_READS : [])],
     denied: [...UNATTENDED_DENIED_TOOLS, ...(headroom ? HEADROOM_DENIED : [])],
   };
 }

@@ -754,6 +754,26 @@ describe("the advisor that reads headroom", () => {
     await writeVars({ HEADROOM_URL: "https://headroom.example", HEADROOM_PASSWORD: "hunter2" });
   });
 
+  /**
+   * The whole server on the allow list is what let 19 writes through while a
+   * deny list named nine others, so this pins the shape rather than some names:
+   * each entry is one named tool, and each is a read. `dontAsk` refuses the rest.
+   */
+  function expectReadsOnly(argv: string[]) {
+    const entries = argv[argv.indexOf("--allowed-tools") + 1]
+      .split(" ")
+      .filter((t) => t.startsWith("mcp__headroom"));
+    expect(entries).toContain("mcp__headroom__get_budget_summary");
+    for (const entry of entries) {
+      expect(entry).toMatch(/^mcp__headroom__(get|list|query|what_if)/);
+    }
+    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
+    expect(denied).toContain("mcp__headroom__get_raw_data");
+    expect(denied).toContain("mcp__headroom__get_history_revision");
+    expect(entries).not.toContain("mcp__headroom__get_raw_data");
+    expect(entries).not.toContain("mcp__headroom__get_history_revision");
+  }
+
   it("keeps headroom on a run nobody is reading, and keeps it read-only there", async () => {
     // The finance watch is a schedule Ariel answers at 07:30; without this it
     // would answer from nothing. The writes and the raw dump stay denied.
@@ -765,10 +785,11 @@ describe("the advisor that reads headroom", () => {
 
     const argv = callsFor("Ariel")[0];
     expect(serversIn(argv)).toContain("headroom");
-    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
+    const allowed = argv[argv.indexOf("--allowed-tools") + 1];
+    expect(allowed).toContain("mcp__headroom__get_budget_summary");
+    expect(allowed).not.toContain("mcp__headroom__set_category_budget");
     const denied = argv[argv.indexOf("--disallowed-tools") + 1];
     expect(denied).toContain("mcp__headroom__get_raw_data");
-    expect(denied).toContain("mcp__headroom__set_category_budget");
     expect(denied).toContain("WebFetch");
   });
 
@@ -797,26 +818,14 @@ describe("the advisor that reads headroom", () => {
     await say("how is the budget looking?");
 
     const [argv] = callsFor("Ariel");
-    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
-    // Named one by one, because the server can only be *allowed* whole. This is
-    // the half that refuses the call rather than merely leaving it unapproved.
-    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
-    expect(denied).toContain("mcp__headroom__set_category_budget");
-    expect(denied).toContain("mcp__headroom__restore_revision");
-    // The one read that returns everything, denied for what it would cost an
-    // advisor that also reads the web.
-    expect(denied).toContain("mcp__headroom__get_raw_data");
-    expect(denied).not.toContain("mcp__headroom__get_budget_summary");
+    expectReadsOnly(argv);
   });
 
   it("lets the chair read headroom and not write it either", async () => {
     await say("how is the budget looking?");
 
     const [argv] = fake.argvFor("claude");
-    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__headroom");
-    const denied = argv[argv.indexOf("--disallowed-tools") + 1];
-    expect(denied).toContain("mcp__headroom__set_category_budget");
-    expect(denied).toContain("mcp__headroom__get_raw_data");
+    expectReadsOnly(argv);
   });
 });
 
