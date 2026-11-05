@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AssistantFrame, AssistantThread } from "../../shared/api";
-import { adopt, useAssistantStream } from "../src/useAssistantStream";
+import { adopt, applyFrame, useAssistantStream } from "../src/useAssistantStream";
 
 /**
  * A socket that can be dropped on purpose.
@@ -276,5 +276,61 @@ describe("a POST's answer, against the thread already held", () => {
       entries: [entry("x", "user"), entry("y", "assistant")],
     };
     expect(adopt(other, accepted)).toBe(accepted);
+  });
+});
+
+describe("a frame on top of what is held", () => {
+  const entry = (id: string) => ({
+    id,
+    at: "2026-11-05T10:00:00Z",
+    role: "assistant" as const,
+    text: id,
+    tools: [],
+  });
+  const base = (over: Partial<AssistantThread> = {}) =>
+    ({
+      conversationId: "c",
+      status: "thinking",
+      entries: [entry("a")],
+      ...over,
+    }) as AssistantThread;
+  const frame = (over: Partial<AssistantFrame>) =>
+    ({ conversationId: "c", status: "thinking", ...over }) as AssistantFrame;
+
+  it("adds new entries to the end and keeps the old ones by reference", () => {
+    const prev = base();
+
+    const next = applyFrame(prev, frame({ appended: [entry("b")], after: 1 })) as AssistantThread;
+
+    expect(next.entries.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(next.entries[0]).toBe(prev.entries[0]);
+  });
+
+  it("keeps the same array when nothing was said", () => {
+    const prev = base();
+
+    expect((applyFrame(prev, frame({})) as AssistantThread).entries).toBe(prev.entries);
+  });
+
+  it("adds to the reply being written", () => {
+    const next = applyFrame(
+      base({ live: "Hello" }),
+      frame({ liveDelta: " world", liveFrom: 5 }),
+    ) as AssistantThread;
+
+    expect(next.live).toBe("Hello world");
+  });
+
+  it("clears the reply when a frame no longer carries one", () => {
+    expect(
+      (applyFrame(base({ live: "Hello" }), frame({})) as AssistantThread).live,
+    ).toBeUndefined();
+  });
+
+  it.each([
+    ["entries it does not have", frame({ appended: [entry("c")], after: 5 })],
+    ["text it does not have", frame({ liveDelta: "x", liveFrom: 99 })],
+  ])("says it is out of step when asked to add to %s", (_what, f) => {
+    expect(typeof applyFrame(base(), f)).toBe("symbol");
   });
 });

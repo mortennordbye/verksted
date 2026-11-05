@@ -1189,7 +1189,15 @@ export interface AssistantQueued {
  * A socket is always sent a whole thread first, so there is nothing to patch
  * onto that has not arrived.
  */
-export type AssistantFrame = Omit<AssistantThread, "entries"> & { entries?: AssistantEntry[] };
+export type AssistantFrame = Omit<AssistantThread, "entries"> & {
+  entries?: AssistantEntry[];
+  /** New entries to add to the end, and how many the client should already hold. */
+  appended?: AssistantEntry[];
+  after?: number;
+  /** More of `live`, and how long the client's copy should already be. */
+  liveDelta?: string;
+  liveFrom?: number;
+};
 
 /**
  * One call the assistant made that changed something, as the tool log keeps

@@ -487,12 +487,14 @@ function warmChair(): void {
  * state is the true one — so a pending announcement is simply replaced.
  */
 const ANNOUNCE_MS = 100;
+const THINKING_SENT = 500;
 
 async function push(live: LiveView | null): Promise<void> {
   const thread: AssistantThread = {
     ...(await readThread()),
     ...(live?.text ? { live: live.text } : {}),
-    ...(live?.thinking ? { liveThinking: live.thinking } : {}),
+    // Only ever drawn as its tail, and it grows for as long as the model thinks.
+    ...(live?.thinking ? { liveThinking: live.thinking.slice(-THINKING_SENT) } : {}),
     ...(live?.tools.length ? { liveTools: live.tools } : {}),
   };
   for (const fn of chat.listeners) fn(thread);

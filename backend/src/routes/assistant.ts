@@ -11,6 +11,7 @@ import type {
   ToolLogDay,
   UnattendedRun,
 } from "../../../shared/api.js";
+import { frameFor, freshSent } from "../assistant-frames.js";
 import * as assistant from "../assistant.js";
 import { agentUser } from "../agent-user.js";
 import { assistantHome } from "../assistant-policy.js";
@@ -633,23 +634,13 @@ export default async function assistantRoutes(app: FastifyInstance) {
     // server's error event and takes the process down.
     socket.on("error", (err: unknown) => req.log.warn({ err }, "assistant socket error"));
 
-    /**
-     * The entries this socket was last sent, by identity.
-     *
-     * The thread module hands out the same array for as long as nothing has
-     * been appended, so this is an O(1) answer to "has anything been said
-     * since I last wrote to this socket" — and the frames in between carry no
-     * entries at all. A socket that has just opened has been sent nothing, so
-     * its first frame is always whole.
-     */
-    let sent: AssistantEntry[] | null = null;
+    // A socket that has just opened has been sent nothing, so its first frame is
+    // always whole, and a client that loses track reconnects to get one.
+    const sent = freshSent();
 
     const send = (thread: AssistantThread) => {
       if (socket.readyState !== socket.OPEN) return;
-      const frame: AssistantFrame =
-        thread.entries === sent ? { ...thread, entries: undefined } : thread;
-      sent = thread.entries;
-      socket.send(JSON.stringify(frame));
+      socket.send(JSON.stringify(frameFor(thread, sent)));
     };
 
     const unsubscribe = assistant.subscribe(send);
