@@ -4,6 +4,7 @@ import {
   liveView,
   newStreamState,
   parseStream,
+  timingOf,
   toolDetail,
 } from "../src/assistant-stream.js";
 
@@ -274,5 +275,60 @@ describe("toolDetail", () => {
   it("says nothing when there is nothing worth saying", () => {
     expect(toolDetail(undefined)).toBe("");
     expect(toolDetail({ unexpected: 1 })).toBe("");
+  });
+});
+
+describe("where a turn's wait went", () => {
+  it("reads the init, the first token, each tool's time and the cache off the stream", () => {
+    let clock = 1_000;
+    const state = newStreamState(undefined, () => clock);
+    const feed = (at: number, event: unknown) => {
+      clock = at;
+      consumeChunk(`${JSON.stringify(event)}\n`, state);
+    };
+
+    feed(1_500, {
+      type: "system",
+      subtype: "init",
+      mcp_servers: [{ name: "verksted", status: "connected" }],
+    });
+    feed(2_000, {
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "hm" } },
+    });
+    feed(2_500, {
+      type: "stream_event",
+      event: { type: "content_block_start", content_block: { type: "tool_use", name: "WebFetch" } },
+    });
+    feed(3_000, {
+      type: "assistant",
+      message: { content: [{ type: "tool_use", id: "t1", name: "WebFetch", input: {} }] },
+    });
+    // A string result is still a result, though it carries no picture.
+    feed(3_400, {
+      type: "user",
+      message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "page" }] },
+    });
+    feed(4_000, {
+      type: "result",
+      subtype: "success",
+      usage: { input_tokens: 1, cache_read_input_tokens: 90, cache_creation_input_tokens: 5 },
+    });
+
+    expect(timingOf(state, 1_000)).toEqual({
+      init: 500,
+      firstToken: 1_000,
+      firstTool: 1_500,
+      total: 3_000,
+      servers: [{ name: "verksted", status: "connected" }],
+      tools: [{ name: "WebFetch", ms: 400 }],
+      cacheRead: 90,
+      cacheWrite: 5,
+    });
+  });
+
+  it("leaves what never happened null, for a turn that died early", () => {
+    const state = newStreamState(undefined, () => 5);
+    expect(timingOf(state, 5)).toMatchObject({ init: null, firstToken: null, tools: [] });
   });
 });
