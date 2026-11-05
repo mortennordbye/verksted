@@ -258,6 +258,11 @@ A meeting always runs the same way:
    chair take the follow-up. It carries up to 4,000 characters of each answer,
    since it is re-sent with every later turn.
 
+There is no panel listing them: the composer completes `@id` and `@all`, and the
+chair convenes on its own when an opinion would change its answer. Members still
+holding the words their seed had when advisors did work are reworded once at boot
+(`retireWorkingWords` in `council-store.ts`); one somebody edited is left alone.
+
 Convening is a line of prose rather than a tool call, because a tool call would be
 a second round trip to say what the chair is already writing. How a reply asks for
 a meeting and what each speaker is handed live in `assistant-meeting.ts`. Stop

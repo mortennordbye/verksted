@@ -687,12 +687,13 @@ describe("the app in a real browser", () => {
   it("reaches the assistant's panels through the phone's more menu", async () => {
     await page.goto(`${base}/ai`, { waitUntil: "networkidle" });
     await settled(page);
-    expect(await page.getByRole("button", { name: "who is on the bench" }).isVisible()).toBe(false);
+    expect(await page.getByRole("button", { name: "the calendar, as a month" }).isVisible()).toBe(
+      false,
+    );
     await page.getByRole("button", { name: "more" }).click();
-    // The specialists, not the calendar: with no calendar set up here it
-    // answers 503, which the last test would count as a failure.
-    await page.getByRole("menuitemcheckbox", { name: "who is on the bench" }).click();
-    await page.getByRole("checkbox", { name: /Round table/ }).waitFor();
+    // Seen, not opened: with no calendar set up here it answers 503, which the
+    // last test would count as a failure.
+    await page.getByRole("menuitemcheckbox", { name: "the calendar" }).waitFor();
   });
 
   // The share and the thread, which had never been asked: both are reached

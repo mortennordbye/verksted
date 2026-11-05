@@ -161,4 +161,22 @@ describe("the roster", () => {
     for (const seed of store.SEEDS) expect(seed).toMatchObject({ tools: [], web: false });
     for (const m of await store.listMembers()) expect(m.tools).toEqual([]);
   });
+
+  it("rewords a seed still holding the words it had when advisors did work", async () => {
+    await store.seedCouncil();
+    const sophia = (await store.getMember("sophia"))!;
+    await store.saveMember({
+      ...sophia,
+      remit: "the web: looking things up, and nothing of yours",
+    });
+    const ariel = (await store.getMember("ariel"))!;
+    await store.saveMember({ ...ariel, remit: "money, the way I put it" });
+
+    await store.seedCouncil();
+
+    expect((await store.getMember("sophia"))!.remit).toBe(
+      store.SEEDS.find((s) => s.id === "sophia")!.remit,
+    );
+    expect((await store.getMember("ariel"))!.remit).toBe("money, the way I put it");
+  });
 });

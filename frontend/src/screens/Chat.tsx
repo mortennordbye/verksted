@@ -5,9 +5,8 @@ import type { AssistantThread, CouncilMember, CreatedSession } from "../../../sh
 import { agoLabel, api, usePoll } from "../api";
 import { scrollBehavior } from "../motion";
 import { threadCost } from "../threadCost";
-import Dock, { BrowserView, DESK } from "../components/assistant/Dock";
+import Dock, { BrowserView } from "../components/assistant/Dock";
 import Month from "../components/assistant/Month";
-import People from "../components/assistant/People";
 import ThreadRail from "../components/assistant/ThreadRail";
 import Threads from "../components/assistant/Threads";
 import ComposerMenu, { useComposerMenu, type MenuItem } from "../components/chat/ComposerMenu";
@@ -35,14 +34,10 @@ import { useVisualViewport } from "../useVisualViewport";
 /**
  * The conversation, and the only room there is.
  *
- * One thread, whoever answers in it: the assistant alone, or a specialist it
- * brings in, whose answer lands as a card in their own colour. The council
- * was a second screen with a thread of its own; that made the person route
- * every question before asking it, so it is gone, and what it was for happens
- * here without being asked for. Addressing one of them by name is still
- * possible — typing `@id` first, or "ask" in the specialists panel, writes the
- * `@id` the server reads — but it is a shortcut past a decision that is made
- * for you, not one you have to make.
+ * One thread, and the chair does the work in it. When a second opinion would help,
+ * it convenes the council, whose answers land as cards in their own colour. Asking
+ * for one yourself is `@id` or `@all` at the start of a message, which the composer
+ * completes.
  *
  * The thread arrives whole over a websocket rather than being polled or
  * diffed: it is a few kilobytes, and a diff protocol would be the only
@@ -129,8 +124,6 @@ export default function Chat() {
    * down a bad tunnel it is the only sign the tap landed.
    */
   const [sending, setSending] = useState<{ stamp: number; text: string; after: number }[]>([]);
-  /** The next message is put to the specialists to talk over (C-26). */
-  const [roundTable, setRoundTable] = useState(false);
   /** The strongest model for the next message, and only that one. */
   const [think, setThink] = useState(false);
   const [browsing, setBrowsing] = useState(false);
@@ -139,7 +132,7 @@ export default function Chat() {
   // either: a hidden pane still streaming frames is the thing that switch
   // exists to avoid.
   // The calendar shares its half of the screen, one panel at a time.
-  const [panel, setPanel] = useState<"browser" | "calendar" | "people" | null>(null);
+  const [panel, setPanel] = useState<"browser" | "calendar" | null>(null);
   // Hands-free: replies are read out, and the microphone reopens when the
   // reading stops, so a whole exchange happens without touching the screen.
   const [voiceMode, setVoiceMode] = useState(false);
@@ -160,7 +153,7 @@ export default function Chat() {
   const { hits, jump } = useFindMarks(room, query, thread?.entries);
   // The roster changes when somebody edits it in settings, which is rarely, so
   // it is polled slowly rather than pushed: the header shows the chair, and a
-  // specialist's card is drawn in its own colour when one answers.
+  // council member's card is drawn in its own colour when one answers.
   const { data: roster } = usePoll<CouncilMember[]>("/api/council", 120_000);
   const members = roster ?? [];
   const byId = new Map(members.map((m) => [m.id, m]));
@@ -296,7 +289,6 @@ export default function Chat() {
           text: value || "(see image)",
           images,
           wait: false,
-          ...(roundTable ? { roundTable: true } : {}),
           ...(think ? { think: true } : {}),
         }),
       });
@@ -577,13 +569,6 @@ export default function Chat() {
                   className={WIDE}
                 />
               ))}
-              <ToolButton
-                icon="users"
-                on={panel === "people"}
-                title={panel === "people" ? "close the specialists" : "who is on the bench"}
-                onClick={() => setPanel((v) => (v === "people" ? null : "people"))}
-                className={WIDE}
-              />
               {/* Only once there is something to find: on a phone every
                   button here is taken from the chair's name. */}
               {turns > 0 && (
@@ -644,22 +629,15 @@ export default function Chat() {
                         read replies aloud
                       </DropdownMenu.CheckboxItem>
                     )}
-                    {(["browser", "calendar", "people"] as const).map((p) => (
+                    {(["browser", "calendar"] as const).map((p) => (
                       <DropdownMenu.CheckboxItem
                         key={p}
                         checked={panel === p}
                         onCheckedChange={() => setPanel((v) => (v === p ? null : p))}
                         className={MENU_ITEM}
                       >
-                        <Icon
-                          name={p === "browser" ? "globe" : p === "calendar" ? "calendar" : "users"}
-                          size={15}
-                        />
-                        {p === "browser"
-                          ? `${chair.name}'s browser`
-                          : p === "calendar"
-                            ? "the calendar"
-                            : "who is on the bench"}
+                        <Icon name={p === "browser" ? "globe" : "calendar"} size={15} />
+                        {p === "browser" ? `${chair.name}'s browser` : "the calendar"}
                       </DropdownMenu.CheckboxItem>
                     ))}
                     {turns > 0 && (
@@ -917,9 +895,7 @@ export default function Chat() {
                 ? "working… anything sent now waits its turn"
                 : think
                   ? "think harder: the strongest model, for this message"
-                  : roundTable
-                    ? "round table: the specialists talk this one over"
-                    : "Ask, or tell me something…"
+                  : "Ask, or tell me something…"
           }
           fieldRef={grow}
           className="shadow-[0_20px_60px_light-dark(rgba(26,32,27,.14),rgba(0,0,0,.55))]"
@@ -1023,28 +999,6 @@ export default function Chat() {
           escape
         >
           <Month refresh={thread?.entries.length ?? 0} />
-        </Dock>
-      )}
-      {panel === "people" && (
-        <Dock
-          title="Specialists"
-          sub={`who ${chair.name} brings in; ask one directly`}
-          onClose={() => setPanel(null)}
-          escape
-        >
-          <People
-            members={members}
-            roundTable={roundTable}
-            onRoundTable={setRoundTable}
-            onAsk={(id) => {
-              setText((t) => `@${id} ${t.replace(/^@[a-z][a-z0-9-]*\s*/i, "")}`);
-              // On a phone the panel is the whole screen, and the field the
-              // name just went into is under it.
-              if (!matchMedia(DESK).matches) {
-                setPanel(null);
-              }
-            }}
-          />
         </Dock>
       )}
     </div>
