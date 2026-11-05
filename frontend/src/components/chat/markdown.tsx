@@ -20,18 +20,20 @@ export const REMARK = [remarkGfm];
  * react-markdown builds React elements rather than HTML, so nothing here can
  * inject markup, and no raw-HTML plugin is added. The element map is the
  * styling: this app has no typography plugin, and a paragraph with browser
- * defaults inside a chat bubble looks broken.
+ * defaults looks broken.
  */
 export const MD: Components = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-  h1: ({ children }) => <h3 className="mt-3 mb-1.5 font-semibold first:mt-0">{children}</h3>,
-  h2: ({ children }) => <h3 className="mt-3 mb-1.5 font-semibold first:mt-0">{children}</h3>,
-  h3: ({ children }) => <h3 className="mt-3 mb-1.5 font-semibold first:mt-0">{children}</h3>,
-  ul: ({ children }) => <ul className="mb-2 list-disc pl-5 last:mb-0">{children}</ul>,
-  ol: ({ children }) => <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>,
-  li: ({ children }) => <li className="mb-0.5">{children}</li>,
+  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+  h1: ({ children }) => <h3 className="mt-5 mb-2 text-h1 font-semibold first:mt-0">{children}</h3>,
+  h2: ({ children }) => <h3 className="mt-5 mb-2 text-h2 font-semibold first:mt-0">{children}</h3>,
+  h3: ({ children }) => (
+    <h3 className="mt-4 mb-1.5 text-h3 font-semibold first:mt-0">{children}</h3>
+  ),
+  ul: ({ children }) => <ul className="mb-3 list-disc pl-5 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-3 list-decimal pl-5 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li className="mb-1">{children}</li>,
   code: ({ children }) => (
-    <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-[12.5px]">{children}</code>
+    <code className="rounded bg-surface-2 px-1 py-0.5 font-mono text-code">{children}</code>
   ),
   // A fenced block: the <code> above is still inside it, so the padding and
   // background come off there to avoid a box in a box.
@@ -55,7 +57,7 @@ export const MD: Components = {
   // the chance to not tap it. The alt text stays, so nothing vanishes silently.
   img: ({ alt }) => <span className="text-faint italic">{alt || "image"}</span>,
   blockquote: ({ children }) => (
-    <blockquote className="mb-2 border-l-2 border-line pl-3 text-muted last:mb-0">
+    <blockquote className="mb-3 border-l-2 border-line pl-3 text-muted last:mb-0">
       {children}
     </blockquote>
   ),
@@ -63,17 +65,17 @@ export const MD: Components = {
   // phone are wider than the screen whatever is done to them, so it scrolls in
   // its own box rather than pushing the whole conversation sideways.
   table: ({ children }) => (
-    <div className="mb-2 overflow-x-auto last:mb-0">
-      <table className="w-full border-collapse text-[12.5px]">{children}</table>
+    <div className="mb-3 overflow-x-auto rounded-lg border border-line last:mb-0">
+      <table className="w-full border-collapse text-[13px]">{children}</table>
     </div>
   ),
   th: ({ children }) => (
-    <th className="border-b border-line px-2 py-1 text-left font-semibold whitespace-nowrap">
+    <th className="border-b border-line bg-surface-2 px-2.5 py-1.5 text-left font-semibold whitespace-nowrap">
       {children}
     </th>
   ),
   td: ({ children }) => (
-    <td className="border-b border-line/60 px-2 py-1 align-top text-muted">{children}</td>
+    <td className="border-t border-line/60 px-2.5 py-1.5 align-top text-muted">{children}</td>
   ),
   del: ({ children }) => <del className="text-faint line-through">{children}</del>,
 };
