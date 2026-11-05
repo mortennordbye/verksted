@@ -1087,7 +1087,12 @@ export type BrowserServerMsg =
 /** A tool's result as a picture: figures picked from what the tool itself returned. */
 export type AssistantCard =
   | { kind: "budget"; month: string; income: number; fixed: number; saved: number; rate?: string }
-  | { kind: "volume"; weeks: { weekStart: string; volumeKg: number; sessions: number }[] };
+  | { kind: "volume"; weeks: { weekStart: string; volumeKg: number; sessions: number }[] }
+  | {
+      kind: "spending";
+      month: string;
+      categories: { category: string; amount: number; budget?: number }[];
+    };
 
 export interface AssistantToolCall {
   name: string;

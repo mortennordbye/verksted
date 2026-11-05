@@ -46,6 +46,33 @@ describe("a card from a tool's result", () => {
     });
   });
 
+  it("takes the top categories of a spending analysis, with a budget where one is set", () => {
+    const card = cardFor(
+      "mcp__headroom__get_spending_analysis",
+      JSON.stringify({
+        monthKey: "2026-11",
+        byCategory: [
+          { category: "groceries", amount: 6200 },
+          { category: "transport", amount: 1800 },
+          { category: 42, amount: 5 },
+        ],
+        budgetProgress: [
+          { category: "groceries", budget: 7000, spent: 6200, pct: 88, over: false },
+        ],
+        recurringUntracked: [{ merchant: "not wanted here" }],
+      }),
+    );
+
+    expect(card).toEqual({
+      kind: "spending",
+      month: "2026-11",
+      categories: [
+        { category: "groceries", amount: 6200, budget: 7000 },
+        { category: "transport", amount: 1800 },
+      ],
+    });
+  });
+
   it("draws nothing for a tool it does not know, or a result that is not JSON", () => {
     expect(cardFor("mcp__headroom__get_raw_data", JSON.stringify(BUDGET))).toBeUndefined();
     expect(cardFor("mcp__headroom__get_budget_summary", "Error: asleep")).toBeUndefined();

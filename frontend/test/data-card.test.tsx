@@ -35,4 +35,23 @@ describe("a tool's result as a picture", () => {
     expect(titles).toHaveLength(2);
     expect(titles[1]).toMatch(/9\s?000 kg, 2 sessions/);
   });
+
+  it("ranks spending by category, with the budget beside the amount", () => {
+    render(
+      <DataCard
+        card={{
+          kind: "spending",
+          month: "2026-11",
+          categories: [
+            { category: "groceries", amount: 6200, budget: 7000 },
+            { category: "transport", amount: 1800 },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Spending, November 2026")).toBeTruthy();
+    expect(screen.getByTitle(/groceries: 6\s?200 kr of a 7\s?000 kr budget/)).toBeTruthy();
+    expect(screen.getByText("transport")).toBeTruthy();
+  });
 });

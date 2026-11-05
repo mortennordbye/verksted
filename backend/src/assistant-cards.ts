@@ -38,8 +38,34 @@ function volume(data: Record<string, unknown>): AssistantCard | null {
   return weeks.length ? { kind: "volume", weeks } : null;
 }
 
+/** How many categories a spending card shows: the rest are the long tail. */
+const TOP_CATEGORIES = 6;
+
+function spending(data: Record<string, unknown>): AssistantCard | null {
+  const month = short(data.monthKey, 10);
+  if (!month || !Array.isArray(data.byCategory)) return null;
+  const budgets = new Map<string, number>();
+  for (const b of Array.isArray(data.budgetProgress)
+    ? (data.budgetProgress as Record<string, unknown>[])
+    : []) {
+    const category = short(b?.category);
+    const budget = num(b?.budget);
+    if (category && budget !== null) budgets.set(category, budget);
+  }
+  const categories = (data.byCategory as Record<string, unknown>[])
+    .map((c) => ({ category: short(c?.category), amount: num(c?.amount) }))
+    .filter((c): c is { category: string; amount: number } => !!c.category && c.amount !== null)
+    .slice(0, TOP_CATEGORIES)
+    .map((c) => {
+      const budget = budgets.get(c.category);
+      return budget === undefined ? c : { ...c, budget };
+    });
+  return categories.length ? { kind: "spending", month, categories } : null;
+}
+
 const BUILDERS: Record<string, (data: Record<string, unknown>) => AssistantCard | null> = {
   mcp__headroom__get_budget_summary: budget,
+  mcp__headroom__get_spending_analysis: spending,
   mcp__logeverylift__weekly_volume: volume,
 };
 
