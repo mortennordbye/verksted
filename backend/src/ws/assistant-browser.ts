@@ -86,6 +86,22 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
       // Before the answer, as for the MCP server's own private reads. A browser
       // that will not close is a read that does not happen.
       if (ruling.closeBrowser) await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
+      // The browser starts on its first call rather than with every turn:
+      // playwright-mcp connects to the endpoint only when a tool needs it.
+      if (req.body.tool_name.startsWith("mcp__browser__")) {
+        try {
+          await browser.ensureBrowser(browser.ASSISTANT_BROWSER_ID, browser.ASSISTANT_CDP_PORT);
+        } catch (err) {
+          req.log.error(err, "assistant browser launch failed");
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse",
+              permissionDecision: "deny",
+              permissionDecisionReason: "The browser could not be started.",
+            },
+          };
+        }
+      }
       return {};
     },
   );
@@ -98,10 +114,9 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
     if (browsingBarred(turn)) {
       return reply.code(403).send({ error: "this turn has read something private" });
     }
-    // Not counted as reaching the web. The CLI starts every MCP server before
-    // it asks the model anything, so this runs at the start of every chair
-    // turn, and counting it refused each of them the calendar and the mail
-    // before a word was said. A browser call is what counts (noteTool).
+    // Not counted as reaching the web: starting the browser reads nothing, and
+    // counting it refused the calendar and the mail before a word was said. A
+    // browser call is what counts (the gate).
     try {
       await browser.ensureBrowser(browser.ASSISTANT_BROWSER_ID, browser.ASSISTANT_CDP_PORT);
     } catch (err) {

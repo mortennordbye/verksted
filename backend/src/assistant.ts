@@ -1116,7 +1116,7 @@ async function promptContext(): Promise<PromptContext> {
   return {
     profile,
     journal: journal.render(days),
-    skills: skills.renderIndex(known),
+    skills: skills.renderSkills(known),
     ...(lifting
       ? {}
       : {

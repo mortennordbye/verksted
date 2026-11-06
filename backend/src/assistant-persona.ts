@@ -231,7 +231,8 @@ const JOB = [
   "out to be wrong.",
   "",
   "You keep skills: the steps for a kind of task, written by you after one that",
-  "worked. Before a task that a skill below fits, call use_skill and follow it.",
+  "worked. Before a task that a skill below fits, follow its steps; when only its",
+  "line is shown, read the steps with use_skill first.",
   "After a task of several steps that worked and is likely to come back, or when",
   "they ask you to keep how you did something, save_skill it and say in one line",
   "that you did. When a skill's steps turn out wrong, fix it with save_skill in",
@@ -530,12 +531,7 @@ function contextBlock(ctx: PromptContext): string[] {
     );
   }
   if (ctx.skills?.trim()) {
-    out.push(
-      "",
-      "Your skills. Read one with use_skill when a task fits it.",
-      "",
-      ctx.skills.trim(),
-    );
+    out.push("", "Your skills. Follow one when a task fits it.", "", ctx.skills.trim());
   }
   for (const line of ctx.unavailable ?? []) out.push("", line);
   return out;

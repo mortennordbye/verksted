@@ -175,8 +175,24 @@ export const remove = (slug: string) => rm(dir(), slug);
 export const drop = (slug: string) => rm(proposedDir(), slug);
 
 /**
- * What the chair is told it knows how to do: one line per skill, newest first,
- * cut at the budget. A skill past the cut is still there for `use_skill`.
+ * While every skill's steps fit in this, the chair is given them in full, and a
+ * turn a skill fits needs no `use_skill` call: one model round fewer, which on a
+ * small question was a quarter of the time.
+ */
+export const INLINE_BUDGET_BYTES = 3000;
+
+/**
+ * What the chair is told it knows how to do. Every skill in full while they fit
+ * in `INLINE_BUDGET_BYTES`, and one line per skill once they do not.
+ */
+export function renderSkills(skills: Skill[]): string {
+  const full = skills.map((s) => `### ${s.slug}: ${s.description}\n${s.body}`).join("\n\n");
+  return Buffer.byteLength(full) <= INLINE_BUDGET_BYTES ? full : renderIndex(skills);
+}
+
+/**
+ * One line per skill, newest first, cut at the budget. A skill past the cut is
+ * still there for `use_skill`.
  */
 export function renderIndex(skills: Skill[]): string {
   const lines: string[] = [];
