@@ -261,10 +261,10 @@ describe("POST /api/assistant/messages", () => {
       expect(denied).toContain(tool);
     }
     expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__verksted");
-    // Stronger than either list: this is the set that exists. It is also what
-    // stops the CLI deferring tool schemas, which cost a whole ToolSearch round
-    // trip per turn before the assistant could look at anything.
-    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,WebFetch,WebSearch");
+    // Stronger than either list: this is the set that exists. ToolSearch is in
+    // it only for the browser's deferred tools; every other server is
+    // alwaysLoad, so a common turn makes no search round trip.
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,WebFetch,WebSearch,ToolSearch");
   });
 
   it("reads the web itself rather than asking somebody to", async () => {
@@ -299,17 +299,24 @@ describe("POST /api/assistant/messages", () => {
     expect(config.mcpServers.verksted.args).toEqual(["/etc/verksted/verksted-mcp.mjs"]);
   });
 
-  it("gives the chair its own browser, booted through the backend before it connects", async () => {
+  it("gives the chair its own browser, deferred and started only when it is used", async () => {
     await say("hello");
 
     const [argv] = fake.argvFor("claude");
     expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("mcp__browser");
     const config = JSON.parse(fs.readFileSync(argv[argv.indexOf("--mcp-config") + 1], "utf8")) as {
-      mcpServers: Record<string, { args: string[] }>;
+      mcpServers: Record<string, { args: string[]; alwaysLoad?: boolean }>;
     };
     const browserArgs = config.mcpServers.browser.args.join(" ");
-    expect(browserArgs).toContain("/api/assistant/browser/start");
+    // No boot in the wrapper: the gate starts Chromium before the first browser call.
+    expect(browserArgs).not.toContain("/api/assistant/browser/start");
     expect(browserArgs).toContain('--cdp-endpoint "$VK_BROWSER_CDP"');
+    // Its tools wait behind ToolSearch; the bench's own are always loaded, so a
+    // common turn makes no search call.
+    expect(config.mcpServers.browser.alwaysLoad).toBe(false);
+    expect(config.mcpServers.verksted.alwaysLoad).toBe(true);
+    expect(argv[argv.indexOf("--tools") + 1].split(",")).toContain("ToolSearch");
+    expect(argv[argv.indexOf("--allowed-tools") + 1]).toContain("ToolSearch");
   });
 
   it("runs on sonnet at medium effort unless the settings say otherwise", async () => {

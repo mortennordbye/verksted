@@ -182,6 +182,9 @@ export async function turnEnv(connectors: boolean): Promise<Record<string, strin
     }
   }
   out.HOME = assistantHome();
+  // Defers the tools of a server marked `alwaysLoad: false`. A speaker without
+  // ToolSearch among its built-ins gets every tool up front regardless.
+  out.ENABLE_TOOL_SEARCH = "true";
   const lifting = connectors ? await logeverylift.accessToken() : null;
   if (lifting) out.LOGEVERYLIFT_TOKEN = lifting;
   return out;
@@ -214,8 +217,10 @@ function mcpConfig(
   const lifting = held && liftingSignedIn;
   // The chair's own browser, never an advisor's and never unattended, for the
   // same reason as headroom: a briefing reads the bench, and the bench is
-  // local. Same wrapper claude-hooks.ts uses for a session's browser — boot it
-  // through the backend, then hand playwright-mcp the CDP endpoint it booted.
+  // local. Chromium is not started here: playwright-mcp connects to the CDP
+  // endpoint on its first call, and the gate starts the browser before that
+  // call runs (ws/assistant-browser.ts). Booting it here made every turn wait
+  // for a browser most turns never use.
   const browser = member === null && !unattended;
   // An empty list is a speaker that may call none of them: an advisor, and a
   // turn with a job of its own. Not the same as null, which is the chair and means every
@@ -228,12 +233,10 @@ function mcpConfig(
         ? {
             browser: {
               command: "sh",
-              args: [
-                "-c",
-                `curl -sf -X POST -H "x-vk-turn: ${turn}" ` +
-                  `http://127.0.0.1:${env.PORT}/api/assistant/browser/start >/dev/null 2>&1; ` +
-                  'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"',
-              ],
+              args: ["-c", 'exec playwright-mcp --cdp-endpoint "$VK_BROWSER_CDP"'],
+              // Its 26 tool definitions wait behind ToolSearch, and the CLI does
+              // not hold the first model call for a deferred server.
+              alwaysLoad: false,
             },
           }
         : {}),
@@ -241,6 +244,7 @@ function mcpConfig(
         ? {
             headroom: {
               ...headroomCommand(),
+              alwaysLoad: true,
               // No env block: HEADROOM_URL and HEADROOM_PASSWORD are settings
               // vars, and an MCP server inherits the environment the CLI was
               // spawned with — which is where agentEnv() already puts them.
@@ -255,6 +259,7 @@ function mcpConfig(
             logeverylift: {
               type: "http",
               url: logeverylift.MCP_URL,
+              alwaysLoad: true,
               // The name of the variable, not the token: turnEnv puts a current
               // one in the environment, and the CLI fills it in (checked against
               // 2.1.318). This file stays free of anything worth stealing.
@@ -267,6 +272,7 @@ function mcpConfig(
             verksted: {
               command: "node",
               args: ["/etc/verksted/verksted-mcp.mjs"],
+              alwaysLoad: true,
               env: {
                 VK_API: `http://127.0.0.1:${env.PORT}`,
                 // Read by the server itself, which then offers only the tools that
@@ -415,8 +421,10 @@ export function policyFor(member: CouncilMember): ToolPolicy {
   // The chair keeps the repos and the web together, and what holds it is the
   // rule in assistant-taint.ts rather than a missing tool.
   return {
-    builtins: [...BUILTIN_READ, ...WEB_TOOLS],
-    allowed: [...WEB_TOOLS, "mcp__verksted", "mcp__browser", ...CONNECTOR_READS],
+    // ToolSearch only for the browser's deferred tools; every other server is
+    // `alwaysLoad`, so the common turn makes no search call (see mcpConfig).
+    builtins: [...BUILTIN_READ, ...WEB_TOOLS, "ToolSearch"],
+    allowed: [...WEB_TOOLS, "ToolSearch", "mcp__verksted", "mcp__browser", ...CONNECTOR_READS],
     tools: null,
     denied: [...DENIED_TOOLS, ...CONNECTOR_DENIED],
   };

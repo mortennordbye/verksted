@@ -89,6 +89,31 @@ describe("the store", () => {
   });
 });
 
+describe("what the chair is given", () => {
+  const skill = (slug: string, body: string) => ({
+    slug,
+    description: `when ${slug}`,
+    body,
+    source: null,
+    createdAt: null,
+    updatedAt: null,
+  });
+
+  it("gives short skills in full, so a turn needs no use_skill call", () => {
+    const text = store.renderSkills([skill("budget", "1. headroom_budget")]);
+
+    expect(text).toContain("1. headroom_budget");
+  });
+
+  it("falls back to the index once the steps no longer fit", () => {
+    const long = "x".repeat(store.INLINE_BUDGET_BYTES);
+    const text = store.renderSkills([skill("a", long), skill("b", "short")]);
+
+    expect(text).not.toContain(long);
+    expect(text).toContain("- a: when a");
+  });
+});
+
 describe("the route", () => {
   it("saves a skill from a turn that read nothing written elsewhere", async () => {
     const res = await put("budget-check", { ...steps, turn: "turn-clean" });

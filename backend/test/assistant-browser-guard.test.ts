@@ -79,6 +79,24 @@ describe("a turn driven only by the person", () => {
     expect(refused(await gate("own-b", "mcp__logeverylift__recent_workouts"))).toBe(false);
   });
 
+  it("starts the browser on its first call, not with the turn", async () => {
+    launched.length = 0;
+
+    expect(refused(await gate("own-d", "WebSearch"))).toBe(false);
+    expect(launched).toEqual([]);
+
+    expect(refused(await gate("own-d", "mcp__browser__browser_navigate"))).toBe(false);
+    expect(launched).toEqual(["assistant"]);
+  });
+
+  it("starts no browser for a call it refuses", async () => {
+    await mail("own-e");
+    launched.length = 0;
+
+    expect(refused(await gate("own-e", "mcp__browser__browser_navigate"))).toBe(true);
+    expect(launched).toEqual([]);
+  });
+
   it("is never refused a read", async () => {
     expect((await mail("own-c")).statusCode).toBe(200);
     expect((await read("own-c", { private: true })).statusCode).toBe(200);
