@@ -5,25 +5,22 @@ what unblocks it / where the code lives.
 
 ## The assistant rework's loose ends
 
-- **What:** Four things the November 2026 rework left unverified or partial.
-  Training reads, the training cards and the training write cards have never run
-  against the real LogEveryLift: the sign-in is not done on the pod, and the workout
-  tools wait on logeverylift#188. A headroom write card has not been tapped against
-  real data. A tool written in the same message as text is stored before its result,
-  so a failure there gets no red mark and a card there is not drawn. And the CLI
-  compacting a thread on its own, as opposed to `/compact`, has not been seen.
-- **Why deferred:** The first two need the person: a consent page, a merge that
-  changes LogEveryLift's privacy policy, and a real write to the finances. The third
-  needs the entry held until its tool results arrive. The fourth needs a thread near
-  the context limit.
-- **Unblocked by:** Signing in under Settings, Sources and merging logeverylift#188,
-  then `make eval` (the four training cases and `across`; on 2026-11-06 the other
-  16 passed on the pod, `write-is-card` among them). One tapped
-  headroom card. Holding a mixed entry in `assistant-stream.ts` until its calls are
+- **What:** Three things the November 2026 rework left unverified or partial. The
+  training and headroom chart cards have not been looked at on a screen, and no
+  write card (headroom or LogEveryLift) has been tapped against real data. A tool
+  written in the same message as text is stored before its result, so a failure
+  there gets no red mark and a card there is not drawn. And the CLI compacting a
+  thread on its own, as opposed to `/compact`, has not been seen. The reads
+  themselves are verified: all 21 cases in `evals/assistant.json` passed on the pod
+  on 2026-11-06.
+- **Why deferred:** The first needs the person: a look at the cards and a real write
+  to their finances or training log. The second needs the entry held until its tool
+  results arrive. The third needs a thread near the context limit.
+- **Unblocked by:** Asking for training and spending on the phone and tapping one
+  write card. Holding a mixed entry in `assistant-stream.ts` until its calls are
   answered.
-- **Where:** `backend/src/logeverylift-auth.ts`, `backend/src/connector-client.ts`,
-  `backend/src/assistant-stream.ts`, `backend/src/assistant-cards.ts`,
-  `evals/assistant.json`.
+- **Where:** `backend/src/assistant-stream.ts`, `backend/src/assistant-cards.ts`,
+  `backend/src/routes/proposals.ts`, `evals/assistant.json`.
 
 ## The taint rule's remaining gaps
 
