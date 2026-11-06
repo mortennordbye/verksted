@@ -290,6 +290,24 @@ Facts arrive two ways, and the difference is the whole design:
 That gate is not optional. Memory is read by every future agent as its own
 instructions, so a fact nobody approved is an instruction nobody approved.
 
+## Skills
+
+Memory says how the person works. A skill says how a job is done: the steps the
+chair wrote for itself after a task that worked, one markdown file each under
+`SKILLS_DIR` (`backend/src/skills-store.ts`). The idea comes from Hermes Agent.
+
+- The chair's prompt carries only an index: one line per skill, newest first,
+  cut at 2,000 bytes. `use_skill` reads the steps when a task fits one, and
+  `list_skills` gives the whole list.
+- `save_skill` writes or rewrites one, and `forget_skill` removes one. All four
+  tools are the chair's alone. An unattended run may read skills, not write them.
+- The route (`routes/skills.ts`) decides if a write is kept. A turn that has read
+  no stranger's text saves it. A turn that has read a mail, a document or a page,
+  or a write with no turn, puts it in `proposed/`. It waits on the Settings,
+  Assistant tab until the person keeps or drops it. The check uses the backend's
+  own taint state (`isClean`), the same one the proposals route uses.
+- Limits: 50 skills, a 200-character description, 4,000 characters of steps.
+
 ## The turn nobody asked for
 
 A schedule can run the assistant instead of starting a session. It then has no
