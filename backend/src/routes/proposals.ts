@@ -1,8 +1,9 @@
 import { CONNECTORS } from "../assistant-connectors.js";
+import { isClean } from "../assistant-taint.js";
 import * as connector from "../connector-client.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import type { GmailRule, ProposalAction } from "../../../shared/api.js";
+import type { FeedItem, GmailRule, ProposalAction } from "../../../shared/api.js";
 import * as calendar from "../calendar.js";
 import * as feed from "../feed-store.js";
 import * as toolLog from "../tool-log.js";
@@ -381,7 +382,9 @@ async function snapshot(a: ProposalAction): Promise<ProposalAction> {
 }
 
 export default async function proposalRoutes(app: FastifyInstance) {
-  app.post<{ Body: { action: Record<string, unknown>; why?: string; quiet?: boolean } }>(
+  app.post<{
+    Body: { action: Record<string, unknown>; why?: string; quiet?: boolean; turn?: string };
+  }>(
     "/api/proposals",
     {
       schema: {
@@ -395,6 +398,10 @@ export default async function proposalRoutes(app: FastifyInstance) {
             // Filed from a screen the person is looking at, which shows the
             // card itself: no push to a phone to go and find it.
             quiet: { type: "boolean" },
+            // The assistant run that asked, from the environment the backend wrote.
+            // A run that has read nothing written outside this bench was driven by
+            // the person alone, so what it asks for is what they asked for.
+            turn: { type: "string", maxLength: 100 },
           },
         },
       },
@@ -434,6 +441,18 @@ export default async function proposalRoutes(app: FastifyInstance) {
         urgency: "attention",
         action,
       });
+      if (req.body.turn && isClean(req.body.turn)) {
+        try {
+          await runProposal(app, item, "the assistant, as asked");
+          return reply.code(201).send(await feed.get(id));
+        } catch (err) {
+          // Left as a card, so the person can see what was tried and tap it again.
+          req.log.warn(err, `proposal ${id} could not run as asked`);
+          return reply
+            .code(201)
+            .send({ ...item, failed: err instanceof Error ? err.message : String(err) });
+        }
+      }
       // The one push that is not triage's: a proposal is the assistant
       // asking, and asking is worth a phone.
       if (!req.body.quiet) {
@@ -454,26 +473,7 @@ export default async function proposalRoutes(app: FastifyInstance) {
     }
     if (item.state === "done") return reply.code(409).send({ error: `already ${item.did}` });
     try {
-      // A label is read again on the tap: what carries it now is what the
-      // delete takes it off, and what the log's undo puts it back on.
-      const action =
-        item.action.kind === "mail_label_delete" ? await snapshot(item.action) : item.action;
-      const did = await execute(app, action);
-      await feed.resolve(item.id, did);
-      // What the tap did, as a line of the assistant's log: the log is where
-      // a change is found and put back, and a card's change is one too.
-      await toolLog
-        .record({
-          turn: item.id,
-          speaker: "you, by card",
-          unattended: false,
-          tool: `card:${item.action.kind}`,
-          effect: "card",
-          args: action,
-          ok: true,
-          result: did,
-        })
-        .catch((err: unknown) => req.log.warn(err, "the tapped card could not be logged"));
+      await runProposal(app, item, "you, by card");
       return feed.get(item.id);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -495,6 +495,31 @@ export default async function proposalRoutes(app: FastifyInstance) {
     await feed.resolve(item.id, "dropped");
     return feed.get(item.id);
   });
+}
+
+/** Do what a proposal asks, mark it done, and log it as a change. */
+async function runProposal(app: FastifyInstance, item: FeedItem, by: string): Promise<string> {
+  if (!item.action) throw new Error("no action on this proposal");
+  // A label is read again before it goes: what carries it now is what the delete
+  // takes it off, and what the log's undo puts it back on.
+  const action =
+    item.action.kind === "mail_label_delete" ? await snapshot(item.action) : item.action;
+  const did = await execute(app, action);
+  await feed.resolve(item.id, did);
+  // A card's change is a change, and the log is where one is found and put back.
+  await toolLog
+    .record({
+      turn: item.id,
+      speaker: by,
+      unattended: false,
+      tool: `card:${item.action.kind}`,
+      effect: "card",
+      args: action,
+      ok: true,
+      result: did,
+    })
+    .catch((err: unknown) => app.log.warn(err, "the change could not be logged"));
+  return did;
 }
 
 /** Through the app's own routes, so their checks are these checks. */

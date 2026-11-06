@@ -43,8 +43,15 @@ const start = (turn?: string) =>
     ...(turn ? { headers: { "x-vk-turn": turn } } : {}),
   });
 
-const readPrivate = (turn: string) =>
-  app.inject({ method: "POST", url: "/api/assistant/turn/private", payload: { turn } });
+/** What the verksted server reports before serving a read. */
+const read = (turn: string, kind: { private?: boolean; outside?: boolean }) =>
+  app.inject({
+    method: "POST",
+    url: "/api/assistant/turn/private",
+    payload: { turn, private: false, outside: false, ...kind },
+  });
+
+const mail = (turn: string) => read(turn, { private: true, outside: true });
 
 const gate = (turn: string | null, tool: string) =>
   app.inject({
@@ -58,49 +65,74 @@ const refused = (res: { json: () => unknown }) =>
   (res.json() as { hookSpecificOutput?: { permissionDecision?: string } }).hookSpecificOutput
     ?.permissionDecision === "deny";
 
-describe("the gate a turn's web and private calls go through", () => {
-  it("refuses a fetch once the turn has read something private", async () => {
-    // The attack the rule exists for: nothing stopped this before, because the
-    // browser was the only half that could be taken away.
-    expect((await readPrivate("gate-a")).statusCode).toBe(200);
+describe("a turn driven only by the person", () => {
+  it("reads its own finances and then the web, in one turn", async () => {
+    expect(refused(await gate("own-a", "mcp__headroom__get_overview"))).toBe(false);
 
-    expect(refused(await gate("gate-a", "WebFetch"))).toBe(true);
-    expect(refused(await gate("gate-a", "WebSearch"))).toBe(true);
-    expect(refused(await gate("gate-a", "mcp__browser__browser_navigate"))).toBe(true);
+    expect(refused(await gate("own-a", "WebFetch"))).toBe(false);
   });
 
-  it("refuses a finance read once the turn has reached the web", async () => {
-    expect(refused(await gate("gate-b", "WebFetch"))).toBe(false);
+  it("reads the web and then its own finances and training", async () => {
+    expect(refused(await gate("own-b", "WebSearch"))).toBe(false);
 
-    expect(refused(await gate("gate-b", "mcp__headroom__get_overview"))).toBe(true);
+    expect(refused(await gate("own-b", "mcp__headroom__get_overview"))).toBe(false);
+    expect(refused(await gate("own-b", "mcp__logeverylift__recent_workouts"))).toBe(false);
   });
 
-  it("counts a finance read as private: the browser goes and the web is shut", async () => {
+  it("is never refused a read", async () => {
+    expect((await mail("own-c")).statusCode).toBe(200);
+    expect((await read("own-c", { private: true })).statusCode).toBe(200);
+  });
+});
+
+describe("a turn that has read a stranger's text and something private", () => {
+  it("cannot reach the web or the browser after a mail", async () => {
+    expect((await mail("mixed-a")).statusCode).toBe(200);
+
+    expect(refused(await gate("mixed-a", "WebFetch"))).toBe(true);
+    expect(refused(await gate("mixed-a", "WebSearch"))).toBe(true);
+    expect(refused(await gate("mixed-a", "mcp__browser__browser_navigate"))).toBe(true);
+  });
+
+  it("cannot fetch again after reading a page and then its finances", async () => {
+    expect(refused(await gate("mixed-b", "WebFetch"))).toBe(false);
+    expect(refused(await gate("mixed-b", "mcp__headroom__get_overview"))).toBe(false);
+
+    expect(refused(await gate("mixed-b", "WebFetch"))).toBe(true);
+  });
+
+  it("closes the browser the moment it holds both, and does not give it back", async () => {
+    expect((await start("mixed-c")).statusCode).toBe(200);
+    expect(refused(await gate("mixed-c", "mcp__browser__browser_navigate"))).toBe(false);
     closed.length = 0;
 
-    expect(refused(await gate("gate-c", "mcp__headroom__get_overview"))).toBe(false);
+    expect(refused(await gate("mixed-c", "mcp__headroom__get_overview"))).toBe(false);
 
     expect(closed).toEqual(["assistant"]);
-    expect(refused(await gate("gate-c", "WebFetch"))).toBe(true);
+    expect((await start("mixed-c")).statusCode).toBe(403);
   });
 
-  it("counts a training read as private too", async () => {
-    expect(refused(await gate("gate-f", "mcp__logeverylift__recent_workouts"))).toBe(false);
+  it("keeps the browser for a turn that read only a stranger's text", async () => {
+    closed.length = 0;
 
-    expect(refused(await gate("gate-f", "WebFetch"))).toBe(true);
+    await read("mixed-d", { outside: true });
+
+    expect(closed).toEqual([]);
+    expect((await start("mixed-d")).statusCode).toBe(200);
   });
 
-  it("does not let a refused fetch cost the turn its next read", async () => {
-    // The stream notes a tool as it is written, before the gate has ruled on it.
-    const { noteTool } = await import("../src/assistant-taint.js");
-    expect((await readPrivate("gate-d")).statusCode).toBe(200);
-    noteTool("gate-d", "WebFetch");
-    expect(refused(await gate("gate-d", "WebFetch"))).toBe(true);
+  it("reads an older server's bare report as both", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/assistant/turn/private",
+      payload: { turn: "mixed-e" },
+    });
 
-    expect((await readPrivate("gate-d")).statusCode).toBe(200);
-    expect(refused(await gate("gate-d", "mcp__headroom__get_overview"))).toBe(false);
+    expect(refused(await gate("mixed-e", "WebFetch"))).toBe(true);
   });
+});
 
+describe("the gate itself", () => {
   it("answers an error with no turn id, which the hook reads as a refusal", async () => {
     expect((await gate(null, "WebFetch")).statusCode).toBe(403);
   });
@@ -124,57 +156,6 @@ describe("the gate a turn's web and private calls go through", () => {
       allowedEnvVars: ["VK_TURN"],
     });
     expect(entry.hooks[0].url).toMatch(/\/api\/assistant\/turn\/gate$/);
-  });
-});
-
-describe("a turn that reads something private", () => {
-  it("closes the browser it had, and does not get it back by asking again", async () => {
-    // The CLI starts the browser's server before its first call on every chair
-    // turn, so a started browser is not a turn that has reached the web. This
-    // was a 403, and the chair could not read the calendar at all.
-    expect((await start("turn-a")).statusCode).toBe(200);
-    closed.length = 0;
-
-    expect((await readPrivate("turn-a")).statusCode).toBe(200);
-    expect(closed).toEqual(["assistant"]);
-    expect((await start("turn-a")).statusCode).toBe(403);
-  });
-
-  it("is refused the read once the turn has used the browser", async () => {
-    const { noteTool } = await import("../src/assistant-taint.js");
-    expect((await start("turn-f")).statusCode).toBe(200);
-    noteTool("turn-f", "mcp__browser__browser_navigate");
-
-    expect((await readPrivate("turn-f")).statusCode).toBe(403);
-  });
-
-  it("closes it for a turn that only ever read", async () => {
-    closed.length = 0;
-
-    expect((await readPrivate("turn-b")).statusCode).toBe(200);
-
-    expect(closed).toEqual(["assistant"]);
-    const again = await start("turn-b");
-    expect(again.statusCode).toBe(403);
-    expect(again.json().error).toMatch(/private/);
-  });
-
-  it("is refused the read once the turn has fetched something", async () => {
-    // WebFetch and WebSearch are on the CLI's command line, fixed when the turn
-    // was spawned, so they cannot be taken back the way the browser can. The
-    // rule runs the other way round for them: this turn does not get to read.
-    const { noteTool } = await import("../src/assistant-taint.js");
-    noteTool("turn-c", "WebFetch");
-
-    const res = await readPrivate("turn-c");
-
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error).toMatch(/already reached the web/);
-  });
-
-  it("lets the next turn do either, having done neither", async () => {
-    expect((await start("turn-d")).statusCode).toBe(200);
-    expect((await readPrivate("turn-e")).statusCode).toBe(200);
   });
 
   it("leaves the person's own pane alone", async () => {

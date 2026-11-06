@@ -18,7 +18,6 @@ import { transcriptPath } from "./claude-home.js";
 import { CHAIR_ID } from "./council-store.js";
 import { env } from "./env.js";
 import * as journal from "./journal-store.js";
-import { noteTool } from "./assistant-taint.js";
 import {
   assistantHome,
   ensureMcpConfig,
@@ -494,7 +493,7 @@ export async function turn(o: {
   // after the process exits: the model produces its first sentence while the
   // tools it wants are still running, and waiting for the exit was the slowest
   // part of a turn by a distance.
-  let state = newStreamState((name) => noteTool(turnId, name));
+  let state = newStreamState();
   let lastLive = "";
   // Whether *this* turn recorded anything. A count of the lines in the thread
   // file would answer a different question now that a meeting has several
@@ -592,7 +591,7 @@ export async function turn(o: {
   // And where the guess is still wrong, claude says so before it has asked the
   // model anything, so the other flag costs one more spawn and no tokens.
   if (!said && !raw.timedOut && WRONG_FLAG_RE.test(`${state.error ?? ""}\n${raw.err}`)) {
-    state = newStreamState((name) => noteTool(turnId, name));
+    state = newStreamState();
     raw = await attempt(!resume);
   }
 

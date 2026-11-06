@@ -548,7 +548,7 @@ describe("a turn that reads something of the person's", () => {
     // going there must be no moment at all.
     expect(seen[0].method).toBe("POST");
     expect(seen[0].url).toBe("/api/assistant/turn/private");
-    expect(JSON.parse(seen[0].body)).toEqual({ turn: "turn-1" });
+    expect(JSON.parse(seen[0].body)).toEqual({ turn: "turn-1", private: true, outside: true });
     expect(seen[1].url).toContain("/api/mail/");
   });
 
