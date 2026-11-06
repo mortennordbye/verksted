@@ -17,7 +17,8 @@ what unblocks it / where the code lives.
   needs the entry held until its tool results arrive. The fourth needs a thread near
   the context limit.
 - **Unblocked by:** Signing in under Settings, Sources and merging logeverylift#188,
-  then `make eval` (the five training cases, `write-is-card` and `across`). One tapped
+  then `make eval` (the four training cases and `across`; on 2026-11-06 the other
+  16 passed on the pod, `write-is-card` among them). One tapped
   headroom card. Holding a mixed entry in `assistant-stream.ts` until its calls are
   answered.
 - **Where:** `backend/src/logeverylift-auth.ts`, `backend/src/connector-client.ts`,
