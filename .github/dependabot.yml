@@ -16,7 +16,7 @@
 # arrive as soon as an advisory matches the lockfile. This file only shapes the
 # routine version updates.
 #
-# Grouping is tuned for dependabot-auto-merge.yml: anything below a major lands
+# Grouping is tuned for dependabot-automerge.yml: anything below a major lands
 # on its own once CI is green, so the goal is few PRs rather than granular ones.
 # Majors are excluded from the groups so each arrives alone and readable, which
 # is what a human is going to review.
@@ -33,6 +33,10 @@ updates:
       # One PR for the routine bumps; anything major still arrives on its own.
       minor-and-patch:
         update-types: [minor, patch]
+      # The auto-merge workflow reads this exact group name.
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
       # @types/node describes the runtime, so its major is not an independent
       # choice: it moves when the image moves, and taking 26 while the pod runs
@@ -54,6 +58,9 @@ updates:
     groups:
       agent-clis:
         update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # The text-to-speech worker's python environment.
   - package-ecosystem: pip
@@ -65,6 +72,9 @@ updates:
     groups:
       kokoro-minor-and-patch:
         update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   # The dind sidecar the dev stack runs against. Same image family as the pod's,
   # and it was the one pinned version in this repo nothing watched.
@@ -74,6 +84,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    groups:
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
 
   - package-ecosystem: docker
     directory: /
@@ -84,6 +98,9 @@ updates:
     groups:
       docker-minor-and-patch:
         update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
     ignore:
       # Which Node major to run is an LTS decision, and Dependabot has no idea
       # which releases are LTS. Left to itself it offered node:25-slim in #26,
@@ -109,3 +126,6 @@ updates:
       # auto-merge.
       actions-minor-and-patch:
         update-types: [minor, patch]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
