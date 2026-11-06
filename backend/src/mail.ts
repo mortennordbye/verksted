@@ -315,6 +315,7 @@ async function downloadText(
   maxBytes: number,
 ): Promise<string> {
   const { content } = await client.download(String(uid), part, { uid: true, maxBytes });
+  if (!content) return "";
   const chunks: Buffer[] = [];
   for await (const chunk of content) chunks.push(chunk as Buffer);
   const raw = Buffer.concat(chunks).toString("utf8");

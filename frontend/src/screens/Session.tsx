@@ -587,11 +587,11 @@ export default function Session() {
               // tabs don't fit a phone width, and the sheet repeats the status.
               <button
                 onClick={() => setMenu(true)}
-                // The zero case stays exactly "session actions" — it is what
-                // the e2e suite reaches this sheet by.
-                aria-label={
-                  waiting ? `session actions, ${waiting} waiting in the inbox` : "session actions"
-                }
+                // Starts with "session actions": the e2e suite reaches this sheet
+                // by it. Holds the chip's visible status too (axe label-content-name-mismatch).
+                aria-label={`session actions, ${live ? session.status : "done"}${
+                  waiting ? `, ${waiting} waiting in the inbox` : ""
+                }`}
                 // Bordered and 44px like everything beside it. It used to be a
                 // bare chip with a 13px ⋯ next to it, about 26px tall and 6px
                 // from the full-screen button — the way to delete a session,
