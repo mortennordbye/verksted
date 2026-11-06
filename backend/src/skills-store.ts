@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Skill } from "../../shared/api.js";
 import { writeTextAtomic } from "./atomic-json.js";
 import { env } from "./env.js";
-import { parseFile, SLUG_RE } from "./memory-store.js";
+import { parseFile } from "./memory-store.js";
 
 /**
  * The assistant's skills: procedures it wrote for itself after a task that
@@ -26,6 +26,15 @@ export const BODY_MAX = 4000;
 export const MAX_SKILLS = 50;
 /** The index is carried in every chair turn. */
 export const INDEX_BUDGET_BYTES = 2000;
+
+/** Slugs name files, so they may not reach outside the directory. Same rule as memory's. */
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/** The one way a slug becomes a path: checked here, where the path is made. */
+function fileOf(from: string, slug: string): string {
+  if (!SLUG_RE.test(slug)) throw new Error("slug must be lowercase words joined by dashes");
+  return path.join(from, `${slug}.md`);
+}
 
 function dir(): string {
   return env.SKILLS_DIR;
@@ -70,7 +79,7 @@ async function readAll(from: string): Promise<Skill[]> {
 async function readOne(from: string, slug: string): Promise<Skill | null> {
   if (!SLUG_RE.test(slug)) return null;
   try {
-    return toSkill(slug, await fs.readFile(path.join(from, `${slug}.md`), "utf8"));
+    return toSkill(slug, await fs.readFile(fileOf(from, slug), "utf8"));
   } catch {
     return null;
   }
@@ -88,7 +97,7 @@ interface Input {
 }
 
 /** Field values on one line, so a newline cannot start a field of its own. */
-const flat = (v: string) => v.replace(/\s*\n\s*/g, " ").trim();
+const flat = (v: string) => v.replace(/\s+/g, " ").trim();
 
 function check(input: Input): { description: string; body: string } {
   if (!SLUG_RE.test(input.slug)) throw new Error("slug must be lowercase words joined by dashes");
@@ -107,7 +116,7 @@ async function write(to: string, input: Input, created: string): Promise<void> {
   const { description, body } = check(input);
   await fs.mkdir(to, { recursive: true });
   await writeTextAtomic(
-    path.join(to, `${input.slug}.md`),
+    fileOf(to, input.slug),
     [
       "---",
       `slug: ${input.slug}`,
@@ -148,14 +157,14 @@ export async function keep(slug: string): Promise<Skill | null> {
     body: proposal.body,
     source: proposal.source ?? undefined,
   });
-  await fs.rm(path.join(proposedDir(), `${slug}.md`), { force: true });
+  await fs.rm(fileOf(proposedDir(), slug), { force: true });
   return kept;
 }
 
 async function rm(from: string, slug: string): Promise<boolean> {
   if (!SLUG_RE.test(slug)) return false;
   try {
-    await fs.rm(path.join(from, `${slug}.md`));
+    await fs.rm(fileOf(from, slug));
     return true;
   } catch {
     return false;

@@ -38,6 +38,7 @@ beforeAll(async () => {
     "schedules",
     "assistant",
     "memory",
+    "skills",
     "council",
     "feed",
     "loops",
@@ -54,6 +55,7 @@ beforeAll(async () => {
   process.env.SCHEDULES_DIR = dir("schedules");
   process.env.ASSISTANT_DIR = dir("assistant");
   process.env.MEMORY_DIR = dir("memory");
+  process.env.SKILLS_DIR = dir("skills");
   process.env.COUNCIL_DIR = dir("council");
   process.env.FEED_DIR = dir("feed");
   process.env.LOOPS_DIR = dir("loops");

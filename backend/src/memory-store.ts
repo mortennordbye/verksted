@@ -32,7 +32,7 @@ export const BUDGET_BYTES = 8_000;
 
 const TYPES: MemoryType[] = ["preference", "project", "reference"];
 /** Slugs name files, so they may not reach outside the directory. */
-export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 function filePath(slug: string): string {
   return path.join(env.MEMORY_DIR, `${slug}.md`);
