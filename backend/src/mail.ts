@@ -1,4 +1,5 @@
-import { DomUtils, parseDocument } from "htmlparser2";
+import { isTag, isText } from "domhandler";
+import { parseDocument } from "htmlparser2";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import nodemailer from "nodemailer";
@@ -586,11 +587,11 @@ export function htmlToText(html: string): string {
   const root = parseDocument(html);
   const out: string[] = [];
   const walk = (node: (typeof root.children)[number]) => {
-    if (DomUtils.isText(node)) {
+    if (isText(node)) {
       out.push(node.data);
       return;
     }
-    if (!DomUtils.isTag(node)) return;
+    if (!isTag(node)) return;
     const tag = node.name.toLowerCase();
     if (SKIP_TAGS.has(tag)) return;
     if ("hidden" in node.attribs || INVISIBLE_RE.test(node.attribs.style ?? "")) return;
