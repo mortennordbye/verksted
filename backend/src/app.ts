@@ -33,6 +33,7 @@ import githubRoutes from "./routes/github.js";
 import feedbackRoutes from "./routes/feedback.js";
 import assistantRoutes from "./routes/assistant.js";
 import memoryRoutes from "./routes/memory.js";
+import skillRoutes from "./routes/skills.js";
 import profileRoutes from "./routes/profile.js";
 import feedRoutes from "./routes/feed.js";
 import sourceRoutes from "./routes/sources.js";
@@ -249,6 +250,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   }
   await app.register(assistantRoutes);
   await app.register(memoryRoutes);
+  await app.register(skillRoutes);
   await app.register(profileRoutes);
   await app.register(feedRoutes);
   await app.register(sourceRoutes);

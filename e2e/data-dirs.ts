@@ -30,6 +30,7 @@ export function useTempDataDirs(prefix: string): string {
 
   process.env.ASSISTANT_DIR = dir("assistant");
   process.env.MEMORY_DIR = dir("memory");
+  process.env.SKILLS_DIR = dir("skills");
   process.env.COUNCIL_DIR = dir("council");
   process.env.LOOPS_DIR = dir("loops");
   process.env.DOCS_DIR = dir("docs");

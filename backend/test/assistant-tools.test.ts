@@ -34,6 +34,7 @@ const REPLIES: Record<string, unknown> = {
   "POST /api/memory/proposed": { slug: "invoices" },
   "PUT /api/memory/invoices": { slug: "invoices" },
   "PUT /api/council/uriel/memory/rates": { slug: "rates" },
+  "PUT /api/skills/budget-check": { skill: { slug: "budget-check" }, proposed: false },
   "POST /api/assistant/turn/private": { browsing: "closed" },
   // Which kind a schedule is, which the three schedule tools ask before
   // changing anything about it.
@@ -243,6 +244,11 @@ describe("the tool set", () => {
         "start_session",
         "status",
         "update_schedule",
+        // The chair's own procedures (skills-store.ts).
+        "list_skills",
+        "use_skill",
+        "save_skill",
+        "forget_skill",
       ].sort(),
     );
   });
@@ -321,6 +327,9 @@ describe("the tool set", () => {
         "repo_diff",
         "repo_status",
         "status",
+        // An unwatched run follows a skill; it does not write one.
+        "list_skills",
+        "use_skill",
       ].sort(),
     );
   });
@@ -642,6 +651,47 @@ describe("a turn that reads something of the person's", () => {
 
     expect(seen.some((r) => r.url === "/api/council/uriel/memory/rates")).toBe(true);
     expect(seen.some((r) => r.url === "/api/memory/proposed")).toBe(false);
+  });
+});
+
+describe("skills", () => {
+  const TURN = { VK_TURN: "turn-7" };
+
+  it("sends the turn with a skill, so the backend decides whether it is kept", async () => {
+    seen = [];
+
+    const res = (await rpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "save_skill",
+          arguments: {
+            slug: "budget-check",
+            description: "When they ask how the budget looks",
+            body: "1. headroom_budget\n2. Say what is over.",
+          },
+        },
+      },
+      TURN,
+    )) as { result?: { content: { text: string }[] } };
+
+    const put = seen.find((r) => r.method === "PUT" && r.url === "/api/skills/budget-check");
+    expect(JSON.parse(put?.body ?? "{}")).toMatchObject({
+      description: "When they ask how the budget looks",
+      turn: "turn-7",
+    });
+    expect(res.result?.content[0].text).toBe("saved budget-check");
+  });
+
+  it("is the chair's alone", async () => {
+    const res = (await rpc(
+      { jsonrpc: "2.0", id: 1, method: "tools/list" },
+      { VK_MEMBER: "uriel", VK_TOOLS: "save_skill,use_skill,status" },
+    )) as { result: { tools: { name: string }[] } };
+
+    expect(res.result.tools.map((t) => t.name)).toEqual(["status"]);
   });
 });
 

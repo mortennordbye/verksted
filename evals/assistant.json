@@ -63,6 +63,11 @@
       "uses": ["cluster_status|status"]
     },
     {
+      "id": "skill-save",
+      "ask": "Check how my budget looks this month, then save how you did it as a skill for next time.",
+      "uses": ["save_skill"]
+    },
+    {
       "id": "recall",
       "ask": "Did we talk about an emergency fund before? What was concluded?",
       "uses": ["recall"]

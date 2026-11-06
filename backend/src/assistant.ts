@@ -57,6 +57,7 @@ import { inject as injectMemory, renderForMember } from "./memory-store.js";
 import { readProfile } from "./profile-store.js";
 import { BusyError, keyedQueue } from "./serial.js";
 import { readAssistantConfig } from "./settings-store.js";
+import * as skills from "./skills-store.js";
 
 /**
  * The assistant: the one agent that is not a tmux session.
@@ -1106,14 +1107,16 @@ async function chairSpeaker(): Promise<Speaker> {
 
 /** The profile and the last few days, read fresh for every chair turn. */
 async function promptContext(): Promise<PromptContext> {
-  const [profile, days, lifting] = await Promise.all([
+  const [profile, days, lifting, known] = await Promise.all([
     readProfile(),
     journal.recent(),
     logeverylift.accessToken(),
+    skills.list(),
   ]);
   return {
     profile,
     journal: journal.render(days),
+    skills: skills.renderIndex(known),
     ...(lifting
       ? {}
       : {

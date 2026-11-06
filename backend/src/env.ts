@@ -101,6 +101,8 @@ export const env = {
   ASSISTANT_DIR: process.env.ASSISTANT_DIR ?? "/data/assistant",
   // What verksted has learned: one markdown file per fact (see memory-store.ts).
   MEMORY_DIR: process.env.MEMORY_DIR ?? "/data/memory",
+  // The assistant's skills: one markdown procedure per file (see skills-store.ts).
+  SKILLS_DIR: process.env.SKILLS_DIR ?? "/data/skills",
   // The council: one JSON file per member (see council-store.ts).
   COUNCIL_DIR: process.env.COUNCIL_DIR ?? "/data/council",
   // The feed: what happened, one JSON file per item (see feed-store.ts).

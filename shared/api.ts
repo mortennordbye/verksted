@@ -1672,6 +1672,28 @@ export interface DocHit {
   excerpt: string;
 }
 
+/**
+ * A procedure the assistant wrote for itself after a task that worked, and
+ * reads back the next time the same kind of task comes.
+ */
+export interface Skill {
+  slug: string;
+  /** One line: when to use it. This is what the chair sees in its prompt. */
+  description: string;
+  /** The steps, as markdown. Read on demand, never carried in the prompt. */
+  body: string;
+  /** The thread it was written in, or who kept it. */
+  source: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface SkillList {
+  skills: Skill[];
+  /** Written on a turn that had read a stranger's text: not used until kept. */
+  proposals: Skill[];
+}
+
 /** The profile page: one markdown file, and how much of its budget it uses. */
 export interface Profile {
   text: string;

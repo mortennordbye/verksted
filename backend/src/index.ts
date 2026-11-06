@@ -35,6 +35,7 @@ for (const [name, dir] of [
   ["SCHEDULES_DIR", env.SCHEDULES_DIR],
   ["ASSISTANT_DIR", env.ASSISTANT_DIR],
   ["MEMORY_DIR", env.MEMORY_DIR],
+  ["SKILLS_DIR", env.SKILLS_DIR],
   ["COUNCIL_DIR", env.COUNCIL_DIR],
   ["FEED_DIR", env.FEED_DIR],
   ["LOOPS_DIR", env.LOOPS_DIR],

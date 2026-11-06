@@ -529,6 +529,38 @@ export const TOOL_INVENTORY: ToolPolicy[] = [
     outside: false,
     effect: "reversible",
   },
+  {
+    name: "list_skills",
+    unattended: true,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "use_skill",
+    unattended: true,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "read",
+  },
+  {
+    name: "save_skill",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
+  {
+    name: "forget_skill",
+    unattended: false,
+    chairOnly: true,
+    private: false,
+    outside: false,
+    effect: "reversible",
+  },
 ];
 
 /**

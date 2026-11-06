@@ -51,6 +51,7 @@ export async function prepareForAgents(log: Logger): Promise<void> {
     env.SCHEDULES_DIR,
     env.ASSISTANT_DIR,
     env.MEMORY_DIR,
+    env.SKILLS_DIR,
     env.COUNCIL_DIR,
     env.FEED_DIR,
     env.LOOPS_DIR,

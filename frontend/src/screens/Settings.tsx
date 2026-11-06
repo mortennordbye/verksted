@@ -13,6 +13,7 @@ import AssistantPanel from "../components/AssistantPanel";
 import ProfilePanel from "../components/ProfilePanel";
 import CouncilPanel from "../components/CouncilPanel";
 import MemoryPanel from "../components/MemoryPanel";
+import SkillsPanel from "../components/SkillsPanel";
 import SchedulesPanel from "../components/SchedulesPanel";
 import { StatusChip } from "../components/StatusChip";
 import { SkeletonList } from "../components/Skeleton";
@@ -155,6 +156,7 @@ export default function Settings() {
         {show("assistant") && <ProfilePanel />}
         {show("assistant") && <CouncilPanel />}
         {show("assistant") && <MemoryPanel />}
+        {show("assistant") && <SkillsPanel />}
         {show("assistant") && <ToolLog />}
         {show("sources") && <GoogleCalendar />}
         {show("sources") && <LogEveryLift />}
