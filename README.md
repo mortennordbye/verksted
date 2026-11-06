@@ -1,4 +1,15 @@
+<div align="center">
+
+<img src="assets/icon.svg" alt="" width="112" height="112">
+
 # verksted
+
+### A self-hosted workbench for driving coding agents from a phone.
+
+[![TypeScript](https://img.shields.io/badge/TypeScript-233f27?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org) [![Node.js](https://img.shields.io/badge/Node.js-233f27?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org) [![Fastify](https://img.shields.io/badge/Fastify-233f27?style=flat-square&logo=fastify&logoColor=white)](https://fastify.dev) [![React](https://img.shields.io/badge/React-233f27?style=flat-square&logo=react&logoColor=white)](https://react.dev) [![tmux](https://img.shields.io/badge/tmux-233f27?style=flat-square&logo=tmux&logoColor=white)](https://github.com/tmux/tmux) [![Docker](https://img.shields.io/badge/Docker-233f27?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com)<br>
+[![ci](https://img.shields.io/github/actions/workflow/status/mortennordbye/verksted/ci.yml?branch=main&style=flat-square&labelColor=233f27&label=ci)](https://github.com/mortennordbye/verksted/actions/workflows/ci.yml) [![OpenSSF Scorecard](https://img.shields.io/ossf-scorecard/github.com/mortennordbye/verksted?style=flat-square&labelColor=233f27&label=openssf%20scorecard)](https://scorecard.dev/viewer/?uri=github.com/mortennordbye/verksted) [![License](https://img.shields.io/github/license/mortennordbye/verksted?style=flat-square&labelColor=233f27&color=51a45e)](LICENSE) [![Last commit](https://img.shields.io/github/last-commit/mortennordbye/verksted?style=flat-square&labelColor=233f27&color=51a45e)](https://github.com/mortennordbye/verksted/commits/main) [![Stars](https://img.shields.io/github/stars/mortennordbye/verksted?style=flat-square&labelColor=233f27&color=51a45e)](https://github.com/mortennordbye/verksted/stargazers)
+
+</div>
 
 A self-hosted workbench for driving coding agents (Claude Code, Antigravity,
 Codex) from a phone. One container: agent sessions live in tmux and survive
@@ -154,6 +165,17 @@ archive in, and run `vk restore`.
 `RUNBOOK.md` has the rest of the operations side: a restore drill, rolling back
 to an earlier image, and rotating a token. `SECURITY.md` says what the app does
 and does not defend against, and how to report something.
+
+## Workflows
+
+| Workflow              | Trigger                    | Purpose                                                                                                                          |
+| --------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| ci                    | push, pull request         | Typecheck, lint, tests, e2e and the commit attribution check; on `main`, when the app changed, the image build with a Trivy scan |
+| codeql                | push, pull request, weekly | Static analysis of the JavaScript and TypeScript                                                                                 |
+| dependency-review     | pull request               | Blocks a pull request that adds a dependency with a known vulnerability                                                          |
+| scorecard             | push to `main`, weekly     | OpenSSF Scorecard for the README badge and the Security tab                                                                      |
+| dependabot auto-merge | Dependabot pull request    | Merges patch and minor updates once the required checks pass                                                                     |
+| ghcr-retention        | weekly, manual             | Deletes old container image versions and keeps the newest                                                                        |
 
 ## Licence
 
