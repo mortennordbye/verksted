@@ -26,9 +26,9 @@ Inside that boundary the app still defends what it can without an identity:
 - Unattended agent runs go through a guard hook that denies rather than asks
   (`runtime/vk-guard`).
 
-What is known to be missing, and planned, is in `BACKLOG.md` and in the audit
-(`FABLE-AUDIT-2026-09-19.md`, root cause 1): agents and the backend run as the
-same user, so an agent can read what the backend can.
+What is known to be missing, and planned, is in `BACKLOG.md` ("Privilege
+separation on the pod"): agents and the backend run as the same user, so an
+agent can read what the backend can.
 
 Two things in the app look like boundaries and are not, for that reason:
 

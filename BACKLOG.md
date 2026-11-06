@@ -543,8 +543,8 @@ what unblocks it / where the code lives.
 
 ## The audit's partials that need a design, not a fix
 
-- **What:** What Part 10 of `FABLE-AUDIT-2026-09-19.md` still lists as partial
-  once the pod-only items are set aside. A-27: thread search and the thread
+- **What:** The audit's partial items that need a design, once the pod-only
+  items are set aside. A-27: thread search and the thread
   list parse every thread file (the cache holds four, on purpose). A-28's
   rest: `assistant.ts` is still about 1700 lines, with the thread store, the
   turn runner and unattended runs in one file. A-31: speech to text is English only, no
@@ -561,3 +561,45 @@ what unblocks it / where the code lives.
   A-28 when a change to the thread store or unattended runs gets hard to make.
 - **Where:** `backend/src/assistant.ts`, `transcribe.ts`, `atomic-json.ts`,
   `maintenance.ts`, `pollers.ts`, `app.ts`.
+
+## Audit gaps that wait on the agent user
+
+- **What:** Four audit items that only close when agents run as their own
+  user. A-01 (b, c): the assistant's chromium can reach `127.0.0.1:<PORT>` and
+  cluster services, with no `--host-resolver-rules` and no per-boot secret, and
+  `IMAP_PASSWORD` and the other source keys can still be revealed. S-03:
+  secrets reach tmux as `-e KEY=VALUE`, readable in `/proc/*/cmdline`, and the
+  redaction only matches some names. S-07: pull, push and fetch run with the
+  full `process.env`, so repo config such as filter drivers runs as root. S-08:
+  on the pod chromium runs as root with `--no-sandbox`.
+- **Why deferred:** Each fix depends on "Privilege separation on the pod".
+- **Unblocked by:** `VK_AGENT_USER` working on the pod.
+- **Where:** `backend/src/agent-gate.ts`, `ws/assistant-browser.ts`,
+  `tmux.ts`, `ws/attach.ts`, `exec.ts`, `files.ts`, `browser.ts`.
+
+## The audit's small partials
+
+- **What:** Audit items that are partly done, each a small change.
+  A-32: no test for a turn that hits `TURN_TIMEOUTS`, or for stop pressed
+  between a held convene reply and its append. C-06: `findImage` and
+  `findDetail` parse every line, base64 included, before they check `ref`.
+  C-30: chat code blocks have no syntax highlighting and no copy button, there
+  is no edit and resend, and no search inside the open thread. C-35: two
+  `ToolChip`s, `EFFORTS` twice, user-bubble markup four times. R-02: the docker
+  prune is a 24 h `setInterval` from boot. R-08: `plan.jsonl`, closed loops,
+  transcripts and the monthly archives are never pruned. R-17:
+  `browser-mcp.sh` is a plain `fs.writeFile` on every launch. R-28: no
+  `x-vk-build` header, and the build id is the frontend hash, not the git SHA.
+  S-12: push endpoints may be any `https://` host. S-13: `GET /api/cluster` is a
+  plain GET. F-23: error lines without `role="alert"` in `Docs.tsx`,
+  `BrowserPane.tsx`, `CouncilPanel.tsx` and `assistant/Month.tsx`. F-26: the
+  sans uppercase label is pasted six times with two tracking values. F-27: text
+  glyphs (×, ←, →) as controls. F-45: nothing on Today or Inbox says push is off
+  on this device. P7-6: `Chat.tsx`, `ChatPane.tsx` and `components/chat/*` use
+  none of `components/ui/`, and the stick-to-bottom scroll is written twice.
+- **Why deferred:** None of them causes a problem today. Re-check each one
+  against the code first: some can be fixed already.
+- **Unblocked by:** Nothing. Take one when working near its file.
+- **Where:** `backend/src/chat.ts`, `maintenance.ts`, `session-reaper.ts`,
+  `plan.ts`, `claude-hooks.ts`, `push.ts`, `app.ts`; `frontend/src/` for the
+  C-, F- and P7- items.
