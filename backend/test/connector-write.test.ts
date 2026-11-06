@@ -162,3 +162,42 @@ describe("the writes a card may ask for", () => {
     expect(CONNECTOR_READS.length).toBeGreaterThan(0);
   });
 });
+
+describe("a change asked for by the person, on their own turn", () => {
+  const asked = (turn: string, action: Record<string, unknown>) =>
+    app.inject({
+      method: "POST",
+      url: "/api/proposals",
+      payload: { action: { kind: "connector_write", ...action }, turn },
+    });
+
+  it("runs at once, and is marked done", async () => {
+    const res = await asked("clean-a", addGoal);
+
+    const item = res.json<FeedItem>();
+    expect(item.state).toBe("done");
+    expect(called().map((c) => JSON.parse(c).name)).toEqual(["add_goal"]);
+  });
+
+  it("is a card once the turn has read a stranger's text", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/api/assistant/turn/private",
+      payload: { turn: "read-mail", private: true, outside: true },
+    });
+
+    const item = (await asked("read-mail", addGoal)).json<FeedItem>();
+
+    expect(item.state).not.toBe("done");
+    expect(called()).toEqual([]);
+  });
+
+  it("stays a card, saying why, when running it fails", async () => {
+    const item = (
+      await asked("clean-b", { connector: "headroom", tool: "delete_goal", args: {} })
+    ).json<FeedItem & { failed?: string }>();
+
+    expect(item.state).not.toBe("done");
+    expect(item.failed).toContain("no such goal");
+  });
+});

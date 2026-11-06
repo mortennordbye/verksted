@@ -307,11 +307,20 @@ const scheduleKind = (id) =>
  * @param {string} [why]
  */
 const propose = (action, why) =>
-  /** @type {Promise<FeedItem>} */ (
-    call("POST", "/api/proposals", { action, ...(why ? { why } : {}) })
-  ).then(
-    (item) =>
-      `proposed: ${item.title}. It is on their inbox and phone; nothing happens until they tap it.`,
+  /** @type {Promise<FeedItem & { failed?: string }>} */ (
+    call("POST", "/api/proposals", {
+      action,
+      ...(why ? { why } : {}),
+      // Which run this is, so the backend can tell whether the request came
+      // straight from the person. Never on a run nobody is reading.
+      ...(TURN && !UNATTENDED ? { turn: TURN } : {}),
+    })
+  ).then((item) =>
+    item.state === "done"
+      ? `done: ${item.did ?? item.title}`
+      : item.failed
+        ? `could not do it: ${item.failed}. It is on their inbox as a card to try again.`
+        : `proposed: ${item.title}. You have read text someone else wrote this turn, so it is a card on their inbox and phone, and nothing happens until they tap it.`,
   );
 
 /**
@@ -397,7 +406,8 @@ const targetOf = (/** @type {Args} */ a) => ({
  * - `effect`: what a call does.
  *     read          nothing changes.
  *     reversible    changes something a later call can change back.
- *     card          files a proposal; nothing happens until the person taps.
+ *     card          files a proposal: run at once on a turn the person drove, a card to tap
+ *                   on one that has read text someone else wrote.
  *     irreversible  changes something that cannot be put back, with no card.
  *                   No tool is; it is what a tool missing from this table reads as.
  *                   There are three. They are named in BACKLOG.md and pinned
@@ -626,7 +636,7 @@ const TOOLS = [
   {
     name: "start_session",
     description:
-      "Propose an agent session in a project, with the first prompt written out. This is how you do work that changes anything: you cannot edit files or run commands yourself, so delegate it to a session the user can watch. Nothing starts until they tap the card — you read their documents and their mail, and a session is an agent with a shell, so the tap is what stands between text you were given and that shell. Write the prompt in full anyway: the card is the question and their tap is the answer, so a half-written prompt wastes the tap. The prompt has to stand on its own — the session cannot see this conversation.",
+      "Propose an agent session in a project, with the first prompt written out. This is how you do work that changes anything: you cannot edit files or run commands yourself, so delegate it to a session the user can watch. It starts at once when they asked for it; after you have read a mail, a document or a web page this turn it files a card for them to tap instead, since a session is an agent with a shell. Write the prompt in full either way. The prompt has to stand on its own — the session cannot see this conversation.",
     inputSchema: {
       type: "object",
       properties: {
@@ -653,7 +663,7 @@ const TOOLS = [
   {
     name: "desk_session",
     description:
-      "Propose an agent on a piece of life admin too long for a turn, or that has to leave files behind: a table built from a year of receipts, a form filled out as a PDF. Research, comparisons and buying advice are not this: do them yourself with the web and your browser and answer in the chat. It runs as a full session in a directory of its own on the desk, with the documents readable in place, and leaves its output as files there. Nothing starts until the person taps the card, for the same reason start_session waits. Write the ask in full; it has to stand on its own.",
+      "Propose an agent on a piece of life admin too long for a turn, or that has to leave files behind: a table built from a year of receipts, a form filled out as a PDF. Research, comparisons and buying advice are not this: do them yourself with the web and your browser and answer in the chat. It runs as a full session in a directory of its own on the desk, with the documents readable in place, and leaves its output as files there. It starts the way start_session does: at once when they asked, as a card after you have read a mail, a document or a web page this turn. Write the ask in full; it has to stand on its own.",
     inputSchema: {
       type: "object",
       properties: { title: { type: "string" }, ask: { type: "string" }, why: { type: "string" } },
@@ -664,7 +674,7 @@ const TOOLS = [
   {
     name: "end_session",
     description:
-      "Propose ending a session. Nothing ends until the person taps the card: ending one kills the agent mid-task and whatever it had not written down is gone, which is why the tap is theirs. Say why in one line.",
+      "Propose ending a session. Ending one kills the agent mid-task, so do it only when they asked. It happens at once then, or as a card after you have read a mail, a document or a web page this turn. Say why in one line.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, why: { type: "string" } },
@@ -752,7 +762,7 @@ const TOOLS = [
   {
     name: "merge_pr",
     description:
-      "Propose squash-merging a pull request. Nothing merges until the person taps the card this puts on their inbox and phone, so call it as soon as you would recommend the merge, with why in one line: which PR, what its checks say. Refuses a PR that is not open or not mergeable when tapped.",
+      "Propose squash-merging a pull request. Merge when they asked for it: it happens at once, or as a card after you have read a mail, a document or a web page this turn. When you only think it should merge, say so instead, with which PR and what its checks say. Refuses a PR that is not open or not mergeable when tapped.",
     inputSchema: {
       type: "object",
       properties: {
@@ -867,7 +877,7 @@ const TOOLS = [
   {
     name: "create_schedule",
     description:
-      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something, and it files a card rather than creating anything — nothing runs until the person taps it. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you are about to create and ask first.",
+      "Create a recurring prompt. Two kinds. kind 'session' starts a claude session in a project on its cron and gives it the prompt, unattended: that is the one for work that changes something, and it is created at once when they asked, or filed as a card after you have read a mail, a document or a web page this turn. kind 'assistant' runs YOU on the cron instead, with no repo, no session and no way to change anything — you read the bench, answer in a line or two, and push the phone with notify if it needs them. That is the one for a morning briefing or a watch on a red build. Cron is five fields read in the bench's own timezone, so '0 7 * * 1-5' is 07:00 on weekdays where the user is. The prompt has to stand alone, and should say what to do when there is nothing to do. Say what you created.",
     inputSchema: {
       type: "object",
       properties: {
@@ -927,7 +937,7 @@ const TOOLS = [
   {
     name: "update_schedule",
     description:
-      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation. Changing a session schedule files a card, since its prompt is what an unattended agent will be given; changing one of your own applies straight away.",
+      "Change a schedule's cron, prompt, name, jitter, or turn it on and off. Only the fields you pass change. The project it runs in is fixed at creation. Changes apply at once, except a session schedule's after you have read a mail, a document or a web page this turn, which files a card.",
     inputSchema: {
       type: "object",
       properties: {
@@ -959,7 +969,7 @@ const TOOLS = [
   {
     name: "run_schedule",
     description:
-      "Run a schedule now, without waiting for its cron. A session schedule files a card, since running it starts an agent; one of your own runs straight away. Refuses when its previous run is still open, and says so.",
+      "Run a schedule now, without waiting for its cron. It runs at once, except a session schedule after you have read a mail, a document or a web page this turn, which files a card. Refuses when its previous run is still open, and says so.",
     inputSchema: {
       type: "object",
       properties: {
@@ -984,7 +994,7 @@ const TOOLS = [
   {
     name: "delete_schedule",
     description:
-      "Propose removing a schedule for good. Its run history goes with it, so nothing is deleted until the person taps the card; disabling with update_schedule is the reversible version and needs no card.",
+      "Propose removing a schedule for good. Its run history goes with it, so do it only when they asked; disabling with update_schedule is the reversible version. It happens at once, or as a card after you have read a mail, a document or a web page this turn.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, why: { type: "string" } },
@@ -1251,7 +1261,7 @@ const TOOLS = [
   {
     name: "mail_rule_create",
     description:
-      "Propose a standing Gmail filter: mail matching from/subject/query gets labelled, archived, or marked read, from then on, with no further asking. Because it acts on every mail from here on rather than once like mail_move, it files a card showing the filter and nothing is set up until they tap it. Needs at least one thing to match and one thing to do; mail_labels lists label names, and a label named here is created if it does not exist yet.",
+      "Propose a standing Gmail filter: mail matching from/subject/query gets labelled, archived, or marked read, from then on, with no further asking. It acts on every mail from here on, so set one up only when they asked. It happens at once then, or as a card showing the filter after you have read a mail, a document or a web page this turn. Needs at least one thing to match and one thing to do; mail_labels lists label names, and a label named here is created if it does not exist yet.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1269,7 +1279,7 @@ const TOOLS = [
   {
     name: "mail_rule_delete",
     description:
-      "Propose removing a filter mail_rules listed, by its id. A filter's definition goes with it, so the card shows what it matches and does, and nothing is removed until they tap it.",
+      "Propose removing a filter mail_rules listed, by its id. A filter's definition goes with it. It happens at once when they asked, or as a card showing what it matches after you have read a mail, a document or a web page this turn.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" }, why: { type: "string" } },
@@ -1280,7 +1290,7 @@ const TOOLS = [
   {
     name: "mail_label_delete",
     description:
-      "Propose deleting one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it, and only the first 500 of those are recorded to put it back on from the log, so it is a card and nothing is deleted until they tap it. The tap is refused while a filter still files into the label: propose removing that filter with mail_rule_delete first.",
+      "Propose deleting one of the account's own Gmail labels, by the name mail_labels lists. The mail is kept, but the label comes off every message that had it, and only the first 500 of those are recorded to put it back on from the log, so do it only when they asked. It happens at once then, or as a card after you have read a mail, a document or a web page this turn. It is refused while a filter still files into the label: propose removing that filter with mail_rule_delete first.",
     inputSchema: {
       type: "object",
       properties: { name: { type: "string" }, why: { type: "string" } },
@@ -1396,7 +1406,7 @@ const TOOLS = [
   {
     name: "propose_connector_change",
     description:
-      "Propose a change in headroom (connector headroom: a transaction, a budget, a goal, a debt) or LogEveryLift (connector logeverylift: a program, a training cycle, body weight). You cannot change either directly. Name the tool and its arguments as that server describes them; it is checked against the server and shown to the person in full, and nothing happens until they tap it. Read what is there first, so the arguments are right.",
+      "Propose a change in headroom (connector headroom: a transaction, a budget, a goal, a debt) or LogEveryLift (connector logeverylift: a program, a training cycle, body weight). You cannot change either directly. Name the tool and its arguments as that server describes them; it is checked against the server and done at once when they asked, or shown to them in full as a card after you have read a mail, a document or a web page this turn. Read what is there first, so the arguments are right.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1416,7 +1426,7 @@ const TOOLS = [
   {
     name: "calendar_delete",
     description:
-      "Propose taking one event off the calendar, by its uid in brackets from the calendar tools. A calendar has no trash, so this files a card showing the event and nothing is removed until they tap it. An event marked (repeats) also needs occurrence (the one they mean, its start as listed) or every: true to remove the whole series; if they did not say which, ask.",
+      "Propose taking one event off the calendar, by its uid in brackets from the calendar tools. A calendar has no trash, so do it only when they asked. It happens at once then, or as a card showing the event after you have read a mail, a document or a web page this turn. An event marked (repeats) also needs occurrence (the one they mean, its start as listed) or every: true to remove the whole series; if they did not say which, ask.",
     inputSchema: {
       type: "object",
       properties: { uid: { type: "string" }, ...OCCURRENCE_FIELDS, why: { type: "string" } },
@@ -1427,7 +1437,7 @@ const TOOLS = [
   {
     name: "propose",
     description:
-      "Prepare something that cannot be undone and hand it to the person as a card to tap: a mail to send (kind send: to, subject, body, inReplyTo if a reply), or an event to put on the calendar (kind calendar_put: summary, start, end as ISO, location, description). Write the whole thing exactly as it will go; the card shows it verbatim and nothing happens until they tap. Use it to finish, not to ask: 'here is the reply, tap to send' beats 'shall I reply'.",
+      "Send a mail (kind send: to, subject, body, inReplyTo if a reply) or put an event on the calendar (kind calendar_put: summary, start, end as ISO, location, description). Write the whole thing exactly as it will go. When they asked for it, it is done at once; after you have read a mail, a document or a web page this turn it is shown to them verbatim as a card to tap. Use it to finish, not to ask.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1871,12 +1881,16 @@ async function handle(msg) {
       });
     }
     const policy = policyOf(tool.name);
-    if (policy.private && TURN) {
+    if ((policy.private || policy.outside) && TURN) {
       // Before the answer, never after: between reading the mail and the
       // browser closing there must be no moment at all. Fails closed — a read
       // this server cannot pay for is a read it does not do.
       try {
-        await call("POST", "/api/assistant/turn/private", { turn: TURN });
+        await call("POST", "/api/assistant/turn/private", {
+          turn: TURN,
+          private: policy.private,
+          outside: policy.outside,
+        });
       } catch (err) {
         return send({
           jsonrpc: "2.0",

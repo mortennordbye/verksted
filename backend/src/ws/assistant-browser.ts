@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { BrowserServerMsg, BrowserClientMsg } from "../../../shared/api.js";
 import * as browser from "../browser.js";
-import { barBrowsing, browsingBarred, reachedTheWeb, ruleOnCall } from "../assistant-taint.js";
+import { browsingBarred, noteRead, ruleOnCall } from "../assistant-taint.js";
 import { handle } from "./browser.js";
 
 /**
@@ -12,14 +12,14 @@ import { handle } from "./browser.js";
  */
 export default async function assistantBrowserRoutes(app: FastifyInstance) {
   /**
-   * Said by the MCP server before it serves the chair anything of the person's.
-   * The browser goes, and stays gone for the rest of that turn: see
-   * assistant-taint.ts for why a turn may hold one half or the other.
+   * Said by the MCP server before it serves a read that is the person's, or that
+   * somebody outside wrote. Never refused: a turn may read anything. Once it holds
+   * both, the browser goes first, so there is no moment with both and a way out.
    *
-   * Nothing reads a body here but the turn id, and the turn id comes from the
-   * environment the backend wrote — not from anything a model can say.
+   * The turn id comes from the environment the backend wrote, not from anything a
+   * model can say.
    */
-  app.post<{ Body: { turn: string } }>(
+  app.post<{ Body: { turn: string; private?: boolean; outside?: boolean } }>(
     "/api/assistant/turn/private",
     {
       schema: {
@@ -27,21 +27,24 @@ export default async function assistantBrowserRoutes(app: FastifyInstance) {
           type: "object",
           required: ["turn"],
           additionalProperties: false,
-          properties: { turn: { type: "string", maxLength: 100 } },
+          properties: {
+            turn: { type: "string", maxLength: 100 },
+            private: { type: "boolean" },
+            outside: { type: "boolean" },
+          },
         },
       },
     },
-    async (req, reply) => {
-      // The other direction, for the tools that cannot be taken back: WebFetch
-      // and WebSearch are on the CLI's command line, fixed when the turn was
-      // spawned, so a turn that has already fetched something is refused the
-      // read instead. The chair is told to do the two in separate turns.
-      if (reachedTheWeb(req.body.turn)) {
-        return reply.code(403).send({ error: "this turn has already reached the web" });
-      }
-      barBrowsing(req.body.turn);
-      await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
-      return { browsing: "closed" };
+    async (req) => {
+      // A server from before this said only the turn: everything it reported then
+      // was both.
+      const both = req.body.private === undefined && req.body.outside === undefined;
+      const exposed = noteRead(req.body.turn, {
+        private: both || req.body.private === true,
+        outside: both || req.body.outside === true,
+      });
+      if (exposed) await browser.closeBrowser(browser.ASSISTANT_BROWSER_ID);
+      return { browsing: exposed ? "closed" : "open" };
     },
   );
 
