@@ -64,6 +64,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # and for agents' own playwright use. Fixed path because HOME is a volume at
 # runtime; the version must match playwright-core in backend/package.json.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+# The only record that this chromium is in use points into the npx cache below,
+# which is gone at runtime. Without this, any later `playwright install` on the
+# pod (an agent, the browser MCP's own playwright) counts it as unused and
+# deletes it, and the browser pane fails with ENOENT until the pod restarts.
+ENV PLAYWRIGHT_SKIP_BROWSER_GC=1
 # --with-deps runs apt-get itself, so the lists it leaves behind are cleaned
 # here rather than in the apt layers above.
 RUN --mount=type=cache,target=/root/.npm \
