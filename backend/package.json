@@ -26,7 +26,7 @@
     "nodemailer": "^10.1.4",
     "playwright-core": "1.64.1",
     "tsdav": "^2.5.0",
-    "web-push": "^3.6.7"
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@types/mailparser": "^3.9.0",
